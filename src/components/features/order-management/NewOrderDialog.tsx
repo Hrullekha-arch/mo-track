@@ -155,20 +155,11 @@ export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogPro
               name="salesPerson"
               render={({ field }) => (
                 <FormItem>
-                    <FormLabel>Sales Person</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select an employee" />
-                            </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                            {employees.map(emp => (
-                                <SelectItem key={emp.id} value={emp.name}>{emp.name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <FormMessage />
+                  <FormLabel>Sales Person</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Enter sales person name" {...field} />
+                  </FormControl>
+                  <FormMessage />
                 </FormItem>
               )}
             />
