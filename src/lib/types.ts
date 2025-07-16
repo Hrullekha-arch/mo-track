@@ -16,8 +16,8 @@ export interface Milestone {
   id: number;
   name: string;
   completed: boolean;
-  completedBy?: string; // User name
-  completedAt?: string; // ISO Date string
+  completedBy?: string | null; // User name
+  completedAt?: string | null; // ISO Date string
   location?: {
     latitude: number;
     longitude: number;
@@ -44,4 +44,5 @@ export interface Order {
   feedbackRating?: number;
   feedbackRemarks?: string;
   otp?: string;
+  completedAt?: string; // ISO Date string
 }

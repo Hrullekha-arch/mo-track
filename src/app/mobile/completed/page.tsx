@@ -8,12 +8,10 @@ import { useEffect, useState } from "react";
 import { Order } from "@/lib/types";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, CheckCheck, Star } from "lucide-react";
+import { ArrowLeft, CheckCheck } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { InstallerOrderCard } from "@/components/features/installer/MobileView";
 
 export default function MobileCompletedPage() {
   const { user, loading, role } = useAuth();
@@ -39,7 +37,8 @@ export default function MobileCompletedPage() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
         const ordersData = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() } as Order))
-            .filter(isFullyCompleted);
+            .filter(isFullyCompleted)
+            .sort((a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime());
         setCompletedOrders(ordersData);
         setOrdersLoading(false);
     });
@@ -51,8 +50,8 @@ export default function MobileCompletedPage() {
       <div className="bg-background min-h-screen">
           <div className="max-w-md mx-auto border-x bg-card min-h-screen p-4 space-y-4">
               <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-32 w-full" />
-              <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-48 w-full" />
+              <Skeleton className="h-48 w-full" />
           </div>
       </div>
     );
@@ -76,26 +75,13 @@ export default function MobileCompletedPage() {
 
             {completedOrders.length > 0 ? (
                 <div className="space-y-4">
-                {completedOrders.map(order => (
-                    <Card key={order.id}>
-                        <CardHeader>
-                            <CardTitle>{order.customerName}</CardTitle>
-                            <CardDescription>ID: {order.id}</CardDescription>
-                            <Badge className="w-fit mt-1" variant="outline">{order.orderType.replace('+', ' + ')}</Badge>
-                        </CardHeader>
-                        <CardContent>
-                             <div className="pt-2 space-y-2">
-                                <p className="font-semibold">Feedback Submitted</p>
-                                <div className="flex items-center gap-1">
-                                    {[1,2,3,4,5].map(star => (
-                                        <Star key={star} className={cn("h-5 w-5", order.feedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
-                                    ))}
-                                </div>
-                                {order.feedbackRemarks && <p className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">"{order.feedbackRemarks}"</p>}
-                                {order.completedAt && <p className="text-xs text-muted-foreground">Completed on {new Date(order.completedAt).toLocaleDateString()}</p>}
-                            </div>
-                        </CardContent>
-                    </Card>
+                {completedOrders.map((order, index) => (
+                   <div key={order.id} className="relative">
+                        <span className="absolute -top-2 -left-2 bg-primary text-primary-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs font-bold z-10">
+                            {index + 1}
+                        </span>
+                        <InstallerOrderCard order={order} location={null} locationError={null} />
+                    </div>
                 ))}
                 </div>
             ) : (

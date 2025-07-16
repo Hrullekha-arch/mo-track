@@ -90,7 +90,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
                     <p className={cn("font-medium", isCompleted ? "text-accent" : isCurrent ? "text-primary" : "text-muted-foreground")}>
                       {milestone.name}
                     </p>
-                    {isEditable && (
+                    {isEditable && onMilestoneChange && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                            <Checkbox
@@ -124,7 +124,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
                         <TooltipTrigger asChild>
                            <div className="flex items-center gap-2">
                              <p className="text-xs text-muted-foreground">
-                                Completed on {new Date(milestone.completedAt).toLocaleDateString()}
+                                Completed on {new Date(milestone.completedAt).toLocaleString()}
                               </p>
                               {milestone.location && (
                                 <MapPin className="h-3 w-3 text-muted-foreground" />
