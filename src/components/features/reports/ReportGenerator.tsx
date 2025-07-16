@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -6,13 +7,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Calendar as CalendarIcon, Download, BarChart2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { DateRange } from "react-day-picker";
-import { mockUsers } from "@/lib/mock-data";
+import { User } from "@/lib/types";
+import { collection, onSnapshot, query } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export function ReportGenerator() {
   const [date, setDate] = useState<DateRange | undefined>();
+  const [users, setUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    const usersQuery = query(collection(db, "users"));
+    const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+      setUsers(usersData);
+    });
+    return () => unsubscribe();
+  }, []);
 
   return (
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -87,7 +100,7 @@ export function ReportGenerator() {
                     </SelectTrigger>
                     <SelectContent>
                         <SelectItem value="all">All Users</SelectItem>
-                        {mockUsers.map(user => (
+                        {users.map(user => (
                             <SelectItem key={user.id} value={user.id}>{user.name} ({user.role})</SelectItem>
                         ))}
                     </SelectContent>
@@ -95,14 +108,18 @@ export function ReportGenerator() {
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline"><BarChart2 className="mr-2 h-4 w-4" /> View Report</Button>
-            <Button><Download className="mr-2 h-4 w-4" /> Download CSV</Button>
+            <Button variant="outline" disabled><BarChart2 className="mr-2 h-4 w-4" /> View Report (Soon)</Button>
+            <Button disabled><Download className="mr-2 h-4 w-4" /> Download CSV (Soon)</Button>
           </div>
         </CardContent>
       </Card>
 
       <div className="mt-8 p-12 border-2 border-dashed rounded-lg text-center">
-        <p className="text-muted-foreground">The generated report will be displayed here.</p>
+        <BarChart2 className="mx-auto h-12 w-12 text-muted-foreground" />
+        <h3 className="mt-4 text-lg font-semibold">Report results will appear here</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Reporting features are coming soon.
+        </p>
       </div>
     </div>
   );

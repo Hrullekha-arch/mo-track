@@ -23,8 +23,7 @@ interface OrderCardProps {
   allUsers: User[];
 }
 
-export function OrderCard({ order: initialOrder, onUpdate, allUsers }: OrderCardProps) {
-  const [order, setOrder] = useState(initialOrder);
+export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const [showMilestones, setShowMilestones] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
@@ -38,27 +37,31 @@ export function OrderCard({ order: initialOrder, onUpdate, allUsers }: OrderCard
   
   const lastCompletedMilestone = order.milestones.slice().reverse().find(m => m.completed);
 
-
   const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
+    if (role === 'employee') {
+        toast({ variant: "destructive", title: "Permission Denied", description: "You are not authorized to change milestones." });
+        return;
+    }
+    
     try {
       const orderRef = doc(db, "orders", order.id);
       let updatedMilestones = order.milestones.map(m =>
         m.id === milestoneId ? { ...m, completed, completedAt: completed ? new Date().toISOString() : undefined, completedBy: user?.name } : m
       );
       
+      // If un-checking a milestone, un-check all subsequent milestones
       if (!completed) {
-          let subsequentMilestone = false;
-          updatedMilestones = updatedMilestones.map(m => {
-              if (subsequentMilestone) {
-                  return {...m, completed: false, completedAt: undefined, completedBy: undefined};
+          const milestoneIndex = updatedMilestones.findIndex(m => m.id === milestoneId);
+          if (milestoneIndex !== -1) {
+              for (let i = milestoneIndex + 1; i < updatedMilestones.length; i++) {
+                  updatedMilestones[i] = { ...updatedMilestones[i], completed: false, completedAt: undefined, completedBy: undefined };
               }
-              if (m.id === milestoneId) subsequentMilestone = true;
-              return m;
-          });
+          }
       }
       
+      const updatedOrder = { ...order, milestones: updatedMilestones };
       await updateDoc(orderRef, { milestones: updatedMilestones });
-      onUpdate({ ...order, milestones: updatedMilestones }); // Optimistic update
+      onUpdate(updatedOrder); 
       toast({ title: "Milestone updated!" });
     } catch (error) {
       console.error("Error updating milestone: ", error);
@@ -70,7 +73,8 @@ export function OrderCard({ order: initialOrder, onUpdate, allUsers }: OrderCard
     try {
       const orderRef = doc(db, "orders", order.id);
       await updateDoc(orderRef, { assignedTo: installerId });
-      onUpdate({ ...order, assignedTo: installerId }); // Optimistic update
+      const updatedOrder = { ...order, assignedTo: installerId };
+      onUpdate(updatedOrder);
       setIsAssigning(false);
       toast({ title: "Installer assigned!" });
     } catch (error) {
@@ -86,8 +90,9 @@ export function OrderCard({ order: initialOrder, onUpdate, allUsers }: OrderCard
       const updatedMilestones = order.milestones.map(m =>
         m.id === scheduledMilestoneId ? { ...m, completed: true, completedAt: date.toISOString(), completedBy: user?.name } : m
       );
+      const updatedOrder = { ...order, milestones: updatedMilestones };
       await updateDoc(orderRef, { milestones: updatedMilestones });
-      onUpdate({ ...order, milestones: updatedMilestones }); // Optimistic update
+      onUpdate(updatedOrder);
       setIsScheduling(false);
       toast({ title: "Order scheduled!" });
     } catch (error) {
@@ -96,18 +101,30 @@ export function OrderCard({ order: initialOrder, onUpdate, allUsers }: OrderCard
     }
   }
 
+  const handleDeleteOrder = async () => {
+     // This would typically involve a call to delete the document in Firestore
+     console.log(`Deleting order ${order.id}`);
+     toast({
+        title: "Order Deleted",
+        description: `${order.id} has been deleted. (Simulation)`,
+      });
+  }
+
   const getStatusInfo = () => {
     if (progressPercentage === 100) {
       return { text: "Completed", icon: CheckCircle2, color: "text-accent" };
     }
-    if (order.milestones.find(m => m.id === 6)?.completed) {
-        return { text: "Installation Scheduled", icon: WrenchIcon, color: "text-blue-500" };
+    const installScheduled = order.milestones.find(m => m.id === 6)?.completed;
+    const deliveryScheduled = order.milestones.find(m => m.id === 7)?.completed;
+
+    if (installScheduled || deliveryScheduled) {
+        return { text: "Scheduled", icon: CalendarClock, color: "text-blue-500" };
     }
      if (order.milestones.find(m => m.id === 5)?.completed) {
       return { text: "Ready for Delivery", icon: PackageCheck, color: "text-orange-500" };
     }
-     if (order.milestones.find(m => m.id === 7)?.completed) {
-      return { text: "Out for Delivery", icon: Rocket, color: "text-purple-500" };
+    if (order.assignedTo) {
+      return { text: "Assigned", icon: UserIcon, color: "text-purple-500" };
     }
     return { text: "In Progress", icon: WrenchIcon, color: "text-muted-foreground" };
   };
@@ -136,7 +153,10 @@ export function OrderCard({ order: initialOrder, onUpdate, allUsers }: OrderCard
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                    <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                    <DropdownMenuItem 
+                      className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                      onClick={handleDeleteOrder}
+                    >
                         <Trash2 className="mr-2 h-4 w-4" />Delete Order
                     </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -162,7 +182,7 @@ export function OrderCard({ order: initialOrder, onUpdate, allUsers }: OrderCard
         {scheduledDate && (
              <div className="text-sm flex items-center gap-2 text-muted-foreground pt-2">
                 <CalendarClock className="h-4 w-4 text-blue-500" />
-                <span>Scheduled for: {new Date(scheduledDate).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                <span>Scheduled: {new Date(scheduledDate).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
             </div>
         )}
 
@@ -174,40 +194,34 @@ export function OrderCard({ order: initialOrder, onUpdate, allUsers }: OrderCard
               <StatusIcon className="h-5 w-5" />
               <span>{status.text}</span>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => setShowMilestones(!showMilestones)}>
-              Details
+             <Button variant="ghost" size="sm" onClick={() => setShowMilestones(!showMilestones)}>
+              Milestones
               {showMilestones ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />}
             </Button>
           </div>
-          <div className="w-full bg-muted rounded-full h-2.5">
-            <div className="bg-accent h-2.5 rounded-full" style={{ width: `${progressPercentage}%` }}></div>
-          </div>
-           {lastCompletedMilestone && (
-              <p className="text-xs text-muted-foreground">Last update: {lastCompletedMilestone.name}</p>
-            )}
         </div>
         
         {showMilestones && (
              <div className="space-y-2 pt-4">
                 <div className="flex justify-between items-center">
-                    <h4 className="font-semibold">Milestones</h4>
+                    <h4 className="font-semibold">Milestone Progress</h4>
                     <Badge variant={order.orderType === 'delivery' ? 'default' : order.orderType === 'stitching' ? 'secondary' : 'outline'}>{order.orderType.replace('+', ' + ')}</Badge>
                 </div>
                 <MilestoneProgress milestones={order.milestones} onMilestoneChange={handleMilestoneChange} role={role} />
             </div>
         )}
       </CardContent>
-      <CardFooter className="flex-col items-start gap-2">
+      <CardFooter className="flex-col items-start gap-2 pt-4">
          <div className="text-xs text-muted-foreground">
             Created on {createdAtDate.toLocaleDateString()}
         </div>
          {!isEmployee && (
-            <div className="w-full flex gap-2">
+            <div className="w-full flex gap-2 pt-2">
                 <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)}>
                     <UserIcon className="mr-2 h-4 w-4" />
                     {assignedInstaller ? "Re-assign" : "Assign"}
                 </Button>
-                <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)}>
+                <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)} disabled={!order.assignedTo}>
                     <CalendarClock className="mr-2 h-4 w-4" />
                     Schedule
                 </Button>

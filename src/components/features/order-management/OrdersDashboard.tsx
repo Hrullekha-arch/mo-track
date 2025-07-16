@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,7 +10,7 @@ import { OrderCard } from "./OrderCard";
 import { Order, User } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -19,6 +19,8 @@ export function OrdersDashboard() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const { role } = useAuth();
+  
+  const [filters, setFilters] = useState({ search: '', employee: 'all', installer: 'all' });
 
   useEffect(() => {
     const ordersQuery = query(collection(db, "orders"));
@@ -40,17 +42,26 @@ export function OrdersDashboard() {
     };
   }, []);
 
-  const handleFilterChange = () => {};
-  
   const handleOrderUpdate = (updatedOrder: Order) => {
-    // This will be handled by Firestore listeners, but we can optimistically update the state
     setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
   };
+  
+  const filteredOrders = useMemo(() => {
+      return orders.filter(order => {
+        const searchMatch = filters.search.toLowerCase() === '' || 
+                              order.customerName.toLowerCase().includes(filters.search.toLowerCase()) || 
+                              order.id.toLowerCase().includes(filters.search.toLowerCase());
+        const employeeMatch = filters.employee === 'all' || order.salesPerson === users.find(u => u.id === filters.employee)?.name;
+        const installerMatch = filters.installer === 'all' || order.assignedTo === filters.installer;
+        
+        return searchMatch && employeeMatch && installerMatch;
+      });
+  }, [orders, users, filters]);
 
   const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed);
   const scheduledDate = (order: Order) => order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt;
 
-  const summary = {
+  const summary = useMemo(() => ({
     pending: orders.filter(o => !isFullyCompleted(o)).length,
     scheduledToday: orders.filter(o => {
         const schedDate = scheduledDate(o);
@@ -60,10 +71,11 @@ export function OrdersDashboard() {
         return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
     }).length,
     scheduled: orders.filter(o => scheduledDate(o)).length,
-    assigned: orders.filter(o => o.assignedTo).length,
-    readyForDelivery: orders.filter(o => o.milestones.find(m => m.id === 5)?.completed && !o.milestones.find(m => m.id === 7)?.completed && !isFullyCompleted(o)).length,
-    stitched: orders.filter(o => o.milestones.find(m => m.id === 4)?.completed && !isFullyCompleted(o)).length,
-  };
+    assigned: orders.filter(o => !!o.assignedTo).length,
+    readyForDelivery: orders.filter(o => o.milestones.find(m => m.id === 5)?.completed && !isFullyCompleted(o)).length,
+    stitched: orders.filter(o => o.milestones.find(m => m.id === 4)?.completed && !o.milestones.find(m => m.id === 5)?.completed).length,
+  }), [orders]);
+
 
   if (loading) {
     return <DashboardSkeleton />;
@@ -96,38 +108,48 @@ export function OrdersDashboard() {
 
       <div className="mb-6 p-4 border rounded-lg bg-card">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Input placeholder="Search by name or ID..." />
-            <Select onValueChange={handleFilterChange}>
+            <Input 
+              placeholder="Search by name or ID..."
+              value={filters.search}
+              onChange={(e) => setFilters(f => ({...f, search: e.target.value}))}
+            />
+            <Select value={filters.employee} onValueChange={(value) => setFilters(f => ({...f, employee: value}))}>
               <SelectTrigger>
                 <SelectValue placeholder="Filter by employee" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="all">All Employees</SelectItem>
                 {users.filter(u => u.role === 'employee').map(user => (
                     <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Select onValueChange={handleFilterChange}>
+            <Select value={filters.installer} onValueChange={(value) => setFilters(f => ({...f, installer: value}))}>
               <SelectTrigger>
                 <SelectValue placeholder="Filter by installer" />
               </SelectTrigger>
               <SelectContent>
+                 <SelectItem value="all">All Installers</SelectItem>
                  {users.filter(u => u.role === 'installer').map(user => (
                     <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="outline">
+            <Button variant="outline" onClick={() => setFilters({ search: '', employee: 'all', installer: 'all'})}>
                 <SlidersHorizontal className="mr-2 h-4 w-4" />
-                Apply Filters
+                Clear Filters
             </Button>
         </div>
       </div>
       
       <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
-        {orders.map(order => (
-          <OrderCard key={order.id} order={order} onUpdate={handleOrderUpdate} allUsers={users} />
-        ))}
+        {filteredOrders.length > 0 ? (
+          filteredOrders.map(order => (
+            <OrderCard key={order.id} order={order} onUpdate={handleOrderUpdate} allUsers={users} />
+          ))
+        ) : (
+          <p className="text-muted-foreground col-span-full text-center py-10">No orders found.</p>
+        )}
       </div>
     </div>
   );

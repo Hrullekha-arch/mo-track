@@ -75,17 +75,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return false;
       }
     } catch (error: any) {
-        toast({ variant: "destructive", title: "Login Failed", description: error.message });
+        toast({ variant: "destructive", title: "Login Failed", description: "Invalid credentials." });
         return false;
     } finally {
         setLoading(false);
     }
   };
-
-  const quickLogin = (email: string) => {
-    login(email, 'password'); // Using a common mock password for quick login
-  }
-
 
   const logout = async () => {
     setLoading(true);
@@ -98,7 +93,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{ user, firebaseUser, role: user?.role || null, login, logout, loading }}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 };

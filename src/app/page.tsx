@@ -5,14 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { useToast } from "@/hooks/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useAuth } from "@/context/AuthContext";
 import { LogIn, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
@@ -20,27 +20,48 @@ const formSchema = z.object({
 });
 
 export default function LoginPage() {
-  const { login } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const { login, loading: authLoading, user } = useAuth();
+  const [formLoading, setFormLoading] = useState(false);
+  const router = useRouter();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       email: "",
-      password: "password", // Default password for demo
+      password: "",
     },
   });
 
+  useEffect(() => {
+    if (!authLoading && user) {
+      if (user.role === 'installer') {
+        router.push('/mobile');
+      } else {
+        router.push('/dashboard');
+      }
+    }
+  }, [user, authLoading, router]);
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    setLoading(true);
+    setFormLoading(true);
     await login(values.email, values.password);
-    setLoading(false);
+    setFormLoading(false);
   }
 
   const quickLogin = (email: string) => {
     form.setValue('email', email);
-    form.setValue('password', 'password'); // Mock password
+    form.setValue('password', 'password'); // Default password for demo
     form.handleSubmit(onSubmit)();
+  }
+  
+  const isLoading = authLoading || formLoading;
+
+  if (authLoading || (!authLoading && user)) {
+    return (
+        <div className="flex min-h-screen items-center justify-center bg-background">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        </div>
+    )
   }
 
   return (
@@ -80,8 +101,8 @@ export default function LoginPage() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
                    Sign In
                 </Button>
               </form>
@@ -89,9 +110,9 @@ export default function LoginPage() {
             <div className="mt-4 text-center text-sm">
               <p className="text-muted-foreground mb-2">For demo purposes, quick login:</p>
               <div className="flex justify-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => quickLogin('admin@motrack.com')} disabled={loading}>Admin</Button>
-                  <Button variant="outline" size="sm" onClick={() => quickLogin('employee@motrack.com')} disabled={loading}>Employee</Button>
-                  <Button variant="outline" size="sm" onClick={() => quickLogin('john@motrack.com')} disabled={loading}>Installer</Button>
+                  <Button variant="outline" size="sm" onClick={() => quickLogin('admin@motrack.com')} disabled={isLoading}>Admin</Button>
+                  <Button variant="outline" size="sm" onClick={() => quickLogin('employee@motrack.com')} disabled={isLoading}>Employee</Button>
+                  <Button variant="outline" size="sm" onClick={() => quickLogin('john.doe@motrack.com')} disabled={isLoading}>Installer</Button>
               </div>
             </div>
           </CardContent>

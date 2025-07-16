@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -7,11 +8,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
-import { mockOrders } from "@/lib/mock-data";
+import { Loader2, Search } from "lucide-react";
 import { Order } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MilestoneProgress } from "../order-management/MilestoneProgress";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { useToast } from "@/hooks/use-toast";
 
 const formSchema = z.object({
   trackingCode: z.string().min(1, { message: "Tracking code is required." }),
@@ -19,7 +22,9 @@ const formSchema = z.object({
 
 export function CustomerTracking() {
   const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const { toast } = useToast();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -28,10 +33,28 @@ export function CustomerTracking() {
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    const foundOrder = mockOrders.find(o => o.id.toLowerCase() === values.trackingCode.toLowerCase());
-    setOrder(foundOrder || null);
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    setLoading(true);
     setSearched(true);
+    setOrder(null);
+    try {
+        const orderRef = doc(db, "orders", values.trackingCode.toUpperCase());
+        const docSnap = await getDoc(orderRef);
+        if (docSnap.exists()) {
+            setOrder({ id: docSnap.id, ...docSnap.data() } as Order);
+        } else {
+            setOrder(null);
+        }
+    } catch (error) {
+        console.error("Error fetching order:", error);
+        toast({
+            variant: "destructive",
+            title: "An error occurred",
+            description: "Failed to fetch order details. Please try again later.",
+        });
+    } finally {
+        setLoading(false);
+    }
   }
 
   return (
@@ -50,13 +73,13 @@ export function CustomerTracking() {
               </FormItem>
             )}
           />
-          <Button type="submit" aria-label="Track Order">
-            <Search className="h-4 w-4" />
+          <Button type="submit" aria-label="Track Order" disabled={loading}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
           </Button>
         </form>
       </Form>
       
-      {searched && (
+      {searched && !loading && (
         <div className="mt-6">
           {order ? (
             <Card>
