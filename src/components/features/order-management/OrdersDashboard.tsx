@@ -55,8 +55,15 @@ export function OrdersDashboard() {
     setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
   };
   
+  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed);
+  
   const filteredOrders = useMemo(() => {
       return orders.filter(order => {
+        // Hide fully completed orders with feedback
+        if (isFullyCompleted(order) && order.feedbackRating) {
+            return false;
+        }
+
         const searchMatch = filters.search.toLowerCase() === '' || 
                               order.customerName.toLowerCase().includes(filters.search.toLowerCase()) || 
                               order.id.toLowerCase().includes(filters.search.toLowerCase());
@@ -72,7 +79,6 @@ export function OrdersDashboard() {
       });
   }, [orders, users, filters, user]);
 
-  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed);
   const scheduledDate = (order: Order) => order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt;
 
   const summary = useMemo(() => ({
@@ -327,3 +333,5 @@ function DashboardSkeleton() {
     </div>
   )
 }
+
+    

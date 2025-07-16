@@ -57,9 +57,8 @@ export function MobileView() {
     return () => unsubscribe();
   }, [user]);
 
-  // Filter for active orders (not fully completed)
+  // Filter for active orders (not fully completed with feedback)
   const activeOrders = assignedOrders.filter(o => o.milestones.some(m => !m.completed) || (o.milestones.every(m => m.completed) && !o.feedbackRating));
-  const completedOrders = assignedOrders.filter(o => o.milestones.every(m => m.completed) && o.feedbackRating);
 
   if (loading) {
     return (
@@ -124,17 +123,6 @@ export function MobileView() {
           <p className="text-sm text-muted-foreground">You have no active assignments.</p>
         </div>
       )}
-      
-       {completedOrders.length > 0 && (
-        <div className="mt-8">
-            <h2 className="text-xl font-bold">Completed Tasks</h2>
-             <div className="space-y-4 mt-4">
-                {completedOrders.map(order => (
-                    <InstallerOrderCard key={order.id} order={order} location={location} locationError={locationError} />
-                ))}
-            </div>
-        </div>
-       )}
     </div>
   );
 }
@@ -325,3 +313,5 @@ function InstallerOrderCard({ order, location, locationError }: InstallerOrderCa
         </Card>
     );
 }
+
+    
