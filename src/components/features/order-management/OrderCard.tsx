@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Order, User, Milestone } from "@/lib/types";
-import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp } from "lucide-react";
+import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import { ScheduleDialog } from "./ScheduleDialog";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
+import { AssignCrmDialog } from "./AssignCrmDialog";
 
 interface OrderCardProps {
   order: Order;
@@ -27,11 +28,15 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const [showMilestones, setShowMilestones] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
+  const [isAssigningCrm, setIsAssigningCrm] = useState(false);
   const { user, role } = useAuth();
   const { toast } = useToast();
 
   const installers = allUsers.filter(u => u.role === 'installer');
+  const crmUsers = allUsers.filter(u => u.designation === 'CRM');
   const assignedInstaller = allUsers.find(u => u.id === order.assignedTo);
+  const crmHandler = allUsers.find(u => u.id === order.handledByCrm);
+  
   const completedCount = order.milestones.filter(m => m.completed).length;
   const progressPercentage = (completedCount / order.milestones.length) * 100;
   
@@ -80,6 +85,20 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     } catch (error) {
       console.error("Error assigning installer: ", error);
       toast({ variant: "destructive", title: "Failed to assign installer." });
+    }
+  };
+
+  const handleAssignCrm = async (crmUserId: string) => {
+    try {
+      const orderRef = doc(db, "orders", order.id);
+      await updateDoc(orderRef, { handledByCrm: crmUserId });
+      const updatedOrder = { ...order, handledByCrm: crmUserId };
+      onUpdate(updatedOrder);
+      setIsAssigningCrm(false);
+      toast({ title: "CRM handler assigned!" });
+    } catch (error) {
+      console.error("Error assigning CRM handler: ", error);
+      toast({ variant: "destructive", title: "Failed to assign CRM handler." });
     }
   };
   
@@ -169,14 +188,18 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             <div className="space-y-2">
                 <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" /><span>{order.customerPhone}</span></div>
                 <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" /><span>{order.customerAddress}</span></div>
+                <div className="flex items-center gap-2 text-muted-foreground"><Tag className="h-4 w-4" /><span>Sales: {order.salesPerson}</span></div>
             </div>
             <div className="space-y-2">
-                <div className="flex items-center gap-2 text-muted-foreground"><Tag className="h-4 w-4" /><span>Sales: {order.salesPerson}</span></div>
+                <div className="flex items-center gap-2 text-muted-foreground">
+                    <Users className="h-4 w-4" />
+                    <span>CRM: {crmHandler?.name || 'Unassigned'}</span>
+                </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                     <UserIcon className="h-4 w-4" />
                     <span>Installer: {assignedInstaller?.name || 'Unassigned'}</span>
                 </div>
-                <div className={`flex items-center gap-2 ${status.color}`}>
+                <div className={`flex items-center gap-2 font-semibold ${status.color}`}>
                     <TrendingUp className="h-4 w-4" />
                     <span>Status: {lastCompletedMilestone?.name || "Order Received"}</span>
                 </div>
@@ -220,7 +243,11 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             Created on {createdAtDate.toLocaleDateString()}
         </div>
          {!isEmployee && (
-            <div className="w-full flex gap-2 pt-2">
+            <div className="w-full grid grid-cols-3 gap-2 pt-2">
+                <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigningCrm(true)}>
+                    <Users className="mr-2 h-4 w-4" />
+                    Assign CRM
+                </Button>
                 <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)}>
                     <UserIcon className="mr-2 h-4 w-4" />
                     {assignedInstaller ? "Re-assign" : "Assign"}
@@ -239,6 +266,13 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         onAssign={handleAssignInstaller}
         installers={installers}
         currentInstallerId={order.assignedTo}
+    />
+     <AssignCrmDialog
+        isOpen={isAssigningCrm}
+        onClose={() => setIsAssigningCrm(false)}
+        onAssign={handleAssignCrm}
+        crmUsers={crmUsers}
+        currentCrmUserId={order.handledByCrm}
     />
     <ScheduleDialog
         isOpen={isScheduling}

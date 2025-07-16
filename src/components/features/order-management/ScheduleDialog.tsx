@@ -6,7 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { OrderType } from "@/lib/types";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface ScheduleDialogProps {
   isOpen: boolean;
@@ -14,11 +15,6 @@ interface ScheduleDialogProps {
   onSchedule: (date: Date) => void;
   orderType: OrderType;
 }
-
-const timeSlots = Array.from({ length: 12 }, (_, i) => {
-    const hour = i + 8; // 8 AM to 7 PM
-    return [`${hour}:00`, `${hour}:30`];
-}).flat();
 
 export function ScheduleDialog({ isOpen, onClose, onSchedule, orderType }: ScheduleDialogProps) {
   const [date, setDate] = useState<Date | undefined>(new Date());
@@ -35,7 +31,7 @@ export function ScheduleDialog({ isOpen, onClose, onSchedule, orderType }: Sched
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-xl">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Schedule {orderType === 'stitching+installation' ? 'Installation' : 'Delivery'}</DialogTitle>
           <DialogDescription>Select a date and time to schedule.</DialogDescription>
@@ -50,17 +46,17 @@ export function ScheduleDialog({ isOpen, onClose, onSchedule, orderType }: Sched
               disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() -1))}
             />
           </div>
-          <div>
-            <p className="text-sm font-medium mb-2 text-center">Select a time slot</p>
-            <ScrollArea className="h-72">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pr-4">
-                {timeSlots.map((slot) => (
-                    <Button key={slot} variant={time === slot ? 'default' : 'outline'} onClick={() => setTime(slot)}>
-                        {slot}
-                    </Button>
-                ))}
-              </div>
-            </ScrollArea>
+          <div className="space-y-4 flex flex-col justify-center">
+             <div className="grid w-full max-w-sm items-center gap-1.5">
+                <Label htmlFor="time">Time</Label>
+                <Input
+                    id="time"
+                    type="time"
+                    value={time}
+                    onChange={(e) => setTime(e.target.value)}
+                    className="w-full"
+                />
+            </div>
           </div>
         </div>
         <DialogFooter>

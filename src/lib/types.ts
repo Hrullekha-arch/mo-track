@@ -29,5 +29,6 @@ export interface Order {
   orderType: OrderType;
   milestones: Milestone[];
   assignedTo?: string; // Installer User ID
+  handledByCrm?: string; // CRM User ID
   createdAt: string; // ISO Date string
 }
