@@ -148,5 +148,3 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
     </TooltipProvider>
   );
 }
-
-    
