@@ -55,9 +55,11 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
             const isCurrent = !isCompleted && prevMilestoneCompleted;
             
             // A milestone can be ticked if the user has permission AND:
-            // 1. It's already completed (allowing it to be un-ticked by an admin).
-            // 2. The previous one is completed (allowing it to be ticked).
-            const canBeTicked = canEditMilestone(milestone.id) && (isCompleted || prevMilestoneCompleted);
+            // 1. It's already completed (allowing it to be un-ticked ONLY by an admin).
+            // 2. The previous one is completed (allowing it to be ticked forward).
+            // Employees should not be able to revert.
+            const canBeTicked = canEditMilestone(milestone.id) &&
+                                 ((isCompleted && userRole === 'admin') || (!isCompleted && prevMilestoneCompleted));
 
             return (
               <li key={milestone.id} className="flex items-start gap-4">
