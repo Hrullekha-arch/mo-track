@@ -110,7 +110,7 @@ export default function LoginPage() {
             <div className="mt-4 text-center text-sm">
               <p className="text-muted-foreground mb-2">For demo purposes, quick login:</p>
               <div className="flex justify-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => quickLogin('admin@motrack.com')} disabled={isLoading}>Admin</Button>
+                  <Button variant="outline" size="sm" onClick={() => quickLogin('admin@gmail.com')} disabled={isLoading}>Admin</Button>
                   <Button variant="outline" size="sm" onClick={() => quickLogin('employee@motrack.com')} disabled={isLoading}>Employee</Button>
                   <Button variant="outline" size="sm" onClick={() => quickLogin('john.doe@motrack.com')} disabled={isLoading}>Installer</Button>
               </div>
