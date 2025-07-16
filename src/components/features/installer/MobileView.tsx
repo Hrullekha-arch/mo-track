@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export function MobileView() {
   const { user, logout } = useAuth();
@@ -242,14 +243,31 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
                 )}
 
                 {nextInstallerMilestone && (
-                    <Button 
-                        className="w-full mt-2" 
-                        onClick={() => handleStatusUpdate(nextInstallerMilestone)}
-                        disabled={isUpdating || !canUpdate(nextInstallerMilestone) || !!locationError}
-                    >
-                        {isUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Mark as &quot;{nextInstallerMilestone.name}&quot;
-                    </Button>
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                             <Button 
+                                className="w-full mt-2" 
+                                disabled={isUpdating || !canUpdate(nextInstallerMilestone) || !!locationError}
+                            >
+                                {isUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Mark as &quot;{nextInstallerMilestone.name}&quot;
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    This will complete the milestone: <strong>{nextInstallerMilestone.name}</strong>. This action will be logged with your current location.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleStatusUpdate(nextInstallerMilestone)} disabled={isUpdating}>
+                                    Continue
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                 )}
 
                 {!nextInstallerMilestone && !isOrderComplete && (
