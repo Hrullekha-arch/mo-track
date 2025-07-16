@@ -50,7 +50,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = () => {
     setUser(null);
     localStorage.removeItem('motrack_user');
-    router.push('/login');
+    router.push('/');
   };
 
   return (

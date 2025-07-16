@@ -16,7 +16,7 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.push('/');
     }
     if (!loading && role === 'installer') {
         router.push('/mobile');

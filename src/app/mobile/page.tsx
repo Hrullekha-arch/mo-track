@@ -12,7 +12,7 @@ export default function MobilePage() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.push('/');
     }
     if (!loading && role && role !== 'installer') {
         router.push('/dashboard');
