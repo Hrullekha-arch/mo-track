@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -9,23 +10,34 @@ import { mockOrders, mockUsers } from "@/lib/mock-data";
 import { OrderCard } from "./OrderCard";
 import { Order } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/context/AuthContext";
 
 export function OrdersDashboard() {
   const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const { role } = useAuth();
 
-  // TODO: Implement filtering logic
   const handleFilterChange = () => {};
   
-  // TODO: Implement order update logic
-  const handleOrderUpdate = () => {};
+  const handleOrderUpdate = (updatedOrder: Order) => {
+    setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
+  };
+
+  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed);
+  const scheduledDate = (order: Order) => order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt;
 
   const summary = {
-    pending: orders.filter(o => o.milestones.some(m => !m.completed)).length,
-    scheduledToday: 0, // Mock data
-    scheduled: orders.filter(o => o.milestones.find(m => m.id === 6)?.completed).length,
+    pending: orders.filter(o => !isFullyCompleted(o)).length,
+    scheduledToday: orders.filter(o => {
+        const schedDate = scheduledDate(o);
+        if (!schedDate) return false;
+        const today = new Date();
+        const d = new Date(schedDate);
+        return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+    }).length,
+    scheduled: orders.filter(o => scheduledDate(o)).length,
     assigned: orders.filter(o => o.assignedTo).length,
-    readyForDelivery: orders.filter(o => o.milestones.find(m => m.id === 5)?.completed && !o.milestones.find(m => m.id === 7)?.completed).length,
-    stitched: orders.filter(o => o.milestones.find(m => m.id === 4)?.completed).length,
+    readyForDelivery: orders.filter(o => o.milestones.find(m => m.id === 5)?.completed && !o.milestones.find(m => m.id === 7)?.completed && !isFullyCompleted(o)).length,
+    stitched: orders.filter(o => o.milestones.find(m => m.id === 4)?.completed && !isFullyCompleted(o)).length,
   };
 
 
@@ -36,10 +48,12 @@ export function OrdersDashboard() {
           <h1 className="text-3xl font-bold tracking-tight">Orders</h1>
           <p className="text-muted-foreground">Manage and track all customer orders.</p>
         </div>
-        <Button>
-          <PlusCircle className="mr-2 h-4 w-4" />
-          New Order
-        </Button>
+        {role === 'admin' && (
+          <Button>
+            <PlusCircle className="mr-2 h-4 w-4" />
+            New Order
+          </Button>
+        )}
       </header>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-6">

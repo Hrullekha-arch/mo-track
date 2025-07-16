@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -10,9 +11,12 @@ import { PlusCircle, MoreHorizontal, Trash2, Edit } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { useAuth } from '@/context/AuthContext';
 
 export function UserManagement() {
   const [users, setUsers] = useState<User[]>(mockUsers);
+  const { role } = useAuth();
+  const isEmployee = role === 'employee';
 
   return (
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -21,9 +25,11 @@ export function UserManagement() {
             <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
             <p className="text-muted-foreground">Add, edit, and manage user accounts and permissions.</p>
         </div>
-        <Button>
-          <PlusCircle className="mr-2 h-4 w-4" /> Add User
-        </Button>
+        {!isEmployee && (
+            <Button>
+            <PlusCircle className="mr-2 h-4 w-4" /> Add User
+            </Button>
+        )}
       </div>
 
       <Card>
@@ -37,7 +43,7 @@ export function UserManagement() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Role</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                {!isEmployee && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -60,6 +66,7 @@ export function UserManagement() {
                         {user.role}
                     </Badge>
                   </TableCell>
+                  {!isEmployee && (
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -75,6 +82,7 @@ export function UserManagement() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
