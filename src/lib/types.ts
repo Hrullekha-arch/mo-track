@@ -41,8 +41,16 @@ export interface Order {
     id: string;
     name: string;
   },
+  // Installer feedback
   feedbackRating?: number;
   feedbackRemarks?: string;
+  
+  // Customer feedback
+  customerFeedbackRating?: number;
+  customerFeedbackRemarks?: string;
+
   otp?: string;
   completedAt?: string; // ISO Date string
 }
+
+    

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Order, User, Milestone } from "@/lib/types";
-import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare } from "lucide-react";
+import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -19,8 +19,8 @@ import { useToast } from "@/hooks/use-toast";
 import { AssignCrmDialog } from "./AssignCrmDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import Link from "next/link";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 interface OrderCardProps {
   order: Order;
@@ -216,6 +216,8 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
   const customerMessage = `Hi ${currentOrder.customerName},\n\nThank you for your order with Mo Design!\n\nYour tracking number is: ${currentOrder.id}\nYour OTP for feedback submission is: ${currentOrder.otp}\nPlease share this OTP only with our installer after the job is complete.\n\nYou can track the live status of your order here:\n${typeof window !== 'undefined' ? window.location.origin : ''}/track?code=${currentOrder.id}\n\nWe look forward to serving you!\n- The MoTrack Team`;
 
+  const hasFeedback = currentOrder.feedbackRating || currentOrder.customerFeedbackRating;
+
   return (
     <TooltipProvider>
     <Card className="flex flex-col">
@@ -272,6 +274,37 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                 <CalendarClock className="h-4 w-4" />
                 <span>Scheduled: {new Date(scheduledDate).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
             </div>
+        )}
+        
+        {hasFeedback && (
+            <>
+                <Separator />
+                <div className="space-y-3">
+                    <h4 className="font-semibold">Feedback</h4>
+                    {currentOrder.feedbackRating && (
+                        <div>
+                            <p className="text-sm font-medium">Installer Feedback</p>
+                             <div className="flex items-center gap-1 mt-1">
+                                {[1,2,3,4,5].map(star => (
+                                    <Star key={star} className={cn("h-5 w-5", currentOrder.feedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
+                                ))}
+                            </div>
+                            {currentOrder.feedbackRemarks && <p className="text-sm text-muted-foreground mt-1 p-2 border rounded-md bg-muted/50">"{currentOrder.feedbackRemarks}"</p>}
+                        </div>
+                    )}
+                     {currentOrder.customerFeedbackRating && (
+                        <div>
+                            <p className="text-sm font-medium">Customer Feedback</p>
+                             <div className="flex items-center gap-1 mt-1">
+                                {[1,2,3,4,5].map(star => (
+                                    <Star key={star} className={cn("h-5 w-5", currentOrder.customerFeedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
+                                ))}
+                            </div>
+                            {currentOrder.customerFeedbackRemarks && <p className="text-sm text-muted-foreground mt-1 p-2 border rounded-md bg-muted/50">"{currentOrder.customerFeedbackRemarks}"</p>}
+                        </div>
+                    )}
+                </div>
+            </>
         )}
 
         <Separator />
@@ -405,3 +438,5 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     </TooltipProvider>
   );
 }
+
+    
