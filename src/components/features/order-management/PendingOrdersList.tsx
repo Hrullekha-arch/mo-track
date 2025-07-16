@@ -46,8 +46,19 @@ export function PendingOrdersList() {
             const updatedMilestones = order.milestones.map(m =>
                 m.id === 1 ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: user.name } : m
             );
-            await updateDoc(orderRef, { milestones: updatedMilestones });
-            toast({ title: "Order Acknowledged", description: `${order.id} has been marked as received.` });
+            
+            // Generate 4-digit OTP
+            const otp = Math.floor(1000 + Math.random() * 9000).toString();
+
+            await updateDoc(orderRef, { 
+                milestones: updatedMilestones,
+                otp: otp
+            });
+
+            toast({ 
+                title: "Order Acknowledged", 
+                description: `${order.id} has been received. OTP: ${otp}` 
+            });
         } catch (error) {
             console.error("Error acknowledging order:", error);
             toast({ variant: "destructive", title: "Update Failed" });
@@ -100,4 +111,3 @@ export function PendingOrdersList() {
         </div>
     );
 }
-

@@ -16,6 +16,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 export function MobileView() {
   const { user, logout } = useAuth();
@@ -149,6 +151,8 @@ function InstallerOrderCard({ order, location, locationError }: InstallerOrderCa
     const [isUpdating, setIsUpdating] = useState(false);
     const [rating, setRating] = useState(0);
     const [remarks, setRemarks] = useState("");
+    const [otp, setOtp] = useState("");
+    const [isOtpDialogOpen, setIsOtpDialogOpen] = useState(false);
 
     const installerMilestoneIds = [7, 8]; 
     const nextInstallerMilestone = order.milestones.find(m => installerMilestoneIds.includes(m.id) && !m.completed);
@@ -196,10 +200,11 @@ function InstallerOrderCard({ order, location, locationError }: InstallerOrderCa
     };
     
     const handleFeedbackSubmit = async () => {
-        if (rating === 0) {
-            toast({ variant: "destructive", title: "Rating required", description: "Please select a star rating." });
+        if (otp !== order.otp) {
+            toast({ variant: "destructive", title: "Incorrect OTP", description: "Please enter the correct OTP provided to the customer." });
             return;
         }
+
         setIsUpdating(true);
         try {
             const orderRef = doc(db, "orders", order.id);
@@ -208,6 +213,7 @@ function InstallerOrderCard({ order, location, locationError }: InstallerOrderCa
                 feedbackRemarks: remarks,
             });
             toast({ title: "Feedback submitted!", description: "Thank you for your input." });
+            setIsOtpDialogOpen(false);
         } catch (error) {
             console.error("Error submitting feedback:", error);
             toast({ variant: "destructive", title: "Feedback submission failed" });
@@ -253,27 +259,55 @@ function InstallerOrderCard({ order, location, locationError }: InstallerOrderCa
                  )}
                  
                 {isOrderComplete && !order.feedbackRating && (
-                    <div className="pt-4 space-y-4">
-                        <p className="font-semibold text-center">Order complete. Please provide feedback.</p>
-                        <div className="space-y-2">
-                            <Label>Rating</Label>
-                            <div className="flex items-center gap-1">
-                                {[1,2,3,4,5].map(star => (
-                                    <button key={star} onClick={() => setRating(star)}>
-                                        <Star className={cn("h-8 w-8", rating >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
-                                    </button>
-                                ))}
+                    <Dialog open={isOtpDialogOpen} onOpenChange={setIsOtpDialogOpen}>
+                        <div className="pt-4 space-y-4">
+                            <p className="font-semibold text-center">Order complete. Please provide feedback.</p>
+                            <div className="space-y-2">
+                                <Label>Rating</Label>
+                                <div className="flex items-center gap-1">
+                                    {[1,2,3,4,5].map(star => (
+                                        <button key={star} onClick={() => setRating(star)}>
+                                            <Star className={cn("h-8 w-8", rating >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
+                             <div className="space-y-2">
+                                 <Label htmlFor={`remarks-${order.id}`}>Remarks</Label>
+                                 <Textarea id={`remarks-${order.id}`} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Add any comments..."/>
+                             </div>
+                            <DialogTrigger asChild>
+                                <Button className="w-full" disabled={rating === 0}>
+                                    Submit Feedback
+                                </Button>
+                            </DialogTrigger>
                         </div>
-                         <div className="space-y-2">
-                             <Label htmlFor={`remarks-${order.id}`}>Remarks</Label>
-                             <Textarea id={`remarks-${order.id}`} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Add any comments..."/>
-                         </div>
-                         <Button className="w-full" onClick={handleFeedbackSubmit} disabled={isUpdating}>
-                            {isUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Submit Feedback
-                         </Button>
-                    </div>
+                         <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>Enter OTP</DialogTitle>
+                                <DialogDescription>
+                                    Please enter the 4-digit OTP provided to the customer to confirm feedback submission.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="py-4">
+                                <Input 
+                                    type="tel" 
+                                    maxLength={4} 
+                                    placeholder="_ _ _ _" 
+                                    value={otp}
+                                    onChange={(e) => setOtp(e.target.value)}
+                                    className="text-center text-2xl tracking-[1em]"
+                                />
+                            </div>
+                            <DialogFooter>
+                                <Button variant="ghost" onClick={() => setIsOtpDialogOpen(false)}>Cancel</Button>
+                                <Button onClick={handleFeedbackSubmit} disabled={isUpdating || otp.length !== 4}>
+                                    {isUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    Confirm
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 )}
 
                 {isOrderComplete && order.feedbackRating && (

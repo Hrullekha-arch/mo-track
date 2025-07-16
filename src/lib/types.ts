@@ -43,4 +43,5 @@ export interface Order {
   },
   feedbackRating?: number;
   feedbackRemarks?: string;
+  otp?: string;
 }
