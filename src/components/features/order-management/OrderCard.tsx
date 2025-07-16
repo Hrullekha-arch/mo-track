@@ -34,27 +34,28 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const [isScheduling, setIsScheduling] = useState(false);
   const [isAssigningCrm, setIsAssigningCrm] = useState(false);
   const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
+  const [currentOrder, setCurrentOrder] = useState(order);
 
   const { user, role } = useAuth();
   const { toast } = useToast();
 
   const installers = allUsers.filter(u => u.role === 'installer');
   const crmUsers = allUsers.filter(u => u.designation === 'CRM' || u.designation === 'PC');
-  const assignedInstaller = allUsers.find(u => u.id === order.assignedTo);
-  const crmHandler = allUsers.find(u => u.id === order.handledByCrm);
+  const assignedInstaller = allUsers.find(u => u.id === currentOrder.assignedTo);
+  const crmHandler = allUsers.find(u => u.id === currentOrder.handledByCrm);
   
-  const completedCount = order.milestones.filter(m => m.completed).length;
-  const progressPercentage = (completedCount / order.milestones.length) * 100;
+  const completedCount = currentOrder.milestones.filter(m => m.completed).length;
+  const progressPercentage = (completedCount / currentOrder.milestones.length) * 100;
   
-  const lastCompletedMilestone = order.milestones.slice().reverse().find(m => m.completed);
-  const isReadyForDelivery = !!order.milestones.find(m => m.id === 5)?.completed;
+  const lastCompletedMilestone = currentOrder.milestones.slice().reverse().find(m => m.completed);
+  const isReadyForDelivery = !!currentOrder.milestones.find(m => m.id === 5)?.completed;
 
   // Permissions Logic
   const canAssignCrm = role === 'admin' || user?.designation === 'PC';
   const canAssignInstaller = (role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && isReadyForDelivery;
   const canSchedule = role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM';
   const canEditMilestones = role === 'admin' || role === 'employee';
-  const canSendMessage = (role === 'admin' || user?.designation === 'PC') && order.otp;
+  const canSendMessage = role === 'admin' || user?.designation === 'PC';
 
 
   const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
@@ -70,15 +71,15 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     }
 
     // Employees cannot revert milestones
-    if (role === 'employee' && !completed && order.milestones.find(m => m.id === milestoneId)?.completed) {
+    if (role === 'employee' && !completed && currentOrder.milestones.find(m => m.id === milestoneId)?.completed) {
         toast({ variant: "destructive", title: "Permission Denied", description: "You are not authorized to revert milestones." });
         return;
     }
     
     try {
-      const orderRef = doc(db, "orders", order.id);
-      let updatedMilestones = order.milestones.map(m =>
-        m.id === milestoneId ? { ...m, completed, completedAt: completed ? new Date().toISOString() : null, completedBy: completed ? user?.name : null } : m
+      const orderRef = doc(db, "orders", currentOrder.id);
+      let updatedMilestones = currentOrder.milestones.map(m =>
+        m.id === milestoneId ? { ...m, completed, completedAt: completed ? new Date().toISOString() : null, completedBy: completed ? user?.name : null, location: null } : m
       );
       
       // If un-checking a milestone, un-check all subsequent milestones
@@ -94,14 +95,15 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
       const updatePayload: any = { milestones: updatedMilestones };
 
       // Generate OTP when order is first received
-      if (milestoneId === 1 && completed && !order.otp) {
+      if (milestoneId === 1 && completed && !currentOrder.otp) {
         updatePayload.otp = Math.floor(1000 + Math.random() * 9000).toString();
-        toast({ title: `Order ${order.id} Acknowledged`, description: `Generated OTP: ${updatePayload.otp}` });
+        toast({ title: `Order ${currentOrder.id} Acknowledged`, description: `Generated OTP: ${updatePayload.otp}` });
       }
       
-      const updatedOrder = { ...order, ...updatePayload };
+      const updatedOrder = { ...currentOrder, ...updatePayload };
       await updateDoc(orderRef, updatePayload);
       onUpdate(updatedOrder); 
+      setCurrentOrder(updatedOrder);
       toast({ title: "Milestone updated!" });
     } catch (error) {
       console.error("Error updating milestone: ", error);
@@ -111,10 +113,11 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   
   const handleAssignInstaller = async (installerId: string) => {
     try {
-      const orderRef = doc(db, "orders", order.id);
+      const orderRef = doc(db, "orders", currentOrder.id);
       await updateDoc(orderRef, { assignedTo: installerId });
-      const updatedOrder = { ...order, assignedTo: installerId };
+      const updatedOrder = { ...currentOrder, assignedTo: installerId };
       onUpdate(updatedOrder);
+      setCurrentOrder(updatedOrder);
       setIsAssigning(false);
       toast({ title: "Installer assigned!" });
     } catch (error) {
@@ -125,10 +128,11 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
   const handleAssignCrm = async (crmUserId: string) => {
     try {
-      const orderRef = doc(db, "orders", order.id);
+      const orderRef = doc(db, "orders", currentOrder.id);
       await updateDoc(orderRef, { handledByCrm: crmUserId });
-      const updatedOrder = { ...order, handledByCrm: crmUserId };
+      const updatedOrder = { ...currentOrder, handledByCrm: crmUserId };
       onUpdate(updatedOrder);
+      setCurrentOrder(updatedOrder);
       setIsAssigningCrm(false);
       toast({ title: "CRM handler assigned!" });
     } catch (error) {
@@ -139,14 +143,15 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   
   const handleSchedule = async (date: Date) => {
     try {
-      const orderRef = doc(db, "orders", order.id);
-      const scheduledMilestoneId = order.orderType === 'stitching+installation' ? 6 : 7;
-      const updatedMilestones = order.milestones.map(m =>
+      const orderRef = doc(db, "orders", currentOrder.id);
+      const scheduledMilestoneId = currentOrder.orderType === 'stitching+installation' ? 6 : 7;
+      const updatedMilestones = currentOrder.milestones.map(m =>
         m.id === scheduledMilestoneId ? { ...m, completed: true, completedAt: date.toISOString(), completedBy: user?.name } : m
       );
-      const updatedOrder = { ...order, milestones: updatedMilestones };
+      const updatedOrder = { ...currentOrder, milestones: updatedMilestones };
       await updateDoc(orderRef, { milestones: updatedMilestones });
       onUpdate(updatedOrder);
+      setCurrentOrder(updatedOrder);
       setIsScheduling(false);
       toast({ title: "Order scheduled!" });
     } catch (error) {
@@ -157,19 +162,39 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
   const handleDeleteOrder = async () => {
      // This would typically involve a call to delete the document in Firestore
-     console.log(`Deleting order ${order.id}`);
+     console.log(`Deleting order ${currentOrder.id}`);
      toast({
         title: "Order Deleted",
-        description: `${order.id} has been deleted. (Simulation)`,
+        description: `${currentOrder.id} has been deleted. (Simulation)`,
       });
+  }
+
+  const handleOpenMessageDialog = async () => {
+    let orderToMessage = { ...currentOrder };
+    if (!orderToMessage.otp) {
+        try {
+            const newOtp = Math.floor(1000 + Math.random() * 9000).toString();
+            const orderRef = doc(db, "orders", currentOrder.id);
+            await updateDoc(orderRef, { otp: newOtp });
+            orderToMessage.otp = newOtp;
+            setCurrentOrder(orderToMessage);
+            onUpdate(orderToMessage);
+            toast({ title: "OTP Generated!", description: `New OTP for ${currentOrder.id} is ${newOtp}` });
+        } catch (error) {
+            console.error("Error generating OTP:", error);
+            toast({ variant: "destructive", title: "Failed to generate OTP" });
+            return;
+        }
+    }
+    setIsMessageDialogOpen(true);
   }
 
   const getStatusInfo = () => {
     if (progressPercentage === 100) {
       return { text: "Completed", icon: CheckCircle2, color: "text-accent" };
     }
-    const installScheduled = order.milestones.find(m => m.id === 6)?.completed;
-    const deliveryScheduled = order.milestones.find(m => m.id === 7)?.completed;
+    const installScheduled = currentOrder.milestones.find(m => m.id === 6)?.completed;
+    const deliveryScheduled = currentOrder.milestones.find(m => m.id === 7)?.completed;
 
     if (installScheduled || deliveryScheduled) {
         return { text: "Scheduled", icon: CalendarClock, color: "text-blue-500" };
@@ -177,7 +202,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
      if (isReadyForDelivery) {
       return { text: "Ready for Delivery", icon: PackageCheck, color: "text-orange-500" };
     }
-    if (order.assignedTo) {
+    if (currentOrder.assignedTo) {
       return { text: "Assigned", icon: UserIcon, color: "text-purple-500" };
     }
     return { text: "In Progress", icon: WrenchIcon, color: "text-muted-foreground" };
@@ -186,10 +211,10 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const status = getStatusInfo();
   const StatusIcon = status.icon;
 
-  const scheduledDate = order.milestones.find(m => (m.id === 6 || m.id === 7) && m.completed)?.completedAt;
-  const createdAtDate = order.createdAt ? new Date(order.createdAt) : new Date();
+  const scheduledDate = currentOrder.milestones.find(m => (m.id === 6 || m.id === 7) && m.completed)?.completedAt;
+  const createdAtDate = currentOrder.createdAt ? new Date(currentOrder.createdAt) : new Date();
 
-  const customerMessage = `Hi ${order.customerName},\n\nThank you for your order with Mo Design!\n\nYour tracking number is: ${order.id}\nYour OTP for feedback submission is: ${order.otp}\nPlease share this OTP only with our installer after the job is complete.\n\nYou can track the live status of your order here:\n${window.location.origin}/track?code=${order.id}\n\nWe look forward to serving you!\n- The MoTrack Team`;
+  const customerMessage = `Hi ${currentOrder.customerName},\n\nThank you for your order with Mo Design!\n\nYour tracking number is: ${currentOrder.id}\nYour OTP for feedback submission is: ${currentOrder.otp}\nPlease share this OTP only with our installer after the job is complete.\n\nYou can track the live status of your order here:\n${typeof window !== 'undefined' ? window.location.origin : ''}/track?code=${currentOrder.id}\n\nWe look forward to serving you!\n- The MoTrack Team`;
 
   return (
     <TooltipProvider>
@@ -197,8 +222,8 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
       <CardHeader>
         <div className="flex items-start justify-between">
             <div>
-                <CardTitle><span className="text-primary">{order.customerName}</span></CardTitle>
-                <CardDescription>ID: {order.id}</CardDescription>
+                <CardTitle><span className="text-primary">{currentOrder.customerName}</span></CardTitle>
+                <CardDescription>ID: {currentOrder.id}</CardDescription>
             </div>
             { role === 'admin' && (
             <DropdownMenu>
@@ -222,9 +247,9 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
       <CardContent className="flex-grow space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div className="space-y-2">
-                <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" /><span>{order.customerPhone}</span></div>
-                <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" /><span>{order.customerAddress}</span></div>
-                <div className="flex items-center gap-2 text-muted-foreground"><Tag className="h-4 w-4" /><span>Sales: {order.salesPerson}</span></div>
+                <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" /><span>{currentOrder.customerPhone}</span></div>
+                <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" /><span>{currentOrder.customerAddress}</span></div>
+                <div className="flex items-center gap-2 text-muted-foreground"><Tag className="h-4 w-4" /><span>Sales: {currentOrder.salesPerson}</span></div>
             </div>
             <div className="space-y-2">
                 <div className="flex items-center gap-2 text-muted-foreground">
@@ -268,9 +293,9 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
              <div className="space-y-2 pt-4">
                 <div className="flex justify-between items-center">
                     <h4 className="font-semibold">Milestone Progress</h4>
-                    <Badge variant={order.orderType === 'delivery' ? 'default' : order.orderType === 'stitching' ? 'secondary' : 'outline'}>{order.orderType.replace('+', ' + ')}</Badge>
+                    <Badge variant={currentOrder.orderType === 'delivery' ? 'default' : currentOrder.orderType === 'stitching' ? 'secondary' : 'outline'}>{currentOrder.orderType.replace('+', ' + ')}</Badge>
                 </div>
-                <MilestoneProgress milestones={order.milestones} onMilestoneChange={handleMilestoneChange} role={role} />
+                <MilestoneProgress milestones={currentOrder.milestones} onMilestoneChange={handleMilestoneChange} role={role} />
             </div>
         )}
       </CardContent>
@@ -319,13 +344,13 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                  <Tooltip>
                     <TooltipTrigger asChild>
                        <div className="w-full">
-                             <Button variant="outline" size="sm" className="w-full" onClick={() => setIsMessageDialogOpen(true)} disabled={!canSendMessage}>
+                             <Button variant="outline" size="sm" className="w-full" onClick={handleOpenMessageDialog} disabled={!canSendMessage}>
                                 <MessageSquare className="mr-2 h-4 w-4" />
                                 Message
                             </Button>
                        </div>
                     </TooltipTrigger>
-                     {!canSendMessage && <TooltipContent><p>Acknowledge order to generate OTP and send message.</p></TooltipContent>}
+                     {!canSendMessage && <TooltipContent><p>You don't have permission to send messages.</p></TooltipContent>}
                 </Tooltip>
             </div>
         )}
@@ -336,20 +361,20 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         onClose={() => setIsAssigning(false)}
         onAssign={handleAssignInstaller}
         installers={installers}
-        currentInstallerId={order.assignedTo}
+        currentInstallerId={currentOrder.assignedTo}
     />
      <AssignCrmDialog
         isOpen={isAssigningCrm}
         onClose={() => setIsAssigningCrm(false)}
         onAssign={handleAssignCrm}
         crmUsers={crmUsers}
-        currentCrmUserId={order.handledByCrm}
+        currentCrmUserId={currentOrder.handledByCrm}
     />
     <ScheduleDialog
         isOpen={isScheduling}
         onClose={() => setIsScheduling(false)}
         onSchedule={handleSchedule}
-        orderType={order.orderType}
+        orderType={currentOrder.orderType}
     />
     <Dialog open={isMessageDialogOpen} onOpenChange={setIsMessageDialogOpen}>
         <DialogContent>
