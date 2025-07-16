@@ -115,9 +115,9 @@ export function MobileView() {
        {locationError && (
         <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Location Access Required</AlertTitle>
+            <AlertTitle>Location Access Warning</AlertTitle>
             <AlertDescription>
-                {locationError}. Please enable location permissions in your browser settings to continue.
+                {locationError}. Location data will not be saved.
             </AlertDescription>
         </Alert>
       )}
@@ -168,10 +168,7 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
             toast({ variant: "destructive", title: "Not logged in."});
             return;
         }
-         if (locationError) {
-            toast({ variant: "destructive", title: "Location Access Required", description: "Please enable location access to update status."});
-            return;
-        }
+
         if (!canUpdate(milestoneToUpdate)) {
             toast({ variant: "destructive", title: "Cannot update status", description: "A previous step must be completed first."});
             return;
@@ -247,7 +244,7 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
                         <AlertDialogTrigger asChild>
                              <Button 
                                 className="w-full mt-2" 
-                                disabled={isUpdating || !canUpdate(nextInstallerMilestone) || !!locationError}
+                                disabled={isUpdating || !canUpdate(nextInstallerMilestone)}
                             >
                                 {isUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 Mark as &quot;{nextInstallerMilestone.name}&quot;
@@ -257,7 +254,7 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
                             <AlertDialogHeader>
                                 <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                    This will complete the milestone: <strong>{nextInstallerMilestone.name}</strong>. This action will be logged with your current location.
+                                    This will complete the milestone: <strong>{nextInstallerMilestone.name}</strong>. This action will be logged with your current location if available.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
