@@ -15,6 +15,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, MapPin, CheckCircle2, XCircle } from "lucide-react";
+import { unparse } from "papaparse";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -284,11 +285,42 @@ export function AllOrdersTable() {
 
   const handleExport = () => {
     toast({
-        title: "Export Started (Simulated)",
-        description: "Generating CSV file for all orders."
+        title: "Export Started",
+        description: "Generating CSV file for visible orders..."
     });
-    // In a real app, you would convert `table.getFilteredRowModel().rows` to CSV format
-    // and trigger a download.
+
+    const dataToExport = table.getFilteredRowModel().rows.map(row => {
+        const order = row.original;
+        const lastCompleted = order.milestones.slice().reverse().find(m => m.completed);
+        return {
+            "Order ID": order.id,
+            "Customer Name": order.customerName,
+            "Customer Phone": order.customerPhone,
+            "Customer Address": order.customerAddress,
+            "Order Type": order.orderType,
+            "Sales Person": order.salesPerson,
+            "Installer": getInstallerName(order.assignedTo),
+            "Status": lastCompleted?.name || "Order Received",
+            "OTP Submitted": order.bypassedOtp ? "No" : (isFullyCompleted(order) ? "Yes" : "N/A"),
+            "Completion Date": order.completedAt ? new Date(order.completedAt).toLocaleString() : "N/A",
+        };
+    });
+
+    const csv = unparse(dataToExport);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `motrack_orders_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast({
+        title: "Export Complete!",
+        description: "Your CSV file has been downloaded.",
+    });
   }
 
   if (loading) {
@@ -448,3 +480,5 @@ export function AllOrdersTable() {
     </>
   );
 }
+
+    
