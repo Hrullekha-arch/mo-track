@@ -8,7 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Separator } from "@/components/ui/separator";
 import { mockUsers, mockInstallers } from "@/lib/mock-data";
 import { Order, User, Milestone } from "@/lib/types";
-import { MoreVertical, User, Phone, MapPin, Tag, Wrench, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Rocket, Wrench as WrenchIcon, CalendarClock } from "lucide-react";
+import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Wrench, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Rocket, Wrench as WrenchIcon, CalendarClock } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -132,7 +132,7 @@ export function OrderCard({ order: initialOrder, onUpdate }: OrderCardProps) {
             <div className="space-y-2">
                 <div className="flex items-center gap-2 text-muted-foreground"><Tag className="h-4 w-4" /><span>Sales: {order.salesPerson}</span></div>
                 <div className="flex items-center gap-2 text-muted-foreground">
-                    <User className="h-4 w-4" />
+                    <UserIcon className="h-4 w-4" />
                     <span>Installer: {assignedInstaller?.name || 'Unassigned'}</span>
                 </div>
             </div>
@@ -183,7 +183,7 @@ export function OrderCard({ order: initialOrder, onUpdate }: OrderCardProps) {
          {!isEmployee && (
             <div className="w-full flex gap-2">
                 <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)}>
-                    <User className="mr-2 h-4 w-4" />
+                    <UserIcon className="mr-2 h-4 w-4" />
                     {assignedInstaller ? "Re-assign" : "Assign"}
                 </Button>
                 <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)}>
