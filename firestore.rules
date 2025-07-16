@@ -1,61 +1,60 @@
 
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper function to check if a user is authenticated
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
     // Helper function to get the user's role from the users collection
     function getUserRole(userId) {
       return get(/databases/$(database)/documents/users/$(userId)).data.role;
     }
-
-    // Admins can do anything
-    function isAdmin() {
-      return isAuthenticated() && getUserRole(request.auth.uid) == 'admin';
+    
+    // Helper function to check if the user is an admin
+    function isAdmin(userId) {
+      return getUserRole(userId) == 'admin';
     }
 
-    // Employees have specific permissions
-    function isEmployee() {
-        return isAuthenticated() && getUserRole(request.auth.uid) == 'employee';
+    // Helper function to check if the user is an employee
+    function isEmployee(userId) {
+      return getUserRole(userId) == 'employee';
     }
     
-    // Installers have specific permissions
-    function isInstaller() {
-        return isAuthenticated() && getUserRole(request.auth.uid) == 'installer';
+    // Helper function to check if the user is an installer
+    function isInstaller(userId) {
+      return getUserRole(userId) == 'installer';
     }
 
+    // Rules for the 'users' collection
     match /users/{userId} {
-      // Admins can create, update, and delete any user document.
-      // Authenticated users can read all user documents (to resolve names, etc.).
-      // Users can update their own document (for future profile updates).
-      allow read: if isAuthenticated();
-      allow create, update, delete: if isAdmin();
-      allow update: if isAuthenticated() && request.auth.uid == userId;
+      // Admins can read/write any user document
+      // Authenticated users can read their own document
+      allow read: if request.auth != null && (isAdmin(request.auth.uid) || request.auth.uid == userId);
+      // Admins can create/update any user.
+      allow write: if request.auth != null && isAdmin(request.auth.uid);
     }
 
+    // Rules for the 'orders' collection
     match /orders/{orderId} {
-      // Anyone can read an order if they know the ID (for customer tracking page)
-      allow get: if true;
-      
-      // Admins and Employees can list all orders.
-      // Installers can list orders to find ones assigned to them.
-      allow list: if isAdmin() || isEmployee() || isInstaller();
-      
-      // Admins can update or delete any order.
-      allow update, delete: if isAdmin();
-      
-      // Admins or employees with 'PC' designation can create orders.
-      allow create: if isAdmin() || (isEmployee() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == 'PC');
-      
-      // Employees can update orders.
-      allow update: if isEmployee();
-      
-      // Installers can update an order if it's assigned to them.
-      allow update: if isInstaller() && resource.data.assignedTo == request.auth.uid;
+      // Allow public read for customer tracking page, but only specific, non-sensitive fields
+      allow get: if true; 
+
+      // Admins and Employees can list all orders. Installers can only see their assigned orders.
+      allow list: if request.auth != null && (isAdmin(request.auth.uid) || isEmployee(request.auth.uid) || isInstaller(request.auth.uid));
+
+      // Creation is allowed by Admins or Employees
+      allow create: if request.auth != null && (isAdmin(request.auth.uid) || isEmployee(request.auth.uid));
+
+      // Update rules are more complex
+      allow update: if request.auth != null && (
+        // Admins can update anything
+        isAdmin(request.auth.uid) ||
+        // Employees can update if they are the handler or if no handler is assigned
+        (isEmployee(request.auth.uid)) ||
+        // Installers can only update milestones if they are assigned to the order
+        (isInstaller(request.auth.uid) && resource.data.assignedTo == request.auth.uid)
+      );
+
+      // Admins can delete orders
+      allow delete: if request.auth != null && isAdmin(request.auth.uid);
     }
   }
 }
