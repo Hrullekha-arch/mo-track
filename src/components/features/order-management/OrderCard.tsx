@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Order, User, Milestone } from "@/lib/types";
-import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users } from "lucide-react";
+import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,9 @@ import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { AssignCrmDialog } from "./AssignCrmDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import Link from "next/link";
+import { Textarea } from "@/components/ui/textarea";
 
 interface OrderCardProps {
   order: Order;
@@ -30,6 +33,8 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const [isAssigning, setIsAssigning] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
   const [isAssigningCrm, setIsAssigningCrm] = useState(false);
+  const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
+
   const { user, role } = useAuth();
   const { toast } = useToast();
 
@@ -49,6 +54,8 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const canAssignInstaller = (role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && isReadyForDelivery;
   const canSchedule = role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM';
   const canEditMilestones = role === 'admin' || role === 'employee';
+  const canSendMessage = (role === 'admin' || user?.designation === 'PC') && order.otp;
+
 
   const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
     if (!canEditMilestones) {
@@ -59,6 +66,12 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     // Employees can only tick up to 'Ready for Delivery'
     if (role === 'employee' && milestoneId > 5) {
         toast({ variant: "destructive", title: "Permission Denied", description: "This milestone is updated by installers." });
+        return;
+    }
+
+    // Employees cannot revert milestones
+    if (role === 'employee' && !completed && order.milestones.find(m => m.id === milestoneId)?.completed) {
+        toast({ variant: "destructive", title: "Permission Denied", description: "You are not authorized to revert milestones." });
         return;
     }
     
@@ -77,9 +90,17 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
               }
           }
       }
+
+      const updatePayload: any = { milestones: updatedMilestones };
+
+      // Generate OTP when order is first received
+      if (milestoneId === 1 && completed && !order.otp) {
+        updatePayload.otp = Math.floor(1000 + Math.random() * 9000).toString();
+        toast({ title: `Order ${order.id} Acknowledged`, description: `Generated OTP: ${updatePayload.otp}` });
+      }
       
-      const updatedOrder = { ...order, milestones: updatedMilestones };
-      await updateDoc(orderRef, { milestones: updatedMilestones });
+      const updatedOrder = { ...order, ...updatePayload };
+      await updateDoc(orderRef, updatePayload);
       onUpdate(updatedOrder); 
       toast({ title: "Milestone updated!" });
     } catch (error) {
@@ -168,6 +189,8 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const scheduledDate = order.milestones.find(m => (m.id === 6 || m.id === 7) && m.completed)?.completedAt;
   const createdAtDate = order.createdAt ? new Date(order.createdAt) : new Date();
 
+  const customerMessage = `Hi ${order.customerName},\n\nThank you for your order with Mo Design!\n\nYour tracking number is: ${order.id}\nYour OTP for feedback submission is: ${order.otp}\nPlease share this OTP only with our installer after the job is complete.\n\nYou can track the live status of your order here:\n${window.location.origin}/track?code=${order.id}\n\nWe look forward to serving you!\n- The MoTrack Team`;
+
   return (
     <TooltipProvider>
     <Card className="flex flex-col">
@@ -255,8 +278,8 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
          <div className="text-xs text-muted-foreground">
             Created on {createdAtDate.toLocaleDateString()}
         </div>
-         {(canAssignCrm || canAssignInstaller || canSchedule) && (
-            <div className="w-full grid grid-cols-3 gap-2 pt-2">
+         {(canAssignCrm || canAssignInstaller || canSchedule || canSendMessage) && (
+            <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-2">
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <div className="w-full">
@@ -293,6 +316,17 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                     </TooltipTrigger>
                      {!canSchedule && <TooltipContent><p>You don't have permission to schedule.</p></TooltipContent>}
                 </Tooltip>
+                 <Tooltip>
+                    <TooltipTrigger asChild>
+                       <div className="w-full">
+                             <Button variant="outline" size="sm" className="w-full" onClick={() => setIsMessageDialogOpen(true)} disabled={!canSendMessage}>
+                                <MessageSquare className="mr-2 h-4 w-4" />
+                                Message
+                            </Button>
+                       </div>
+                    </TooltipTrigger>
+                     {!canSendMessage && <TooltipContent><p>Acknowledge order to generate OTP and send message.</p></TooltipContent>}
+                </Tooltip>
             </div>
         )}
       </CardFooter>
@@ -317,6 +351,32 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         onSchedule={handleSchedule}
         orderType={order.orderType}
     />
+    <Dialog open={isMessageDialogOpen} onOpenChange={setIsMessageDialogOpen}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Message Customer</DialogTitle>
+                <DialogDescription>
+                    This is a preview of the message to be sent to the customer.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+                <Textarea
+                    readOnly
+                    value={customerMessage}
+                    className="min-h-60 text-sm whitespace-pre-wrap"
+                />
+                 <Button onClick={() => {
+                     navigator.clipboard.writeText(customerMessage);
+                     toast({title: "Copied to clipboard!"})
+                 }}>
+                    Copy Message
+                 </Button>
+            </div>
+            <DialogFooter>
+                <Button variant="ghost" onClick={() => setIsMessageDialogOpen(false)}>Close</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
     </TooltipProvider>
   );
 }

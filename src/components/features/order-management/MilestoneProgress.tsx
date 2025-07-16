@@ -58,7 +58,16 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
             const prevMilestoneCompleted = index === 0 || milestones[index - 1].completed;
             const isCurrent = !isCompleted && prevMilestoneCompleted;
             
-            const canBeTicked = (isCompleted && userRole === 'admin') || (!isCompleted && prevMilestoneCompleted);
+            let canBeTicked;
+            if (userRole === 'admin') {
+                canBeTicked = true; // Admin can always tick/untick
+            } else if (userRole === 'employee') {
+                // Employee can only tick forward, not revert.
+                canBeTicked = !isCompleted && prevMilestoneCompleted;
+            } else {
+                canBeTicked = !isCompleted && prevMilestoneCompleted;
+            }
+            
             const isEditable = canEditMilestone(milestone.id);
 
             return (
