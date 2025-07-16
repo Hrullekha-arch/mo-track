@@ -153,6 +153,7 @@ export function OrdersDashboard() {
 
   const employees = users.filter(u => u.role === 'employee');
   const canManage = role === 'admin' || role === 'employee';
+  const canCreateOrder = role === 'admin' || user?.designation === 'PC';
 
   return (
     <>
@@ -169,7 +170,7 @@ export function OrdersDashboard() {
                 AI Dispatch
             </Button>
             )}
-            {role === 'admin' && (
+            {canCreateOrder && (
             <Button onClick={() => setIsNewOrderDialogOpen(true)}>
                 <PlusCircle className="mr-2 h-4 w-4" />
                 New Order
