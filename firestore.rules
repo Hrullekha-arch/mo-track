@@ -1,0 +1,61 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if a user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to get the user's role from the users collection
+    function getUserRole(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+    }
+
+    // Admins can do anything
+    function isAdmin() {
+      return isAuthenticated() && getUserRole(request.auth.uid) == 'admin';
+    }
+
+    // Employees have specific permissions
+    function isEmployee() {
+        return isAuthenticated() && getUserRole(request.auth.uid) == 'employee';
+    }
+    
+    // Installers have specific permissions
+    function isInstaller() {
+        return isAuthenticated() && getUserRole(request.auth.uid) == 'installer';
+    }
+
+    match /users/{userId} {
+      // Admins can create, update, and delete any user document.
+      // Authenticated users can read all user documents (to resolve names, etc.).
+      // Users can update their own document (for future profile updates).
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    match /orders/{orderId} {
+      // Anyone can read an order if they know the ID (for customer tracking page)
+      allow get: if true;
+      
+      // Admins and Employees can list all orders.
+      // Installers can list orders to find ones assigned to them.
+      allow list: if isAdmin() || isEmployee() || isInstaller();
+      
+      // Admins can update or delete any order.
+      allow update, delete: if isAdmin();
+      
+      // Admins or employees with 'PC' designation can create orders.
+      allow create: if isAdmin() || (isEmployee() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == 'PC');
+      
+      // Employees can update orders.
+      allow update: if isEmployee();
+      
+      // Installers can update an order if it's assigned to them.
+      allow update: if isInstaller() && resource.data.assignedTo == request.auth.uid;
+    }
+  }
+}
