@@ -18,11 +18,9 @@ export default function DashboardLayout({
   const [showWelcome, setShowWelcome] = useState(false);
 
   useEffect(() => {
-    // Check session storage to see if we've already shown the welcome message
-    const hasBeenWelcomed = sessionStorage.getItem('hasBeenWelcomed');
-    if (!loading && user && !hasBeenWelcomed) {
+    // Show welcome message on login.
+    if (!loading && user) {
       setShowWelcome(true);
-      sessionStorage.setItem('hasBeenWelcomed', 'true');
     }
   }, [user, loading]);
 
@@ -54,7 +52,7 @@ export default function DashboardLayout({
   return (
     <>
       <AppShell>{children}</AppShell>
-      <WelcomeDialog user={user} isOpen={showWelcome} onClose={() => setShowWelcome(false)} />
+      {user && <WelcomeDialog user={user} isOpen={showWelcome} onClose={() => setShowWelcome(false)} />}
     </>
   );
 }
