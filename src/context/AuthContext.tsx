@@ -1,14 +1,19 @@
+
 "use client";
 
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { User, UserRole } from '@/lib/types';
-import { mockUsers } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, User as FirebaseUser } from "firebase/auth";
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { useToast } from '@/hooks/use-toast';
 
 interface AuthContextType {
   user: User | null;
+  firebaseUser: FirebaseUser | null;
   role: UserRole | null;
-  login: (email: string) => boolean;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   loading: boolean;
 }
@@ -17,45 +22,83 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const { toast } = useToast();
 
   useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem('motrack_user');
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      setFirebaseUser(fbUser);
+      if (fbUser) {
+        // User is signed in, get their custom user data from Firestore
+        const userDocRef = doc(db, "users", fbUser.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+          const userData = { id: userDoc.id, ...userDoc.data() } as User;
+          setUser(userData);
+        } else {
+          // Handle case where user exists in Auth but not Firestore
+          setUser(null); 
+        }
+      } else {
+        // User is signed out
+        setUser(null);
       }
-    } catch (error) {
-      console.error("Could not parse user from localStorage", error);
-    }
-    setLoading(false);
+      setLoading(false);
+    });
+
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
   }, []);
 
-  const login = (email: string) => {
-    const foundUser = mockUsers.find(u => u.email === email);
-    if (foundUser) {
-      setUser(foundUser);
-      localStorage.setItem('motrack_user', JSON.stringify(foundUser));
-      if (foundUser.role === 'installer') {
-        router.push('/mobile');
+  const login = async (email: string, password: string):Promise<boolean> => {
+    try {
+      setLoading(true);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      const userDocRef = doc(db, "users", userCredential.user.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (userDoc.exists()) {
+        const userData = { id: userDoc.id, ...userDoc.data() } as User;
+        setUser(userData);
+        if (userData.role === 'installer') {
+          router.push('/mobile');
+        } else {
+          router.push('/dashboard');
+        }
+        return true;
       } else {
-        router.push('/dashboard');
+        await signOut(auth);
+        toast({ variant: "destructive", title: "Login Failed", description: "No user data found."});
+        return false;
       }
-      return true;
+    } catch (error: any) {
+        toast({ variant: "destructive", title: "Login Failed", description: error.message });
+        return false;
+    } finally {
+        setLoading(false);
     }
-    return false;
   };
 
-  const logout = () => {
+  const quickLogin = (email: string) => {
+    login(email, 'password'); // Using a common mock password for quick login
+  }
+
+
+  const logout = async () => {
+    setLoading(true);
+    await signOut(auth);
     setUser(null);
-    localStorage.removeItem('motrack_user');
+    setFirebaseUser(null);
     router.push('/');
+    setLoading(false);
   };
 
   return (
-    <AuthContext.Provider value={{ user, role: user?.role || null, login, logout, loading }}>
-      {children}
+    <AuthContext.Provider value={{ user, firebaseUser, role: user?.role || null, login, logout, loading }}>
+      {!loading && children}
     </AuthContext.Provider>
   );
 };

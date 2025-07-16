@@ -1,3 +1,4 @@
+
 "use client";
 
 import { AppShell } from "@/components/shared/AppShell";
@@ -18,12 +19,12 @@ export default function DashboardLayout({
     if (!loading && !user) {
       router.push('/');
     }
-    if (!loading && role === 'installer') {
+    if (!loading && user && role === 'installer') {
         router.push('/mobile');
     }
   }, [user, loading, router, role]);
 
-  if (loading || !user) {
+  if (loading || !user || role === 'installer') {
     return (
       <div className="flex items-center justify-center h-screen">
          <div className="flex items-center space-x-4">

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { mockUsers, mockInstallers } from "@/lib/mock-data";
 import { Order, User, Milestone } from "@/lib/types";
 import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Wrench, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Rocket, Wrench as WrenchIcon, CalendarClock } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
@@ -14,66 +13,87 @@ import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { AssignInstallerDialog } from "./AssignInstallerDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { useToast } from "@/hooks/use-toast";
 
 interface OrderCardProps {
   order: Order;
   onUpdate: (updatedOrder: Order) => void;
+  allUsers: User[];
 }
 
-export function OrderCard({ order: initialOrder, onUpdate }: OrderCardProps) {
+export function OrderCard({ order: initialOrder, onUpdate, allUsers }: OrderCardProps) {
   const [order, setOrder] = useState(initialOrder);
   const [showMilestones, setShowMilestones] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
-  const { role } = useAuth();
+  const { user, role } = useAuth();
+  const { toast } = useToast();
 
-  const assignedInstaller = mockUsers.find(u => u.id === order.assignedTo);
+  const installers = allUsers.filter(u => u.role === 'installer');
+  const assignedInstaller = allUsers.find(u => u.id === order.assignedTo);
   const completedCount = order.milestones.filter(m => m.completed).length;
   const progressPercentage = (completedCount / order.milestones.length) * 100;
   
   const lastCompletedMilestone = order.milestones.slice().reverse().find(m => m.completed);
 
 
-  const handleMilestoneChange = (milestoneId: number, completed: boolean) => {
-    const updatedMilestones = order.milestones.map(m =>
-      m.id === milestoneId ? { ...m, completed, completedAt: completed ? new Date().toISOString() : undefined, completedBy: 'user-1' } : m
-    );
-    // Logic to update subsequent milestones if one is unchecked
-    if (!completed) {
-        let subsequentMilestone = false;
-        const finalMilestones = updatedMilestones.map(m => {
-            if (subsequentMilestone) {
-                return {...m, completed: false, completedAt: undefined};
-            }
-            if (m.id === milestoneId) subsequentMilestone = true;
-            return m;
-        });
-        const updatedOrder = { ...order, milestones: finalMilestones };
-        setOrder(updatedOrder);
-        onUpdate(updatedOrder);
-    } else {
-       const updatedOrder = { ...order, milestones: updatedMilestones };
-       setOrder(updatedOrder);
-       onUpdate(updatedOrder);
+  const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
+    try {
+      const orderRef = doc(db, "orders", order.id);
+      let updatedMilestones = order.milestones.map(m =>
+        m.id === milestoneId ? { ...m, completed, completedAt: completed ? new Date().toISOString() : undefined, completedBy: user?.name } : m
+      );
+      
+      if (!completed) {
+          let subsequentMilestone = false;
+          updatedMilestones = updatedMilestones.map(m => {
+              if (subsequentMilestone) {
+                  return {...m, completed: false, completedAt: undefined, completedBy: undefined};
+              }
+              if (m.id === milestoneId) subsequentMilestone = true;
+              return m;
+          });
+      }
+      
+      await updateDoc(orderRef, { milestones: updatedMilestones });
+      onUpdate({ ...order, milestones: updatedMilestones }); // Optimistic update
+      toast({ title: "Milestone updated!" });
+    } catch (error) {
+      console.error("Error updating milestone: ", error);
+      toast({ variant: "destructive", title: "Failed to update milestone." });
     }
   };
   
-  const handleAssignInstaller = (installerId: string) => {
-    const updatedOrder = { ...order, assignedTo: installerId };
-    setOrder(updatedOrder);
-    onUpdate(updatedOrder);
-    setIsAssigning(false);
+  const handleAssignInstaller = async (installerId: string) => {
+    try {
+      const orderRef = doc(db, "orders", order.id);
+      await updateDoc(orderRef, { assignedTo: installerId });
+      onUpdate({ ...order, assignedTo: installerId }); // Optimistic update
+      setIsAssigning(false);
+      toast({ title: "Installer assigned!" });
+    } catch (error) {
+      console.error("Error assigning installer: ", error);
+      toast({ variant: "destructive", title: "Failed to assign installer." });
+    }
   };
   
-  const handleSchedule = (date: Date) => {
-    const scheduledMilestoneId = order.orderType === 'stitching+installation' ? 6 : 7;
-    const updatedMilestones = order.milestones.map(m =>
-      m.id === scheduledMilestoneId ? { ...m, completed: true, completedAt: date.toISOString(), completedBy: 'user-1' } : m
-    );
-    const updatedOrder = { ...order, milestones: updatedMilestones };
-    setOrder(updatedOrder);
-    onUpdate(updatedOrder);
-    setIsScheduling(false);
+  const handleSchedule = async (date: Date) => {
+    try {
+      const orderRef = doc(db, "orders", order.id);
+      const scheduledMilestoneId = order.orderType === 'stitching+installation' ? 6 : 7;
+      const updatedMilestones = order.milestones.map(m =>
+        m.id === scheduledMilestoneId ? { ...m, completed: true, completedAt: date.toISOString(), completedBy: user?.name } : m
+      );
+      await updateDoc(orderRef, { milestones: updatedMilestones });
+      onUpdate({ ...order, milestones: updatedMilestones }); // Optimistic update
+      setIsScheduling(false);
+      toast({ title: "Order scheduled!" });
+    } catch (error) {
+      console.error("Error scheduling order: ", error);
+      toast({ variant: "destructive", title: "Failed to schedule order." });
+    }
   }
 
   const getStatusInfo = () => {
@@ -97,6 +117,7 @@ export function OrderCard({ order: initialOrder, onUpdate }: OrderCardProps) {
   const isEmployee = role === 'employee';
 
   const scheduledDate = order.milestones.find(m => (m.id === 6 || m.id === 7) && m.completed)?.completedAt;
+  const createdAtDate = order.createdAt ? new Date(order.createdAt) : new Date();
 
   return (
     <>
@@ -178,7 +199,7 @@ export function OrderCard({ order: initialOrder, onUpdate }: OrderCardProps) {
       </CardContent>
       <CardFooter className="flex-col items-start gap-2">
          <div className="text-xs text-muted-foreground">
-            Created on {new Date(order.createdAt).toLocaleDateString()}
+            Created on {createdAtDate.toLocaleDateString()}
         </div>
          {!isEmployee && (
             <div className="w-full flex gap-2">
@@ -198,7 +219,7 @@ export function OrderCard({ order: initialOrder, onUpdate }: OrderCardProps) {
         isOpen={isAssigning}
         onClose={() => setIsAssigning(false)}
         onAssign={handleAssignInstaller}
-        installers={mockInstallers}
+        installers={installers}
         currentInstallerId={order.assignedTo}
     />
     <ScheduleDialog

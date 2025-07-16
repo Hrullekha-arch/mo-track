@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -9,8 +10,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useAuth } from "@/context/AuthContext";
-import { LogIn } from "lucide-react";
+import { LogIn, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
@@ -19,24 +21,20 @@ const formSchema = z.object({
 
 export default function LoginPage() {
   const { login } = useAuth();
-  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       email: "",
-      password: "",
+      password: "password", // Default password for demo
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!login(values.email)) {
-      toast({
-        variant: "destructive",
-        title: "Login Failed",
-        description: "Invalid email or password. Please try again.",
-      });
-    }
+  async function onSubmit(values: z.infer<typeof formSchema>) {
+    setLoading(true);
+    await login(values.email, values.password);
+    setLoading(false);
   }
 
   const quickLogin = (email: string) => {
@@ -82,17 +80,18 @@ export default function LoginPage() {
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full">
-                  <LogIn className="mr-2 h-4 w-4" /> Sign In
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+                   Sign In
                 </Button>
               </form>
             </Form>
             <div className="mt-4 text-center text-sm">
               <p className="text-muted-foreground mb-2">For demo purposes, quick login:</p>
               <div className="flex justify-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => quickLogin('admin@motrack.com')}>Admin</Button>
-                  <Button variant="outline" size="sm" onClick={() => quickLogin('employee@motrack.com')}>Employee</Button>
-                  <Button variant="outline" size="sm" onClick={() => quickLogin('john@motrack.com')}>Installer</Button>
+                  <Button variant="outline" size="sm" onClick={() => quickLogin('admin@motrack.com')} disabled={loading}>Admin</Button>
+                  <Button variant="outline" size="sm" onClick={() => quickLogin('employee@motrack.com')} disabled={loading}>Employee</Button>
+                  <Button variant="outline" size="sm" onClick={() => quickLogin('john@motrack.com')} disabled={loading}>Installer</Button>
               </div>
             </div>
           </CardContent>
