@@ -15,7 +15,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, MapPin, CheckCircle2, XCircle } from "lucide-react";
-import { unparse } from "papaparse";
+import * as XLSX from "xlsx";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -286,7 +286,7 @@ export function AllOrdersTable() {
   const handleExport = () => {
     toast({
         title: "Export Started",
-        description: "Generating CSV file for visible orders..."
+        description: "Generating Excel file for visible orders..."
     });
 
     const dataToExport = table.getFilteredRowModel().rows.map(row => {
@@ -306,20 +306,24 @@ export function AllOrdersTable() {
         };
     });
 
-    const csv = unparse(dataToExport);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `motrack_orders_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Orders");
+
+    // Let's make the columns wider for better readability
+    const maxLengths = Object.keys(dataToExport[0] || {}).map(key => {
+        const column = dataToExport.map(item => item[key as keyof typeof item] ?? "");
+        const headerLength = key.length;
+        const maxLength = Math.max(...column.map(val => String(val).length), headerLength);
+        return { wch: maxLength + 2 };
+    });
+    worksheet["!cols"] = maxLengths;
+    
+    XLSX.writeFile(workbook, `motrack_orders_${new Date().toISOString().split('T')[0]}.xlsx`);
 
     toast({
         title: "Export Complete!",
-        description: "Your CSV file has been downloaded.",
+        description: "Your Excel file has been downloaded.",
     });
   }
 
@@ -480,5 +484,3 @@ export function AllOrdersTable() {
     </>
   );
 }
-
-    
