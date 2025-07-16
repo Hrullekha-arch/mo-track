@@ -1,14 +1,26 @@
+
 "use client";
 
 import { MobileView } from "@/components/features/installer/MobileView";
 import { useAuth } from "@/context/AuthContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { WelcomeDialog } from "@/components/features/user-management/WelcomeDialog";
 
 export default function MobilePage() {
   const { user, loading, role } = useAuth();
   const router = useRouter();
+  const [showWelcome, setShowWelcome] = useState(false);
+
+  useEffect(() => {
+    // Check session storage to see if we've already shown the welcome message
+    const hasBeenWelcomed = sessionStorage.getItem('hasBeenWelcomed');
+    if (!loading && user && !hasBeenWelcomed) {
+      setShowWelcome(true);
+      sessionStorage.setItem('hasBeenWelcomed', 'true');
+    }
+  }, [user, loading]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -32,10 +44,15 @@ export default function MobilePage() {
   }
 
   return (
-    <div className="bg-background min-h-screen">
-      <div className="max-w-md mx-auto border-x bg-card min-h-screen">
-        <MobileView />
+    <>
+      <div className="bg-background min-h-screen">
+        <div className="max-w-md mx-auto border-x bg-card min-h-screen">
+          <MobileView />
+        </div>
       </div>
-    </div>
+      {user && <WelcomeDialog user={user} isOpen={showWelcome} onClose={() => setShowWelcome(false)} />}
+    </>
   );
 }
+
+    

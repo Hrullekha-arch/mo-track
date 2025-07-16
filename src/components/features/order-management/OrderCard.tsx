@@ -51,12 +51,15 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const lastCompletedMilestone = currentOrder.milestones.slice().reverse().find(m => m.completed);
   const isReadyForDelivery = !!currentOrder.milestones.find(m => m.id === 5)?.completed;
 
+  const isOrderComplete = currentOrder.milestones.every(m => m.completed) && (!!currentOrder.feedbackRating || !!currentOrder.customerFeedbackRating || !!currentOrder.bypassedOtp);
+
+
   // Permissions Logic
-  const canAssignCrm = role === 'admin' || user?.designation === 'PC';
-  const canAssignInstaller = (role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && isReadyForDelivery;
-  const canSchedule = role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM';
-  const canEditMilestones = role === 'admin' || role === 'employee';
-  const canSendMessage = role === 'admin' || user?.designation === 'PC';
+  const canAssignCrm = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
+  const canAssignInstaller = ((role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && isReadyForDelivery) && !isOrderComplete;
+  const canSchedule = (role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && !isOrderComplete;
+  const canEditMilestones = (role === 'admin' || role === 'employee');
+  const canSendMessage = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
 
 
   const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
@@ -369,7 +372,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                             </Button>
                         </div>
                     </TooltipTrigger>
-                    {!canAssignCrm && <TooltipContent><p>You don't have permission to assign CRM.</p></TooltipContent>}
+                    {!canAssignCrm && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
                 </Tooltip>
 
                 <Tooltip>
@@ -381,7 +384,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                         </Button>
                         </div>
                     </TooltipTrigger>
-                    {!isReadyForDelivery && <TooltipContent><p>Mark "Ready for Delivery" to assign.</p></TooltipContent>}
+                    {isOrderComplete ? <TooltipContent><p>Order is complete.</p></TooltipContent> : !isReadyForDelivery && <TooltipContent><p>Mark "Ready for Delivery" to assign.</p></TooltipContent>}
                     {isReadyForDelivery && !canAssignInstaller && <TooltipContent><p>You don't have permission to assign installers.</p></TooltipContent>}
                 </Tooltip>
                 
@@ -394,7 +397,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                             </Button>
                        </div>
                     </TooltipTrigger>
-                     {!canSchedule && <TooltipContent><p>You don't have permission to schedule.</p></TooltipContent>}
+                     {!canSchedule && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
                 </Tooltip>
                  <Tooltip>
                     <TooltipTrigger asChild>
@@ -405,7 +408,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                             </Button>
                        </div>
                     </TooltipTrigger>
-                     {!canSendMessage && <TooltipContent><p>You don't have permission to send messages.</p></TooltipContent>}
+                     {!canSendMessage && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
                 </Tooltip>
             </div>
         )}
@@ -460,3 +463,5 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     </TooltipProvider>
   );
 }
+
+    
