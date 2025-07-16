@@ -18,6 +18,10 @@ export interface Milestone {
   completed: boolean;
   completedBy?: string; // User name
   completedAt?: string; // ISO Date string
+  location?: {
+    latitude: number;
+    longitude: number;
+  } | null;
 }
 
 export interface Order {

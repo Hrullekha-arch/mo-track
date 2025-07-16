@@ -3,12 +3,13 @@
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
 import { Milestone, UserRole } from "@/lib/types";
-import { CheckCircle2, Circle, Factory, Milestone as MilestoneIcon, Package, PackageCheck, Rocket, Scissors, Wrench } from "lucide-react";
+import { CheckCircle2, Circle, Factory, Milestone as MilestoneIcon, Package, PackageCheck, Rocket, Scissors, Wrench, MapPin } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/context/AuthContext";
+import { cn } from "@/lib/utils";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 
 interface MilestoneProgressProps {
   milestones: Milestone[];
@@ -36,9 +37,12 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
   const canEditMilestone = (milestoneId: number) => {
     if (userRole === 'admin') return true;
     if (userRole === 'employee' && milestoneId <= 5) return true; // Employees handle up to Ready for Delivery
-    // Installers handled on mobile view, but this check prevents them here.
     if (userRole === 'installer' && milestoneId > 5) return true; 
     return false;
+  }
+  
+  const handleConfirm = (milestoneId: number, currentCheckedState: boolean) => {
+    onMilestoneChange?.(milestoneId, !currentCheckedState);
   }
 
   return (
@@ -54,12 +58,8 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
             const prevMilestoneCompleted = index === 0 || milestones[index - 1].completed;
             const isCurrent = !isCompleted && prevMilestoneCompleted;
             
-            // A milestone can be ticked if the user has permission AND:
-            // 1. It's already completed (allowing it to be un-ticked ONLY by an admin).
-            // 2. The previous one is completed (allowing it to be ticked forward).
-            // Employees should not be able to revert.
-            const canBeTicked = canEditMilestone(milestone.id) &&
-                                 ((isCompleted && userRole === 'admin') || (!isCompleted && prevMilestoneCompleted));
+            const canBeTicked = (isCompleted && userRole === 'admin') || (!isCompleted && prevMilestoneCompleted);
+            const isEditable = canEditMilestone(milestone.id);
 
             return (
               <li key={milestone.id} className="flex items-start gap-4">
@@ -81,27 +81,52 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
                     <p className={cn("font-medium", isCompleted ? "text-accent" : isCurrent ? "text-primary" : "text-muted-foreground")}>
                       {milestone.name}
                     </p>
-                    {canEditMilestone(milestone.id) && (
-                      <Checkbox
-                        id={`milestone-${milestone.id}`}
-                        checked={isCompleted}
-                        onCheckedChange={(checked) => onMilestoneChange?.(milestone.id, !!checked)}
-                        className="h-5 w-5"
-                        disabled={!canBeTicked}
-                      />
+                    {isEditable && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                           <Checkbox
+                                id={`milestone-${milestone.id}`}
+                                checked={isCompleted}
+                                className="h-5 w-5"
+                                disabled={!canBeTicked}
+                                // We use onCheckedChange on the trigger so it doesn't fire the change, only opens the dialog
+                                onCheckedChange={(e) => { e.preventDefault()}}
+                            />
+                        </AlertDialogTrigger>
+                         <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                This will {isCompleted ? 'revert' : 'complete'} the milestone: <strong>{milestone.name}</strong>. This action will be logged.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleConfirm(milestone.id, isCompleted)}>
+                                    Continue
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
                   </div>
                   {isCompleted && milestone.completedAt && (
                      <Tooltip>
-                        <TooltipTrigger>
-                           <p className="text-xs text-muted-foreground">
-                            Completed on {new Date(milestone.completedAt).toLocaleDateString()}
-                          </p>
+                        <TooltipTrigger asChild>
+                           <div className="flex items-center gap-2">
+                             <p className="text-xs text-muted-foreground">
+                                Completed on {new Date(milestone.completedAt).toLocaleDateString()}
+                              </p>
+                              {milestone.location && (
+                                <MapPin className="h-3 w-3 text-muted-foreground" />
+                              )}
+                           </div>
                         </TooltipTrigger>
                         <TooltipContent>
-                           <p>
-                             {new Date(milestone.completedAt).toLocaleString()} by {milestone.completedBy || 'System'}
-                           </p>
+                           <div className="space-y-1">
+                                <p>{new Date(milestone.completedAt).toLocaleString()} by {milestone.completedBy || 'System'}</p>
+                                {milestone.location && <p>Location: {milestone.location.latitude.toFixed(4)}, {milestone.location.longitude.toFixed(4)}</p>}
+                           </div>
                         </TooltipContent>
                      </Tooltip>
                   )}

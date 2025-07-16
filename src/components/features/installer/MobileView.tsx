@@ -5,18 +5,40 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2 } from "lucide-react";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle } from "lucide-react";
 import { Order, Milestone } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export function MobileView() {
   const { user, logout } = useAuth();
   const [assignedOrders, setAssignedOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+          setLocationError(null);
+        },
+        (error) => {
+          setLocationError(error.message);
+        }
+      );
+    } else {
+      setLocationError("Geolocation is not supported by this browser.");
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -74,10 +96,20 @@ export function MobileView() {
         <p className="text-muted-foreground">Here are your active assignments.</p>
       </div>
 
+       {locationError && (
+        <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Location Access Required</AlertTitle>
+            <AlertDescription>
+                {locationError}. Please enable location permissions in your browser settings to continue.
+            </AlertDescription>
+        </Alert>
+      )}
+
       {activeOrders.length > 0 ? (
         <div className="space-y-4">
           {activeOrders.map(order => (
-            <InstallerOrderCard key={order.id} order={order} />
+            <InstallerOrderCard key={order.id} order={order} location={location} locationError={locationError} />
           ))}
         </div>
       ) : (
@@ -92,9 +124,11 @@ export function MobileView() {
 
 interface InstallerOrderCardProps {
     order: Order;
+    location: { latitude: number; longitude: number; } | null;
+    locationError: string | null;
 }
 
-function InstallerOrderCard({ order }: InstallerOrderCardProps) {
+function InstallerOrderCard({ order, location, locationError }: InstallerOrderCardProps) {
     const { user } = useAuth();
     const { toast } = useToast();
     const [isUpdating, setIsUpdating] = useState(false);
@@ -116,7 +150,15 @@ function InstallerOrderCard({ order }: InstallerOrderCardProps) {
     }
 
     const handleStatusUpdate = async (milestoneToUpdate: Milestone) => {
-        if (!user || !canUpdate(milestoneToUpdate)) {
+        if (!user) {
+            toast({ variant: "destructive", title: "Not logged in."});
+            return;
+        }
+         if (locationError) {
+            toast({ variant: "destructive", title: "Location Access Required", description: "Please enable location access to update status."});
+            return;
+        }
+        if (!canUpdate(milestoneToUpdate)) {
             toast({ variant: "destructive", title: "Cannot update status", description: "A previous step must be completed first."});
             return;
         }
@@ -124,7 +166,13 @@ function InstallerOrderCard({ order }: InstallerOrderCardProps) {
         try {
             const orderRef = doc(db, "orders", order.id);
             const updatedMilestones = order.milestones.map(m =>
-                m.id === milestoneToUpdate.id ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: user.name } : m
+                m.id === milestoneToUpdate.id ? { 
+                    ...m, 
+                    completed: true, 
+                    completedAt: new Date().toISOString(), 
+                    completedBy: user.name,
+                    location: location
+                } : m
             );
             await updateDoc(orderRef, { milestones: updatedMilestones });
             toast({ title: `Order updated: ${milestoneToUpdate.name}` });
@@ -159,7 +207,7 @@ function InstallerOrderCard({ order }: InstallerOrderCardProps) {
                     <Button 
                         className="w-full mt-2" 
                         onClick={() => handleStatusUpdate(nextInstallerMilestone)}
-                        disabled={isUpdating || !canUpdate(nextInstallerMilestone)}
+                        disabled={isUpdating || !canUpdate(nextInstallerMilestone) || !!locationError}
                     >
                         {isUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Mark as &quot;{nextInstallerMilestone.name}&quot;

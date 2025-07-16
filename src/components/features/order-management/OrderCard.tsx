@@ -73,7 +73,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
           const milestoneIndex = updatedMilestones.findIndex(m => m.id === milestoneId);
           if (milestoneIndex !== -1) {
               for (let i = milestoneIndex + 1; i < updatedMilestones.length; i++) {
-                  updatedMilestones[i] = { ...updatedMilestones[i], completed: false, completedAt: null, completedBy: null };
+                  updatedMilestones[i] = { ...updatedMilestones[i], completed: false, completedAt: null, completedBy: null, location: null };
               }
           }
       }
