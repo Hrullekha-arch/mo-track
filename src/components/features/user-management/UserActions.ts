@@ -1,9 +1,8 @@
 
 "use server";
 
-import { initializeApp, getApps, App } from "firebase-admin/app";
+import { initializeApp, getApps, app } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { app } from "firebase-admin";
 
 // Initialize Firebase Admin SDK if not already initialized
 const adminApp = !getApps().length ? initializeApp() : app();
