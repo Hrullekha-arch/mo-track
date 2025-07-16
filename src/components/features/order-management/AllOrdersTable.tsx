@@ -14,7 +14,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, MapPin } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, MapPin, CheckCircle2, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -121,6 +121,7 @@ export function AllOrdersTable() {
 
 
   const getInstallerName = (id?: string) => users.find(u => u.id === id)?.name || "N/A";
+  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
 
   const columns: ColumnDef<Order>[] = [
     {
@@ -169,27 +170,36 @@ export function AllOrdersTable() {
         cell: ({ row }) => <Badge variant="outline">{row.getValue("orderType")}</Badge>
     },
     {
-        accessorKey: "createdAt",
-        header: "Created At",
-        cell: ({ row }) => new Date(row.getValue("createdAt")).toLocaleDateString(),
-    },
-    {
-        accessorKey: "createdBy.name",
-        header: "Created By",
-        cell: ({ row }) => <div>{row.original.createdBy?.name || 'System'}</div>,
-    },
-    {
         accessorKey: "assignedTo",
         header: "Installer",
         cell: ({ row }) => <div>{getInstallerName(row.getValue("assignedTo"))}</div>,
     },
     {
-        id: "milestones",
+        id: "lastMilestone",
         header: "Last Milestone",
         cell: ({ row }) => {
             const lastCompleted = row.original.milestones.slice().reverse().find(m => m.completed);
             return <div>{lastCompleted?.name || "Order Received"}</div>;
         }
+    },
+     {
+      id: "otpSubmitted",
+      header: "OTP Submitted",
+      cell: ({ row }) => {
+        const order = row.original;
+        if (!isFullyCompleted(order)) {
+          return <Badge variant="secondary">N/A</Badge>;
+        }
+        return order.bypassedOtp ? (
+          <Badge variant="destructive" className="flex items-center gap-1">
+            <XCircle className="h-3 w-3" /> No
+          </Badge>
+        ) : (
+          <Badge variant="default" className="flex items-center gap-1 bg-green-600 hover:bg-green-700">
+            <CheckCircle2 className="h-3 w-3" /> Yes
+          </Badge>
+        );
+      },
     },
     {
         id: "milestone_details",

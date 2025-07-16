@@ -4,8 +4,9 @@
 import { AppShell } from "@/components/shared/AppShell";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WelcomeDialog } from "@/components/features/user-management/WelcomeDialog";
 
 export default function DashboardLayout({
   children,
@@ -14,6 +15,17 @@ export default function DashboardLayout({
 }) {
   const { user, loading, role } = useAuth();
   const router = useRouter();
+  const [showWelcome, setShowWelcome] = useState(false);
+
+  useEffect(() => {
+    // Check session storage to see if we've already shown the welcome message
+    const hasBeenWelcomed = sessionStorage.getItem('hasBeenWelcomed');
+    if (!loading && user && !hasBeenWelcomed) {
+      setShowWelcome(true);
+      sessionStorage.setItem('hasBeenWelcomed', 'true');
+    }
+  }, [user, loading]);
+
 
   useEffect(() => {
     if (!loading && !user) {
@@ -38,5 +50,10 @@ export default function DashboardLayout({
     );
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <>
+      <AppShell>{children}</AppShell>
+      {user && <WelcomeDialog user={user} isOpen={showWelcome} onClose={() => setShowWelcome(false)} />}
+    </>
+  );
 }
