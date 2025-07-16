@@ -65,7 +65,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     try {
       const orderRef = doc(db, "orders", order.id);
       let updatedMilestones = order.milestones.map(m =>
-        m.id === milestoneId ? { ...m, completed, completedAt: completed ? new Date().toISOString() : undefined, completedBy: user?.name } : m
+        m.id === milestoneId ? { ...m, completed, completedAt: completed ? new Date().toISOString() : null, completedBy: completed ? user?.name : null } : m
       );
       
       // If un-checking a milestone, un-check all subsequent milestones
@@ -73,7 +73,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
           const milestoneIndex = updatedMilestones.findIndex(m => m.id === milestoneId);
           if (milestoneIndex !== -1) {
               for (let i = milestoneIndex + 1; i < updatedMilestones.length; i++) {
-                  updatedMilestones[i] = { ...updatedMilestones[i], completed: false, completedAt: undefined, completedBy: undefined };
+                  updatedMilestones[i] = { ...updatedMilestones[i], completed: false, completedAt: null, completedBy: null };
               }
           }
       }
