@@ -206,11 +206,11 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             <div className="space-y-2">
                 <div className="flex items-center gap-2 text-muted-foreground">
                     <Users className="h-4 w-4" />
-                    <span>CRM: <span className="font-medium text-foreground">{crmHandler?.name || 'Unassigned'}</span></span>
+                    <span>CRM: <span className="font-medium text-purple-600">{crmHandler?.name || 'Unassigned'}</span></span>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                     <UserIcon className="h-4 w-4" />
-                    <span>Installer: <span className="font-medium text-foreground">{assignedInstaller?.name || 'Unassigned'}</span></span>
+                    <span>Installer: <span className="font-medium text-indigo-600">{assignedInstaller?.name || 'Unassigned'}</span></span>
                 </div>
                 <div className={`flex items-center gap-2 font-semibold ${status.color}`}>
                     <TrendingUp className="h-4 w-4" />
