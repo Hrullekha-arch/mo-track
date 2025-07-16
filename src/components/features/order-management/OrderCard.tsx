@@ -41,7 +41,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const { toast } = useToast();
 
   const installers = allUsers.filter(u => u.role === 'installer');
-  const crmUsers = allUsers.filter(u => u.role === 'employee');
+  const crmUsers = allUsers.filter(u => u.designation === 'CRM');
   const assignedInstaller = allUsers.find(u => u.id === currentOrder.assignedTo);
   const crmHandler = allUsers.find(u => u.id === currentOrder.handledByCrm);
   
