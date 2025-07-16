@@ -30,7 +30,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const allNavItems = [
-  { href: "/dashboard/pending", icon: CheckSquare, label: "Pending Orders", roles: ['admin', 'employee', 'installer'] },
+  { href: "/dashboard/pending", icon: CheckSquare, label: "Orders to be Received", roles: ['admin', 'employee', 'installer'] },
   { href: "/dashboard", icon: ClipboardList, label: "Orders Dashboard", roles: ['admin', 'employee'] },
   { href: "/dashboard/all-orders", icon: Table, label: "All Orders (Admin)", roles: ['admin'] },
   { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin'] },
