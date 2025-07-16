@@ -50,10 +50,11 @@ export default function DashboardLayout({
     );
   }
 
+  // The check for user is done above, so we can safely render the shell and dialog
   return (
     <>
       <AppShell>{children}</AppShell>
-      {user && <WelcomeDialog user={user} isOpen={showWelcome} onClose={() => setShowWelcome(false)} />}
+      <WelcomeDialog user={user} isOpen={showWelcome} onClose={() => setShowWelcome(false)} />
     </>
   );
 }
