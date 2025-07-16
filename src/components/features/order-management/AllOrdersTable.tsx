@@ -14,7 +14,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronDown, Download, MoreHorizontal } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, MapPin } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,12 +37,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, User, Milestone } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/context/AuthContext";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
 export function AllOrdersTable() {
   const [orders, setOrders] = React.useState<Order[]>([]);
@@ -52,7 +54,10 @@ export function AllOrdersTable() {
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
+  const [deletingOrder, setDeletingOrder] = React.useState<Order | null>(null);
+
   const { toast } = useToast();
+  const { role } = useAuth();
 
   React.useEffect(() => {
     const ordersQuery = query(collection(db, "orders"));
@@ -73,6 +78,19 @@ export function AllOrdersTable() {
       unsubscribeUsers();
     };
   }, []);
+  
+  const handleDeleteOrder = async () => {
+    if (!deletingOrder) return;
+    try {
+      await deleteDoc(doc(db, "users", deletingOrder.id));
+      toast({ title: "Order Deleted", description: `Order ${deletingOrder.id} has been removed. (Firestore only)` });
+      setDeletingOrder(null);
+    } catch (error) {
+      console.error("Error deleting order: ", error);
+      toast({ variant: "destructive", title: "Error", description: "Failed to delete order." });
+    }
+  };
+
 
   const getInstallerName = (id?: string) => users.find(u => u.id === id)?.name || "N/A";
 
@@ -157,16 +175,51 @@ export function AllOrdersTable() {
                 <DropdownMenuLabel>Milestone Progress</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {row.original.milestones.map(m => (
-                    <DropdownMenuItem key={m.id} disabled>
-                        <div className="flex justify-between w-full">
+                    <DropdownMenuItem key={m.id} disabled className="flex-col items-start">
+                        <div className="flex justify-between w-full font-medium">
                            <span>{m.name}</span>
-                           {m.completed && <Badge variant="secondary">{m.completedBy} at {new Date(m.completedAt!).toLocaleDateString()}</Badge>}
+                           <span>{m.completed ? '✅' : '⏳'}</span>
                         </div>
+                         {m.completed && (
+                            <div className="text-xs text-muted-foreground w-full">
+                                <p>by {m.completedBy} at {new Date(m.completedAt!).toLocaleString()}</p>
+                                {m.location && <p className="flex items-center gap-1"><MapPin className="h-3 w-3"/>{m.location.latitude.toFixed(4)}, {m.location.longitude.toFixed(4)}</p>}
+                            </div>
+                        )}
                     </DropdownMenuItem>
                 ))}
             </DropdownMenuContent>
           </DropdownMenu>
         )
+    },
+     {
+      id: "actions",
+      enableHiding: false,
+      cell: ({ row }) => {
+        const order = row.original;
+        if (role !== 'admin') return null;
+
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <span className="sr-only">Open menu</span>
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => setDeletingOrder(order)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
     },
   ];
 
@@ -210,6 +263,7 @@ export function AllOrdersTable() {
   }
 
   return (
+    <>
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">All Orders</h1>
@@ -334,6 +388,21 @@ export function AllOrdersTable() {
             </CardContent>
         </Card>
     </div>
+     <AlertDialog open={!!deletingOrder} onOpenChange={() => setDeletingOrder(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the order from Firestore. 
+              This action is irreversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteOrder} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
-
