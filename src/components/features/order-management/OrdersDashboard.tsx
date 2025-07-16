@@ -4,10 +4,11 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlusCircle, SlidersHorizontal } from "lucide-react";
+import { PlusCircle, SlidersHorizontal, Package, Calendar, Clock, UserCheck, Truck, Scissors } from "lucide-react";
 import { mockOrders, mockUsers } from "@/lib/mock-data";
 import { OrderCard } from "./OrderCard";
 import { Order } from "@/lib/types";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function OrdersDashboard() {
   const [orders, setOrders] = useState<Order[]>(mockOrders);
@@ -17,6 +18,16 @@ export function OrdersDashboard() {
   
   // TODO: Implement order update logic
   const handleOrderUpdate = () => {};
+
+  const summary = {
+    pending: orders.filter(o => o.milestones.some(m => !m.completed)).length,
+    scheduledToday: 0, // Mock data
+    scheduled: orders.filter(o => o.milestones.find(m => m.id === 6)?.completed).length,
+    assigned: orders.filter(o => o.assignedTo).length,
+    readyForDelivery: orders.filter(o => o.milestones.find(m => m.id === 5)?.completed && !o.milestones.find(m => m.id === 7)?.completed).length,
+    stitched: orders.filter(o => o.milestones.find(m => m.id === 4)?.completed).length,
+  };
+
 
   return (
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -30,6 +41,16 @@ export function OrdersDashboard() {
           New Order
         </Button>
       </header>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-6">
+        <SummaryCard title="Pending" value={summary.pending} icon={Package} />
+        <SummaryCard title="Scheduled Today" value={summary.scheduledToday} icon={Clock} />
+        <SummaryCard title="Total Scheduled" value={summary.scheduled} icon={Calendar} />
+        <SummaryCard title="Assigned" value={summary.assigned} icon={UserCheck} />
+        <SummaryCard title="Ready for Delivery" value={summary.readyForDelivery} icon={Truck} />
+        <SummaryCard title="Stitched" value={summary.stitched} icon={Scissors} />
+      </div>
+
 
       <div className="mb-6 p-4 border rounded-lg bg-card">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -68,4 +89,18 @@ export function OrdersDashboard() {
       </div>
     </div>
   );
+}
+
+function SummaryCard({ title, value, icon: Icon }: { title: string; value: number; icon: React.ElementType }) {
+    return (
+        <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{title}</CardTitle>
+                <Icon className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+                <div className="text-2xl font-bold">{value}</div>
+            </CardContent>
+        </Card>
+    );
 }

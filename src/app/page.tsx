@@ -7,11 +7,6 @@ import Link from "next/link";
 export default function Home() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-      <div className="absolute top-4 right-4">
-        <Button asChild variant="outline">
-          <Link href="/login">Admin & Employee Login</Link>
-        </Button>
-      </div>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
