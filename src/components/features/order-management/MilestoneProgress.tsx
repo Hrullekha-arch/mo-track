@@ -54,8 +54,9 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
             const prevMilestoneCompleted = index === 0 || milestones[index - 1].completed;
             const isCurrent = !isCompleted && prevMilestoneCompleted;
             
-            // A milestone can be ticked if the user has permission, and either it's already completed (for un-ticking)
-            // or the previous one is completed (for ticking).
+            // A milestone can be ticked if the user has permission AND:
+            // 1. It's already completed (allowing it to be un-ticked by an admin).
+            // 2. The previous one is completed (allowing it to be ticked).
             const canBeTicked = canEditMilestone(milestone.id) && (isCompleted || prevMilestoneCompleted);
 
             return (
