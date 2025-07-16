@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlusCircle, SlidersHorizontal, Package, Calendar, Clock, UserCheck, Truck, Scissors, Bot, Loader2, CheckCheck } from "lucide-react";
+import { PlusCircle, SlidersHorizontal, Package, Calendar, Clock, UserCheck, Truck, Scissors, Bot, Loader2, CheckCheck, AlertTriangle } from "lucide-react";
 import { OrderCard } from "./OrderCard";
 import { Order, User } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -55,11 +55,11 @@ export function OrdersDashboard() {
     setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
   };
   
-  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && !!order.feedbackRating;
+  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
   
   const filteredOrders = useMemo(() => {
       return orders.filter(order => {
-        // Hide fully completed orders with feedback
+        // Hide fully completed orders
         if (isFullyCompleted(order)) {
             return false;
         }
@@ -96,7 +96,8 @@ export function OrdersDashboard() {
         assigned: activeOrders.filter(o => !!o.assignedTo).length,
         readyForDelivery: activeOrders.filter(o => o.milestones.find(m => m.id === 5)?.completed).length,
         stitched: activeOrders.filter(o => o.milestones.find(m => m.id === 4)?.completed && !o.milestones.find(m => m.id === 5)?.completed).length,
-        completed: orders.filter(isFullyCompleted).length
+        completed: orders.filter(isFullyCompleted).length,
+        bypassedOtp: orders.filter(o => o.bypassedOtp === true).length,
     }
   }, [orders]);
 
@@ -190,7 +191,7 @@ export function OrdersDashboard() {
         </div>
       </header>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 mb-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         <SummaryCard title="Pending" value={summary.pending} icon={Package} />
         <SummaryCard title="Scheduled Today" value={summary.scheduledToday} icon={Clock} />
         <SummaryCard title="Total Scheduled" value={summary.scheduled} icon={Calendar} />
@@ -198,6 +199,7 @@ export function OrdersDashboard() {
         <SummaryCard title="Ready for Delivery" value={summary.readyForDelivery} icon={Truck} />
         <SummaryCard title="Stitched" value={summary.stitched} icon={Scissors} />
         <SummaryCard title="Total Completed" value={summary.completed} icon={CheckCheck} />
+        <SummaryCard title="Bypassed OTP" value={summary.bypassedOtp} icon={AlertTriangle} />
       </div>
 
       <div className="mb-6 p-4 border rounded-lg bg-card">
@@ -311,8 +313,8 @@ function DashboardSkeleton() {
         </div>
         <Skeleton className="h-10 w-32" />
       </header>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 mb-6">
-        {Array.from({ length: 7 }).map((_, i) => (
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+        {Array.from({ length: 8 }).map((_, i) => (
           <Card key={i}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <Skeleton className="h-5 w-24" />
