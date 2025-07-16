@@ -13,6 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Skeleton } from "@/components/ui/skeleton";
+import { NewOrderDialog } from "./NewOrderDialog";
 
 export function OrdersDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -21,6 +22,7 @@ export function OrdersDashboard() {
   const { role } = useAuth();
   
   const [filters, setFilters] = useState({ search: '', employee: 'all', installer: 'all' });
+  const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
 
   useEffect(() => {
     const ordersQuery = query(collection(db, "orders"));
@@ -81,7 +83,10 @@ export function OrdersDashboard() {
     return <DashboardSkeleton />;
   }
 
+  const employees = users.filter(u => u.role === 'employee');
+
   return (
+    <>
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
       <header className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
         <div>
@@ -89,7 +94,7 @@ export function OrdersDashboard() {
           <p className="text-muted-foreground">Manage and track all customer orders.</p>
         </div>
         {role === 'admin' && (
-          <Button>
+          <Button onClick={() => setIsNewOrderDialogOpen(true)}>
             <PlusCircle className="mr-2 h-4 w-4" />
             New Order
           </Button>
@@ -152,6 +157,12 @@ export function OrdersDashboard() {
         )}
       </div>
     </div>
+    <NewOrderDialog
+        isOpen={isNewOrderDialogOpen}
+        onClose={() => setIsNewOrderDialogOpen(false)}
+        employees={employees}
+    />
+    </>
   );
 }
 

@@ -20,6 +20,7 @@ export interface Milestone {
 
 export interface Order {
   id: string; // This can also be the tracking code
+  crmOrderNo: string;
   customerName: string;
   customerPhone: string;
   customerAddress: string;
