@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Order, User, Milestone } from "@/lib/types";
-import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2 } from "lucide-react";
+import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2, AlertCircle } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -227,7 +227,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
   const customerMessage = `Hi ${currentOrder.customerName},\n\nThank you for your order with Mo Design!\n\nYour tracking number is: ${currentOrder.id}\nYour OTP for feedback submission is: ${currentOrder.otp}\nPlease share this OTP only with our installer after the job is complete.\n\nYou can track the live status of your order here:\n${typeof window !== 'undefined' ? window.location.origin : ''}/track?code=${currentOrder.id}\n\nWe look forward to serving you!\n- The MoTrack Team`;
 
-  const hasFeedback = currentOrder.feedbackRating || currentOrder.customerFeedbackRating;
+  const hasFeedback = currentOrder.feedbackRating || currentOrder.customerFeedbackRating || currentOrder.bypassedOtp;
 
   return (
     <TooltipProvider>
@@ -297,6 +297,12 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                 <Separator />
                 <div className="space-y-3">
                     <h4 className="font-semibold">Feedback</h4>
+                    {currentOrder.bypassedOtp && (
+                        <div className="flex items-center gap-2 text-orange-500 p-2 border border-orange-500/30 bg-orange-500/10 rounded-md">
+                            <AlertCircle className="h-4 w-4"/>
+                            <p className="text-sm font-medium">Feedback submitted without customer OTP.</p>
+                        </div>
+                    )}
                     {currentOrder.feedbackRating && (
                         <div>
                             <p className="text-sm font-medium">Installer Feedback</p>

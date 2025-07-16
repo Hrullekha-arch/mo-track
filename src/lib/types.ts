@@ -44,7 +44,8 @@ export interface Order {
   // Installer feedback
   feedbackRating?: number;
   feedbackRemarks?: string;
-  
+  bypassedOtp?: boolean;
+
   // Customer feedback
   customerFeedbackRating?: number;
   customerFeedbackRemarks?: string;

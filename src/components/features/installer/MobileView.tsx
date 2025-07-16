@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck } from "lucide-react";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw } from "lucide-react";
 import { Order, Milestone } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState } from "react";
@@ -60,7 +60,7 @@ export function MobileView() {
   }, [user]);
 
   // Filter for active orders (not fully completed with feedback)
-  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && !!order.feedbackRating;
+  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
   const activeOrders = assignedOrders.filter(o => !isFullyCompleted(o));
 
   if (loading) {
@@ -148,11 +148,12 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
     const { user } = useAuth();
     const { toast } = useToast();
     const [isUpdating, setIsUpdating] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [rating, setRating] = useState(0);
     const [remarks, setRemarks] = useState("");
     const [otp, setOtp] = useState("");
     const [isOtpDialogOpen, setIsOtpDialogOpen] = useState(false);
-
+    
     const installerMilestoneIds = [7, 8]; 
     const nextInstallerMilestone = order.milestones.find(m => installerMilestoneIds.includes(m.id) && !m.completed);
     
@@ -207,6 +208,7 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
             await updateDoc(orderRef, {
                 feedbackRating: rating,
                 feedbackRemarks: remarks,
+                bypassedOtp: false,
             });
             toast({ title: "Feedback submitted!", description: "Thank you for your input." });
             setIsOtpDialogOpen(false);
@@ -218,14 +220,48 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
         }
     }
     
+    const handleBypassOtp = async () => {
+         setIsUpdating(true);
+        try {
+            const orderRef = doc(db, "orders", order.id);
+            await updateDoc(orderRef, {
+                feedbackRating: 0,
+                feedbackRemarks: "Submitted without customer OTP.",
+                bypassedOtp: true,
+            });
+            toast({ title: "Feedback Bypassed", description: "Order has been marked as complete without OTP." });
+        } catch (error) {
+            console.error("Error bypassing OTP:", error);
+            toast({ variant: "destructive", title: "Bypass failed" });
+        } finally {
+            setIsUpdating(false);
+        }
+    }
+
+    const handleRefresh = () => {
+        setIsRefreshing(true);
+        // This is a simulated refresh for user experience.
+        setTimeout(() => {
+            setIsRefreshing(false);
+            toast({title: "Data is up to date."});
+        }, 700);
+    }
+    
     const isOrderComplete = order.milestones.every(m => m.completed);
 
 
     return (
         <Card>
             <CardHeader>
-                <CardTitle>{order.customerName}</CardTitle>
-                <CardDescription>ID: {order.id}</CardDescription>
+                 <div className="flex items-start justify-between">
+                    <div className="flex-grow">
+                        <CardTitle>{order.customerName}</CardTitle>
+                        <CardDescription>ID: {order.id}</CardDescription>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={isRefreshing}>
+                        {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    </Button>
+                </div>
                 <Badge className="w-fit mt-1" variant="outline">{order.orderType.replace('+', ' + ')}</Badge>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
@@ -271,7 +307,7 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
                     <p className="text-sm text-muted-foreground text-center pt-4">Waiting for other departments to complete their tasks.</p>
                  )}
                  
-                {isOrderComplete && !order.feedbackRating && (
+                {isOrderComplete && !order.feedbackRating && !order.bypassedOtp && (
                     <Dialog open={isOtpDialogOpen} onOpenChange={setIsOtpDialogOpen}>
                         <div className="pt-4 space-y-4">
                             <p className="font-semibold text-center">Order complete. Please provide feedback.</p>
@@ -289,11 +325,34 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
                                  <Label htmlFor={`remarks-${order.id}`}>Remarks</Label>
                                  <Textarea id={`remarks-${order.id}`} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Add any comments..."/>
                              </div>
-                            <DialogTrigger asChild>
-                                <Button className="w-full" disabled={rating === 0}>
-                                    Submit Feedback
-                                </Button>
-                            </DialogTrigger>
+                             <div className="flex flex-col gap-2">
+                                <DialogTrigger asChild>
+                                    <Button className="w-full" disabled={rating === 0}>
+                                        Submit Feedback
+                                    </Button>
+                                </DialogTrigger>
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                         <Button variant="link" size="sm" className="text-muted-foreground" disabled={isUpdating}>
+                                            Submit without OTP
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                This will mark the order as complete without customer OTP. A zero-star rating will be recorded. Use this only if the customer is unavailable.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={handleBypassOtp} disabled={isUpdating}>
+                                                Continue
+                                            </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            </div>
                         </div>
                          <DialogContent>
                             <DialogHeader>
@@ -323,15 +382,21 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
                     </Dialog>
                 )}
 
-                {isOrderComplete && order.feedbackRating && (
+                {isOrderComplete && (order.feedbackRating || order.bypassedOtp) && (
                     <div className="pt-4 space-y-2">
                         <p className="font-semibold">Feedback Submitted</p>
-                        <div className="flex items-center gap-1">
-                            {[1,2,3,4,5].map(star => (
-                                <Star key={star} className={cn("h-5 w-5", order.feedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
-                            ))}
-                        </div>
-                        {order.feedbackRemarks && <p className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">"{order.feedbackRemarks}"</p>}
+                        {order.bypassedOtp ? (
+                             <p className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">"Submitted without customer OTP."</p>
+                        ) : (
+                            <>
+                                <div className="flex items-center gap-1">
+                                    {[1,2,3,4,5].map(star => (
+                                        <Star key={star} className={cn("h-5 w-5", order.feedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
+                                    ))}
+                                </div>
+                                {order.feedbackRemarks && <p className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">"{order.feedbackRemarks}"</p>}
+                           </>
+                        )}
                     </div>
                 )}
             </CardContent>
