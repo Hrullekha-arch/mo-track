@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star } from "lucide-react";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck } from "lucide-react";
 import { Order, Milestone } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState } from "react";
@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import Link from "next/link";
 
 export function MobileView() {
   const { user, logout } = useAuth();
@@ -58,7 +59,8 @@ export function MobileView() {
   }, [user]);
 
   // Filter for active orders (not fully completed with feedback)
-  const activeOrders = assignedOrders.filter(o => o.milestones.some(m => !m.completed) || (o.milestones.every(m => m.completed) && !o.feedbackRating));
+  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && !!order.feedbackRating;
+  const activeOrders = assignedOrders.filter(o => !isFullyCompleted(o));
 
   if (loading) {
     return (
@@ -96,9 +98,17 @@ export function MobileView() {
         </Button>
       </header>
       
-      <div>
-        <h1 className="text-2xl font-bold">Your Tasks</h1>
-        <p className="text-muted-foreground">Here are your active assignments.</p>
+      <div className="flex justify-between items-center">
+        <div>
+            <h1 className="text-2xl font-bold">Your Tasks</h1>
+            <p className="text-muted-foreground">Here are your active assignments.</p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+            <Link href="/mobile/completed">
+                <CheckCheck className="mr-2 h-4 w-4" />
+                History
+            </Link>
+        </Button>
       </div>
 
        {locationError && (
@@ -313,5 +323,3 @@ function InstallerOrderCard({ order, location, locationError }: InstallerOrderCa
         </Card>
     );
 }
-
-    

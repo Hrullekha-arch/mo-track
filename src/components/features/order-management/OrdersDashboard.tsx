@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlusCircle, SlidersHorizontal, Package, Calendar, Clock, UserCheck, Truck, Scissors, Bot, Loader2 } from "lucide-react";
+import { PlusCircle, SlidersHorizontal, Package, Calendar, Clock, UserCheck, Truck, Scissors, Bot, Loader2, CheckCheck } from "lucide-react";
 import { OrderCard } from "./OrderCard";
 import { Order, User } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -55,12 +55,12 @@ export function OrdersDashboard() {
     setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
   };
   
-  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed);
+  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && !!order.feedbackRating;
   
   const filteredOrders = useMemo(() => {
       return orders.filter(order => {
         // Hide fully completed orders with feedback
-        if (isFullyCompleted(order) && order.feedbackRating) {
+        if (isFullyCompleted(order)) {
             return false;
         }
 
@@ -81,20 +81,25 @@ export function OrdersDashboard() {
 
   const scheduledDate = (order: Order) => order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt;
 
-  const summary = useMemo(() => ({
-    pending: orders.filter(o => !isFullyCompleted(o)).length,
-    scheduledToday: orders.filter(o => {
-        const schedDate = scheduledDate(o);
-        if (!schedDate) return false;
-        const today = new Date();
-        const d = new Date(schedDate);
-        return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
-    }).length,
-    scheduled: orders.filter(o => scheduledDate(o)).length,
-    assigned: orders.filter(o => !!o.assignedTo).length,
-    readyForDelivery: orders.filter(o => o.milestones.find(m => m.id === 5)?.completed && !isFullyCompleted(o)).length,
-    stitched: orders.filter(o => o.milestones.find(m => m.id === 4)?.completed && !o.milestones.find(m => m.id === 5)?.completed).length,
-  }), [orders]);
+  const summary = useMemo(() => {
+    const activeOrders = orders.filter(o => !isFullyCompleted(o));
+    return {
+        pending: activeOrders.length,
+        scheduledToday: activeOrders.filter(o => {
+            const schedDate = scheduledDate(o);
+            if (!schedDate) return false;
+            const today = new Date();
+            const d = new Date(schedDate);
+            return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+        }).length,
+        scheduled: activeOrders.filter(o => scheduledDate(o)).length,
+        assigned: activeOrders.filter(o => !!o.assignedTo).length,
+        readyForDelivery: activeOrders.filter(o => o.milestones.find(m => m.id === 5)?.completed).length,
+        stitched: activeOrders.filter(o => o.milestones.find(m => m.id === 4)?.completed && !o.milestones.find(m => m.id === 5)?.completed).length,
+        completed: orders.filter(isFullyCompleted).length
+    }
+  }, [orders]);
+
 
   const handleGenerateSchedule = async () => {
     setAiLoading(true);
@@ -185,13 +190,14 @@ export function OrdersDashboard() {
         </div>
       </header>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 mb-6">
         <SummaryCard title="Pending" value={summary.pending} icon={Package} />
         <SummaryCard title="Scheduled Today" value={summary.scheduledToday} icon={Clock} />
         <SummaryCard title="Total Scheduled" value={summary.scheduled} icon={Calendar} />
         <SummaryCard title="Assigned" value={summary.assigned} icon={UserCheck} />
         <SummaryCard title="Ready for Delivery" value={summary.readyForDelivery} icon={Truck} />
         <SummaryCard title="Stitched" value={summary.stitched} icon={Scissors} />
+        <SummaryCard title="Total Completed" value={summary.completed} icon={CheckCheck} />
       </div>
 
       <div className="mb-6 p-4 border rounded-lg bg-card">
@@ -268,7 +274,7 @@ export function OrdersDashboard() {
             <OrderCard key={order.id} order={order} onUpdate={handleOrderUpdate} allUsers={users} />
           ))
         ) : (
-          <p className="text-muted-foreground col-span-full text-center py-10">No orders found.</p>
+          <p className="text-muted-foreground col-span-full text-center py-10">No active orders found.</p>
         )}
       </div>
     </div>
@@ -305,8 +311,8 @@ function DashboardSkeleton() {
         </div>
         <Skeleton className="h-10 w-32" />
       </header>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-6">
-        {Array.from({ length: 6 }).map((_, i) => (
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 mb-6">
+        {Array.from({ length: 7 }).map((_, i) => (
           <Card key={i}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <Skeleton className="h-5 w-24" />
@@ -333,5 +339,3 @@ function DashboardSkeleton() {
     </div>
   )
 }
-
-    
