@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Order, User, Milestone } from "@/lib/types";
-import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Wrench, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Rocket, Wrench as WrenchIcon, CalendarClock } from "lucide-react";
+import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
