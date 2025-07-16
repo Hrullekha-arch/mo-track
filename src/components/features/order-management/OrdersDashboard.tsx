@@ -5,24 +5,31 @@ import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlusCircle, SlidersHorizontal, Package, Calendar, Clock, UserCheck, Truck, Scissors } from "lucide-react";
+import { PlusCircle, SlidersHorizontal, Package, Calendar, Clock, UserCheck, Truck, Scissors, Bot, Loader2 } from "lucide-react";
 import { OrderCard } from "./OrderCard";
 import { Order, User } from "@/lib/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NewOrderDialog } from "./NewOrderDialog";
+import { generateInstallationSchedule, GenerateInstallationScheduleInput, GenerateInstallationScheduleOutput } from "@/ai/flows/generate-installation-schedule";
+import { useToast } from "@/hooks/use-toast";
 
 export function OrdersDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [schedule, setSchedule] = useState<GenerateInstallationScheduleOutput | null>(null);
   const { role } = useAuth();
+  const { toast } = useToast();
   
   const [filters, setFilters] = useState({ search: '', employee: 'all', installer: 'all' });
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
+
+  const installers = users.filter(u => u.role === 'installer');
 
   useEffect(() => {
     const ordersQuery = query(collection(db, "orders"));
@@ -78,12 +85,69 @@ export function OrdersDashboard() {
     stitched: orders.filter(o => o.milestones.find(m => m.id === 4)?.completed && !o.milestones.find(m => m.id === 5)?.completed).length,
   }), [orders]);
 
+  const handleGenerateSchedule = async () => {
+    setAiLoading(true);
+    setSchedule(null);
+    
+    const unassignedOrders = filteredOrders.filter(o => !o.assignedTo);
+    if (unassignedOrders.length === 0) {
+      toast({ title: "No orders to schedule", description: "All visible orders are already assigned."});
+      setAiLoading(false);
+      return;
+    }
+
+    const installersWithLocation = installers.map((installer, i) => ({
+        id: installer.id,
+        name: installer.name,
+        currentWorkload: orders.filter(o => o.assignedTo === installer.id).map(o => o.id),
+        // Mock location for demo
+        location: { latitude: 34.0522 + i * 0.1, longitude: -118.2437 + i * 0.1 }
+    }));
+    
+    const ordersWithLocation = unassignedOrders.map((order, i) => ({
+        id: order.id,
+        // Mock location for demo
+        deliveryLocation: { latitude: 34.0522 - i * 0.05, longitude: -118.2437 - i*0.05 },
+        deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        orderType: order.orderType
+    }));
+
+    const currentSchedules = installers.reduce((acc, installer) => {
+        acc[installer.id] = orders.filter(o => o.assignedTo === installer.id).map(o => o.id);
+        return acc;
+    }, {} as Record<string, string[]>);
+
+    const input: GenerateInstallationScheduleInput = {
+      installers: installersWithLocation,
+      orders: ordersWithLocation,
+      currentSchedules,
+    };
+
+    try {
+      const result = await generateInstallationSchedule(input);
+      setSchedule(result);
+      toast({
+        title: "AI Schedule Generated",
+        description: "Review the optimized installation schedule below.",
+      });
+    } catch (error) {
+      console.error(error);
+      toast({
+        variant: "destructive",
+        title: "Error Generating Schedule",
+        description: "An unexpected error occurred. Please try again.",
+      });
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   if (loading) {
     return <DashboardSkeleton />;
   }
 
   const employees = users.filter(u => u.role === 'employee');
+  const canManage = role === 'admin' || role === 'employee';
 
   return (
     <>
@@ -93,12 +157,20 @@ export function OrdersDashboard() {
           <h1 className="text-3xl font-bold tracking-tight">Orders</h1>
           <p className="text-muted-foreground">Manage and track all customer orders.</p>
         </div>
-        {role === 'admin' && (
-          <Button onClick={() => setIsNewOrderDialogOpen(true)}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            New Order
-          </Button>
-        )}
+        <div className="flex gap-2">
+            {canManage && (
+            <Button onClick={handleGenerateSchedule} disabled={aiLoading}>
+                {aiLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bot className="mr-2 h-4 w-4" />}
+                AI Dispatch
+            </Button>
+            )}
+            {role === 'admin' && (
+            <Button onClick={() => setIsNewOrderDialogOpen(true)}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                New Order
+            </Button>
+            )}
+        </div>
       </header>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-6">
@@ -109,7 +181,6 @@ export function OrdersDashboard() {
         <SummaryCard title="Ready for Delivery" value={summary.readyForDelivery} icon={Truck} />
         <SummaryCard title="Stitched" value={summary.stitched} icon={Scissors} />
       </div>
-
 
       <div className="mb-6 p-4 border rounded-lg bg-card">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -135,7 +206,7 @@ export function OrdersDashboard() {
               </SelectTrigger>
               <SelectContent>
                  <SelectItem value="all">All Installers</SelectItem>
-                 {users.filter(u => u.role === 'installer').map(user => (
+                 {installers.map(user => (
                     <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -147,6 +218,38 @@ export function OrdersDashboard() {
         </div>
       </div>
       
+      {schedule && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>AI-Generated Schedule</CardTitle>
+            <CardDescription>The AI has suggested the following assignments for unassigned orders.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {Object.entries(schedule).map(([installerId, orderIds]) => {
+              const installer = installers.find(i => i.id === installerId);
+              return (
+                <Card key={installerId}>
+                  <CardHeader>
+                    <CardTitle>{installer?.name || 'Unknown Installer'}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {orderIds.length > 0 ? (
+                        <ul className="space-y-2">
+                        {orderIds.map(orderId => (
+                            <li key={orderId} className="text-sm p-2 border rounded-md bg-muted/50">{orderId}</li>
+                        ))}
+                        </ul>
+                    ) : (
+                        <p className="text-sm text-muted-foreground">No new assignments.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
         {filteredOrders.length > 0 ? (
           filteredOrders.map(order => (

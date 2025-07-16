@@ -6,13 +6,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
-import { ClipboardList, UserCog, CalendarCog, LogOut, Smartphone, BarChartHorizontalBig, Bot } from "lucide-react";
+import { ClipboardList, UserCog, LogOut, Smartphone, BarChartHorizontalBig } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
     { href: "/dashboard", icon: ClipboardList, label: "Orders", roles: ['admin', 'employee'] },
-    { href: "/dashboard/schedule", icon: Bot, label: "Dispatcher", roles: ['admin', 'employee'] },
     { href: "/dashboard/users", icon: UserCog, label: "Users", roles: ['admin'] },
     { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },
     { href: "/mobile", icon: Smartphone, label: "Mobile View", roles: ['installer'] },
