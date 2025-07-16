@@ -166,6 +166,16 @@ export function OrdersDashboard() {
   const employees = users.filter(u => u.role === 'employee');
   const canManage = role === 'admin' || role === 'employee';
   const canCreateOrder = role === 'admin' || user?.designation === 'PC';
+  const summaryColors = [
+      'border-l-4 border-blue-500',
+      'border-l-4 border-cyan-500',
+      'border-l-4 border-sky-500',
+      'border-l-4 border-indigo-500',
+      'border-l-4 border-purple-500',
+      'border-l-4 border-fuchsia-500',
+      'border-l-4 border-green-500',
+      'border-l-4 border-orange-500'
+  ];
 
   return (
     <>
@@ -191,15 +201,15 @@ export function OrdersDashboard() {
         </div>
       </header>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
-        <SummaryCard title="Pending" value={summary.pending} icon={Package} />
-        <SummaryCard title="Scheduled Today" value={summary.scheduledToday} icon={Clock} />
-        <SummaryCard title="Total Scheduled" value={summary.scheduled} icon={Calendar} />
-        <SummaryCard title="Assigned" value={summary.assigned} icon={UserCheck} />
-        <SummaryCard title="Ready for Delivery" value={summary.readyForDelivery} icon={Truck} />
-        <SummaryCard title="Stitched" value={summary.stitched} icon={Scissors} />
-        <SummaryCard title="Total Completed" value={summary.completed} icon={CheckCheck} />
-        <SummaryCard title="Bypassed OTP" value={summary.bypassedOtp} icon={AlertTriangle} />
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4 lg:grid-cols-4 mb-6">
+        <SummaryBox title="Pending" value={summary.pending} color={summaryColors[0]} />
+        <SummaryBox title="Scheduled Today" value={summary.scheduledToday} color={summaryColors[1]} />
+        <SummaryBox title="Total Scheduled" value={summary.scheduled} color={summaryColors[2]} />
+        <SummaryBox title="Assigned" value={summary.assigned} color={summaryColors[3]} />
+        <SummaryBox title="Ready for Delivery" value={summary.readyForDelivery} color={summaryColors[4]} />
+        <SummaryBox title="Stitched" value={summary.stitched} color={summaryColors[5]} />
+        <SummaryBox title="Total Completed" value={summary.completed} color={summaryColors[6]} />
+        <SummaryBox title="Bypassed OTP" value={summary.bypassedOtp} color={summaryColors[7]} />
       </div>
 
       <div className="mb-6 p-4 border rounded-lg bg-card">
@@ -289,17 +299,14 @@ export function OrdersDashboard() {
   );
 }
 
-function SummaryCard({ title, value, icon: Icon }: { title: string; value: number; icon: React.ElementType }) {
+function SummaryBox({ title, value, color }: { title: string; value: number; color: string; }) {
     return (
-        <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{title}</CardTitle>
-                <Icon className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-                <div className="text-2xl font-bold">{value}</div>
-            </CardContent>
-        </Card>
+        <div className={`bg-card p-4 rounded-lg shadow-sm flex items-center gap-4 ${color}`}>
+            <div>
+                <p className="text-sm text-muted-foreground">{title}</p>
+                <p className="text-2xl font-bold">{value}</p>
+            </div>
+        </div>
     );
 }
 
@@ -313,17 +320,9 @@ function DashboardSkeleton() {
         </div>
         <Skeleton className="h-10 w-32" />
       </header>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4 lg:grid-cols-4 mb-6">
         {Array.from({ length: 8 }).map((_, i) => (
-          <Card key={i}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <Skeleton className="h-5 w-24" />
-              <Skeleton className="h-4 w-4" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-8 w-12" />
-            </CardContent>
-          </Card>
+          <Skeleton key={i} className="h-20 w-full" />
         ))}
       </div>
       <div className="mb-6 p-4 border rounded-lg bg-card">
