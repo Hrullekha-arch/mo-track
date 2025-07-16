@@ -23,5 +23,8 @@ export function getMilestonesForOrder(orderType: OrderType): Milestone[] {
     id,
     name: MILESTONES_CONFIG[id].name,
     completed: false,
+    completedBy: null,
+    completedAt: null,
+    location: null,
   }));
 }

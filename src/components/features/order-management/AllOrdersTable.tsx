@@ -47,6 +47,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { MILESTONES_CONFIG } from "@/lib/constants";
 
 function LocationDisplay({ location }: { location: { latitude: number; longitude: number; } }) {
     const [area, setArea] = React.useState("Fetching area...");
@@ -286,13 +287,14 @@ export function AllOrdersTable() {
   const handleExport = () => {
     toast({
         title: "Export Started",
-        description: "Generating Excel file for visible orders..."
+        description: "Generating detailed Excel file..."
     });
 
     const dataToExport = table.getFilteredRowModel().rows.map(row => {
         const order = row.original;
         const lastCompleted = order.milestones.slice().reverse().find(m => m.completed);
-        return {
+        
+        let flatOrder: any = {
             "Order ID": order.id,
             "Customer Name": order.customerName,
             "Customer Phone": order.customerPhone,
@@ -301,29 +303,56 @@ export function AllOrdersTable() {
             "Sales Person": order.salesPerson,
             "Installer": getInstallerName(order.assignedTo),
             "Status": lastCompleted?.name || "Order Received",
-            "OTP Submitted": order.bypassedOtp ? "No" : (isFullyCompleted(order) ? "Yes" : "N/A"),
+            "OTP Submitted By Installer": order.bypassedOtp ? "No" : (!!order.feedbackRating ? "Yes" : "N/A"),
+            "Installer Feedback Rating": order.feedbackRating || 'N/A',
+            "Installer Feedback Remarks": order.feedbackRemarks || '',
+            "Customer Feedback Rating": order.customerFeedbackRating || 'N/A',
+            "Customer Feedback Remarks": order.customerFeedbackRemarks || '',
             "Completion Date": order.completedAt ? new Date(order.completedAt).toLocaleString() : "N/A",
+            "Created Date": new Date(order.createdAt).toLocaleString(),
         };
+
+        // Add all milestones with their details
+        Object.values(MILESTONES_CONFIG).forEach((milestoneConfig, index) => {
+            const milestoneId = index + 1;
+            const milestoneData = order.milestones.find(m => m.id === milestoneId);
+            
+            flatOrder[`${milestoneId}. ${milestoneConfig.name} - Status`] = milestoneData ? (milestoneData.completed ? 'Completed' : 'Pending') : 'N/A';
+            flatOrder[`${milestoneId}. ${milestoneConfig.name} - Completed At`] = milestoneData?.completedAt ? new Date(milestoneData.completedAt).toLocaleString() : '';
+            flatOrder[`${milestoneId}. ${milestoneConfig.name} - Completed By`] = milestoneData?.completedBy || '';
+            flatOrder[`${milestoneId}. ${milestoneConfig.name} - Location`] = milestoneData?.location ? `${milestoneData.location.latitude.toFixed(5)}, ${milestoneData.location.longitude.toFixed(5)}` : '';
+        });
+        
+        return flatOrder;
     });
+
+    if (dataToExport.length === 0) {
+        toast({
+            variant: "destructive",
+            title: "Export Failed",
+            description: "No data available to export.",
+        });
+        return;
+    }
 
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Orders");
 
-    // Let's make the columns wider for better readability
+    // Make columns wider for better readability
     const maxLengths = Object.keys(dataToExport[0] || {}).map(key => {
         const column = dataToExport.map(item => item[key as keyof typeof item] ?? "");
         const headerLength = key.length;
         const maxLength = Math.max(...column.map(val => String(val).length), headerLength);
-        return { wch: maxLength + 2 };
+        return { wch: Math.min(maxLength + 2, 60) }; // cap width at 60
     });
     worksheet["!cols"] = maxLengths;
     
-    XLSX.writeFile(workbook, `motrack_orders_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(workbook, `motrack_orders_detailed_${new Date().toISOString().split('T')[0]}.xlsx`);
 
     toast({
         title: "Export Complete!",
-        description: "Your Excel file has been downloaded.",
+        description: "Your detailed Excel file has been downloaded.",
     });
   }
 
