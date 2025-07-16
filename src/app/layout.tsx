@@ -6,6 +6,7 @@ import { AuthProvider } from '@/context/AuthContext';
 export const metadata: Metadata = {
   title: 'MoTrack',
   description: 'Tracking system for Mo Design’s field operations.',
+  manifest: '/manifest.json',
 };
 
 export default function RootLayout({
@@ -19,6 +20,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet"></link>
+        <meta name="theme-color" content="#2563eb" />
       </head>
       <body className="font-body antialiased">
         <AuthProvider>
