@@ -40,5 +40,7 @@ export interface Order {
   createdBy?: {
     id: string;
     name: string;
-  }
+  },
+  feedbackRating?: number;
+  feedbackRemarks?: string;
 }

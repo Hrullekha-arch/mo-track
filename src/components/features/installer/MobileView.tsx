@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2, AlertTriangle } from "lucide-react";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star } from "lucide-react";
 import { Order, Milestone } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState } from "react";
@@ -13,6 +13,9 @@ import { collection, onSnapshot, query, where, doc, updateDoc } from "firebase/f
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 export function MobileView() {
   const { user, logout } = useAuth();
@@ -53,7 +56,8 @@ export function MobileView() {
   }, [user]);
 
   // Filter for active orders (not fully completed)
-  const activeOrders = assignedOrders.filter(o => o.milestones.some(m => !m.completed));
+  const activeOrders = assignedOrders.filter(o => o.milestones.some(m => !m.completed) || (o.milestones.every(m => m.completed) && !o.feedbackRating));
+  const completedOrders = assignedOrders.filter(o => o.milestones.every(m => m.completed) && o.feedbackRating);
 
   if (loading) {
     return (
@@ -118,6 +122,17 @@ export function MobileView() {
           <p className="text-sm text-muted-foreground">You have no active assignments.</p>
         </div>
       )}
+      
+       {completedOrders.length > 0 && (
+        <div className="mt-8">
+            <h2 className="text-xl font-bold">Completed Tasks</h2>
+             <div className="space-y-4 mt-4">
+                {completedOrders.map(order => (
+                    <InstallerOrderCard key={order.id} order={order} location={location} locationError={locationError} />
+                ))}
+            </div>
+        </div>
+       )}
     </div>
   );
 }
@@ -132,19 +147,15 @@ function InstallerOrderCard({ order, location, locationError }: InstallerOrderCa
     const { user } = useAuth();
     const { toast } = useToast();
     const [isUpdating, setIsUpdating] = useState(false);
+    const [rating, setRating] = useState(0);
+    const [remarks, setRemarks] = useState("");
 
-    // Milestones installers can update ('Out for Delivery/Installation', 'Installation Done')
     const installerMilestoneIds = [7, 8]; 
     const nextInstallerMilestone = order.milestones.find(m => installerMilestoneIds.includes(m.id) && !m.completed);
     
-    // The previous milestone must be complete before the installer can act
-    // For installers, this means 'Ready for Delivery' (ID 5) must be done for milestone 7,
-    // and milestone 7 must be done for milestone 8.
     const canUpdate = (milestone: Milestone) => {
         const currentIndex = order.milestones.findIndex(m => m.id === milestone.id);
-        if (currentIndex === 0) return true; // Should not happen for installers
-        
-        // Find the preceding milestone in the order's specific milestone list
+        if (currentIndex === 0) return true;
         const prevMilestoneInFlow = order.milestones[currentIndex - 1];
         return prevMilestoneInFlow.completed;
     }
@@ -183,6 +194,29 @@ function InstallerOrderCard({ order, location, locationError }: InstallerOrderCa
             setIsUpdating(false);
         }
     };
+    
+    const handleFeedbackSubmit = async () => {
+        if (rating === 0) {
+            toast({ variant: "destructive", title: "Rating required", description: "Please select a star rating." });
+            return;
+        }
+        setIsUpdating(true);
+        try {
+            const orderRef = doc(db, "orders", order.id);
+            await updateDoc(orderRef, {
+                feedbackRating: rating,
+                feedbackRemarks: remarks,
+            });
+            toast({ title: "Feedback submitted!", description: "Thank you for your input." });
+        } catch (error) {
+            console.error("Error submitting feedback:", error);
+            toast({ variant: "destructive", title: "Feedback submission failed" });
+        } finally {
+            setIsUpdating(false);
+        }
+    }
+    
+    const isOrderComplete = order.milestones.every(m => m.completed);
 
 
     return (
@@ -214,13 +248,45 @@ function InstallerOrderCard({ order, location, locationError }: InstallerOrderCa
                     </Button>
                 )}
 
-                {!nextInstallerMilestone && order.milestones.every(m => m.completed) && (
-                    <p className="text-sm text-accent font-semibold text-center pt-4">This order is complete.</p>
-                )}
-
-                 {!nextInstallerMilestone && !order.milestones.every(m => m.completed) && (
+                {!nextInstallerMilestone && !isOrderComplete && (
                     <p className="text-sm text-muted-foreground text-center pt-4">Waiting for other departments to complete their tasks.</p>
                  )}
+                 
+                {isOrderComplete && !order.feedbackRating && (
+                    <div className="pt-4 space-y-4">
+                        <p className="font-semibold text-center">Order complete. Please provide feedback.</p>
+                        <div className="space-y-2">
+                            <Label>Rating</Label>
+                            <div className="flex items-center gap-1">
+                                {[1,2,3,4,5].map(star => (
+                                    <button key={star} onClick={() => setRating(star)}>
+                                        <Star className={cn("h-8 w-8", rating >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                         <div className="space-y-2">
+                             <Label htmlFor={`remarks-${order.id}`}>Remarks</Label>
+                             <Textarea id={`remarks-${order.id}`} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Add any comments..."/>
+                         </div>
+                         <Button className="w-full" onClick={handleFeedbackSubmit} disabled={isUpdating}>
+                            {isUpdating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Submit Feedback
+                         </Button>
+                    </div>
+                )}
+
+                {isOrderComplete && order.feedbackRating && (
+                    <div className="pt-4 space-y-2">
+                        <p className="font-semibold">Feedback Submitted</p>
+                        <div className="flex items-center gap-1">
+                            {[1,2,3,4,5].map(star => (
+                                <Star key={star} className={cn("h-5 w-5", order.feedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
+                            ))}
+                        </div>
+                        {order.feedbackRemarks && <p className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">"{order.feedbackRemarks}"</p>}
+                    </div>
+                )}
             </CardContent>
         </Card>
     );
