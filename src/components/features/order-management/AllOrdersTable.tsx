@@ -45,6 +45,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Tooltip, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function AllOrdersTable() {
   const [orders, setOrders] = React.useState<Order[]>([]);
@@ -82,7 +83,7 @@ export function AllOrdersTable() {
   const handleDeleteOrder = async () => {
     if (!deletingOrder) return;
     try {
-      await deleteDoc(doc(db, "users", deletingOrder.id));
+      await deleteDoc(doc(db, "orders", deletingOrder.id));
       toast({ title: "Order Deleted", description: `Order ${deletingOrder.id} has been removed. (Firestore only)` });
       setDeletingOrder(null);
     } catch (error) {
@@ -181,9 +182,14 @@ export function AllOrdersTable() {
                            <span>{m.completed ? '✅' : '⏳'}</span>
                         </div>
                          {m.completed && (
-                            <div className="text-xs text-muted-foreground w-full">
+                            <div className="text-xs text-muted-foreground w-full space-y-1 mt-1">
                                 <p>by {m.completedBy} at {new Date(m.completedAt!).toLocaleString()}</p>
-                                {m.location && <p className="flex items-center gap-1"><MapPin className="h-3 w-3"/>{m.location.latitude.toFixed(4)}, {m.location.longitude.toFixed(4)}</p>}
+                                {m.location && (
+                                  <p className="flex items-center gap-1">
+                                    <MapPin className="h-3 w-3"/>
+                                    {m.location.latitude.toFixed(4)}, {m.location.longitude.toFixed(4)}
+                                  </p>
+                                )}
                             </div>
                         )}
                     </DropdownMenuItem>
