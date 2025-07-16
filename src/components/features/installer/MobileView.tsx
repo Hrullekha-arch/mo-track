@@ -143,7 +143,7 @@ interface InstallerOrderCardProps {
     locationError: string | null;
 }
 
-function InstallerOrderCard({ order, location, locationError }: InstallerOrderCardProps) {
+export function InstallerOrderCard({ order, location, locationError }: InstallerOrderCardProps) {
     const { user } = useAuth();
     const { toast } = useToast();
     const [isUpdating, setIsUpdating] = useState(false);
