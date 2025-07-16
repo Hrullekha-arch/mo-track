@@ -41,7 +41,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const { toast } = useToast();
 
   const installers = allUsers.filter(u => u.role === 'installer');
-  const crmUsers = allUsers.filter(u => u.role === 'employee');
+  const crmUsers = allUsers.filter(u => u.designation === 'CRM');
   const assignedInstaller = allUsers.find(u => u.id === currentOrder.assignedTo);
   const crmHandler = allUsers.find(u => u.id === currentOrder.handledByCrm);
   
@@ -60,7 +60,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const canSchedule = (role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && !isOrderComplete;
   const canEditMilestones = (role === 'admin' || role === 'employee') && !isOrderComplete;
   const canSendMessage = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
-  const canDeleteOrder = role === 'admin';
+  const canDeleteOrder = role === 'admin' && !isOrderComplete;
 
 
   const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
