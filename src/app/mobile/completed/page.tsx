@@ -28,7 +28,7 @@ export default function MobileCompletedPage() {
     }
   }, [user, loading, role, router]);
 
-  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && !!order.feedbackRating;
+  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
 
   useEffect(() => {
     if (!user) return;
