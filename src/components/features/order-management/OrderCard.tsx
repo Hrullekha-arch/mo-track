@@ -221,7 +221,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                     <UserIcon className="mr-2 h-4 w-4" />
                     {assignedInstaller ? "Re-assign" : "Assign"}
                 </Button>
-                <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)} disabled={!order.assignedTo}>
+                <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)}>
                     <CalendarClock className="mr-2 h-4 w-4" />
                     Schedule
                 </Button>
