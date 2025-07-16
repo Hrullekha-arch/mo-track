@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,7 +42,9 @@ export function MilestoneProgress({ milestones, onMilestoneChange, role = null }
           {milestones.map((milestone, index) => {
             const Icon = milestoneIcons[milestone.id] || Circle;
             const isCompleted = milestone.completed;
-            const isCurrent = !isCompleted && (index === 0 || milestones[index - 1].completed);
+            const prevMilestoneCompleted = index === 0 || milestones[index - 1].completed;
+            const isCurrent = !isCompleted && prevMilestoneCompleted;
+            const canBeTicked = isEditable && (isCompleted || prevMilestoneCompleted);
 
             return (
               <li key={milestone.id} className="flex items-start gap-4">
@@ -69,6 +72,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange, role = null }
                         checked={isCompleted}
                         onCheckedChange={(checked) => onMilestoneChange?.(milestone.id, !!checked)}
                         className="h-5 w-5"
+                        disabled={!canBeTicked}
                       />
                     )}
                   </div>

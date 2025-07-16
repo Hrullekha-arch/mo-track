@@ -17,6 +17,7 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { AssignCrmDialog } from "./AssignCrmDialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface OrderCardProps {
   order: Order;
@@ -41,6 +42,8 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const progressPercentage = (completedCount / order.milestones.length) * 100;
   
   const lastCompletedMilestone = order.milestones.slice().reverse().find(m => m.completed);
+  const isReadyForDelivery = !!order.milestones.find(m => m.id === 5)?.completed;
+
 
   const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
     if (role === 'employee') {
@@ -139,7 +142,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     if (installScheduled || deliveryScheduled) {
         return { text: "Scheduled", icon: CalendarClock, color: "text-blue-500" };
     }
-     if (order.milestones.find(m => m.id === 5)?.completed) {
+     if (isReadyForDelivery) {
       return { text: "Ready for Delivery", icon: PackageCheck, color: "text-orange-500" };
     }
     if (order.assignedTo) {
@@ -156,7 +159,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const createdAtDate = order.createdAt ? new Date(order.createdAt) : new Date();
 
   return (
-    <>
+    <TooltipProvider>
     <Card className="flex flex-col">
       <CardHeader>
         <div className="flex items-start justify-between">
@@ -248,10 +251,21 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                     <Users className="mr-2 h-4 w-4" />
                     Assign CRM
                 </Button>
-                <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)}>
-                    <UserIcon className="mr-2 h-4 w-4" />
-                    {assignedInstaller ? "Re-assign" : "Assign"}
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="w-full">
+                      <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)} disabled={!isReadyForDelivery}>
+                          <UserIcon className="mr-2 h-4 w-4" />
+                          {assignedInstaller ? "Re-assign" : "Assign"}
+                      </Button>
+                    </div>
+                  </TooltipTrigger>
+                  {!isReadyForDelivery && (
+                    <TooltipContent>
+                      <p>Mark order as "Ready for Delivery" to assign an installer.</p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
                 <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)}>
                     <CalendarClock className="mr-2 h-4 w-4" />
                     Schedule
@@ -280,6 +294,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         onSchedule={handleSchedule}
         orderType={order.orderType}
     />
-    </>
+    </TooltipProvider>
   );
 }
