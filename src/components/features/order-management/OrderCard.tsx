@@ -34,7 +34,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const { toast } = useToast();
 
   const installers = allUsers.filter(u => u.role === 'installer');
-  const crmUsers = allUsers.filter(u => u.designation === 'CRM');
+  const crmUsers = allUsers.filter(u => u.designation === 'CRM' || u.designation === 'PC');
   const assignedInstaller = allUsers.find(u => u.id === order.assignedTo);
   const crmHandler = allUsers.find(u => u.id === order.handledByCrm);
   
@@ -44,10 +44,21 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const lastCompletedMilestone = order.milestones.slice().reverse().find(m => m.completed);
   const isReadyForDelivery = !!order.milestones.find(m => m.id === 5)?.completed;
 
+  // Permissions Logic
+  const canAssignCrm = role === 'admin' || user?.designation === 'PC';
+  const canAssignInstaller = (role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && isReadyForDelivery;
+  const canSchedule = role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM';
+  const canEditMilestones = role === 'admin' || role === 'employee';
 
   const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
-    if (role === 'employee') {
+    if (!canEditMilestones) {
         toast({ variant: "destructive", title: "Permission Denied", description: "You are not authorized to change milestones." });
+        return;
+    }
+    
+    // Employees can only tick up to 'Ready for Delivery'
+    if (role === 'employee' && milestoneId > 5) {
+        toast({ variant: "destructive", title: "Permission Denied", description: "This milestone is updated by installers." });
         return;
     }
     
@@ -153,7 +164,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
   const status = getStatusInfo();
   const StatusIcon = status.icon;
-  const isEmployee = role === 'employee';
 
   const scheduledDate = order.milestones.find(m => (m.id === 6 || m.id === 7) && m.completed)?.completedAt;
   const createdAtDate = order.createdAt ? new Date(order.createdAt) : new Date();
@@ -167,7 +177,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                 <CardTitle>{order.customerName}</CardTitle>
                 <CardDescription>ID: {order.id}</CardDescription>
             </div>
-            { !isEmployee && (
+            { role === 'admin' && (
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon">
@@ -245,31 +255,44 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
          <div className="text-xs text-muted-foreground">
             Created on {createdAtDate.toLocaleDateString()}
         </div>
-         {!isEmployee && (
+         {(canAssignCrm || canAssignInstaller || canSchedule) && (
             <div className="w-full grid grid-cols-3 gap-2 pt-2">
-                <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigningCrm(true)}>
-                    <Users className="mr-2 h-4 w-4" />
-                    Assign CRM
-                </Button>
                 <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="w-full">
-                      <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)} disabled={!isReadyForDelivery}>
-                          <UserIcon className="mr-2 h-4 w-4" />
-                          {assignedInstaller ? "Re-assign" : "Assign"}
-                      </Button>
-                    </div>
-                  </TooltipTrigger>
-                  {!isReadyForDelivery && (
-                    <TooltipContent>
-                      <p>Mark order as "Ready for Delivery" to assign an installer.</p>
-                    </TooltipContent>
-                  )}
+                    <TooltipTrigger asChild>
+                        <div className="w-full">
+                            <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigningCrm(true)} disabled={!canAssignCrm}>
+                                <Users className="mr-2 h-4 w-4" />
+                                Assign CRM
+                            </Button>
+                        </div>
+                    </TooltipTrigger>
+                    {!canAssignCrm && <TooltipContent><p>You don't have permission to assign CRM.</p></TooltipContent>}
                 </Tooltip>
-                <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)}>
-                    <CalendarClock className="mr-2 h-4 w-4" />
-                    Schedule
-                </Button>
+
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <div className="w-full">
+                        <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)} disabled={!canAssignInstaller}>
+                            <UserIcon className="mr-2 h-4 w-4" />
+                            {assignedInstaller ? "Re-assign" : "Assign"}
+                        </Button>
+                        </div>
+                    </TooltipTrigger>
+                    {!isReadyForDelivery && <TooltipContent><p>Mark "Ready for Delivery" to assign.</p></TooltipContent>}
+                    {isReadyForDelivery && !canAssignInstaller && <TooltipContent><p>You don't have permission to assign installers.</p></TooltipContent>}
+                </Tooltip>
+                
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                       <div className="w-full">
+                             <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)} disabled={!canSchedule}>
+                                <CalendarClock className="mr-2 h-4 w-4" />
+                                Schedule
+                            </Button>
+                       </div>
+                    </TooltipTrigger>
+                     {!canSchedule && <TooltipContent><p>You don't have permission to schedule.</p></TooltipContent>}
+                </Tooltip>
             </div>
         )}
       </CardFooter>

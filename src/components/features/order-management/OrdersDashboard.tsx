@@ -23,7 +23,7 @@ export function OrdersDashboard() {
   const [loading, setLoading] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
   const [schedule, setSchedule] = useState<GenerateInstallationScheduleOutput | null>(null);
-  const { role } = useAuth();
+  const { user, role } = useAuth();
   const { toast } = useToast();
   
   const [filters, setFilters] = useState({ search: '', employee: 'all', installer: 'all' });
@@ -63,9 +63,14 @@ export function OrdersDashboard() {
         const employeeMatch = filters.employee === 'all' || order.salesPerson === users.find(u => u.id === filters.employee)?.name;
         const installerMatch = filters.installer === 'all' || order.assignedTo === filters.installer;
         
-        return searchMatch && employeeMatch && installerMatch;
+        let crmMatch = true;
+        if (user?.designation === 'CRM') {
+            crmMatch = order.handledByCrm === user.id;
+        }
+
+        return searchMatch && employeeMatch && installerMatch && crmMatch;
       });
-  }, [orders, users, filters]);
+  }, [orders, users, filters, user]);
 
   const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed);
   const scheduledDate = (order: Order) => order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt;

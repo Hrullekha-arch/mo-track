@@ -1,3 +1,4 @@
+
 export type UserRole = 'admin' | 'employee' | 'installer';
 
 export interface User {
@@ -6,7 +7,7 @@ export interface User {
   email: string;
   role: UserRole;
   avatarUrl?: string;
-  designation?: 'CRM' | 'Allocators';
+  designation?: 'CRM' | 'Allocators' | 'PC';
 }
 
 export type OrderType = 'delivery' | 'stitching' | 'stitching+installation';

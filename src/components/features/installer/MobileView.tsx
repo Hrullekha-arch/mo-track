@@ -41,6 +41,7 @@ export function MobileView() {
                     <Avatar><AvatarFallback>{user?.name?.[0]}</AvatarFallback></Avatar>
                     <div><p className="font-semibold">{user?.name}</p><p className="text-xs text-muted-foreground">Installer</p></div>
                  </div>
+                 <Button variant="ghost" size="icon" disabled><LogOut className="h-5 w-5" /></Button>
             </header>
             <div className="text-center p-8">
                 <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
@@ -98,15 +99,20 @@ function InstallerOrderCard({ order }: InstallerOrderCardProps) {
     const { toast } = useToast();
     const [isUpdating, setIsUpdating] = useState(false);
 
-    // Milestones installers can update (Out for Delivery/Installation, Installation Done)
+    // Milestones installers can update ('Out for Delivery/Installation', 'Installation Done')
     const installerMilestoneIds = [7, 8]; 
     const nextInstallerMilestone = order.milestones.find(m => installerMilestoneIds.includes(m.id) && !m.completed);
     
     // The previous milestone must be complete before the installer can act
+    // For installers, this means 'Ready for Delivery' (ID 5) must be done for milestone 7,
+    // and milestone 7 must be done for milestone 8.
     const canUpdate = (milestone: Milestone) => {
         const currentIndex = order.milestones.findIndex(m => m.id === milestone.id);
-        if (currentIndex === 0) return true;
-        return order.milestones[currentIndex-1].completed;
+        if (currentIndex === 0) return true; // Should not happen for installers
+        
+        // Find the preceding milestone in the order's specific milestone list
+        const prevMilestoneInFlow = order.milestones[currentIndex - 1];
+        return prevMilestoneInFlow.completed;
     }
 
     const handleStatusUpdate = async (milestoneToUpdate: Milestone) => {

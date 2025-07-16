@@ -8,11 +8,12 @@ import { cn } from "@/lib/utils";
 import { Milestone, UserRole } from "@/lib/types";
 import { CheckCircle2, Circle, Factory, Milestone as MilestoneIcon, Package, PackageCheck, Rocket, Scissors, Wrench } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useAuth } from "@/context/AuthContext";
 
 interface MilestoneProgressProps {
   milestones: Milestone[];
   onMilestoneChange?: (milestoneId: number, completed: boolean) => void;
-  role?: UserRole | null;
+  role?: UserRole | null; // Keep for prop-drilling, but useAuth is preferred
 }
 
 const milestoneIcons: { [key: number]: React.ElementType } = {
@@ -26,11 +27,19 @@ const milestoneIcons: { [key: number]: React.ElementType } = {
   8: Package,
 };
 
-export function MilestoneProgress({ milestones, onMilestoneChange, role = null }: MilestoneProgressProps) {
-  const isEditable = role === 'admin' || role === 'employee';
+export function MilestoneProgress({ milestones, onMilestoneChange }: MilestoneProgressProps) {
+  const { role: userRole } = useAuth();
   
   const completedCount = milestones.filter(m => m.completed).length;
   const progressPercentage = (completedCount / milestones.length) * 100;
+
+  const canEditMilestone = (milestoneId: number) => {
+    if (userRole === 'admin') return true;
+    if (userRole === 'employee' && milestoneId <= 5) return true; // Employees handle up to Ready for Delivery
+    // Installers handled on mobile view, but this check prevents them here.
+    if (userRole === 'installer' && milestoneId > 5) return true; 
+    return false;
+  }
 
   return (
     <TooltipProvider>
@@ -44,7 +53,10 @@ export function MilestoneProgress({ milestones, onMilestoneChange, role = null }
             const isCompleted = milestone.completed;
             const prevMilestoneCompleted = index === 0 || milestones[index - 1].completed;
             const isCurrent = !isCompleted && prevMilestoneCompleted;
-            const canBeTicked = isEditable && (isCompleted || prevMilestoneCompleted);
+            
+            // A milestone can be ticked if the user has permission, and either it's already completed (for un-ticking)
+            // or the previous one is completed (for ticking).
+            const canBeTicked = canEditMilestone(milestone.id) && (isCompleted || prevMilestoneCompleted);
 
             return (
               <li key={milestone.id} className="flex items-start gap-4">
@@ -66,7 +78,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange, role = null }
                     <p className={cn("font-medium", isCompleted ? "text-accent" : isCurrent ? "text-primary" : "text-muted-foreground")}>
                       {milestone.name}
                     </p>
-                    {isEditable && (
+                    {canEditMilestone(milestone.id) && (
                       <Checkbox
                         id={`milestone-${milestone.id}`}
                         checked={isCompleted}
