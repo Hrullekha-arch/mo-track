@@ -174,7 +174,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
       <CardHeader>
         <div className="flex items-start justify-between">
             <div>
-                <CardTitle>{order.customerName}</CardTitle>
+                <CardTitle><span className="text-primary">{order.customerName}</span></CardTitle>
                 <CardDescription>ID: {order.id}</CardDescription>
             </div>
             { role === 'admin' && (
@@ -206,11 +206,11 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             <div className="space-y-2">
                 <div className="flex items-center gap-2 text-muted-foreground">
                     <Users className="h-4 w-4" />
-                    <span>CRM: {crmHandler?.name || 'Unassigned'}</span>
+                    <span>CRM: <span className="font-medium text-foreground">{crmHandler?.name || 'Unassigned'}</span></span>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                     <UserIcon className="h-4 w-4" />
-                    <span>Installer: {assignedInstaller?.name || 'Unassigned'}</span>
+                    <span>Installer: <span className="font-medium text-foreground">{assignedInstaller?.name || 'Unassigned'}</span></span>
                 </div>
                 <div className={`flex items-center gap-2 font-semibold ${status.color}`}>
                     <TrendingUp className="h-4 w-4" />
@@ -220,8 +220,8 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         </div>
         
         {scheduledDate && (
-             <div className="text-sm flex items-center gap-2 text-muted-foreground pt-2">
-                <CalendarClock className="h-4 w-4 text-blue-500" />
+             <div className="text-sm flex items-center gap-2 text-blue-500 font-medium pt-2">
+                <CalendarClock className="h-4 w-4" />
                 <span>Scheduled: {new Date(scheduledDate).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
             </div>
         )}
