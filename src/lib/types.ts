@@ -16,7 +16,7 @@ export interface Milestone {
   id: number;
   name: string;
   completed: boolean;
-  completedBy?: string; // User ID
+  completedBy?: string; // User name
   completedAt?: string; // ISO Date string
 }
 
@@ -29,6 +29,7 @@ export interface Order {
   salesPerson: string;
   orderType: OrderType;
   milestones: Milestone[];
+  remarks?: string;
   assignedTo?: string; // Installer User ID
   handledByCrm?: string; // CRM User ID
   createdAt: string; // ISO Date string

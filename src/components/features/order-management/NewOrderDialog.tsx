@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { User, OrderType } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { Textarea } from "@/components/ui/textarea";
 
 const formSchema = z.object({
   crmOrderNo: z.string().min(1, "CRM Order No. is required"),
@@ -25,6 +26,7 @@ const formSchema = z.object({
   customerAddress: z.string().min(1, "Customer address is required"),
   salesPerson: z.string().min(1, "Sales person is required"),
   orderType: z.enum(['delivery', 'stitching', 'stitching+installation'], { required_error: "Order type is required" }),
+  remarks: z.string().optional(),
 });
 
 interface NewOrderDialogProps {
@@ -46,6 +48,7 @@ export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogPro
       customerPhone: "",
       customerAddress: "",
       salesPerson: "",
+      remarks: "",
     },
   });
 
@@ -65,6 +68,7 @@ export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogPro
         customerAddress: values.customerAddress,
         salesPerson: values.salesPerson,
         orderType: values.orderType,
+        remarks: values.remarks || "",
         milestones: getMilestonesForOrder(values.orderType),
         createdAt: new Date().toISOString(),
         createdBy: {
@@ -107,7 +111,7 @@ export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogPro
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4 max-h-[80vh] overflow-y-auto pr-2">
              <FormField
               control={form.control}
               name="crmOrderNo"
@@ -195,7 +199,20 @@ export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogPro
                 </FormItem>
               )}
             />
-            <DialogFooter>
+             <FormField
+              control={form.control}
+              name="remarks"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Remarks</FormLabel>
+                  <FormControl>
+                    <Textarea placeholder="Add any special instructions or notes here..." {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter className="pt-4">
                 <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
                 <Button type="submit" disabled={loading}>
                     {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

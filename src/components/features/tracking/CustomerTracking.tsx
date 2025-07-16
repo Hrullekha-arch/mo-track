@@ -1,20 +1,21 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Loader2, Search } from "lucide-react";
-import { Order } from "@/lib/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2, Search, User as UserIcon, Phone, MapPin, MessageSquare } from "lucide-react";
+import { Order, User } from "@/lib/types";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MilestoneProgress } from "../order-management/MilestoneProgress";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
+import { Separator } from "@/components/ui/separator";
 
 const formSchema = z.object({
   trackingCode: z.string().min(1, { message: "Tracking code is required." }),
@@ -22,6 +23,7 @@ const formSchema = z.object({
 
 export function CustomerTracking() {
   const [order, setOrder] = useState<Order | null>(null);
+  const [installer, setInstaller] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const { toast } = useToast();
@@ -37,11 +39,20 @@ export function CustomerTracking() {
     setLoading(true);
     setSearched(true);
     setOrder(null);
+    setInstaller(null);
     try {
         const orderRef = doc(db, "orders", values.trackingCode.toUpperCase());
         const docSnap = await getDoc(orderRef);
         if (docSnap.exists()) {
-            setOrder({ id: docSnap.id, ...docSnap.data() } as Order);
+            const orderData = { id: docSnap.id, ...docSnap.data() } as Order;
+            setOrder(orderData);
+            if (orderData.assignedTo) {
+                const installerRef = doc(db, "users", orderData.assignedTo);
+                const installerSnap = await getDoc(installerRef);
+                if (installerSnap.exists()) {
+                    setInstaller({ id: installerSnap.id, ...installerSnap.data() } as User);
+                }
+            }
         } else {
             setOrder(null);
         }
@@ -85,9 +96,24 @@ export function CustomerTracking() {
             <Card>
               <CardHeader>
                 <CardTitle>Order Status: {order.id}</CardTitle>
+                <CardDescription>Hello, {order.customerName}. Here is the latest update on your order.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <MilestoneProgress milestones={order.milestones} />
+              <CardContent className="space-y-4">
+                 <div className="space-y-3 rounded-md border p-4 text-sm">
+                    <div className="flex items-center gap-3"><MapPin className="h-5 w-5 text-muted-foreground" /><span>{order.customerAddress}</span></div>
+                    <div className="flex items-center gap-3"><Phone className="h-5 w-5 text-muted-foreground" /><span>{order.customerPhone}</span></div>
+                    {installer && (
+                         <div className="flex items-center gap-3"><UserIcon className="h-5 w-5 text-muted-foreground" /><span>Installer: {installer.name}</span></div>
+                    )}
+                    {order.remarks && (
+                         <div className="flex items-start gap-3"><MessageSquare className="h-5 w-5 text-muted-foreground mt-1" /><p className="flex-1">{order.remarks}</p></div>
+                    )}
+                 </div>
+                 <Separator />
+                 <div>
+                    <h3 className="mb-4 text-lg font-semibold">Order Progress</h3>
+                    <MilestoneProgress milestones={order.milestones} />
+                 </div>
               </CardContent>
             </Card>
           ) : (
