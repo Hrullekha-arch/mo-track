@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { User, OrderType } from "@/lib/types";
 import { Loader2 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 const formSchema = z.object({
   crmOrderNo: z.string().min(1, "CRM Order No. is required"),
@@ -35,6 +36,7 @@ interface NewOrderDialogProps {
 export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogProps) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -48,6 +50,10 @@ export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogPro
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!user) {
+        toast({ variant: "destructive", title: "Error", description: "You must be logged in to create an order."});
+        return;
+    }
     setLoading(true);
     try {
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
@@ -61,6 +67,10 @@ export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogPro
         orderType: values.orderType,
         milestones: getMilestonesForOrder(values.orderType),
         createdAt: new Date().toISOString(),
+        createdBy: {
+            id: user.id,
+            name: user.name,
+        }
       };
 
       await setDoc(doc(db, "orders", trackingId), newOrder);

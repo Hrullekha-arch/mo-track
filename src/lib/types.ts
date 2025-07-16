@@ -32,4 +32,8 @@ export interface Order {
   assignedTo?: string; // Installer User ID
   handledByCrm?: string; // CRM User ID
   createdAt: string; // ISO Date string
+  createdBy?: {
+    id: string;
+    name: string;
+  }
 }
