@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Order, User, Milestone } from "@/lib/types";
-import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star } from "lucide-react";
+import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2 } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const [isScheduling, setIsScheduling] = useState(false);
   const [isAssigningCrm, setIsAssigningCrm] = useState(false);
   const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentOrder, setCurrentOrder] = useState(order);
 
   const { user, role } = useAuth();
@@ -189,6 +190,16 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     setIsMessageDialogOpen(true);
   }
 
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    // Because we are using Firestore real-time listeners, the data is always up-to-date.
+    // This is a simulated refresh for user experience.
+    setTimeout(() => {
+        setIsRefreshing(false);
+        toast({title: "Data is up to date."});
+    }, 700);
+  }
+
   const getStatusInfo = () => {
     if (progressPercentage === 100) {
       return { text: "Completed", icon: CheckCircle2, color: "text-accent" };
@@ -223,27 +234,32 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     <Card className="flex flex-col">
       <CardHeader>
         <div className="flex items-start justify-between">
-            <div>
+            <div className="flex-grow">
                 <CardTitle><span className="text-primary">{currentOrder.customerName}</span></CardTitle>
                 <CardDescription>ID: {currentOrder.id}</CardDescription>
             </div>
-            { role === 'admin' && (
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                        <MoreVertical className="h-4 w-4" />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                    <DropdownMenuItem 
-                      className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                      onClick={handleDeleteOrder}
-                    >
-                        <Trash2 className="mr-2 h-4 w-4" />Delete Order
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
-            )}
+            <div className="flex items-center gap-1">
+                 <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={isRefreshing}>
+                    {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                </Button>
+                { role === 'admin' && (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon">
+                            <MoreVertical className="h-4 w-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuItem 
+                          className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                          onClick={handleDeleteOrder}
+                        >
+                            <Trash2 className="mr-2 h-4 w-4" />Delete Order
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+                )}
+            </div>
         </div>
       </CardHeader>
       <CardContent className="flex-grow space-y-4">

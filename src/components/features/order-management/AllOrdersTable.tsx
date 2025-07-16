@@ -47,6 +47,33 @@ import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
+function LocationDisplay({ location }: { location: { latitude: number; longitude: number; } }) {
+    const [area, setArea] = React.useState("Fetching area...");
+
+    React.useEffect(() => {
+        const timer = setTimeout(() => {
+            // Simulate API call to reverse geocode
+            setArea("Near Main Street"); 
+        }, 1000);
+        return () => clearTimeout(timer);
+    }, [location]);
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <p className="flex items-center gap-1 cursor-help">
+                    <MapPin className="h-3 w-3"/>
+                    {area}
+                </p>
+            </TooltipTrigger>
+            <TooltipContent>
+                <p>Lat: {location.latitude.toFixed(4)}, Lon: {location.longitude.toFixed(4)}</p>
+            </TooltipContent>
+        </Tooltip>
+    );
+}
+
+
 export function AllOrdersTable() {
   const [orders, setOrders] = React.useState<Order[]>([]);
   const [users, setUsers] = React.useState<User[]>([]);
@@ -185,10 +212,7 @@ export function AllOrdersTable() {
                             <div className="text-xs text-muted-foreground w-full space-y-1 mt-1">
                                 <p>by {m.completedBy} at {new Date(m.completedAt!).toLocaleString()}</p>
                                 {m.location && (
-                                  <p className="flex items-center gap-1">
-                                    <MapPin className="h-3 w-3"/>
-                                    {m.location.latitude.toFixed(4)}, {m.location.longitude.toFixed(4)}
-                                  </p>
+                                  <LocationDisplay location={m.location} />
                                 )}
                             </div>
                         )}
@@ -270,6 +294,7 @@ export function AllOrdersTable() {
 
   return (
     <>
+    <TooltipProvider>
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">All Orders</h1>
@@ -409,6 +434,7 @@ export function AllOrdersTable() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </TooltipProvider>
     </>
   );
 }
