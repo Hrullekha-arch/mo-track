@@ -16,6 +16,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { NewOrderDialog } from "./NewOrderDialog";
 import { generateInstallationSchedule, GenerateInstallationScheduleInput, GenerateInstallationScheduleOutput } from "@/ai/flows/generate-installation-schedule";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+
+type SummaryFilterType = 'totalActive' | 'scheduledToday' | 'scheduled' | 'assigned' | 'readyForDelivery' | 'stitched' | 'completed' | 'bypassedOtp';
 
 export function OrdersDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -27,6 +30,7 @@ export function OrdersDashboard() {
   const { toast } = useToast();
   
   const [filters, setFilters] = useState({ search: '', employee: 'all', installer: 'all' });
+  const [activeSummaryFilter, setActiveSummaryFilter] = useState<SummaryFilterType>('totalActive');
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
 
   const installers = users.filter(u => u.role === 'installer');
@@ -56,14 +60,46 @@ export function OrdersDashboard() {
   };
   
   const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
+  const scheduledDate = (order: Order) => order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt;
   
   const filteredOrders = useMemo(() => {
       return orders.filter(order => {
-        // Hide fully completed orders
-        if (isFullyCompleted(order)) {
-            return false;
+        // Primary filter from summary boxes
+        switch (activeSummaryFilter) {
+            case 'totalActive':
+                if (isFullyCompleted(order)) return false;
+                break;
+            case 'scheduledToday':
+                const schedDate = scheduledDate(order);
+                if (!schedDate) return false;
+                const today = new Date();
+                const d = new Date(schedDate);
+                if (!(d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear())) return false;
+                break;
+            case 'scheduled':
+                if (!scheduledDate(order)) return false;
+                break;
+            case 'assigned':
+                if (!order.assignedTo) return false;
+                break;
+            case 'readyForDelivery':
+                if (!order.milestones.find(m => m.id === 5)?.completed) return false;
+                break;
+            case 'stitched':
+                if (!(order.milestones.find(m => m.id === 4)?.completed && !order.milestones.find(m => m.id === 5)?.completed)) return false;
+                break;
+            case 'completed':
+                if (!isFullyCompleted(order)) return false;
+                break;
+            case 'bypassedOtp':
+                if (order.bypassedOtp !== true) return false;
+                break;
+            default:
+                if (isFullyCompleted(order)) return false;
         }
 
+
+        // Secondary filters from input/selects
         const searchMatch = filters.search.toLowerCase() === '' || 
                               order.customerName.toLowerCase().includes(filters.search.toLowerCase()) || 
                               order.id.toLowerCase().includes(filters.search.toLowerCase());
@@ -77,14 +113,13 @@ export function OrdersDashboard() {
 
         return searchMatch && employeeMatch && installerMatch && crmMatch;
       });
-  }, [orders, users, filters, user]);
+  }, [orders, users, filters, user, activeSummaryFilter]);
 
-  const scheduledDate = (order: Order) => order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt;
 
   const summary = useMemo(() => {
     const activeOrders = orders.filter(o => !isFullyCompleted(o));
     return {
-        pending: activeOrders.length,
+        totalActive: activeOrders.length,
         scheduledToday: activeOrders.filter(o => {
             const schedDate = scheduledDate(o);
             if (!schedDate) return false;
@@ -202,14 +237,14 @@ export function OrdersDashboard() {
       </header>
 
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4 lg:grid-cols-4 mb-6">
-        <SummaryBox title="Pending" value={summary.pending} color={summaryColors[0]} />
-        <SummaryBox title="Scheduled Today" value={summary.scheduledToday} color={summaryColors[1]} />
-        <SummaryBox title="Total Scheduled" value={summary.scheduled} color={summaryColors[2]} />
-        <SummaryBox title="Assigned" value={summary.assigned} color={summaryColors[3]} />
-        <SummaryBox title="Ready for Delivery" value={summary.readyForDelivery} color={summaryColors[4]} />
-        <SummaryBox title="Stitched" value={summary.stitched} color={summaryColors[5]} />
-        <SummaryBox title="Total Completed" value={summary.completed} color={summaryColors[6]} />
-        <SummaryBox title="Bypassed OTP" value={summary.bypassedOtp} color={summaryColors[7]} />
+        <SummaryBox title="Total Active" value={summary.totalActive} color={summaryColors[0]} isActive={activeSummaryFilter === 'totalActive'} onClick={() => setActiveSummaryFilter('totalActive')} />
+        <SummaryBox title="Scheduled Today" value={summary.scheduledToday} color={summaryColors[1]} isActive={activeSummaryFilter === 'scheduledToday'} onClick={() => setActiveSummaryFilter('scheduledToday')} />
+        <SummaryBox title="Total Scheduled" value={summary.scheduled} color={summaryColors[2]} isActive={activeSummaryFilter === 'scheduled'} onClick={() => setActiveSummaryFilter('scheduled')} />
+        <SummaryBox title="Assigned" value={summary.assigned} color={summaryColors[3]} isActive={activeSummaryFilter === 'assigned'} onClick={() => setActiveSummaryFilter('assigned')} />
+        <SummaryBox title="Ready for Delivery" value={summary.readyForDelivery} color={summaryColors[4]} isActive={activeSummaryFilter === 'readyForDelivery'} onClick={() => setActiveSummaryFilter('readyForDelivery')} />
+        <SummaryBox title="Stitched" value={summary.stitched} color={summaryColors[5]} isActive={activeSummaryFilter === 'stitched'} onClick={() => setActiveSummaryFilter('stitched')} />
+        <SummaryBox title="Total Completed" value={summary.completed} color={summaryColors[6]} isActive={activeSummaryFilter === 'completed'} onClick={() => setActiveSummaryFilter('completed')} />
+        <SummaryBox title="Bypassed OTP" value={summary.bypassedOtp} color={summaryColors[7]} isActive={activeSummaryFilter === 'bypassedOtp'} onClick={() => setActiveSummaryFilter('bypassedOtp')} />
       </div>
 
       <div className="mb-6 p-4 border rounded-lg bg-card">
@@ -286,7 +321,7 @@ export function OrdersDashboard() {
             <OrderCard key={order.id} order={order} onUpdate={handleOrderUpdate} allUsers={users} />
           ))
         ) : (
-          <p className="text-muted-foreground col-span-full text-center py-10">No active orders found.</p>
+          <p className="text-muted-foreground col-span-full text-center py-10">No orders found matching the selected filter.</p>
         )}
       </div>
     </div>
@@ -299,14 +334,30 @@ export function OrdersDashboard() {
   );
 }
 
-function SummaryBox({ title, value, color }: { title: string; value: number; color: string; }) {
+interface SummaryBoxProps {
+    title: string;
+    value: number;
+    color: string;
+    isActive: boolean;
+    onClick: () => void;
+}
+
+function SummaryBox({ title, value, color, isActive, onClick }: SummaryBoxProps) {
     return (
-        <div className={`bg-card p-4 rounded-lg shadow-sm flex items-center gap-4 ${color}`}>
+        <button
+            onClick={onClick}
+            className={cn(
+                "bg-card p-4 rounded-lg shadow-sm flex items-center gap-4 transition-all duration-200 ease-in-out transform hover:scale-105",
+                "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary",
+                color,
+                isActive ? "ring-2 ring-primary scale-105" : "ring-0"
+            )}
+        >
             <div>
                 <p className="text-sm text-muted-foreground">{title}</p>
                 <p className="text-2xl font-bold">{value}</p>
             </div>
-        </div>
+        </button>
     );
 }
 
