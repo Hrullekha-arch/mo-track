@@ -3,15 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Package } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function TrackOrderPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
-            <Package className="h-8 w-8" />
-          </div>
+          <Image src="/logo.png" alt="MoTrack Logo" width={150} height={75} className="mx-auto mb-4" />
           <CardTitle className="text-2xl font-bold">Track Your Order</CardTitle>
           <CardDescription>Enter your tracking code to see the status of your order.</CardDescription>
         </CardHeader>

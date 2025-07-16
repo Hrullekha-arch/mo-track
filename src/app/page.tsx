@@ -13,6 +13,7 @@ import { LogIn, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from 'next/image';
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
@@ -69,8 +70,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <Card>
           <CardHeader className="text-center">
-            <CardTitle className="text-3xl font-bold">MoTrack Login</CardTitle>
-            <CardDescription>Enter your credentials to access your account</CardDescription>
+            <Image src="/logo.png" alt="MoTrack Logo" width={200} height={100} className="mx-auto" />
+            <CardDescription className="pt-4">Enter your credentials to access your account</CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
