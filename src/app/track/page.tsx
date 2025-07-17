@@ -20,8 +20,7 @@ export default function TrackOrderPage() {
         </CardContent>
       </Card>
       <footer className="mt-8 text-center text-sm text-muted-foreground">
-        <p>&copy; {new Date().getFullYear()} MoTrack. All rights reserved.</p>
-        <p>A service by Mo Design</p>
+        <p>&copy; {new Date().getFullYear()} Mo Designs Pvt. Ltd. All rights reserved.</p>
       </footer>
     </div>
   );

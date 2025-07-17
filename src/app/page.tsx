@@ -49,12 +49,6 @@ export default function LoginPage() {
     setFormLoading(false);
   }
 
-  const quickLogin = (email: string) => {
-    form.setValue('email', email);
-    form.setValue('password', 'password'); // Default password for demo
-    form.handleSubmit(onSubmit)();
-  }
-  
   const isLoading = authLoading || formLoading;
 
   if (authLoading || (!authLoading && user)) {
@@ -108,23 +102,16 @@ export default function LoginPage() {
                 </Button>
               </form>
             </Form>
-            <div className="mt-4 text-center text-sm">
-              <p className="text-muted-foreground mb-2">For demo purposes, quick login:</p>
-              <div className="flex justify-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => quickLogin('admin@gmail.com')} disabled={isLoading}>Admin</Button>
-                  <Button variant="outline" size="sm" onClick={() => quickLogin('employee@motrack.com')} disabled={isLoading}>Employee</Button>
-                  <Button variant="outline" size="sm" onClick={() => quickLogin('john.doe@motrack.com')} disabled={isLoading}>Installer</Button>
-              </div>
-            </div>
           </CardContent>
         </Card>
-        <footer className="mt-8 text-center text-sm text-muted-foreground">
+        <footer className="mt-8 text-center text-sm text-muted-foreground space-y-2">
             <p>
                 Are you a customer?{" "}
                 <Link href="/track" className="underline hover:text-primary">
                     Track your order here.
                 </Link>
             </p>
+            <p>&copy; {new Date().getFullYear()} Mo Designs Pvt. Ltd. All rights reserved.</p>
         </footer>
       </div>
     </div>
