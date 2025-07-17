@@ -21,7 +21,7 @@ const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   password: z.string().optional(),
-  role: z.enum(['admin', 'employee', 'installer'], { required_error: "Role is required" }),
+  role: z.enum(['admin', 'employee', 'installer', 'salesman'], { required_error: "Role is required" }),
   designation: z.enum(['CRM', 'Allocators', 'PC']).optional(),
 }).refine(data => {
     if (data.role === 'employee' && !data.designation) {
@@ -112,7 +112,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
             email: values.email,
             role: values.role,
         };
-        if (values.designation) {
+        if (values.designation && values.role === 'employee') {
             newUser.designation = values.designation;
         }
         
@@ -198,6 +198,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                             <SelectItem value="admin">Admin</SelectItem>
                             <SelectItem value="employee">Employee</SelectItem>
                             <SelectItem value="installer">Installer</SelectItem>
+                            <SelectItem value="salesman">Salesman</SelectItem>
                         </SelectContent>
                     </Select>
                     <FormMessage />

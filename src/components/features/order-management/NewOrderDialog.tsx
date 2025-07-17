@@ -32,10 +32,10 @@ const formSchema = z.object({
 interface NewOrderDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  employees: User[];
+  salesmen: User[];
 }
 
-export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogProps) {
+export function NewOrderDialog({ isOpen, onClose, salesmen }: NewOrderDialogProps) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -60,13 +60,21 @@ export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogPro
     setLoading(true);
     try {
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
+      const selectedSalesman = salesmen.find(s => s.id === values.salesPerson);
+
+      if (!selectedSalesman) {
+          toast({ variant: "destructive", title: "Error", description: "Invalid Salesperson selected."});
+          setLoading(false);
+          return;
+      }
+
       const newOrder = {
         id: trackingId,
         crmOrderNo: values.crmOrderNo,
         customerName: values.customerName,
         customerPhone: values.customerPhone,
         customerAddress: values.customerAddress,
-        salesPerson: values.salesPerson,
+        salesPerson: selectedSalesman.name,
         orderType: values.orderType,
         remarks: values.remarks || "",
         milestones: getMilestonesForOrder(values.orderType),
@@ -170,9 +178,18 @@ export function NewOrderDialog({ isOpen, onClose, employees }: NewOrderDialogPro
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Sales Person</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter sales person name" {...field} />
-                  </FormControl>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select a sales person" />
+                            </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                            {salesmen.map(salesman => (
+                                <SelectItem key={salesman.id} value={salesman.id}>{salesman.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                   <FormMessage />
                 </FormItem>
               )}

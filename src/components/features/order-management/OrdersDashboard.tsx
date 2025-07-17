@@ -34,6 +34,7 @@ export function OrdersDashboard() {
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
 
   const installers = users.filter(u => u.role === 'installer');
+  const salesmen = users.filter(u => u.role === 'salesman');
 
   useEffect(() => {
     const ordersQuery = query(collection(db, "orders"));
@@ -328,7 +329,7 @@ export function OrdersDashboard() {
     <NewOrderDialog
         isOpen={isNewOrderDialogOpen}
         onClose={() => setIsNewOrderDialogOpen(false)}
-        employees={employees}
+        salesmen={salesmen}
     />
     </>
   );
