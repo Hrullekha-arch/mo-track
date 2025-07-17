@@ -61,7 +61,7 @@ export function OrdersDashboard() {
   };
   
   const isFullyCompleted = (order: Order) => Array.isArray(order.milestones) && order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
-  const scheduledDate = (order: Order) => order.milestones?.find(m => m.id === 6 || m.id === 7)?.completedAt;
+  const scheduledDate = (order: Order) => Array.isArray(order.milestones) ? order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt : undefined;
   
   const filteredOrders = useMemo(() => {
       return orders.filter(order => {
