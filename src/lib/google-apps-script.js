@@ -192,6 +192,9 @@ function doGet() {
  * @param {object} orderPayload The complete order object.
  */
 function createOrderInFirestore(orderPayload) {
+  if (!orderPayload || !orderPayload.id) {
+    throw new Error("Invalid order payload provided to createOrderInFirestore.");
+  }
   const document = convertObjectToFirestoreDocument(orderPayload);
   const url = `${FIRESTORE_URL}/orders?documentId=${encodeURIComponent(orderPayload.id)}`;
   
