@@ -60,8 +60,8 @@ export function OrdersDashboard() {
     setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
   };
   
-  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
-  const scheduledDate = (order: Order) => order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt;
+  const isFullyCompleted = (order: Order) => Array.isArray(order.milestones) && order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
+  const scheduledDate = (order: Order) => order.milestones?.find(m => m.id === 6 || m.id === 7)?.completedAt;
   
   const filteredOrders = useMemo(() => {
       return orders.filter(order => {
@@ -84,10 +84,10 @@ export function OrdersDashboard() {
                 if (!order.assignedTo) return false;
                 break;
             case 'readyForDelivery':
-                if (!order.milestones.find(m => m.id === 5)?.completed) return false;
+                if (!order.milestones?.find(m => m.id === 5)?.completed) return false;
                 break;
             case 'stitched':
-                if (!(order.milestones.find(m => m.id === 4)?.completed && !order.milestones.find(m => m.id === 5)?.completed)) return false;
+                if (!(order.milestones?.find(m => m.id === 4)?.completed && !order.milestones?.find(m => m.id === 5)?.completed)) return false;
                 break;
             case 'completed':
                 if (!isFullyCompleted(order)) return false;
@@ -130,8 +130,8 @@ export function OrdersDashboard() {
         }).length,
         scheduled: activeOrders.filter(o => scheduledDate(o)).length,
         assigned: activeOrders.filter(o => !!o.assignedTo).length,
-        readyForDelivery: activeOrders.filter(o => o.milestones.find(m => m.id === 5)?.completed).length,
-        stitched: activeOrders.filter(o => o.milestones.find(m => m.id === 4)?.completed && !o.milestones.find(m => m.id === 5)?.completed).length,
+        readyForDelivery: activeOrders.filter(o => o.milestones?.find(m => m.id === 5)?.completed).length,
+        stitched: activeOrders.filter(o => o.milestones?.find(m => m.id === 4)?.completed && !o.milestones?.find(m => m.id === 5)?.completed).length,
         completed: orders.filter(isFullyCompleted).length,
         bypassedOtp: orders.filter(o => o.bypassedOtp === true).length,
     }
