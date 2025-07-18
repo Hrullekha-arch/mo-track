@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { User, UserRole } from "@/lib/types";
 import { Loader2 } from "lucide-react";
+import { createUser } from "./UserActions";
 
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -31,44 +32,6 @@ const formSchema = z.object({
     message: "Designation is required for employees",
     path: ["designation"],
 });
-
-async function createUser(email: string, password: string): Promise<{ uid?: string, error?: string }> {
-    'use server';
-    // This server action uses a standard fetch call to the Google Identity Toolkit API
-    // which is more reliable than using the Firebase Admin SDK in some environments.
-    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-    if (!apiKey) {
-      return { error: 'Firebase API Key is not configured.' };
-    }
-    const endpoint = `https://identitytoolkit.googleapis.com/v1/accounts?key=${apiKey}`;
-
-    try {
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                email: email,
-                password: password,
-                returnSecureToken: true,
-            }),
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-            const errorMessage = result?.error?.message || 'An unknown error occurred.';
-            // Firebase returns error messages like "EMAIL_EXISTS", let's make them friendlier.
-            if (errorMessage === 'EMAIL_EXISTS') {
-                return { error: 'A user with this email address already exists.'};
-            }
-            return { error: errorMessage };
-        }
-
-        return { uid: result.localId };
-    } catch (error: any) {
-        return { error: error.message || 'An unknown network error occurred.' };
-    }
-}
 
 
 interface UserFormDialogProps {
