@@ -34,8 +34,7 @@ export function OrdersDashboard() {
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
 
   const installers = users.filter(u => u.role === 'installer');
-  const salesmen = users.filter(u => u.role === 'salesman');
-
+  
   useEffect(() => {
     const ordersQuery = query(collection(db, "orders"));
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
@@ -60,7 +59,7 @@ export function OrdersDashboard() {
     setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
   };
   
-  const isAcknowledged = (order: Order) => Array.isArray(order.milestones) && order.milestones[0]?.completed === true;
+  const isAcknowledged = (order: Order) => Array.isArray(order.milestones) && order.milestones.length > 0 && order.milestones[0]?.completed === true;
   const isFullyCompleted = (order: Order) => Array.isArray(order.milestones) && order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
   const scheduledDate = (order: Order) => Array.isArray(order.milestones) ? order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt : undefined;
   
@@ -90,10 +89,10 @@ export function OrdersDashboard() {
                 if (!order.assignedTo) return false;
                 break;
             case 'readyForDelivery':
-                if (!order.milestones?.find(m => m.id === 5)?.completed) return false;
+                if (!Array.isArray(order.milestones) || !order.milestones?.find(m => m.id === 5)?.completed) return false;
                 break;
             case 'stitched':
-                if (!(order.milestones?.find(m => m.id === 4)?.completed && !order.milestones?.find(m => m.id === 5)?.completed)) return false;
+                 if (!Array.isArray(order.milestones) || !(order.milestones?.find(m => m.id === 4)?.completed && !order.milestones?.find(m => m.id === 5)?.completed)) return false;
                 break;
             case 'completed':
                 if (!isFullyCompleted(order)) return false;
@@ -110,7 +109,9 @@ export function OrdersDashboard() {
         const searchMatch = filters.search.toLowerCase() === '' || 
                               order.customerName.toLowerCase().includes(filters.search.toLowerCase()) || 
                               order.id.toLowerCase().includes(filters.search.toLowerCase());
+        
         const employeeMatch = filters.employee === 'all' || order.salesPerson === users.find(u => u.id === filters.employee)?.name;
+        
         const installerMatch = filters.installer === 'all' || order.assignedTo === filters.installer;
         
         let crmMatch = true;
@@ -138,8 +139,8 @@ export function OrdersDashboard() {
         }).length,
         scheduled: activeOrders.filter(o => scheduledDate(o)).length,
         assigned: activeOrders.filter(o => !!o.assignedTo).length,
-        readyForDelivery: activeOrders.filter(o => o.milestones?.find(m => m.id === 5)?.completed).length,
-        stitched: activeOrders.filter(o => o.milestones?.find(m => m.id === 4)?.completed && !o.milestones?.find(m => m.id === 5)?.completed).length,
+        readyForDelivery: activeOrders.filter(o => Array.isArray(o.milestones) && o.milestones?.find(m => m.id === 5)?.completed).length,
+        stitched: activeOrders.filter(o => Array.isArray(o.milestones) && o.milestones?.find(m => m.id === 4)?.completed && !o.milestones?.find(m => m.id === 5)?.completed).length,
         completed: orders.filter(isFullyCompleted).length,
         bypassedOtp: orders.filter(o => o.bypassedOtp === true).length,
     }
@@ -337,7 +338,6 @@ export function OrdersDashboard() {
     <NewOrderDialog
         isOpen={isNewOrderDialogOpen}
         onClose={() => setIsNewOrderDialogOpen(false)}
-        salesmen={salesmen}
     />
     </>
   );

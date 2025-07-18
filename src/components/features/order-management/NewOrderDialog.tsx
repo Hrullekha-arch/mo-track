@@ -29,13 +29,20 @@ const formSchema = z.object({
   remarks: z.string().optional(),
 });
 
+const salesmen = [
+    "AAS (SAHOO)", "ASD (SAROJ DAS)", "ASB (ABHISHEK SINGH)", "AK (ABHISHEK CARPET)",
+    "AM (MINTOO)", "BPS (PAWAN SHARMA)", "BTK (TAPESHWAR)", "CAY (ASHISH)",
+    "CP (PRADEEP)", "DS (DAYAL)", "DK (DEEPAK SINHA)", "KD (DEVENDER)", "MU (MURARI)",
+    "NK (NAND KISHOR)", "NKD (NEERAJ)", "RA (RAJEEV AGGARWAL)", "RSB (RAJENDRA BISHT)",
+    "RK (RAJKUMAR)", "SD (SWETA)", "UMDP (UMESH)", "RD (Bhatiya)", "ANVR (Anvar)", "VD (Vishal Dubey)"
+];
+
 interface NewOrderDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  salesmen: User[];
 }
 
-export function NewOrderDialog({ isOpen, onClose, salesmen }: NewOrderDialogProps) {
+export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -60,21 +67,14 @@ export function NewOrderDialog({ isOpen, onClose, salesmen }: NewOrderDialogProp
     setLoading(true);
     try {
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
-      const selectedSalesman = salesmen.find(s => s.id === values.salesPerson);
-
-      if (!selectedSalesman) {
-          toast({ variant: "destructive", title: "Error", description: "Invalid Salesperson selected."});
-          setLoading(false);
-          return;
-      }
-
+      
       const newOrder = {
         id: trackingId,
         crmOrderNo: values.crmOrderNo,
         customerName: values.customerName,
         customerPhone: values.customerPhone,
         customerAddress: values.customerAddress,
-        salesPerson: selectedSalesman.name,
+        salesPerson: values.salesPerson,
         orderType: values.orderType,
         remarks: values.remarks || "",
         milestones: getMilestonesForOrder(values.orderType),
@@ -186,7 +186,7 @@ export function NewOrderDialog({ isOpen, onClose, salesmen }: NewOrderDialogProp
                         </FormControl>
                         <SelectContent>
                             {salesmen.map(salesman => (
-                                <SelectItem key={salesman.id} value={salesman.id}>{salesman.name}</SelectItem>
+                                <SelectItem key={salesman} value={salesman}>{salesman}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
