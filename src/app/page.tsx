@@ -60,7 +60,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4" key={user ? 'logged-in' : 'logged-out'}>
       <div className="w-full max-w-md">
         <Card>
           <CardHeader className="text-center">
