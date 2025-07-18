@@ -52,15 +52,19 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
   });
 
   async function getCrmForSalesman(salesman: string): Promise<string | null> {
+    if (!salesman) return null;
     try {
+        // The document ID in salesmanCrmAssignments is the salesman's name/code string
         const assignmentDocRef = doc(db, "salesmanCrmAssignments", salesman);
         const docSnap = await getDoc(assignmentDocRef);
         if (docSnap.exists()) {
+            // The document contains the crmUserId field
             return docSnap.data().crmUserId;
         }
+        console.warn(`No CRM assignment found for salesman: ${salesman}`);
         return null;
     } catch (error) {
-        console.error("Error fetching salesman assignment:", error);
+        console.error("Error fetching salesman's assigned CRM:", error);
         return null;
     }
   }
@@ -75,6 +79,8 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
       const newMilestones = getMilestonesForOrder(values.orderType);
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
+      
+      // Fetch the assigned CRM ID based on the selected salesman
       const assignedCrmId = await getCrmForSalesman(values.salesPerson);
 
       // Automatically mark the first milestone as complete since it's created in-app
@@ -109,6 +115,16 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
 
       if (assignedCrmId) {
         newOrder.handledByCrm = assignedCrmId;
+        toast({
+            title: "CRM Handler Auto-Assigned",
+            description: `Order assigned based on salesman ${values.salesPerson}.`,
+        });
+      } else {
+         toast({
+            variant: "destructive",
+            title: "CRM Handler Not Assigned",
+            description: `No assignment found for salesman ${values.salesPerson}. Please assign manually.`,
+        });
       }
 
       await setDoc(doc(db, "orders", trackingId), newOrder);
