@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { User, SalesmanCrmAssignment } from "@/lib/types";
-import { collection, onSnapshot, query, doc, setDoc, where } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, setDoc, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,30 +21,64 @@ export function SalesmanCrmAssignments() {
 
     useEffect(() => {
         const crmQuery = query(collection(db, "users"), where("designation", "==", "CRM"));
+        const salesmenQuery = query(collection(db, "users"), where("role", "==", "salesman"));
+        const assignmentsQuery = query(collection(db, "salesmanCrmAssignments"));
+
+        // Use Promise.all to wait for initial data load
+        const fetchData = async () => {
+            try {
+                const [crmSnapshot, salesmenSnapshot, assignmentsSnapshot] = await Promise.all([
+                    getDocs(crmQuery),
+                    getDocs(salesmenQuery),
+                    getDocs(assignmentsQuery)
+                ]);
+
+                const crmData = crmSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+                setCrmUsers(crmData);
+
+                const salesmenData = salesmenSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+                setSalesmen(salesmenData);
+
+                const assignmentsData = assignmentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SalesmanCrmAssignment));
+                setAssignments(assignmentsData);
+
+            } catch (error) {
+                console.error("Error fetching initial assignments data:", error);
+                toast({
+                    variant: "destructive",
+                    title: "Error",
+                    description: "Could not load assignments data."
+                });
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+
+        // Set up real-time listeners after initial load
         const unsubscribeCrm = onSnapshot(crmQuery, (snapshot) => {
             const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
             setCrmUsers(usersData);
         });
 
-        const salesmenQuery = query(collection(db, "users"), where("role", "==", "salesman"));
         const unsubscribeSalesmen = onSnapshot(salesmenQuery, (snapshot) => {
             const salesmenData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
             setSalesmen(salesmenData);
         });
 
-        const assignmentsQuery = query(collection(db, "salesmanCrmAssignments"));
         const unsubscribeAssignments = onSnapshot(assignmentsQuery, (snapshot) => {
             const assignmentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SalesmanCrmAssignment));
             setAssignments(assignmentsData);
-            setLoading(false);
         });
+
 
         return () => {
             unsubscribeCrm();
             unsubscribeSalesmen();
             unsubscribeAssignments();
         };
-    }, []);
+    }, [toast]);
 
     const handleAssignCrm = async (salesmanName: string, crmUserId: string) => {
         setUpdatingSalesman(salesmanName);
@@ -97,30 +131,40 @@ export function SalesmanCrmAssignments() {
             </CardHeader>
             <CardContent>
                 <div className="space-y-4">
-                    {salesmen.sort((a, b) => a.name.localeCompare(b.name)).map((salesman) => (
-                        <div key={salesman.id} className="flex items-center justify-between p-2 border rounded-lg">
-                            <span className="font-medium">{salesman.name}</span>
-                            <div className="flex items-center gap-2">
-                                {updatingSalesman === salesman.name && <Loader2 className="h-5 w-5 animate-spin" />}
-                                <Select
-                                    value={getAssignedCrmId(salesman.name) || ""}
-                                    onValueChange={(crmId) => handleAssignCrm(salesman.name, crmId)}
-                                    disabled={updatingSalesman === salesman.name}
-                                >
-                                    <SelectTrigger className="w-[200px]">
-                                        <SelectValue placeholder="Select CRM Handler" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {crmUsers.map((crm) => (
-                                            <SelectItem key={crm.id} value={crm.id}>
-                                                {crm.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                    {salesmen.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                            No salesmen found. Add users with the 'salesman' role to see them here.
+                        </p>
+                    ) : crmUsers.length === 0 ? (
+                         <p className="text-sm text-muted-foreground text-center py-4">
+                            No CRM handlers found. Add users with the 'CRM' designation to assign them.
+                        </p>
+                    ) : (
+                        salesmen.sort((a, b) => a.name.localeCompare(b.name)).map((salesman) => (
+                            <div key={salesman.id} className="flex items-center justify-between p-2 border rounded-lg">
+                                <span className="font-medium">{salesman.name}</span>
+                                <div className="flex items-center gap-2">
+                                    {updatingSalesman === salesman.name && <Loader2 className="h-5 w-5 animate-spin" />}
+                                    <Select
+                                        value={getAssignedCrmId(salesman.name) || ""}
+                                        onValueChange={(crmId) => handleAssignCrm(salesman.name, crmId)}
+                                        disabled={updatingSalesman === salesman.name}
+                                    >
+                                        <SelectTrigger className="w-[200px]">
+                                            <SelectValue placeholder="Select CRM Handler" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {crmUsers.map((crm) => (
+                                                <SelectItem key={crm.id} value={crm.id}>
+                                                    {crm.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        ))
+                    )}
                 </div>
             </CardContent>
         </Card>
