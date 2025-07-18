@@ -128,7 +128,7 @@ function doGet() {
         const salesman = row[4]?.toString().trim(); // Column E
         const crmOrderNo = row[5]?.toString().trim(); // Column F
         const address = row[6]?.toString().trim(); // Column G
-        const orderReceivedTimestamp = row[44]; // Column AS
+        const orderReceivedText = row[44]?.toString().trim(); // Column AS
 
         if (!customerName || !crmOrderNo) {
           results.skippedRows++;
@@ -164,9 +164,10 @@ function doGet() {
           results.newOrders++;
           results.errors.push(`Row ${rowNumber}: Created new order ${newTrackingId}`);
 
-        } else if (orderReceivedTimestamp instanceof Date) {
+        } else if (orderReceivedText) {
           // --- UPDATE EXISTING ORDER ---
-          updateOrderMilestone(trackingId, 1, orderReceivedTimestamp);
+          // Use current timestamp when any text is found
+          updateOrderMilestone(trackingId, 1, new Date());
           results.updatedOrders++;
         }
       } catch (err) {
