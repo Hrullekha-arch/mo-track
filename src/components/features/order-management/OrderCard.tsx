@@ -13,7 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { AssignInstallerDialog } from "./AssignInstallerDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { AssignCrmDialog } from "./AssignCrmDialog";
@@ -21,6 +21,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 interface OrderCardProps {
   order: Order;
@@ -36,6 +37,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentOrder, setCurrentOrder] = useState(order);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { user, role } = useAuth();
   const { toast } = useToast();
@@ -60,7 +62,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const canSchedule = (role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && !isOrderComplete;
   const canEditMilestones = (role === 'admin' || role === 'employee') && !isOrderComplete;
   const canSendMessage = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
-  const canDeleteOrder = role === 'admin' && !isOrderComplete;
+  const canDeleteOrder = role === 'admin';
 
 
   const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
@@ -166,13 +168,26 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   }
 
   const handleDeleteOrder = async () => {
-     // This would typically involve a call to delete the document in Firestore
-     console.log(`Deleting order ${currentOrder.id}`);
-     toast({
+    if (!canDeleteOrder) return;
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, "orders", currentOrder.id));
+      toast({
         title: "Order Deleted",
-        description: `${currentOrder.id} has been deleted. (Simulation)`,
+        description: `${currentOrder.id} has been permanently deleted.`,
       });
-  }
+      // The onSnapshot listener in the parent component will handle UI updates.
+    } catch (error) {
+      console.error("Error deleting order:", error);
+      toast({
+        variant: "destructive",
+        title: "Deletion Failed",
+        description: "Could not delete the order.",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleOpenMessageDialog = async () => {
     let orderToMessage = { ...currentOrder };
@@ -247,21 +262,39 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                     {isRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 </Button>
                 { canDeleteOrder && (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                            <MoreVertical className="h-4 w-4" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem 
-                          className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                          onClick={handleDeleteOrder}
-                        >
-                            <Trash2 className="mr-2 h-4 w-4" />Delete Order
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <AlertDialog>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                                <MoreVertical className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <AlertDialogTrigger asChild>
+                                <DropdownMenuItem 
+                                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                >
+                                    <Trash2 className="mr-2 h-4 w-4" />Delete Order
+                                </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This action cannot be undone. This will permanently delete the order for <span className="font-bold">{currentOrder.customerName}</span>.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDeleteOrder} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90">
+                                {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Delete
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
                 )}
             </div>
         </div>
@@ -464,3 +497,5 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     </TooltipProvider>
   );
 }
+
+    
