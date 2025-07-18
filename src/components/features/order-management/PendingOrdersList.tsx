@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { collection, onSnapshot, query, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, OrderType } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,27 +27,36 @@ export function PendingOrdersList() {
     useEffect(() => {
         setLoading(true);
         // This query finds orders where the 'completed' flag of the first milestone is false.
-        // We will fetch all orders and filter client-side. For a large-scale app,
-        // a separate 'status' field on the order document would be more efficient.
-        const q = query(collection(db, "orders"));
+        // This requires a composite index in Firestore. If you get an error in the console
+        // with a link to create an index, please follow it.
+        const q = query(collection(db, "orders"), where("milestones.0.completed", "==", false));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const allOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-            const pending = allOrders.filter(order => order.milestones?.[0]?.completed === false);
+            const pending = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
             setPendingOrders(pending);
             
-            // Initialize selected order types state
+            // Initialize selected order types state if not already set
             const initialTypes: Record<string, OrderType> = {};
             pending.forEach(order => {
-                initialTypes[order.id] = order.orderType;
+                if (!selectedOrderTypes[order.id]) {
+                    initialTypes[order.id] = order.orderType;
+                }
             });
-            setSelectedOrderTypes(initialTypes);
+            setSelectedOrderTypes(prev => ({ ...prev, ...initialTypes }));
 
             setLoading(false);
+        }, (error) => {
+            console.error("Error fetching pending orders:", error);
+            setLoading(false);
+            toast({
+                variant: "destructive",
+                title: "Error fetching orders",
+                description: "Could not load pending orders. You may need to create a Firestore index. Check the browser console for a link.",
+            });
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [toast]); // Added toast to dependency array
 
     const handleOrderTypeChange = (orderId: string, newType: OrderType) => {
         setSelectedOrderTypes(prev => ({ ...prev, [orderId]: newType }));
@@ -63,16 +72,22 @@ export function PendingOrdersList() {
             const newOrderType = selectedOrderTypes[order.id] || order.orderType;
             const newMilestones = getMilestonesForOrder(newOrderType);
             
-            const updatedMilestones = newMilestones.map(m =>
-                m.id === 1 ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: user.name } : m
-            );
+            // Mark the first milestone as complete
+            if (newMilestones.length > 0) {
+                newMilestones[0] = { 
+                    ...newMilestones[0], 
+                    completed: true, 
+                    completedAt: new Date().toISOString(), 
+                    completedBy: user.name 
+                };
+            }
             
             // Generate 4-digit OTP if it doesn't exist
             const otp = order.otp || Math.floor(1000 + Math.random() * 9000).toString();
 
             await updateDoc(orderRef, { 
                 orderType: newOrderType,
-                milestones: updatedMilestones,
+                milestones: newMilestones,
                 otp: otp
             });
 
@@ -153,6 +168,19 @@ export function PendingOrdersList() {
                                                 Delete
                                             </Button>
                                         </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                    This action cannot be undone. This will permanently delete the order for <span className="font-bold">{deletingOrder?.customerName} ({deletingOrder?.id})</span> from Firestore. 
+                                                    This action is irreversible.
+                                                </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel onClick={() => setDeletingOrder(null)}>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction onClick={handleDeleteOrder} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
                                     </AlertDialog>
                                 )}
                             </CardFooter>
@@ -168,21 +196,6 @@ export function PendingOrdersList() {
                     <p className="text-sm text-muted-foreground">There are no new orders waiting for acknowledgment.</p>
                 </div>
             )}
-            <AlertDialog open={!!deletingOrder} onOpenChange={(isOpen) => !isOpen && setDeletingOrder(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                        This action cannot be undone. This will permanently delete the order for <span className="font-bold">{deletingOrder?.customerName} ({deletingOrder?.id})</span> from Firestore. 
-                        This action is irreversible.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDeleteOrder} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </>
     );
 }
