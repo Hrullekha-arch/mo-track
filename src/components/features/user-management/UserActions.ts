@@ -1,14 +1,20 @@
 
 "use server";
 
-import { initializeApp, getApps, App, app } from "firebase-admin/app";
+import { initializeApp, getApps, App } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { credential } from "firebase-admin";
+
+const firebaseAdminConfig = {
+    credential: credential.applicationDefault(),
+    databaseURL: "https://mo-panel.firebaseio.com"
+};
 
 function getAdminApp(): App {
   if (getApps().length > 0) {
-    return app();
+    return getApps()[0];
   }
-  return initializeApp();
+  return initializeApp(firebaseAdminConfig);
 }
 
 export async function createUser(email: string, password: string): Promise<{ uid?: string, error?: string }> {
