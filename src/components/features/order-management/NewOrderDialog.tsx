@@ -62,17 +62,6 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       const newMilestones = getMilestonesForOrder(values.orderType);
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
       
-      // Automatically mark the first milestone as complete since it's created in-app
-      if (newMilestones.length > 0) {
-        newMilestones[0] = {
-          ...newMilestones[0],
-          completed: true,
-          completedAt: new Date().toISOString(),
-          completedBy: user.name,
-          location: null,
-        }
-      }
-      
       const newOrder = {
         id: trackingId,
         crmOrderNo: values.crmOrderNo,
@@ -89,13 +78,14 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
             name: user.name,
         },
         otp: otp,
-        isAcknowledged: true, // Orders created in-app are always acknowledged
+        isAcknowledged: false, 
+        handledByCrm: null,
       };
 
       await setDoc(doc(db, "orders", trackingId), newOrder);
       toast({
-        title: "Order Created & Acknowledged",
-        description: `Order ${trackingId} created with OTP: ${otp}`,
+        title: "Order Created",
+        description: `Order ${trackingId} has been sent to the pending queue.`,
       });
       form.reset();
       onClose();

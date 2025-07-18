@@ -4,46 +4,37 @@
 import { useState, useEffect } from "react";
 import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, OrderType } from "@/lib/types";
+import { Order, OrderType, User } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, Package, Trash2 } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Check, Package, Trash2, User as UserIcon } from "lucide-react";
 import { Label } from "@/components/ui/label";
-import { getMilestonesForOrder } from "@/lib/constants";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AssignCrmDialog } from "./AssignCrmDialog";
 
 export function PendingOrdersList() {
     const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
+    const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
+    const [assigningCrmOrder, setAssigningCrmOrder] = useState<Order | null>(null);
+
     const { toast } = useToast();
     const { user, role } = useAuth();
-    const [selectedOrderTypes, setSelectedOrderTypes] = useState<Record<string, OrderType>>({});
+    
+    const crmUsers = users.filter(u => u.designation === 'CRM');
 
     useEffect(() => {
         setLoading(true);
-        // This query is now much more efficient and secure.
-        const q = query(collection(db, "orders"), where("isAcknowledged", "==", false));
+        // Fetch orders that have not been assigned a CRM handler yet.
+        const q = query(collection(db, "orders"), where("handledByCrm", "==", null));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
             setPendingOrders(ordersData);
-            
-            // Initialize selected order types state if not already set
-            const initialTypes: Record<string, OrderType> = {};
-            ordersData.forEach(order => {
-                if (!selectedOrderTypes[order.id]) {
-                    initialTypes[order.id] = order.orderType;
-                }
-            });
-            if (Object.keys(initialTypes).length > 0) {
-                setSelectedOrderTypes(prev => ({ ...prev, ...initialTypes }));
-            }
-            
             setLoading(false);
         }, (error) => {
             console.error("Error fetching pending orders:", error);
@@ -55,26 +46,30 @@ export function PendingOrdersList() {
             });
         });
 
-        return () => unsubscribe();
+        const usersQuery = query(collection(db, "users"));
+        const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+            const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+            setUsers(usersData);
+        });
+
+        return () => {
+            unsubscribe();
+            unsubscribeUsers();
+        };
     }, [toast]);
 
 
-    const handleOrderTypeChange = (orderId: string, newType: OrderType) => {
-        setSelectedOrderTypes(prev => ({ ...prev, [orderId]: newType }));
-    };
-
-    const handleAcknowledgeOrder = async (order: Order) => {
-        if (!user) {
-            toast({ variant: "destructive", title: "Authentication error" });
+    const handleAssignCrm = async (crmUserId: string) => {
+        if (!assigningCrmOrder || !user) {
+            toast({ variant: "destructive", title: "An error occurred." });
             return;
         }
         try {
-            const orderRef = doc(db, "orders", order.id);
-            const newOrderType = selectedOrderTypes[order.id] || order.orderType;
-            const newMilestones = getMilestonesForOrder(newOrderType);
+            const orderRef = doc(db, "orders", assigningCrmOrder.id);
+            const newMilestones = assigningCrmOrder.milestones;
             
             // Mark the first milestone as complete
-            if (newMilestones.length > 0) {
+            if (newMilestones.length > 0 && !newMilestones[0].completed) {
                 newMilestones[0] = { 
                     ...newMilestones[0], 
                     completed: true, 
@@ -84,20 +79,17 @@ export function PendingOrdersList() {
                 };
             }
             
-            // Generate 4-digit OTP if it doesn't exist
-            const otp = order.otp || Math.floor(1000 + Math.random() * 9000).toString();
-
             await updateDoc(orderRef, { 
-                isAcknowledged: true, // Set the flag to true
-                orderType: newOrderType,
-                milestones: newMilestones,
-                otp: otp
+                handledByCrm: crmUserId,
+                isAcknowledged: true,
+                milestones: newMilestones
             });
 
             toast({ 
                 title: "Order Acknowledged", 
-                description: `${order.id} has been received. OTP: ${otp}` 
+                description: `${assigningCrmOrder.id} has been assigned and moved to the main dashboard.` 
             });
+            setAssigningCrmOrder(null);
         } catch (error) {
             console.error("Error acknowledging order:", error);
             toast({ variant: "destructive", title: "Update Failed" });
@@ -137,31 +129,16 @@ export function PendingOrdersList() {
                                 <CardDescription>{order.id}</CardDescription>
                             </CardHeader>
                             <CardContent className="flex-grow">
-                                <div className="space-y-4 text-sm">
+                                <div className="space-y-2 text-sm">
                                     <p><strong>Sales Person:</strong> {order.salesPerson}</p>
+                                    <p><strong>Order Type:</strong> {order.orderType.replace('+', ' + ')}</p>
                                     <p><strong>Created:</strong> {new Date(order.createdAt).toLocaleString()}</p>
-                                    <div className="space-y-2">
-                                        <Label htmlFor={`order-type-${order.id}`}>Order Type</Label>
-                                        <Select 
-                                            value={selectedOrderTypes[order.id] || order.orderType} 
-                                            onValueChange={(value) => handleOrderTypeChange(order.id, value as OrderType)}
-                                        >
-                                            <SelectTrigger id={`order-type-${order.id}`}>
-                                                <SelectValue placeholder="Select an order type" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="delivery">Delivery</SelectItem>
-                                                <SelectItem value="stitching">Stitching</SelectItem>
-                                                <SelectItem value="stitching+installation">Stitching + Installation</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
                                 </div>
                             </CardContent>
                             <CardFooter className="flex-col items-stretch space-y-2">
-                                <Button className="w-full" onClick={() => handleAcknowledgeOrder(order)}>
-                                    <Check className="mr-2 h-4 w-4" />
-                                    Acknowledge Order
+                                <Button className="w-full" onClick={() => setAssigningCrmOrder(order)}>
+                                    <UserIcon className="mr-2 h-4 w-4" />
+                                    Assign CRM & Acknowledge
                                 </Button>
                                 {role === 'admin' && (
                                     <AlertDialog onOpenChange={() => setDeletingOrder(null)}>
@@ -199,6 +176,12 @@ export function PendingOrdersList() {
                     <p className="text-sm text-muted-foreground">There are no new orders waiting for acknowledgment.</p>
                 </div>
             )}
+             <AssignCrmDialog
+                isOpen={!!assigningCrmOrder}
+                onClose={() => setAssigningCrmOrder(null)}
+                onAssign={handleAssignCrm}
+                crmUsers={crmUsers}
+            />
         </>
     );
 }
