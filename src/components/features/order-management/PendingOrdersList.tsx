@@ -146,12 +146,14 @@ export function PendingOrdersList() {
                                     Acknowledge Order
                                 </Button>
                                 {role === 'admin' && (
-                                     <AlertDialogTrigger asChild>
-                                        <Button variant="destructive" className="w-full" onClick={() => setDeletingOrder(order)}>
-                                            <Trash2 className="mr-2 h-4 w-4" />
-                                            Delete
-                                        </Button>
-                                    </AlertDialogTrigger>
+                                     <AlertDialog onOpenChange={() => setDeletingOrder(order)}>
+                                        <AlertDialogTrigger asChild>
+                                            <Button variant="destructive" className="w-full">
+                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                Delete
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                    </AlertDialog>
                                 )}
                             </CardFooter>
                         </Card>
@@ -166,19 +168,19 @@ export function PendingOrdersList() {
                     <p className="text-sm text-muted-foreground">There are no new orders waiting for acknowledgment.</p>
                 </div>
             )}
-             <AlertDialog open={!!deletingOrder} onOpenChange={() => setDeletingOrder(null)}>
+            <AlertDialog open={!!deletingOrder} onOpenChange={(isOpen) => !isOpen && setDeletingOrder(null)}>
                 <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                    This action cannot be undone. This will permanently delete the order from Firestore. 
-                    This action is irreversible.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDeleteOrder} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-                </AlertDialogFooter>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                        This action cannot be undone. This will permanently delete the order for <span className="font-bold">{deletingOrder?.customerName} ({deletingOrder?.id})</span> from Firestore. 
+                        This action is irreversible.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteOrder} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                    </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
         </>
