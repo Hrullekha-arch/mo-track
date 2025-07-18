@@ -20,6 +20,15 @@ import { cn } from "@/lib/utils";
 
 type SummaryFilterType = 'totalActive' | 'scheduledToday' | 'scheduled' | 'assigned' | 'readyForDelivery' | 'stitched' | 'completed' | 'bypassedOtp';
 
+const salesmen = [
+    "AAS (SAHOO)", "ASD (SAROJ DAS)", "ASB (ABHISHEK SINGH)", "AK (ABHISHEK CARPET)",
+    "AM (MINTOO)", "BPS (PAWAN SHARMA)", "BTK (TAPESHWAR)", "CAY (ASHISH)",
+    "CP (PRADEEP)", "DS (DAYAL)", "DK (DEEPAK SINHA)", "KD (DEVENDER)", "MU (MURARI)",
+    "NK (NAND KISHOR)", "NKD (NEERAJ)", "RA (RAJEEV AGGARWAL)", "RSB (RAJENDRA BISHT)",
+    "RK (RAJKUMAR)", "SD (SWETA)", "UMDP (UMESH)", "RB (Bhatiya)", "ANVR (Anvar)", "VD (Vishal Dubey)",
+    "IS (Isha Mam)", "SHANTANU", "SONI (DEEPAK SONI)"
+].sort();
+
 export function OrdersDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -29,7 +38,7 @@ export function OrdersDashboard() {
   const { user, role } = useAuth();
   const { toast } = useToast();
   
-  const [filters, setFilters] = useState({ search: '', employee: 'all', installer: 'all' });
+  const [filters, setFilters] = useState({ search: '', salesPerson: 'all', installer: 'all' });
   const [activeSummaryFilter, setActiveSummaryFilter] = useState<SummaryFilterType>('totalActive');
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
 
@@ -40,14 +49,11 @@ export function OrdersDashboard() {
 
     let ordersQuery;
     
-    // Base query for acknowledged orders
     const baseQuery = where("isAcknowledged", "==", true);
 
     if (user.designation === 'CRM') {
-        // CRM users only see acknowledged orders assigned to them.
         ordersQuery = query(collection(db, "orders"), baseQuery, where("handledByCrm", "==", user.id));
     } else {
-        // Admins and other employees see all acknowledged orders.
         ordersQuery = query(collection(db, "orders"), baseQuery);
     }
 
@@ -84,10 +90,8 @@ export function OrdersDashboard() {
   const scheduledDate = (order: Order) => Array.isArray(order.milestones) ? order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt : undefined;
   
   const filteredOrders = useMemo(() => {
-      // All orders from the query are already acknowledged.
       return orders.filter(order => {
           
-        // Primary filter from summary boxes
         switch (activeSummaryFilter) {
             case 'totalActive':
                 if (isFullyCompleted(order)) return false;
@@ -121,29 +125,25 @@ export function OrdersDashboard() {
                 if (isFullyCompleted(order)) return false;
         }
 
-
-        // Secondary filters from input/selects
         const searchMatch = filters.search.toLowerCase() === '' || 
                               order.customerName.toLowerCase().includes(filters.search.toLowerCase()) || 
                               order.id.toLowerCase().includes(filters.search.toLowerCase());
         
-        const employeeMatch = filters.employee === 'all' || order.salesPerson === users.find(u => u.id === filters.employee)?.name;
+        const salesPersonMatch = filters.salesPerson === 'all' || order.salesPerson === filters.salesPerson;
         
         const installerMatch = filters.installer === 'all' || order.assignedTo === filters.installer;
         
-        // This is now redundant because the main query handles it, but good for safety.
         let crmMatch = true; 
         if (user?.designation === 'CRM') {
             crmMatch = order.handledByCrm === user.id;
         }
 
-        return searchMatch && employeeMatch && installerMatch && crmMatch;
+        return searchMatch && salesPersonMatch && installerMatch && crmMatch;
       });
-  }, [orders, users, filters, user, activeSummaryFilter]);
+  }, [orders, filters, user, activeSummaryFilter]);
 
 
   const summary = useMemo(() => {
-    // The `orders` state now only contains acknowledged orders
     const activeOrders = orders.filter(o => !isFullyCompleted(o));
 
     return {
@@ -226,7 +226,6 @@ export function OrdersDashboard() {
     return <DashboardSkeleton />;
   }
 
-  const employees = users.filter(u => u.role === 'employee');
   const canManage = role === 'admin' || role === 'employee';
   const canCreateOrder = role === 'admin' || user?.designation === 'PC';
   const summaryColors = [
@@ -282,14 +281,14 @@ export function OrdersDashboard() {
               value={filters.search}
               onChange={(e) => setFilters(f => ({...f, search: e.target.value}))}
             />
-            <Select value={filters.employee} onValueChange={(value) => setFilters(f => ({...f, employee: value}))}>
+            <Select value={filters.salesPerson} onValueChange={(value) => setFilters(f => ({...f, salesPerson: value}))}>
               <SelectTrigger>
-                <SelectValue placeholder="Filter by employee" />
+                <SelectValue placeholder="Filter by Sales Person" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Employees</SelectItem>
-                {users.filter(u => u.role === 'employee').map(user => (
-                    <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
+                <SelectItem value="all">All Sales People</SelectItem>
+                {salesmen.map(salesman => (
+                    <SelectItem key={salesman} value={salesman}>{salesman}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -304,7 +303,7 @@ export function OrdersDashboard() {
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => setFilters({ search: '', employee: 'all', installer: 'all'})}>
+            <Button variant="outline" onClick={() => setFilters({ search: '', salesPerson: 'all', installer: 'all'})}>
                 <SlidersHorizontal className="mr-2 h-4 w-4" />
                 Clear Filters
             </Button>
@@ -418,5 +417,3 @@ function DashboardSkeleton() {
     </div>
   )
 }
-
-    
