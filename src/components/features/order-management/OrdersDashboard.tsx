@@ -60,11 +60,17 @@ export function OrdersDashboard() {
     setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
   };
   
+  const isAcknowledged = (order: Order) => Array.isArray(order.milestones) && order.milestones[0]?.completed === true;
   const isFullyCompleted = (order: Order) => Array.isArray(order.milestones) && order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
   const scheduledDate = (order: Order) => Array.isArray(order.milestones) ? order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt : undefined;
   
   const filteredOrders = useMemo(() => {
       return orders.filter(order => {
+        // Exclude unacknowledged orders from all dashboard views except 'completed'
+        if (activeSummaryFilter !== 'completed' && !isAcknowledged(order)) {
+            return false;
+        }
+          
         // Primary filter from summary boxes
         switch (activeSummaryFilter) {
             case 'totalActive':
@@ -118,7 +124,9 @@ export function OrdersDashboard() {
 
 
   const summary = useMemo(() => {
-    const activeOrders = orders.filter(o => !isFullyCompleted(o));
+    const acknowledgedOrders = orders.filter(isAcknowledged);
+    const activeOrders = acknowledgedOrders.filter(o => !isFullyCompleted(o));
+
     return {
         totalActive: activeOrders.length,
         scheduledToday: activeOrders.filter(o => {
