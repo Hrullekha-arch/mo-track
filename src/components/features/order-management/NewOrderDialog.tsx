@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getMilestonesForOrder, salesmen } from "@/lib/constants";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -51,24 +51,6 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
     },
   });
 
-  async function getCrmForSalesman(salesman: string): Promise<string | null> {
-    if (!salesman) return null;
-    try {
-        // The document ID in salesmanCrmAssignments is the salesman's name/code string
-        const assignmentDocRef = doc(db, "salesmanCrmAssignments", salesman);
-        const docSnap = await getDoc(assignmentDocRef);
-        if (docSnap.exists()) {
-            // The document contains the crmUserId field
-            return docSnap.data().crmUserId;
-        }
-        console.warn(`No CRM assignment found for salesman: ${salesman}`);
-        return null;
-    } catch (error) {
-        console.error("Error fetching salesman's assigned CRM:", error);
-        return null;
-    }
-  }
-
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!user) {
         toast({ variant: "destructive", title: "Error", description: "You must be logged in to create an order."});
@@ -80,9 +62,6 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       const newMilestones = getMilestonesForOrder(values.orderType);
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
       
-      // Fetch the assigned CRM ID based on the selected salesman
-      const assignedCrmId = await getCrmForSalesman(values.salesPerson);
-
       // Automatically mark the first milestone as complete since it's created in-app
       if (newMilestones.length > 0) {
         newMilestones[0] = {
@@ -94,7 +73,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         }
       }
       
-      const newOrder: any = {
+      const newOrder = {
         id: trackingId,
         crmOrderNo: values.crmOrderNo,
         customerName: values.customerName,
@@ -112,20 +91,6 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         otp: otp,
         isAcknowledged: true, // Orders created in-app are always acknowledged
       };
-
-      if (assignedCrmId) {
-        newOrder.handledByCrm = assignedCrmId;
-        toast({
-            title: "CRM Handler Auto-Assigned",
-            description: `Order assigned based on salesman ${values.salesPerson}.`,
-        });
-      } else {
-         toast({
-            variant: "destructive",
-            title: "CRM Handler Not Assigned",
-            description: `No assignment found for salesman ${values.salesPerson}. Please assign manually.`,
-        });
-      }
 
       await setDoc(doc(db, "orders", trackingId), newOrder);
       toast({
