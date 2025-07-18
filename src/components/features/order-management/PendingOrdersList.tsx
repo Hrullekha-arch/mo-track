@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, where } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, OrderType } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +17,7 @@ import { getMilestonesForOrder } from "@/lib/constants";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export function PendingOrdersList() {
-    const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
+    const [allOrders, setAllOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
     const { toast } = useToast();
@@ -26,37 +26,40 @@ export function PendingOrdersList() {
 
     useEffect(() => {
         setLoading(true);
-        // This query finds orders where the 'completed' flag of the first milestone is false.
-        // This requires a composite index in Firestore. If you get an error in the console
-        // with a link to create an index, please follow it.
-        const q = query(collection(db, "orders"), where("milestones.0.completed", "==", false));
+        const q = query(collection(db, "orders"));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const pending = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-            setPendingOrders(pending);
-            
-            // Initialize selected order types state if not already set
-            const initialTypes: Record<string, OrderType> = {};
-            pending.forEach(order => {
-                if (!selectedOrderTypes[order.id]) {
-                    initialTypes[order.id] = order.orderType;
-                }
-            });
-            setSelectedOrderTypes(prev => ({ ...prev, ...initialTypes }));
-
+            const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+            setAllOrders(ordersData);
             setLoading(false);
         }, (error) => {
-            console.error("Error fetching pending orders:", error);
+            console.error("Error fetching orders:", error);
             setLoading(false);
             toast({
                 variant: "destructive",
                 title: "Error fetching orders",
-                description: "Could not load pending orders. You may need to create a Firestore index. Check the browser console for a link.",
+                description: "Could not load orders from the database.",
             });
         });
 
         return () => unsubscribe();
-    }, [toast]); // Added toast to dependency array
+    }, [toast]);
+
+    const pendingOrders = allOrders.filter(order => !order.milestones?.[0]?.completed);
+    
+    useEffect(() => {
+        // Initialize selected order types state if not already set
+        const initialTypes: Record<string, OrderType> = {};
+        pendingOrders.forEach(order => {
+            if (!selectedOrderTypes[order.id]) {
+                initialTypes[order.id] = order.orderType;
+            }
+        });
+        if (Object.keys(initialTypes).length > 0) {
+            setSelectedOrderTypes(prev => ({ ...prev, ...initialTypes }));
+        }
+    }, [pendingOrders, selectedOrderTypes]);
+
 
     const handleOrderTypeChange = (orderId: string, newType: OrderType) => {
         setSelectedOrderTypes(prev => ({ ...prev, [orderId]: newType }));
@@ -78,7 +81,8 @@ export function PendingOrdersList() {
                     ...newMilestones[0], 
                     completed: true, 
                     completedAt: new Date().toISOString(), 
-                    completedBy: user.name 
+                    completedBy: user.name,
+                    location: null
                 };
             }
             
@@ -161,7 +165,7 @@ export function PendingOrdersList() {
                                     Acknowledge Order
                                 </Button>
                                 {role === 'admin' && (
-                                    <AlertDialog>
+                                    <AlertDialog onOpenChange={() => setDeletingOrder(null)}>
                                         <AlertDialogTrigger asChild>
                                             <Button variant="destructive" className="w-full" onClick={() => setDeletingOrder(order)}>
                                                 <Trash2 className="mr-2 h-4 w-4" />
@@ -177,7 +181,7 @@ export function PendingOrdersList() {
                                                 </AlertDialogDescription>
                                             </AlertDialogHeader>
                                             <AlertDialogFooter>
-                                                <AlertDialogCancel onClick={() => setDeletingOrder(null)}>Cancel</AlertDialogCancel>
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
                                                 <AlertDialogAction onClick={handleDeleteOrder} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
                                             </AlertDialogFooter>
                                         </AlertDialogContent>
