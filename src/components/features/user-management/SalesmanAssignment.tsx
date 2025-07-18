@@ -20,8 +20,9 @@ const salesmen = [
     "AM (MINTOO)", "BPS (PAWAN SHARMA)", "BTK (TAPESHWAR)", "CAY (ASHISH)",
     "CP (PRADEEP)", "DS (DAYAL)", "DK (DEEPAK SINHA)", "KD (DEVENDER)", "MU (MURARI)",
     "NK (NAND KISHOR)", "NKD (NEERAJ)", "RA (RAJEEV AGGARWAL)", "RSB (RAJENDRA BISHT)",
-    "RK (RAJKUMAR)", "SD (SWETA)", "UMDP (UMESH)", "RB (Bhatiya)", "ANVR (Anvar)", "VD (Vishal Dubey)"
-];
+    "RK (RAJKUMAR)", "SD (SWETA)", "UMDP (UMESH)", "RB (Bhatiya)", "ANVR (Anvar)", "VD (Vishal Dubey)",
+    "IS (Isha Mam)", "SHANTANU", "SONI (DEEPAK SONI)"
+].sort();
 
 export function SalesmanAssignment() {
   const [assignments, setAssignments] = useState<Record<string, string>>({});
@@ -47,9 +48,12 @@ export function SalesmanAssignment() {
     const unsubscribeCrmUsers = onSnapshot(crmQuery, (snapshot) => {
       const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
       setCrmUsers(usersData);
+      setLoading(false);
+    }, () => {
+        // In case of error
+        setLoading(false);
     });
 
-    setLoading(false);
 
     return () => {
         unsubscribeAssignments();

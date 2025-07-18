@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { User } from '@/lib/types';
-import { PlusCircle, MoreHorizontal, Trash2, Edit } from 'lucide-react';
+import { PlusCircle, MoreHorizontal, Trash2, Edit, Database } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -19,10 +19,12 @@ import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SalesmanAssignment } from './SalesmanAssignment';
+import { seedSalesmanAssignments } from '@/lib/seed';
 
 export function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
   const { role } = useAuth();
   const isEmployee = role === 'employee';
 
@@ -66,6 +68,18 @@ export function UserManagement() {
     }
   };
 
+  const handleSeedData = async () => {
+    setSeeding(true);
+    try {
+        await seedSalesmanAssignments();
+        toast({ title: "Seeding complete!", description: "Salesman assignments have been saved to Firestore." });
+    } catch (error: any) {
+        toast({ variant: "destructive", title: "Seeding failed", description: error.message });
+    } finally {
+        setSeeding(false);
+    }
+  }
+
 
   if (loading) {
       return <UserManagementSkeleton />;
@@ -80,9 +94,14 @@ export function UserManagement() {
               <p className="text-muted-foreground">Add, edit, and manage user accounts and permissions.</p>
           </div>
           {!isEmployee && (
+            <div className="flex gap-2">
               <Button onClick={handleAddUser}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Add User
               </Button>
+               <Button variant="outline" onClick={handleSeedData} disabled={seeding}>
+                <Database className="mr-2 h-4 w-4" /> Seed Assignments
+              </Button>
+            </div>
           )}
         </div>
 
