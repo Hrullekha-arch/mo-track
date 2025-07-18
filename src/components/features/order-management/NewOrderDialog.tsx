@@ -87,6 +87,19 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
 
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
       const newMilestones = getMilestonesForOrder(values.orderType);
+      
+      // Auto-acknowledge the first milestone
+      const firstMilestoneIndex = newMilestones.findIndex(m => m.id === 1);
+      if (firstMilestoneIndex !== -1) {
+          newMilestones[firstMilestoneIndex] = {
+              ...newMilestones[firstMilestoneIndex],
+              completed: true,
+              completedAt: new Date().toISOString(),
+              completedBy: user.name,
+              location: null
+          };
+      }
+      
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
       
       const newOrder = {
@@ -106,12 +119,13 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         },
         otp: otp,
         handledByCrm: crmUserId, // Automatically assign CRM
+        isAcknowledged: true, // Mark as acknowledged
       };
 
       await setDoc(doc(db, "orders", trackingId), newOrder);
       toast({
         title: "Order Created",
-        description: `Order ${trackingId} has been sent to the pending queue and assigned to the appropriate CRM.`,
+        description: `Order ${trackingId} has been created and moved to the main dashboard.`,
       });
       form.reset();
       onClose();
