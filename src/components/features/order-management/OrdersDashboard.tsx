@@ -10,7 +10,7 @@ import { OrderCard } from "./OrderCard";
 import { Order, User } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
-import { collection, onSnapshot, query, doc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Skeleton } from "@/components/ui/skeleton";
 import { NewOrderDialog } from "./NewOrderDialog";
@@ -36,24 +36,42 @@ export function OrdersDashboard() {
   const installers = users.filter(u => u.role === 'installer');
   
   useEffect(() => {
-    const ordersQuery = query(collection(db, "orders"));
+    if (!user) return;
+
+    let ordersQuery;
+    // CRM users should only see orders assigned to them.
+    if (user.designation === 'CRM') {
+        ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id));
+    } else {
+        // Admins and other employees see all orders. This might still fail if security rules
+        // for admins are not configured to allow listing the entire collection.
+        ordersQuery = query(collection(db, "orders"));
+    }
+
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
       const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
       setOrders(ordersData);
       setLoading(false);
+    }, (error) => {
+        console.error("Firestore Orders Snapshot Error:", error);
+        toast({ variant: "destructive", title: "Permission Error", description: "Could not fetch orders. Check Firestore rules."});
+        setLoading(false);
     });
 
     const usersQuery = query(collection(db, "users"));
     const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
       const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
       setUsers(usersData);
+    }, (error) => {
+        console.error("Firestore Users Snapshot Error:", error);
+        toast({ variant: "destructive", title: "Permission Error", description: "Could not fetch users. Check Firestore rules."});
     });
 
     return () => {
       unsubscribeOrders();
       unsubscribeUsers();
     };
-  }, []);
+  }, [user, toast]);
 
   const handleOrderUpdate = (updatedOrder: Order) => {
     setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
