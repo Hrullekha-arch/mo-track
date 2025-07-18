@@ -146,9 +146,9 @@ export function PendingOrdersList() {
                                     Acknowledge Order
                                 </Button>
                                 {role === 'admin' && (
-                                     <AlertDialog onOpenChange={() => setDeletingOrder(order)}>
+                                    <AlertDialog>
                                         <AlertDialogTrigger asChild>
-                                            <Button variant="destructive" className="w-full">
+                                            <Button variant="destructive" className="w-full" onClick={() => setDeletingOrder(order)}>
                                                 <Trash2 className="mr-2 h-4 w-4" />
                                                 Delete
                                             </Button>
