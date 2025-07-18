@@ -67,6 +67,19 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
     setLoading(true);
     try {
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
+      const newMilestones = getMilestonesForOrder(values.orderType);
+      const otp = Math.floor(1000 + Math.random() * 9000).toString();
+
+      // Automatically mark the first milestone as complete
+      if (newMilestones.length > 0) {
+        newMilestones[0] = {
+          ...newMilestones[0],
+          completed: true,
+          completedAt: new Date().toISOString(),
+          completedBy: user.name,
+          location: null,
+        }
+      }
       
       const newOrder = {
         id: trackingId,
@@ -77,18 +90,19 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         salesPerson: values.salesPerson,
         orderType: values.orderType,
         remarks: values.remarks || "",
-        milestones: getMilestonesForOrder(values.orderType),
+        milestones: newMilestones,
         createdAt: new Date().toISOString(),
         createdBy: {
             id: user.id,
             name: user.name,
-        }
+        },
+        otp: otp,
       };
 
       await setDoc(doc(db, "orders", trackingId), newOrder);
       toast({
-        title: "Order Created",
-        description: `Order ${trackingId} has been successfully created.`,
+        title: "Order Created & Acknowledged",
+        description: `Order ${trackingId} created with OTP: ${otp}`,
       });
       form.reset();
       onClose();
