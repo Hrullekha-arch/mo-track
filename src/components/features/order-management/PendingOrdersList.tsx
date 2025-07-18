@@ -1,8 +1,8 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
-import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, where } from "firebase/firestore";
+import { useState, useEffect, useMemo } from "react";
+import { collection, onSnapshot, query, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, OrderType, User } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,11 +16,11 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { AssignCrmDialog } from "./AssignCrmDialog";
 
 export function PendingOrdersList() {
-    const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
+    const [allOrders, setAllOrders] = useState<Order[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
-    const [assigningCrmOrder, setAssigningCrmOrder] = useState<Order | null>(null);
+    const [acknowledgingOrder, setAcknowledgingOrder] = useState<Order | null>(null);
 
     const { toast } = useToast();
     const { user, role } = useAuth();
@@ -29,20 +29,20 @@ export function PendingOrdersList() {
 
     useEffect(() => {
         setLoading(true);
-        // Fetch orders that have not been assigned a CRM handler yet.
-        const q = query(collection(db, "orders"), where("handledByCrm", "==", null));
+        // Fetch all orders to be filtered on the client-side
+        const q = query(collection(db, "orders"));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-            setPendingOrders(ordersData);
+            setAllOrders(ordersData);
             setLoading(false);
         }, (error) => {
-            console.error("Error fetching pending orders:", error);
+            console.error("Error fetching orders:", error);
             setLoading(false);
             toast({
                 variant: "destructive",
                 title: "Error fetching orders",
-                description: "Could not load pending orders. Check permissions.",
+                description: "Could not load orders. Check permissions.",
             });
         });
 
@@ -57,39 +57,41 @@ export function PendingOrdersList() {
             unsubscribeUsers();
         };
     }, [toast]);
+    
+    const pendingOrders = useMemo(() => {
+        return allOrders.filter(order => {
+            const firstMilestone = order.milestones.find(m => m.id === 1);
+            return firstMilestone && !firstMilestone.completed;
+        });
+    }, [allOrders]);
 
-
-    const handleAssignCrm = async (crmUserId: string) => {
-        if (!assigningCrmOrder || !user) {
+    const handleAcknowledgeOrder = async (orderToAck: Order) => {
+        if (!orderToAck || !user) {
             toast({ variant: "destructive", title: "An error occurred." });
             return;
         }
         try {
-            const orderRef = doc(db, "orders", assigningCrmOrder.id);
-            const newMilestones = assigningCrmOrder.milestones;
-            
-            // Mark the first milestone as complete
-            if (newMilestones.length > 0 && !newMilestones[0].completed) {
-                newMilestones[0] = { 
-                    ...newMilestones[0], 
+            const orderRef = doc(db, "orders", orderToAck.id);
+            const newMilestones = orderToAck.milestones.map(m => 
+                m.id === 1 ? { 
+                    ...m, 
                     completed: true, 
                     completedAt: new Date().toISOString(), 
                     completedBy: user.name,
-                    location: null
-                };
-            }
+                    location: null // No location needed for this step
+                } : m
+            );
             
             await updateDoc(orderRef, { 
-                handledByCrm: crmUserId,
-                isAcknowledged: true,
-                milestones: newMilestones
+                milestones: newMilestones,
+                isAcknowledged: true, // Keep this for backward compatibility or other logic
             });
 
             toast({ 
                 title: "Order Acknowledged", 
-                description: `${assigningCrmOrder.id} has been assigned and moved to the main dashboard.` 
+                description: `${orderToAck.id} has been acknowledged and moved to the main dashboard.` 
             });
-            setAssigningCrmOrder(null);
+            setAcknowledgingOrder(null);
         } catch (error) {
             console.error("Error acknowledging order:", error);
             toast({ variant: "destructive", title: "Update Failed" });
@@ -136,12 +138,30 @@ export function PendingOrdersList() {
                                 </div>
                             </CardContent>
                             <CardFooter className="flex-col items-stretch space-y-2">
-                                <Button className="w-full" onClick={() => setAssigningCrmOrder(order)}>
-                                    <UserIcon className="mr-2 h-4 w-4" />
-                                    Assign CRM & Acknowledge
-                                </Button>
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button className="w-full" onClick={() => setAcknowledgingOrder(order)}>
+                                            <Check className="mr-2 h-4 w-4" />
+                                            Acknowledge & Process
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                     {acknowledgingOrder && (
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>Acknowledge Order?</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                    This will mark order <span className="font-bold">{acknowledgingOrder.id}</span> as "Received" and move it to the main dashboard for further processing.
+                                                </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel onClick={() => setAcknowledgingOrder(null)}>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction onClick={() => handleAcknowledgeOrder(acknowledgingOrder)}>Continue</AlertDialogAction>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                     )}
+                                </AlertDialog>
                                 {role === 'admin' && (
-                                    <AlertDialog onOpenChange={() => setDeletingOrder(null)}>
+                                    <AlertDialog onOpenChange={(isOpen) => !isOpen && setDeletingOrder(null)}>
                                         <AlertDialogTrigger asChild>
                                             <Button variant="destructive" className="w-full" onClick={() => setDeletingOrder(order)}>
                                                 <Trash2 className="mr-2 h-4 w-4" />
@@ -176,12 +196,6 @@ export function PendingOrdersList() {
                     <p className="text-sm text-muted-foreground">There are no new orders waiting for acknowledgment.</p>
                 </div>
             )}
-             <AssignCrmDialog
-                isOpen={!!assigningCrmOrder}
-                onClose={() => setAssigningCrmOrder(null)}
-                onAssign={handleAssignCrm}
-                crmUsers={crmUsers}
-            />
         </>
     );
 }
