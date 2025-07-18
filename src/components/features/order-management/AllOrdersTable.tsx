@@ -14,7 +14,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, MapPin, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, MapPin, CheckCircle2, XCircle, ShieldAlert } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import { Button } from "@/components/ui/button";
@@ -88,8 +88,14 @@ export function AllOrdersTable() {
 
   const { toast } = useToast();
   const { role } = useAuth();
+  
+  const isAuthorized = role === 'admin';
 
   React.useEffect(() => {
+    if (!isAuthorized) {
+        setLoading(false);
+        return;
+    }
     const ordersQuery = query(collection(db, "orders"));
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
       const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
@@ -107,7 +113,7 @@ export function AllOrdersTable() {
       unsubscribeOrders();
       unsubscribeUsers();
     };
-  }, []);
+  }, [isAuthorized]);
   
   const handleDeleteOrder = async () => {
     if (!deletingOrder) return;
@@ -363,6 +369,20 @@ export function AllOrdersTable() {
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-64 w-full" />
             <Skeleton className="h-10 w-full" />
+        </div>
+    )
+  }
+  
+  if (!isAuthorized) {
+    return (
+        <div className="container mx-auto p-4 md:p-6 lg:p-8">
+            <Card className="mt-8">
+                <CardHeader className="text-center">
+                    <ShieldAlert className="h-12 w-12 text-destructive mx-auto" />
+                    <CardTitle className="mt-4">Access Denied</CardTitle>
+                    <CardDescription>You do not have permission to view this page.</CardDescription>
+                </CardHeader>
+            </Card>
         </div>
     )
   }
