@@ -1,47 +1,59 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check user role from the 'users' collection
-    function getUserRole(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+    // Helper function to check user role
+    function isRole(role) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
     }
 
-    // Rules for the 'users' collection
+    // Helper function to check multiple roles
+    function isOneOfRoles(roles) {
+      let userRole = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return userRole in roles;
+    }
+
+    // Users collection rules
     match /users/{userId} {
-      // Admins can manage all user documents
-      allow write: if getUserRole(request.auth.uid) == 'admin';
-
-      // Any authenticated user can read user documents (e.g., to get names for dropdowns)
+      // Any authenticated user can read user profiles (for names, etc.)
+      // Admins can do anything
       allow read: if request.auth != null;
+      allow write: if isRole('admin');
+    }
+    
+    // Allow listing users for authenticated users
+    match /users/{path=**} {
+      allow list: if request.auth != null;
     }
 
-    // Rules for the 'orders' collection
+    // Orders collection rules
     match /orders/{orderId} {
-      // Allow unauthenticated reads for the customer tracking page
-      allow get: if true;
-
-      // Allow reads for authenticated users based on their role
-      allow list: if request.auth != null && (
-        getUserRole(request.auth.uid) == 'admin' ||
-        getUserRole(request.auth.uid) == 'employee'
-      );
+      // Unauthenticated can read for tracking
+      allow get: if request.auth == null;
       
-      // Allow authenticated users to create orders
-      allow create: if request.auth != null;
+      // Admins/Employees can read/write any order
+      allow read, write: if request.auth != null && isOneOfRoles(['admin', 'employee']);
 
-      // Allow updates based on role
-      // Admins and employees can update any order.
-      // Installers can only update orders assigned to them.
-      allow update: if request.auth != null && (
-        getUserRole(request.auth.uid) == 'admin' ||
-        getUserRole(request.auth.uid) == 'employee' ||
-        (getUserRole(request.auth.uid) == 'installer' && request.auth.uid == resource.data.assignedTo)
-      );
-
-      // Only admins can delete orders
-      allow delete: if request.auth != null && getUserRole(request.auth.uid) == 'admin';
+      // Installers can read/update their assigned orders
+      allow read, update: if request.auth != null && isRole('installer') && resource.data.assignedTo == request.auth.uid;
     }
+    
+    // Allow listing orders for admins/employees
+    match /orders/{path=**} {
+      allow list: if request.auth != null && isOneOfRoles(['admin', 'employee']);
+    }
+
+    // Salesman to CRM Assignments rules
+    match /salesmanCrmAssignments/{assignmentId} {
+        // Admins and employees (like PC/CRM) can read and write assignments
+        allow read, write: if request.auth != null && isOneOfRoles(['admin', 'employee']);
+    }
+    
+    match /salesmanCrmAssignments/{path=**} {
+        allow list: if request.auth != null && isOneOfRoles(['admin', 'employee']);
+    }
+
   }
 }
