@@ -8,7 +8,7 @@ const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: "mo-panel.firebaseapp.com",
   projectId: "mo-panel",
-  storageBucket: "mo-panel.firebasestorage.app",
+  storageBucket: "mo-panel.appspot.com",
   messagingSenderId: "616662408646",
   appId: "1:616662408646:web:bf730cfb0b9d8de0b326c7",
   measurementId: "G-M7M6X69SNF"
