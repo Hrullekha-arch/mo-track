@@ -34,7 +34,7 @@ const salesmen = [
     "AM (MINTOO)", "BPS (PAWAN SHARMA)", "BTK (TAPESHWAR)", "CAY (ASHISH)",
     "CP (PRADEEP)", "DS (DAYAL)", "DK (DEEPAK SINHA)", "KD (DEVENDER)", "MU (MURARI)",
     "NK (NAND KISHOR)", "NKD (NEERAJ)", "RA (RAJEEV AGGARWAL)", "RSB (RAJENDRA BISHT)",
-    "RK (RAJKUMAR)", "SD (SWETA)", "UMDP (UMESH)", "RD (Bhatiya)", "ANVR (Anvar)", "VD (Vishal Dubey)"
+    "RK (RAJKUMAR)", "SD (SWETA)", "UMDP (UMESH)", "RB (Bhatiya)", "ANVR (Anvar)", "VD (Vishal Dubey)"
 ];
 
 interface NewOrderDialogProps {
