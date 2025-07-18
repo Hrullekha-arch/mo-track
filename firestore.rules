@@ -1,60 +1,47 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to get the user's role from the users collection
+
+    // Helper function to check user role from the 'users' collection
     function getUserRole(userId) {
       return get(/databases/$(database)/documents/users/$(userId)).data.role;
-    }
-    
-    // Helper function to check if the user is an admin
-    function isAdmin(userId) {
-      return getUserRole(userId) == 'admin';
-    }
-
-    // Helper function to check if the user is an employee
-    function isEmployee(userId) {
-      return getUserRole(userId) == 'employee';
-    }
-    
-    // Helper function to check if the user is an installer
-    function isInstaller(userId) {
-      return getUserRole(userId) == 'installer';
     }
 
     // Rules for the 'users' collection
     match /users/{userId} {
-      // Admins can read/write any user document
-      // Authenticated users can read their own document
-      allow read: if request.auth != null && (isAdmin(request.auth.uid) || request.auth.uid == userId);
-      // Admins can create/update any user.
-      allow write: if request.auth != null && isAdmin(request.auth.uid);
+      // Admins can manage all user documents
+      allow write: if getUserRole(request.auth.uid) == 'admin';
+
+      // Any authenticated user can read user documents (e.g., to get names for dropdowns)
+      allow read: if request.auth != null;
     }
 
     // Rules for the 'orders' collection
     match /orders/{orderId} {
-      // Allow public read for customer tracking page, but only specific, non-sensitive fields
-      allow get: if true; 
+      // Allow unauthenticated reads for the customer tracking page
+      allow get: if true;
 
-      // Admins and Employees can list all orders. Installers can only see their assigned orders.
-      allow list: if request.auth != null && (isAdmin(request.auth.uid) || isEmployee(request.auth.uid) || isInstaller(request.auth.uid));
+      // Allow reads for authenticated users based on their role
+      allow list: if request.auth != null && (
+        getUserRole(request.auth.uid) == 'admin' ||
+        getUserRole(request.auth.uid) == 'employee'
+      );
+      
+      // Allow authenticated users to create orders
+      allow create: if request.auth != null;
 
-      // Creation is allowed by Admins or Employees
-      allow create: if request.auth != null && (isAdmin(request.auth.uid) || isEmployee(request.auth.uid));
-
-      // Update rules are more complex
+      // Allow updates based on role
+      // Admins and employees can update any order.
+      // Installers can only update orders assigned to them.
       allow update: if request.auth != null && (
-        // Admins can update anything
-        isAdmin(request.auth.uid) ||
-        // Employees can update if they are the handler or if no handler is assigned
-        (isEmployee(request.auth.uid)) ||
-        // Installers can only update milestones if they are assigned to the order
-        (isInstaller(request.auth.uid) && resource.data.assignedTo == request.auth.uid)
+        getUserRole(request.auth.uid) == 'admin' ||
+        getUserRole(request.auth.uid) == 'employee' ||
+        (getUserRole(request.auth.uid) == 'installer' && request.auth.uid == resource.data.assignedTo)
       );
 
-      // Admins can delete orders
-      allow delete: if request.auth != null && isAdmin(request.auth.uid);
+      // Only admins can delete orders
+      allow delete: if request.auth != null && getUserRole(request.auth.uid) == 'admin';
     }
   }
 }
