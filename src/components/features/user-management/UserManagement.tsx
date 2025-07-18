@@ -17,6 +17,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { UserFormDialog } from './UserFormDialog';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SalesmanAssignment } from './SalesmanAssignment';
 
 export function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
@@ -68,6 +70,8 @@ export function UserManagement() {
   if (loading) {
       return <UserManagementSkeleton />;
   }
+  
+  const crmUsers = users.filter(u => u.designation === 'CRM');
 
   return (
     <>
@@ -84,71 +88,83 @@ export function UserManagement() {
           )}
         </div>
 
-        <Card>
-          <CardHeader>
-              <CardTitle>All Users</CardTitle>
-              <CardDescription>A list of all users in the system.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Designation</TableHead>
-                  {!isEmployee && <TableHead className="text-right">Actions</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-4">
-                        <Avatar>
-                          <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
-                          <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium">{user.name}</div>
-                          <div className="text-sm text-muted-foreground">{user.email}</div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={user.role === 'admin' ? 'default' : user.role === 'installer' ? 'outline' : 'secondary'}>
-                          {user.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {user.designation ? (
-                        <span className="text-sm text-muted-foreground">{user.designation}</span>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    {!isEmployee && (
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleEditUser(user)}><Edit className="mr-2 h-4 w-4" />Edit User</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setDeletingUser(user)} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
-                              <Trash2 className="mr-2 h-4 w-4" />Delete User
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <Tabs defaultValue="users">
+            <TabsList className="mb-4">
+                <TabsTrigger value="users">Users</TabsTrigger>
+                <TabsTrigger value="assignments">Salesman Assignments</TabsTrigger>
+            </TabsList>
+            <TabsContent value="users">
+                <Card>
+                <CardHeader>
+                    <CardTitle>All Users</CardTitle>
+                    <CardDescription>A list of all users in the system.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Table>
+                    <TableHeader>
+                        <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Designation</TableHead>
+                        {!isEmployee && <TableHead className="text-right">Actions</TableHead>}
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {users.map((user) => (
+                        <TableRow key={user.id}>
+                            <TableCell>
+                            <div className="flex items-center gap-4">
+                                <Avatar>
+                                <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
+                                <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                <div className="font-medium">{user.name}</div>
+                                <div className="text-sm text-muted-foreground">{user.email}</div>
+                                </div>
+                            </div>
+                            </TableCell>
+                            <TableCell>
+                            <Badge variant={user.role === 'admin' ? 'default' : user.role === 'installer' ? 'outline' : 'secondary'}>
+                                {user.role}
+                            </Badge>
+                            </TableCell>
+                            <TableCell>
+                            {user.designation ? (
+                                <span className="text-sm text-muted-foreground">{user.designation}</span>
+                            ) : (
+                                <span className="text-sm text-muted-foreground">-</span>
+                            )}
+                            </TableCell>
+                            {!isEmployee && (
+                            <TableCell className="text-right">
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleEditUser(user)}><Edit className="mr-2 h-4 w-4" />Edit User</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setDeletingUser(user)} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+                                    <Trash2 className="mr-2 h-4 w-4" />Delete User
+                                </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                            </TableCell>
+                            )}
+                        </TableRow>
+                        ))}
+                    </TableBody>
+                    </Table>
+                </CardContent>
+                </Card>
+            </TabsContent>
+            <TabsContent value="assignments">
+                <SalesmanAssignment crmUsers={crmUsers} />
+            </TabsContent>
+        </Tabs>
+        
       </div>
 
       <UserFormDialog

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getMilestonesForOrder } from "@/lib/constants";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -59,6 +59,20 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
     },
   });
 
+  async function getCrmForSalesman(salesman: string): Promise<string | null> {
+    try {
+        const assignmentDocRef = doc(db, "salesmanCrmAssignments", salesman);
+        const docSnap = await getDoc(assignmentDocRef);
+        if (docSnap.exists()) {
+            return docSnap.data().crmUserId;
+        }
+        return null;
+    } catch (error) {
+        console.error("Error fetching salesman assignment:", error);
+        return null;
+    }
+  }
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!user) {
         toast({ variant: "destructive", title: "Error", description: "You must be logged in to create an order."});
@@ -69,6 +83,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
       const newMilestones = getMilestonesForOrder(values.orderType);
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
+      const assignedCrmId = await getCrmForSalesman(values.salesPerson);
 
       // Automatically mark the first milestone as complete
       if (newMilestones.length > 0) {
@@ -81,7 +96,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         }
       }
       
-      const newOrder = {
+      const newOrder: any = {
         id: trackingId,
         crmOrderNo: values.crmOrderNo,
         customerName: values.customerName,
@@ -98,6 +113,10 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         },
         otp: otp,
       };
+
+      if (assignedCrmId) {
+        newOrder.handledByCrm = assignedCrmId;
+      }
 
       await setDoc(doc(db, "orders", trackingId), newOrder);
       toast({
