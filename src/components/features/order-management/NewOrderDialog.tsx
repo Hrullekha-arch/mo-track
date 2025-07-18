@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getMilestonesForOrder, salesmen } from "@/lib/constants";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -58,6 +58,21 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
     }
     setLoading(true);
     try {
+      // Find assigned CRM user for the selected salesman
+      const assignmentRef = doc(db, "salesmanCrmAssignments", values.salesPerson);
+      const assignmentSnap = await getDoc(assignmentRef);
+      const crmUserId = assignmentSnap.exists() ? assignmentSnap.data().crmUserId : null;
+
+      if (!crmUserId) {
+        toast({
+          variant: "destructive",
+          title: "Assignment Missing",
+          description: `The salesman "${values.salesPerson}" is not assigned to a CRM handler. Please set the assignment in User Management.`,
+        });
+        setLoading(false);
+        return;
+      }
+
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
       const newMilestones = getMilestonesForOrder(values.orderType);
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
@@ -79,13 +94,13 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         },
         otp: otp,
         isAcknowledged: false, 
-        handledByCrm: null,
+        handledByCrm: crmUserId, // Automatically assign CRM
       };
 
       await setDoc(doc(db, "orders", trackingId), newOrder);
       toast({
         title: "Order Created",
-        description: `Order ${trackingId} has been sent to the pending queue.`,
+        description: `Order ${trackingId} has been sent to the pending queue and assigned to the appropriate CRM.`,
       });
       form.reset();
       onClose();

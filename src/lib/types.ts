@@ -56,4 +56,7 @@ export interface Order {
   completedAt?: string; // ISO Date string
 }
 
-    
+export interface SalesmanCrmAssignment {
+  id: string; // Salesman Name
+  crmUserId: string;
+}
