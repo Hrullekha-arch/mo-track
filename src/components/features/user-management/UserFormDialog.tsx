@@ -6,7 +6,7 @@ import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { doc, setDoc, updateDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { db, firebaseConfig } from "@/lib/firebase";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -15,7 +15,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { User, UserRole } from "@/lib/types";
 import { Loader2 } from "lucide-react";
-import { createUser } from "./UserActions";
 
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -103,32 +102,63 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
             setLoading(false);
             return;
         }
-        const result = await createUser(values.email, values.password);
-        if (result.error || !result.uid) {
-            throw new Error(result.error || 'Failed to create user in Authentication.');
+        
+        const apiKey = firebaseConfig.apiKey;
+        if (!apiKey) {
+            throw new Error("Firebase API Key is not configured.");
         }
 
-        const newUser: Omit<User, 'id'> = {
-            name: values.name,
-            email: values.email,
-            role: values.role,
-        };
-        if (values.designation && values.role === 'employee') {
-            newUser.designation = values.designation;
+        try {
+            const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: values.email,
+                    password: values.password,
+                    returnSecureToken: true,
+                }),
+            });
+
+            const authData = await res.json();
+            
+            if (!res.ok) {
+                const errorMessage = authData?.error?.message || 'Failed to create user in Authentication.';
+                // Make error more user-friendly
+                if (errorMessage === 'EMAIL_EXISTS') {
+                    throw new Error('A user with this email address already exists.');
+                }
+                throw new Error(errorMessage);
+            }
+
+            const newUser: Omit<User, 'id'> = {
+                name: values.name,
+                email: values.email,
+                role: values.role,
+            };
+            if (values.designation && values.role === 'employee') {
+                newUser.designation = values.designation;
+            }
+            
+            await setDoc(doc(db, "users", authData.localId), newUser);
+            toast({ title: "User Created", description: "New user has been successfully created." });
+
+        } catch (error: any) {
+             console.error("Error creating user:", error);
+             toast({
+                variant: "destructive",
+                title: "Creation Failed",
+                description: error.message || "Could not create the user.",
+            });
+            // Re-throw to be caught by the outer catch block
+            throw error;
         }
-        
-        await setDoc(doc(db, "users", result.uid), newUser);
-        toast({ title: "User Created", description: "New user has been successfully created." });
       }
       form.reset();
       onClose();
     } catch (error: any) {
+      // This outer catch block will now receive more specific errors.
       console.error("Error saving user: ", error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "An unexpected error occurred. Please try again.",
-      });
+      // The specific error message is already shown in the inner try-catch
     } finally {
       setLoading(false);
     }
