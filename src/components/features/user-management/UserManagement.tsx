@@ -103,6 +103,7 @@ export function UserManagement() {
                         <TableHead>Name</TableHead>
                         <TableHead>Role</TableHead>
                         <TableHead>Designation</TableHead>
+                        <TableHead>Salesman Code</TableHead>
                         {!isEmployee && <TableHead className="text-right">Actions</TableHead>}
                         </TableRow>
                     </TableHeader>
@@ -132,6 +133,13 @@ export function UserManagement() {
                             ) : (
                                 <span className="text-sm text-muted-foreground">-</span>
                             )}
+                            </TableCell>
+                             <TableCell>
+                                {user.salesmanCode ? (
+                                    <span className="text-sm font-mono text-muted-foreground">{user.salesmanCode}</span>
+                                ) : (
+                                    <span className="text-sm text-muted-foreground">-</span>
+                                )}
                             </TableCell>
                             {!isEmployee && (
                             <TableCell className="text-right">

@@ -22,6 +22,7 @@ const formSchema = z.object({
   password: z.string().optional(),
   role: z.enum(['admin', 'employee', 'installer', 'salesman'], { required_error: "Role is required" }),
   designation: z.enum(['CRM', 'Allocators', 'PC']).optional(),
+  salesmanCode: z.string().optional(),
 }).refine(data => {
     if (data.role === 'employee' && !data.designation) {
         return false;
@@ -52,6 +53,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
       password: '',
       role: 'employee',
       designation: undefined,
+      salesmanCode: '',
     },
   });
 
@@ -65,6 +67,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         role: user.role,
         designation: user.designation,
         password: '',
+        salesmanCode: user.salesmanCode,
       });
     } else {
       form.reset({
@@ -73,6 +76,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         password: '',
         role: 'employee',
         designation: undefined,
+        salesmanCode: '',
       });
     }
   }, [user, form]);
@@ -80,6 +84,9 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
   useEffect(() => {
       if (role !== 'employee') {
           form.setValue('designation', undefined);
+      }
+      if (role !== 'salesman') {
+          form.setValue('salesmanCode', '');
       }
   }, [role, form]);
 
@@ -93,6 +100,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
             name: values.name,
             role: values.role,
             designation: values.designation || null,
+            salesmanCode: values.salesmanCode || null,
         });
         toast({ title: "User Updated", description: "User details have been successfully updated." });
       } else {
@@ -137,6 +145,9 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
             };
             if (values.designation && values.role === 'employee') {
                 newUser.designation = values.designation;
+            }
+             if (values.salesmanCode && values.role === 'salesman') {
+                newUser.salesmanCode = values.salesmanCode;
             }
             
             await setDoc(doc(db, "users", authData.localId), newUser);
@@ -258,6 +269,19 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                     )}
                 />
              )}
+            {role === 'salesman' && (
+              <FormField
+                control={form.control}
+                name="salesmanCode"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Salesman Code</FormLabel>
+                    <FormControl><Input placeholder="e.g. S001" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <DialogFooter>
                 <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
                 <Button type="submit" disabled={loading}>

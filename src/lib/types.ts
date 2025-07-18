@@ -8,6 +8,7 @@ export interface User {
   role: UserRole;
   avatarUrl?: string;
   designation?: 'CRM' | 'Allocators' | 'PC';
+  salesmanCode?: string;
 }
 
 export type OrderType = 'delivery' | 'stitching' | 'stitching+installation';
