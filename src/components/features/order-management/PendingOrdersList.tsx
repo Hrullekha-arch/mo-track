@@ -2,24 +2,26 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { collection, onSnapshot, query, doc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, OrderType } from "@/lib/types";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, Package } from "lucide-react";
+import { Check, Package, Trash2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { getMilestonesForOrder } from "@/lib/constants";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export function PendingOrdersList() {
     const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
+    const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
     const { toast } = useToast();
-    const { user } = useAuth();
+    const { user, role } = useAuth();
     const [selectedOrderTypes, setSelectedOrderTypes] = useState<Record<string, OrderType>>({});
 
     useEffect(() => {
@@ -83,6 +85,18 @@ export function PendingOrdersList() {
             toast({ variant: "destructive", title: "Update Failed" });
         }
     };
+    
+    const handleDeleteOrder = async () => {
+        if (!deletingOrder) return;
+        try {
+            await deleteDoc(doc(db, "orders", deletingOrder.id));
+            toast({ title: "Order Deleted", description: `Order ${deletingOrder.id} has been removed.` });
+            setDeletingOrder(null);
+        } catch (error) {
+            console.error("Error deleting order: ", error);
+            toast({ variant: "destructive", title: "Error", description: "Failed to delete order." });
+        }
+    };
 
     if (loading) {
         return (
@@ -95,16 +109,16 @@ export function PendingOrdersList() {
     }
 
     return (
-        <div>
+        <>
             {pendingOrders.length > 0 ? (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {pendingOrders.map(order => (
-                        <Card key={order.id}>
+                        <Card key={order.id} className="flex flex-col">
                             <CardHeader>
                                 <CardTitle>{order.customerName}</CardTitle>
                                 <CardDescription>{order.id}</CardDescription>
                             </CardHeader>
-                            <CardContent>
+                            <CardContent className="flex-grow">
                                 <div className="space-y-4 text-sm">
                                     <p><strong>Sales Person:</strong> {order.salesPerson}</p>
                                     <p><strong>Created:</strong> {new Date(order.createdAt).toLocaleString()}</p>
@@ -125,11 +139,21 @@ export function PendingOrdersList() {
                                         </Select>
                                     </div>
                                 </div>
-                                <Button className="w-full mt-4" onClick={() => handleAcknowledgeOrder(order)}>
+                            </CardContent>
+                            <CardFooter className="flex-col items-stretch space-y-2">
+                                <Button className="w-full" onClick={() => handleAcknowledgeOrder(order)}>
                                     <Check className="mr-2 h-4 w-4" />
                                     Acknowledge Order
                                 </Button>
-                            </CardContent>
+                                {role === 'admin' && (
+                                     <AlertDialogTrigger asChild>
+                                        <Button variant="destructive" className="w-full" onClick={() => setDeletingOrder(order)}>
+                                            <Trash2 className="mr-2 h-4 w-4" />
+                                            Delete
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                )}
+                            </CardFooter>
                         </Card>
                     ))}
                 </div>
@@ -142,6 +166,21 @@ export function PendingOrdersList() {
                     <p className="text-sm text-muted-foreground">There are no new orders waiting for acknowledgment.</p>
                 </div>
             )}
-        </div>
+             <AlertDialog open={!!deletingOrder} onOpenChange={() => setDeletingOrder(null)}>
+                <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                    This action cannot be undone. This will permanently delete the order from Firestore. 
+                    This action is irreversible.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDeleteOrder} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
     );
 }
