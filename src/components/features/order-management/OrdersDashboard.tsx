@@ -17,17 +17,9 @@ import { NewOrderDialog } from "./NewOrderDialog";
 import { generateInstallationSchedule, GenerateInstallationScheduleInput, GenerateInstallationScheduleOutput } from "@/ai/flows/generate-installation-schedule";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { salesmen } from "@/lib/constants";
 
 type SummaryFilterType = 'totalActive' | 'scheduledToday' | 'scheduled' | 'assigned' | 'readyForDelivery' | 'stitched' | 'completed' | 'bypassedOtp';
-
-const salesmen = [
-    "AAS (SAHOO)", "ASD (SAROJ DAS)", "ASB (ABHISHEK SINGH)", "AK (ABHISHEK CARPET)",
-    "AM (MINTOO)", "BPS (PAWAN SHARMA)", "BTK (TAPESHWAR)", "CAY (ASHISH)",
-    "CP (PRADEEP)", "DS (DAYAL)", "DK (DEEPAK SINHA)", "KD (DEVENDER)", "MU (MURARI)",
-    "NK (NAND KISHOR)", "NKD (NEERAJ)", "RA (RAJEEV AGGARWAL)", "RSB (RAJENDRA BISHT)",
-    "RK (RAJKUMAR)", "SD (SWETA)", "UMDP (UMESH)", "RB (Bhatiya)", "ANVR (Anvar)", "VD (Vishal Dubey)",
-    "IS (Isha Mam)", "SHANTANU", "SONI (DEEPAK SONI)"
-].sort();
 
 export function OrdersDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
