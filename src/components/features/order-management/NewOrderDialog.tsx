@@ -1,13 +1,13 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc, collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { getMilestonesForOrder, salesmen } from "@/lib/constants";
+import { getMilestonesForOrder } from "@/lib/constants";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -36,6 +36,7 @@ interface NewOrderDialogProps {
 
 export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
   const [loading, setLoading] = useState(false);
+  const [salesmen, setSalesmen] = useState<User[]>([]);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -50,6 +51,17 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       remarks: "",
     },
   });
+
+  useEffect(() => {
+    if (isOpen) {
+        const salesmenQuery = query(collection(db, "users"), where("role", "==", "salesman"));
+        const unsubscribe = onSnapshot(salesmenQuery, (snapshot) => {
+            const salesmenData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+            setSalesmen(salesmenData.sort((a, b) => a.name.localeCompare(b.name)));
+        });
+        return () => unsubscribe();
+    }
+  }, [isOpen]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!user) {
@@ -93,7 +105,6 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
             name: user.name,
         },
         otp: otp,
-        isAcknowledged: false, 
         handledByCrm: crmUserId, // Automatically assign CRM
       };
 
@@ -197,9 +208,13 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
                             </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                            {salesmen.map(salesman => (
-                                <SelectItem key={salesman} value={salesman}>{salesman}</SelectItem>
-                            ))}
+                            {salesmen.length > 0 ? (
+                                salesmen.map(salesman => (
+                                    <SelectItem key={salesman.id} value={salesman.name}>{salesman.name}</SelectItem>
+                                ))
+                            ) : (
+                                <SelectItem value="loading" disabled>Loading salesmen...</SelectItem>
+                            )}
                         </SelectContent>
                     </Select>
                   <FormMessage />

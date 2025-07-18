@@ -4,9 +4,8 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { salesmen } from "@/lib/constants";
 import { User, SalesmanCrmAssignment } from "@/lib/types";
-import { collection, onSnapshot, query, doc, setDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, setDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,16 +13,23 @@ import { Loader2 } from "lucide-react";
 
 export function SalesmanCrmAssignments() {
     const [crmUsers, setCrmUsers] = useState<User[]>([]);
+    const [salesmen, setSalesmen] = useState<User[]>([]);
     const [assignments, setAssignments] = useState<SalesmanCrmAssignment[]>([]);
     const [loading, setLoading] = useState(true);
     const [updatingSalesman, setUpdatingSalesman] = useState<string | null>(null);
     const { toast } = useToast();
 
     useEffect(() => {
-        const usersQuery = query(collection(db, "users"));
-        const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+        const crmQuery = query(collection(db, "users"), where("designation", "==", "CRM"));
+        const unsubscribeCrm = onSnapshot(crmQuery, (snapshot) => {
             const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-            setCrmUsers(usersData.filter(u => u.designation === 'CRM'));
+            setCrmUsers(usersData);
+        });
+
+        const salesmenQuery = query(collection(db, "users"), where("role", "==", "salesman"));
+        const unsubscribeSalesmen = onSnapshot(salesmenQuery, (snapshot) => {
+            const salesmenData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+            setSalesmen(salesmenData);
         });
 
         const assignmentsQuery = query(collection(db, "salesmanCrmAssignments"));
@@ -34,7 +40,8 @@ export function SalesmanCrmAssignments() {
         });
 
         return () => {
-            unsubscribeUsers();
+            unsubscribeCrm();
+            unsubscribeSalesmen();
             unsubscribeAssignments();
         };
     }, []);
@@ -90,15 +97,15 @@ export function SalesmanCrmAssignments() {
             </CardHeader>
             <CardContent>
                 <div className="space-y-4">
-                    {salesmen.map((salesman) => (
-                        <div key={salesman} className="flex items-center justify-between p-2 border rounded-lg">
-                            <span className="font-medium">{salesman}</span>
+                    {salesmen.sort((a, b) => a.name.localeCompare(b.name)).map((salesman) => (
+                        <div key={salesman.id} className="flex items-center justify-between p-2 border rounded-lg">
+                            <span className="font-medium">{salesman.name}</span>
                             <div className="flex items-center gap-2">
-                                {updatingSalesman === salesman && <Loader2 className="h-5 w-5 animate-spin" />}
+                                {updatingSalesman === salesman.name && <Loader2 className="h-5 w-5 animate-spin" />}
                                 <Select
-                                    value={getAssignedCrmId(salesman) || ""}
-                                    onValueChange={(crmId) => handleAssignCrm(salesman, crmId)}
-                                    disabled={updatingSalesman === salesman}
+                                    value={getAssignedCrmId(salesman.name) || ""}
+                                    onValueChange={(crmId) => handleAssignCrm(salesman.name, crmId)}
+                                    disabled={updatingSalesman === salesman.name}
                                 >
                                     <SelectTrigger className="w-[200px]">
                                         <SelectValue placeholder="Select CRM Handler" />

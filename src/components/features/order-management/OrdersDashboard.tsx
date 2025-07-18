@@ -17,7 +17,6 @@ import { NewOrderDialog } from "./NewOrderDialog";
 import { generateInstallationSchedule, GenerateInstallationScheduleInput, GenerateInstallationScheduleOutput } from "@/ai/flows/generate-installation-schedule";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { salesmen } from "@/lib/constants";
 
 type SummaryFilterType = 'totalActive' | 'scheduledToday' | 'scheduled' | 'assigned' | 'readyForDelivery' | 'stitched' | 'completed' | 'bypassedOtp';
 
@@ -35,6 +34,7 @@ export function OrdersDashboard() {
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
 
   const installers = users.filter(u => u.role === 'installer');
+  const salesmen = users.filter(u => u.role === 'salesman');
   
   useEffect(() => {
     if (!user) return;
@@ -280,7 +280,7 @@ export function OrdersDashboard() {
               <SelectContent>
                 <SelectItem value="all">All Sales People</SelectItem>
                 {salesmen.map(salesman => (
-                    <SelectItem key={salesman} value={salesman}>{salesman}</SelectItem>
+                    <SelectItem key={salesman.id} value={salesman.name}>{salesman.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
