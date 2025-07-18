@@ -71,8 +71,6 @@ export function UserManagement() {
       return <UserManagementSkeleton />;
   }
   
-  const crmUsers = users.filter(u => u.designation === 'CRM');
-
   return (
     <>
       <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -161,7 +159,7 @@ export function UserManagement() {
                 </Card>
             </TabsContent>
             <TabsContent value="assignments">
-                <SalesmanAssignment crmUsers={crmUsers} />
+                <SalesmanAssignment />
             </TabsContent>
         </Tabs>
         

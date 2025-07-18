@@ -6,21 +6,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { User } from '@/lib/types';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, doc, deleteDoc, writeBatch, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronDown, Link, Link2Off, Loader2 } from 'lucide-react';
+import { Link2Off, Loader2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Separator } from '@/components/ui/separator';
 
 const salesmen = [
     "AAS (SAHOO)", "ASD (SAROJ DAS)", "ASB (ABHISHEK SINGH)", "AK (ABHISHEK CARPET)",
@@ -30,12 +23,9 @@ const salesmen = [
     "RK (RAJKUMAR)", "SD (SWETA)", "UMDP (UMESH)", "RD (Bhatiya)", "ANVR (Anvar)", "VD (Vishal Dubey)"
 ];
 
-interface SalesmanAssignmentProps {
-  crmUsers: User[];
-}
-
-export function SalesmanAssignment({ crmUsers }: SalesmanAssignmentProps) {
+export function SalesmanAssignment() {
   const [assignments, setAssignments] = useState<Record<string, string>>({});
+  const [crmUsers, setCrmUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
   const [selectedCrm, setSelectedCrm] = useState<string>("");
@@ -45,15 +35,26 @@ export function SalesmanAssignment({ crmUsers }: SalesmanAssignmentProps) {
   useEffect(() => {
     setLoading(true);
     const assignmentsCollection = collection(db, "salesmanCrmAssignments");
-    const unsubscribe = onSnapshot(assignmentsCollection, (snapshot) => {
+    const unsubscribeAssignments = onSnapshot(assignmentsCollection, (snapshot) => {
       const assignmentsData: Record<string, string> = {};
       snapshot.forEach(doc => {
         assignmentsData[doc.id] = doc.data().crmUserId;
       });
       setAssignments(assignmentsData);
-      setLoading(false);
     });
-    return () => unsubscribe();
+
+    const crmQuery = query(collection(db, "users"), where("designation", "==", "CRM"));
+    const unsubscribeCrmUsers = onSnapshot(crmQuery, (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+      setCrmUsers(usersData);
+    });
+
+    setLoading(false);
+
+    return () => {
+        unsubscribeAssignments();
+        unsubscribeCrmUsers();
+    };
   }, []);
   
   const handleUnassign = async (salesman: string) => {
@@ -200,15 +201,13 @@ export function SalesmanAssignment({ crmUsers }: SalesmanAssignmentProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {salesmen.map((salesman) => {
-              const assignedCrmId = assignments[salesman];
-              if (!assignedCrmId) return null; // Only show assigned salesmen here
+            {Object.keys(assignments).length > 0 ? Object.entries(assignments).map(([salesman, crmUserId]) => {
               return (
                 <TableRow key={salesman}>
                   <TableCell className="font-medium">{salesman}</TableCell>
                   <TableCell>
-                    {assignedCrmId ? (
-                      <span className="font-semibold text-purple-600">{getCrmUserName(assignedCrmId)}</span>
+                    {crmUserId ? (
+                      <span className="font-semibold text-purple-600">{getCrmUserName(crmUserId)}</span>
                     ) : (
                       <span className="text-muted-foreground">Unassigned</span>
                     )}
@@ -221,8 +220,7 @@ export function SalesmanAssignment({ crmUsers }: SalesmanAssignmentProps) {
                   </TableCell>
                 </TableRow>
               );
-            })}
-             {Object.keys(assignments).length === 0 && (
+            }) : (
                 <TableRow>
                     <TableCell colSpan={3} className="h-24 text-center">
                         No assignments found.
