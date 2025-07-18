@@ -85,7 +85,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
       const assignedCrmId = await getCrmForSalesman(values.salesPerson);
 
-      // Automatically mark the first milestone as complete
+      // Automatically mark the first milestone as complete since it's created in-app
       if (newMilestones.length > 0) {
         newMilestones[0] = {
           ...newMilestones[0],
@@ -112,6 +112,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
             name: user.name,
         },
         otp: otp,
+        isAcknowledged: true, // Orders created in-app are always acknowledged
       };
 
       if (assignedCrmId) {

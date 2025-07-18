@@ -39,13 +39,16 @@ export function OrdersDashboard() {
     if (!user) return;
 
     let ordersQuery;
-    // CRM users should only see orders assigned to them.
+    
+    // Base query for acknowledged orders
+    const baseQuery = where("isAcknowledged", "==", true);
+
     if (user.designation === 'CRM') {
-        ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id));
+        // CRM users only see acknowledged orders assigned to them.
+        ordersQuery = query(collection(db, "orders"), baseQuery, where("handledByCrm", "==", user.id));
     } else {
-        // Admins and other employees see all orders. This might still fail if security rules
-        // for admins are not configured to allow listing the entire collection.
-        ordersQuery = query(collection(db, "orders"));
+        // Admins and other employees see all acknowledged orders.
+        ordersQuery = query(collection(db, "orders"), baseQuery);
     }
 
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
@@ -77,16 +80,12 @@ export function OrdersDashboard() {
     setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
   };
   
-  const isAcknowledged = (order: Order) => Array.isArray(order.milestones) && order.milestones.length > 0 && order.milestones[0]?.completed === true;
   const isFullyCompleted = (order: Order) => Array.isArray(order.milestones) && order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
   const scheduledDate = (order: Order) => Array.isArray(order.milestones) ? order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt : undefined;
   
   const filteredOrders = useMemo(() => {
+      // All orders from the query are already acknowledged.
       return orders.filter(order => {
-        // Exclude unacknowledged orders from all dashboard views except 'completed'
-        if (activeSummaryFilter !== 'completed' && !isAcknowledged(order)) {
-            return false;
-        }
           
         // Primary filter from summary boxes
         switch (activeSummaryFilter) {
@@ -132,7 +131,8 @@ export function OrdersDashboard() {
         
         const installerMatch = filters.installer === 'all' || order.assignedTo === filters.installer;
         
-        let crmMatch = true;
+        // This is now redundant because the main query handles it, but good for safety.
+        let crmMatch = true; 
         if (user?.designation === 'CRM') {
             crmMatch = order.handledByCrm === user.id;
         }
@@ -143,8 +143,8 @@ export function OrdersDashboard() {
 
 
   const summary = useMemo(() => {
-    const acknowledgedOrders = orders.filter(isAcknowledged);
-    const activeOrders = acknowledgedOrders.filter(o => !isFullyCompleted(o));
+    // The `orders` state now only contains acknowledged orders
+    const activeOrders = orders.filter(o => !isFullyCompleted(o));
 
     return {
         totalActive: activeOrders.length,

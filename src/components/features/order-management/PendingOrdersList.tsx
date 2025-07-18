@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { collection, onSnapshot, query, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, OrderType } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +17,7 @@ import { getMilestonesForOrder } from "@/lib/constants";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 export function PendingOrdersList() {
-    const [allOrders, setAllOrders] = useState<Order[]>([]);
+    const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
     const { toast } = useToast();
@@ -26,39 +26,37 @@ export function PendingOrdersList() {
 
     useEffect(() => {
         setLoading(true);
-        const q = query(collection(db, "orders"));
+        // This query is now much more efficient and secure.
+        const q = query(collection(db, "orders"), where("isAcknowledged", "==", false));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-            setAllOrders(ordersData);
+            setPendingOrders(ordersData);
+            
+            // Initialize selected order types state if not already set
+            const initialTypes: Record<string, OrderType> = {};
+            ordersData.forEach(order => {
+                if (!selectedOrderTypes[order.id]) {
+                    initialTypes[order.id] = order.orderType;
+                }
+            });
+            if (Object.keys(initialTypes).length > 0) {
+                setSelectedOrderTypes(prev => ({ ...prev, ...initialTypes }));
+            }
+            
             setLoading(false);
         }, (error) => {
-            console.error("Error fetching orders:", error);
+            console.error("Error fetching pending orders:", error);
             setLoading(false);
             toast({
                 variant: "destructive",
                 title: "Error fetching orders",
-                description: "Could not load orders from the database.",
+                description: "Could not load pending orders. Check permissions.",
             });
         });
 
         return () => unsubscribe();
     }, [toast]);
-
-    const pendingOrders = allOrders.filter(order => !order.milestones?.[0]?.completed);
-    
-    useEffect(() => {
-        // Initialize selected order types state if not already set
-        const initialTypes: Record<string, OrderType> = {};
-        pendingOrders.forEach(order => {
-            if (!selectedOrderTypes[order.id]) {
-                initialTypes[order.id] = order.orderType;
-            }
-        });
-        if (Object.keys(initialTypes).length > 0) {
-            setSelectedOrderTypes(prev => ({ ...prev, ...initialTypes }));
-        }
-    }, [pendingOrders, selectedOrderTypes]);
 
 
     const handleOrderTypeChange = (orderId: string, newType: OrderType) => {
@@ -90,6 +88,7 @@ export function PendingOrdersList() {
             const otp = order.otp || Math.floor(1000 + Math.random() * 9000).toString();
 
             await updateDoc(orderRef, { 
+                isAcknowledged: true, // Set the flag to true
                 orderType: newOrderType,
                 milestones: newMilestones,
                 otp: otp

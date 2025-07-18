@@ -41,6 +41,8 @@ export interface Order {
     id: string;
     name: string;
   },
+  isAcknowledged: boolean;
+
   // Installer feedback
   feedbackRating?: number;
   feedbackRemarks?: string;
