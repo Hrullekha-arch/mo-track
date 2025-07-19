@@ -10,23 +10,23 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, Package, Trash2, User as UserIcon } from "lucide-react";
+import { Check, Loader2, Package, Trash2, User as UserIcon } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { AssignCrmDialog } from "./AssignCrmDialog";
+import { getMilestonesForOrder } from "@/lib/constants";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function PendingOrdersList() {
     const [allOrders, setAllOrders] = useState<Order[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
+    const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
     const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
     const [acknowledgingOrder, setAcknowledgingOrder] = useState<Order | null>(null);
 
     const { toast } = useToast();
     const { user, role } = useAuth();
     
-    const crmUsers = users.filter(u => u.designation === 'CRM');
-
     useEffect(() => {
         setLoading(true);
         // Fetch all orders to be filtered on the client-side
@@ -72,6 +72,7 @@ export function PendingOrdersList() {
             toast({ variant: "destructive", title: "An error occurred." });
             return;
         }
+        setUpdatingOrderId(orderToAck.id);
         try {
             const orderRef = doc(db, "orders", orderToAck.id);
             const newMilestones = orderToAck.milestones.map(m => 
@@ -97,11 +98,14 @@ export function PendingOrdersList() {
         } catch (error) {
             console.error("Error acknowledging order:", error);
             toast({ variant: "destructive", title: "Update Failed" });
+        } finally {
+            setUpdatingOrderId(null);
         }
     };
     
     const handleDeleteOrder = async () => {
         if (!deletingOrder) return;
+        setUpdatingOrderId(deletingOrder.id);
         try {
             await deleteDoc(doc(db, "orders", deletingOrder.id));
             toast({ title: "Order Deleted", description: `Order ${deletingOrder.id} has been removed.` });
@@ -109,8 +113,32 @@ export function PendingOrdersList() {
         } catch (error) {
             console.error("Error deleting order: ", error);
             toast({ variant: "destructive", title: "Error", description: "Failed to delete order." });
+        } finally {
+            setUpdatingOrderId(null);
         }
     };
+    
+    const handleOrderTypeChange = async (orderId: string, newType: OrderType) => {
+        setUpdatingOrderId(orderId);
+        try {
+            const orderRef = doc(db, "orders", orderId);
+            const newMilestones = getMilestonesForOrder(newType);
+            await updateDoc(orderRef, {
+                orderType: newType,
+                milestones: newMilestones,
+            });
+            toast({
+                title: "Order Type Updated",
+                description: `Order ${orderId} is now a "${newType}" order.`,
+            });
+        } catch (error) {
+            console.error("Error updating order type:", error);
+            toast({ variant: "destructive", title: "Update Failed" });
+        } finally {
+            setUpdatingOrderId(null);
+        }
+    };
+
 
     if (loading) {
         return (
@@ -133,17 +161,33 @@ export function PendingOrdersList() {
                                 <CardDescription>{order.id}</CardDescription>
                             </CardHeader>
                             <CardContent className="flex-grow">
-                                <div className="space-y-2 text-sm">
+                                <div className="space-y-4 text-sm">
                                     <p><strong>Sales Person:</strong> {order.salesPerson}</p>
-                                    <p><strong>Order Type:</strong> {order.orderType.replace('+', ' + ')}</p>
                                     <p><strong>Created:</strong> {new Date(order.createdAt).toLocaleString()}</p>
+                                    <div>
+                                        <Label htmlFor={`order-type-${order.id}`}>Order Type</Label>
+                                        <Select 
+                                            value={order.orderType} 
+                                            onValueChange={(value: OrderType) => handleOrderTypeChange(order.id, value)}
+                                            disabled={updatingOrderId === order.id}
+                                        >
+                                            <SelectTrigger id={`order-type-${order.id}`}>
+                                                <SelectValue placeholder="Select order type" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="delivery">Delivery</SelectItem>
+                                                <SelectItem value="stitching">Stitching</SelectItem>
+                                                <SelectItem value="stitching+installation">Stitching + Installation</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
                             </CardContent>
                             <CardFooter className="flex-col items-stretch space-y-2">
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                        <Button className="w-full" onClick={() => setAcknowledgingOrder(order)}>
-                                            <Check className="mr-2 h-4 w-4" />
+                                        <Button className="w-full" onClick={() => setAcknowledgingOrder(order)} disabled={updatingOrderId === order.id}>
+                                            {updatingOrderId === order.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
                                             Acknowledge & Process
                                         </Button>
                                     </AlertDialogTrigger>
@@ -165,7 +209,7 @@ export function PendingOrdersList() {
                                 {role === 'admin' && (
                                     <AlertDialog onOpenChange={(isOpen) => !isOpen && setDeletingOrder(null)}>
                                         <AlertDialogTrigger asChild>
-                                            <Button variant="destructive" className="w-full" onClick={() => setDeletingOrder(order)}>
+                                            <Button variant="destructive" className="w-full" onClick={() => setDeletingOrder(order)} disabled={updatingOrderId === order.id}>
                                                 <Trash2 className="mr-2 h-4 w-4" />
                                                 Delete
                                             </Button>
