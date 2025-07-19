@@ -24,7 +24,6 @@ export function SalesmanCrmAssignments() {
         const salesmenQuery = query(collection(db, "users"), where("role", "==", "salesman"));
         const assignmentsQuery = query(collection(db, "salesmanCrmAssignments"));
 
-        // Use Promise.all to wait for initial data load
         const fetchData = async () => {
             try {
                 const [crmSnapshot, salesmenSnapshot, assignmentsSnapshot] = await Promise.all([
@@ -56,7 +55,6 @@ export function SalesmanCrmAssignments() {
 
         fetchData();
 
-        // Set up real-time listeners after initial load
         const unsubscribeCrm = onSnapshot(crmQuery, (snapshot) => {
             const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
             setCrmUsers(usersData);

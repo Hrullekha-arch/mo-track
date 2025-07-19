@@ -67,7 +67,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         role: user.role,
         designation: user.designation,
         password: '',
-        salesmanCode: user.salesmanCode,
+        salesmanCode: user.salesmanCode || '',
       });
     } else {
       form.reset({
@@ -79,7 +79,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         salesmanCode: '',
       });
     }
-  }, [user, form]);
+  }, [user, isOpen, form]);
 
   useEffect(() => {
       if (role !== 'employee') {
@@ -232,7 +232,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
               render={({ field }) => (
                  <FormItem>
                     <FormLabel>Role</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                             <SelectTrigger><SelectValue placeholder="Select a role" /></SelectTrigger>
                         </FormControl>
@@ -254,7 +254,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                     render={({ field }) => (
                         <FormItem>
                             <FormLabel>Designation</FormLabel>
-                             <Select onValueChange={field.onChange} defaultValue={field.value}>
+                             <Select onValueChange={field.onChange} value={field.value}>
                                 <FormControl>
                                     <SelectTrigger><SelectValue placeholder="Select a designation" /></SelectTrigger>
                                 </FormControl>

@@ -1,24 +1,19 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { User } from '@/lib/types';
-import { PlusCircle, MoreHorizontal, Trash2, Edit } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { User, UserRole } from '@/lib/types';
+import { PlusCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { collection, onSnapshot, query, doc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UserFormDialog } from './UserFormDialog';
-import { useToast } from '@/hooks/use-toast';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SalesmanCrmAssignments } from './SalesmanCrmAssignments';
+import { UserTable } from './UserTable';
 
 export function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
@@ -27,11 +22,7 @@ export function UserManagement() {
   const isEmployee = role === 'employee';
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [deletingUser, setDeletingUser] = useState<User | null>(null);
   
-  const { toast } = useToast();
-
   useEffect(() => {
     const usersQuery = query(collection(db, "users"));
     const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
@@ -44,27 +35,22 @@ export function UserManagement() {
   }, []);
 
   const handleAddUser = () => {
-    setEditingUser(null);
     setIsDialogOpen(true);
   };
 
-  const handleEditUser = (user: User) => {
-    setEditingUser(user);
-    setIsDialogOpen(true);
-  };
+  const { admins, employees, installers, salesmen, crm, allocators, pc } = useMemo(() => {
+    const admins = users.filter(u => u.role === 'admin');
+    const employees = users.filter(u => u.role === 'employee');
+    const installers = users.filter(u => u.role === 'installer');
+    const salesmen = users.filter(u => u.role === 'salesman');
 
-  const handleDeleteUser = async () => {
-    if (!deletingUser) return;
-    try {
-      // NOTE: This only deletes from Firestore. Deleting from Firebase Auth requires a server-side function.
-      await deleteDoc(doc(db, "users", deletingUser.id));
-      toast({ title: "User Deleted", description: `User ${deletingUser.name} has been removed from Firestore.` });
-      setDeletingUser(null);
-    } catch (error) {
-      console.error("Error deleting user: ", error);
-      toast({ variant: "destructive", title: "Error", description: "Failed to delete user." });
-    }
-  };
+    const crm = employees.filter(e => e.designation === 'CRM');
+    const allocators = employees.filter(e => e.designation === 'Allocators');
+    const pc = employees.filter(e => e.designation === 'PC');
+
+    return { admins, employees, installers, salesmen, crm, allocators, pc };
+  }, [users]);
+
 
   if (loading) {
       return <UserManagementSkeleton />;
@@ -85,88 +71,106 @@ export function UserManagement() {
           )}
         </div>
 
-        <Tabs defaultValue="users" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="users">Users</TabsTrigger>
-                <TabsTrigger value="assignments">Salesman Assignments</TabsTrigger>
+        <Tabs defaultValue="admin" className="w-full">
+            <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="admin">Admins</TabsTrigger>
+                <TabsTrigger value="employee">Employees</TabsTrigger>
+                <TabsTrigger value="installer">Installers</TabsTrigger>
+                <TabsTrigger value="salesman">Salesmen</TabsTrigger>
             </TabsList>
-            <TabsContent value="users">
+            
+            <TabsContent value="admin">
                 <Card>
-                <CardHeader>
-                    <CardTitle>All Users</CardTitle>
-                    <CardDescription>A list of all users in the system.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <Table>
-                    <TableHeader>
-                        <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Role</TableHead>
-                        <TableHead>Designation</TableHead>
-                        <TableHead>Salesman Code</TableHead>
-                        {!isEmployee && <TableHead className="text-right">Actions</TableHead>}
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {users.map((user) => (
-                        <TableRow key={user.id}>
-                            <TableCell>
-                            <div className="flex items-center gap-4">
-                                <Avatar>
-                                <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
-                                <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                                </Avatar>
-                                <div>
-                                <div className="font-medium">{user.name}</div>
-                                <div className="text-sm text-muted-foreground">{user.email}</div>
-                                </div>
-                            </div>
-                            </TableCell>
-                            <TableCell>
-                            <Badge variant={user.role === 'admin' ? 'default' : user.role === 'installer' ? 'outline' : 'secondary'}>
-                                {user.role}
-                            </Badge>
-                            </TableCell>
-                            <TableCell>
-                            {user.designation ? (
-                                <span className="text-sm text-muted-foreground">{user.designation}</span>
-                            ) : (
-                                <span className="text-sm text-muted-foreground">-</span>
-                            )}
-                            </TableCell>
-                             <TableCell>
-                                {user.salesmanCode ? (
-                                    <span className="text-sm font-mono text-muted-foreground">{user.salesmanCode}</span>
-                                ) : (
-                                    <span className="text-sm text-muted-foreground">-</span>
-                                )}
-                            </TableCell>
-                            {!isEmployee && (
-                            <TableCell className="text-right">
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => handleEditUser(user)}><Edit className="mr-2 h-4 w-4" />Edit User</DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => setDeletingUser(user)} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
-                                        <Trash2 className="mr-2 h-4 w-4" />Delete User
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                                </DropdownMenu>
-                            </TableCell>
-                            )}
-                        </TableRow>
-                        ))}
-                    </TableBody>
-                    </Table>
-                </CardContent>
+                    <CardHeader>
+                        <CardTitle>Admin Users</CardTitle>
+                        <CardDescription>Users with full system access.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <UserTable users={admins} title="Admin Users" description="Users with full system access." />
+                    </CardContent>
                 </Card>
             </TabsContent>
-            <TabsContent value="assignments">
-                <SalesmanCrmAssignments />
+
+            <TabsContent value="employee">
+                <Tabs defaultValue="all" className="w-full">
+                    <TabsList className="grid w-full grid-cols-4">
+                        <TabsTrigger value="all">All Employees</TabsTrigger>
+                        <TabsTrigger value="crm">CRM</TabsTrigger>
+                        <TabsTrigger value="allocators">Allocators</TabsTrigger>
+                        <TabsTrigger value="pc">PC</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="all">
+                         <Card>
+                            <CardHeader>
+                                <CardTitle>All Employees</CardTitle>
+                                <CardDescription>All users with the employee role.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <UserTable users={employees} title="All Employees" description="All users with the employee role." />
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                    <TabsContent value="crm">
+                         <Card>
+                            <CardHeader>
+                                <CardTitle>CRM Team</CardTitle>
+                                <CardDescription>Employees with the CRM designation.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <UserTable users={crm} title="CRM Team" description="Employees with the CRM designation." />
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                    <TabsContent value="allocators">
+                         <Card>
+                            <CardHeader>
+                                <CardTitle>Allocators Team</CardTitle>
+                                <CardDescription>Employees with the Allocators designation.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <UserTable users={allocators} title="Allocators Team" description="Employees with the Allocators designation." />
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                    <TabsContent value="pc">
+                         <Card>
+                            <CardHeader>
+                                <CardTitle>PC Team</CardTitle>
+                                <CardDescription>Employees with the PC designation.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <UserTable users={pc} title="PC Team" description="Employees with the PC designation." />
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                </Tabs>
+            </TabsContent>
+
+             <TabsContent value="installer">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Installers</CardTitle>
+                        <CardDescription>Users responsible for field installations.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <UserTable users={installers} title="Installers" description="Users responsible for field installations." />
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
+            <TabsContent value="salesman">
+                 <div className="grid gap-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Salesmen</CardTitle>
+                            <CardDescription>Users responsible for sales.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <UserTable users={salesmen} title="Salesmen" description="Users responsible for sales." />
+                        </CardContent>
+                    </Card>
+                    <SalesmanCrmAssignments />
+                </div>
             </TabsContent>
         </Tabs>
       </div>
@@ -174,24 +178,8 @@ export function UserManagement() {
       <UserFormDialog
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
-        user={editingUser}
+        user={null}
       />
-      
-      <AlertDialog open={!!deletingUser} onOpenChange={() => setDeletingUser(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the user account from Firestore. 
-              You will need to manually remove the user from Firebase Authentication.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteUser} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
