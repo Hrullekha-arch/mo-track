@@ -1,6 +1,6 @@
 
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users } from "lucide-react";
+import { ClipboardList, ShoppingCart, Users, Truck } from "lucide-react";
 import Link from "next/link";
 
 const dashboardItems = [
@@ -25,6 +25,13 @@ const dashboardItems = [
         icon: Users,
         color: "bg-purple-500",
     },
+    {
+        href: "/dashboard/o2d",
+        title: "O2D (Order 2 Delivery)",
+        description: "Visualize the end-to-end order process.",
+        icon: Truck,
+        color: "bg-orange-500",
+    },
 ];
 
 export default function DashboardPage() {
@@ -34,7 +41,7 @@ export default function DashboardPage() {
                 <h1 className="text-3xl font-bold tracking-tight">Home Dashboard</h1>
                 <p className="text-muted-foreground">Welcome! Select a module to get started.</p>
             </header>
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
                 {dashboardItems.map((item) => (
                     <Link href={item.href} key={item.title}>
                         <Card className="group hover:shadow-lg transition-shadow duration-300 transform hover:-translate-y-1">
