@@ -59,6 +59,8 @@ export function PendingOrdersList() {
     }, [toast]);
     
     const pendingOrders = useMemo(() => {
+        // An order is "pending" if its first milestone ("Order Received") is not complete.
+        // This handles orders created from external sources like Google Sheets.
         return allOrders.filter(order => {
             const firstMilestone = order.milestones.find(m => m.id === 1);
             return firstMilestone && !firstMilestone.completed;
@@ -84,7 +86,7 @@ export function PendingOrdersList() {
             
             await updateDoc(orderRef, { 
                 milestones: newMilestones,
-                isAcknowledged: true, // Keep this for backward compatibility or other logic
+                isAcknowledged: true,
             });
 
             toast({ 

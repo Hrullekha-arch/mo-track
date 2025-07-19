@@ -88,7 +88,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
       const newMilestones = getMilestonesForOrder(values.orderType);
       
-      // Auto-acknowledge the first milestone
+      // Auto-acknowledge the first milestone for orders created via the app
       const firstMilestoneIndex = newMilestones.findIndex(m => m.id === 1);
       if (firstMilestoneIndex !== -1) {
           newMilestones[firstMilestoneIndex] = {
@@ -119,7 +119,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         },
         otp: otp,
         handledByCrm: crmUserId, // Automatically assign CRM
-        isAcknowledged: true, // Mark as acknowledged
+        isAcknowledged: true, // Mark as acknowledged since it's from the app
       };
 
       await setDoc(doc(db, "orders", trackingId), newOrder);
