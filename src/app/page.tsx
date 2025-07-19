@@ -64,7 +64,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <Card>
           <CardHeader className="text-center">
-            <Image src="/logo.png" alt="MoTrack Logo" width={200} height={100} className="mx-auto" />
+            <Image src="https://placehold.co/200x100.png" data-ai-hint="logo" alt="MoTrack Logo" width={200} height={100} className="mx-auto" />
             <CardDescription className="pt-4">Enter your credentials to access your account</CardDescription>
           </CardHeader>
           <CardContent>

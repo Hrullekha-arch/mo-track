@@ -11,7 +11,7 @@ export default function TrackOrderPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <Image src="/logo.png" alt="MoTrack Logo" width={150} height={75} className="mx-auto mb-4" />
+          <Image src="https://placehold.co/150x75.png" data-ai-hint="logo" alt="MoTrack Logo" width={150} height={75} className="mx-auto mb-4" />
           <CardTitle className="text-2xl font-bold">Track Your Order</CardTitle>
           <CardDescription>Enter your tracking code to see the status of your order.</CardDescription>
         </CardHeader>
