@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlusCircle, SlidersHorizontal, Package, Calendar, Clock, UserCheck, Truck, Scissors, Bot, Loader2, CheckCheck, AlertTriangle } from "lucide-react";
+import { PlusCircle, SlidersHorizontal, Bot, Loader2 } from "lucide-react";
 import { OrderCard } from "./OrderCard";
 import { Order, User } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -18,7 +18,7 @@ import { generateInstallationSchedule, GenerateInstallationScheduleInput, Genera
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-type SummaryFilterType = 'totalActive' | 'scheduledToday' | 'scheduled' | 'assigned' | 'readyForDelivery' | 'stitched' | 'completed' | 'bypassedOtp' | 'ordersToBeReceived';
+type SummaryFilterType = 'totalActive' | 'scheduledToday' | 'scheduled' | 'assigned' | 'readyForDelivery' | 'stitched' | 'completed' | 'bypassedOtp';
 
 export function OrdersDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -43,9 +43,9 @@ export function OrdersDashboard() {
     
     // Fetch all orders now, filtering will be done client-side based on activeSummaryFilter
     if (user.designation === 'CRM') {
-        ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id));
+        ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id), where("isAcknowledged", "==", true));
     } else {
-        ordersQuery = query(collection(db, "orders"));
+        ordersQuery = query(collection(db, "orders"), where("isAcknowledged", "==", true));
     }
 
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
@@ -79,20 +79,15 @@ export function OrdersDashboard() {
   
   const isFullyCompleted = (order: Order) => Array.isArray(order.milestones) && order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
   const scheduledDate = (order: Order) => Array.isArray(order.milestones) ? order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt : undefined;
-  const isAcknowledged = (order: Order) => Array.isArray(order.milestones) && !!order.milestones.find(m => m.id === 1)?.completed;
   
   const filteredOrders = useMemo(() => {
       return orders.filter(order => {
           
         switch (activeSummaryFilter) {
-            case 'ordersToBeReceived':
-                if (isAcknowledged(order)) return false;
-                break;
             case 'totalActive':
-                if (isFullyCompleted(order) || !isAcknowledged(order)) return false;
+                if (isFullyCompleted(order)) return false;
                 break;
             case 'scheduledToday':
-                if (!isAcknowledged(order)) return false;
                 const schedDate = scheduledDate(order);
                 if (!schedDate) return false;
                 const today = new Date();
@@ -100,16 +95,16 @@ export function OrdersDashboard() {
                 if (!(d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear())) return false;
                 break;
             case 'scheduled':
-                if (!isAcknowledged(order) || !scheduledDate(order)) return false;
+                if (!scheduledDate(order)) return false;
                 break;
             case 'assigned':
-                if (!isAcknowledged(order) || !order.assignedTo) return false;
+                if (!order.assignedTo) return false;
                 break;
             case 'readyForDelivery':
-                if (!isAcknowledged(order) || !Array.isArray(order.milestones) || !order.milestones?.find(m => m.id === 5)?.completed) return false;
+                if (!Array.isArray(order.milestones) || !order.milestones?.find(m => m.id === 5)?.completed) return false;
                 break;
             case 'stitched':
-                 if (!isAcknowledged(order) || !Array.isArray(order.milestones) || !(order.milestones?.find(m => m.id === 4)?.completed && !order.milestones?.find(m => m.id === 5)?.completed)) return false;
+                 if (!Array.isArray(order.milestones) || !(order.milestones?.find(m => m.id === 4)?.completed && !order.milestones?.find(m => m.id === 5)?.completed)) return false;
                 break;
             case 'completed':
                 if (!isFullyCompleted(order)) return false;
@@ -118,7 +113,7 @@ export function OrdersDashboard() {
                 if (order.bypassedOtp !== true) return false;
                 break;
             default:
-                 if (isFullyCompleted(order) || !isAcknowledged(order)) return false;
+                 if (isFullyCompleted(order)) return false;
         }
 
         const searchMatch = filters.search.toLowerCase() === '' || 
@@ -140,11 +135,10 @@ export function OrdersDashboard() {
 
 
   const summary = useMemo(() => {
-    const acknowledgedOrders = orders.filter(isAcknowledged);
-    const activeOrders = acknowledgedOrders.filter(o => !isFullyCompleted(o));
+    const activeOrders = orders.filter(o => !isFullyCompleted(o));
+    const completedOrders = orders.filter(isFullyCompleted);
 
     return {
-        ordersToBeReceived: orders.filter(o => !isAcknowledged(o)).length,
         totalActive: activeOrders.length,
         scheduledToday: activeOrders.filter(o => {
             const schedDate = scheduledDate(o);
@@ -157,7 +151,7 @@ export function OrdersDashboard() {
         assigned: activeOrders.filter(o => !!o.assignedTo).length,
         readyForDelivery: activeOrders.filter(o => Array.isArray(o.milestones) && o.milestones?.find(m => m.id === 5)?.completed).length,
         stitched: activeOrders.filter(o => Array.isArray(o.milestones) && o.milestones?.find(m => m.id === 4)?.completed && !o.milestones?.find(m => m.id === 5)?.completed).length,
-        completed: orders.filter(isFullyCompleted).length,
+        completed: completedOrders.length,
         bypassedOtp: orders.filter(o => o.bypassedOtp === true).length,
     }
   }, [orders]);
@@ -227,7 +221,6 @@ export function OrdersDashboard() {
   const canManage = role === 'admin' || role === 'employee';
   const canCreateOrder = role === 'admin' || user?.designation === 'PC';
   const summaryColors = [
-      'border-l-4 border-yellow-500',
       'border-l-4 border-blue-500',
       'border-l-4 border-cyan-500',
       'border-l-4 border-sky-500',
@@ -243,8 +236,8 @@ export function OrdersDashboard() {
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
       <header className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Orders</h1>
-          <p className="text-muted-foreground">Manage and track all customer orders.</p>
+          <h1 className="text-3xl font-bold tracking-tight">Orders Dashboard</h1>
+          <p className="text-muted-foreground">Manage and track all acknowledged customer orders.</p>
         </div>
         <div className="flex gap-2">
             {canManage && (
@@ -262,16 +255,15 @@ export function OrdersDashboard() {
         </div>
       </header>
 
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5 mb-6">
-        <SummaryBox title="Orders to be Received" value={summary.ordersToBeReceived} color={summaryColors[0]} isActive={activeSummaryFilter === 'ordersToBeReceived'} onClick={() => setActiveSummaryFilter('ordersToBeReceived')} />
-        <SummaryBox title="Total Active" value={summary.totalActive} color={summaryColors[1]} isActive={activeSummaryFilter === 'totalActive'} onClick={() => setActiveSummaryFilter('totalActive')} />
-        <SummaryBox title="Scheduled Today" value={summary.scheduledToday} color={summaryColors[2]} isActive={activeSummaryFilter === 'scheduledToday'} onClick={() => setActiveSummaryFilter('scheduledToday')} />
-        <SummaryBox title="Total Scheduled" value={summary.scheduled} color={summaryColors[3]} isActive={activeSummaryFilter === 'scheduled'} onClick={() => setActiveSummaryFilter('scheduled')} />
-        <SummaryBox title="Assigned" value={summary.assigned} color={summaryColors[4]} isActive={activeSummaryFilter === 'assigned'} onClick={() => setActiveSummaryFilter('assigned')} />
-        <SummaryBox title="Ready for Delivery" value={summary.readyForDelivery} color={summaryColors[5]} isActive={activeSummaryFilter === 'readyForDelivery'} onClick={() => setActiveSummaryFilter('readyForDelivery')} />
-        <SummaryBox title="Stitched" value={summary.stitched} color={summaryColors[6]} isActive={activeSummaryFilter === 'stitched'} onClick={() => setActiveSummaryFilter('stitched')} />
-        <SummaryBox title="Total Completed" value={summary.completed} color={summaryColors[7]} isActive={activeSummaryFilter === 'completed'} onClick={() => setActiveSummaryFilter('completed')} />
-        <SummaryBox title="Bypassed OTP" value={summary.bypassedOtp} color={summaryColors[8]} isActive={activeSummaryFilter === 'bypassedOtp'} onClick={() => setActiveSummaryFilter('bypassedOtp')} />
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 mb-6">
+        <SummaryBox title="Total Active" value={summary.totalActive} color={summaryColors[0]} isActive={activeSummaryFilter === 'totalActive'} onClick={() => setActiveSummaryFilter('totalActive')} />
+        <SummaryBox title="Scheduled Today" value={summary.scheduledToday} color={summaryColors[1]} isActive={activeSummaryFilter === 'scheduledToday'} onClick={() => setActiveSummaryFilter('scheduledToday')} />
+        <SummaryBox title="Total Scheduled" value={summary.scheduled} color={summaryColors[2]} isActive={activeSummaryFilter === 'scheduled'} onClick={() => setActiveSummaryFilter('scheduled')} />
+        <SummaryBox title="Assigned" value={summary.assigned} color={summaryColors[3]} isActive={activeSummaryFilter === 'assigned'} onClick={() => setActiveSummaryFilter('assigned')} />
+        <SummaryBox title="Ready for Delivery" value={summary.readyForDelivery} color={summaryColors[4]} isActive={activeSummaryFilter === 'readyForDelivery'} onClick={() => setActiveSummaryFilter('readyForDelivery')} />
+        <SummaryBox title="Stitched" value={summary.stitched} color={summaryColors[5]} isActive={activeSummaryFilter === 'stitched'} onClick={() => setActiveSummaryFilter('stitched')} />
+        <SummaryBox title="Total Completed" value={summary.completed} color={summaryColors[6]} isActive={activeSummaryFilter === 'completed'} onClick={() => setActiveSummaryFilter('completed')} />
+        <SummaryBox title="Bypassed OTP" value={summary.bypassedOtp} color={summaryColors[7]} isActive={activeSummaryFilter === 'bypassedOtp'} onClick={() => setActiveSummaryFilter('bypassedOtp')} />
       </div>
 
       <div className="mb-6 p-4 border rounded-lg bg-card">
@@ -373,14 +365,14 @@ function SummaryBox({ title, value, color, isActive, onClick }: SummaryBoxProps)
         <button
             onClick={onClick}
             className={cn(
-                "bg-card p-4 rounded-lg shadow-sm flex items-center gap-4 transition-all duration-200 ease-in-out transform hover:scale-105",
+                "bg-card p-4 rounded-lg shadow-sm flex items-center justify-center text-center gap-4 transition-all duration-200 ease-in-out transform hover:scale-105",
                 "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary",
                 color,
                 isActive ? "ring-2 ring-primary scale-105" : "ring-0"
             )}
         >
             <div>
-                <p className="text-sm text-muted-foreground text-left">{title}</p>
+                <p className="text-sm text-muted-foreground">{title}</p>
                 <p className="text-2xl font-bold">{value}</p>
             </div>
         </button>
@@ -397,8 +389,8 @@ function DashboardSkeleton() {
         </div>
         <Skeleton className="h-10 w-32" />
       </header>
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5 mb-6">
-        {Array.from({ length: 9 }).map((_, i) => (
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 mb-6">
+        {Array.from({ length: 8 }).map((_, i) => (
           <Skeleton key={i} className="h-20 w-full" />
         ))}
       </div>

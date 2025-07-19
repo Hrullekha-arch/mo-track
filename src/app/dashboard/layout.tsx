@@ -19,8 +19,10 @@ export default function DashboardLayout({
 
   useEffect(() => {
     // Show welcome message on login.
-    if (!loading && user) {
+    const hasSeenWelcome = sessionStorage.getItem('hasSeenWelcome');
+    if (!loading && user && !hasSeenWelcome) {
       setShowWelcome(true);
+      sessionStorage.setItem('hasSeenWelcome', 'true');
     }
   }, [user, loading]);
 

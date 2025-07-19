@@ -26,15 +26,17 @@ import {
   Package,
   Table,
   CheckSquare,
+  Home,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 
 const allNavItems = [
-  { href: "/dashboard/pending", icon: CheckSquare, label: "Orders to be Received", roles: ['admin', 'employee', 'installer'] },
-  { href: "/dashboard", icon: ClipboardList, label: "Orders Dashboard", roles: ['admin', 'employee'] },
+  { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee'] },
+  { href: "/dashboard/pending", icon: CheckSquare, label: "Orders to be Received", roles: ['admin', 'employee'] },
+  { href: "/dashboard/orders", icon: ClipboardList, label: "Orders Dashboard", roles: ['admin', 'employee'] },
   { href: "/dashboard/all-orders", icon: Table, label: "All Orders (Admin)", roles: ['admin'] },
-  { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin'] },
+  { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin', 'employee'] },
   { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },
   { href: "/mobile", icon: Smartphone, label: "Mobile View", roles: ['installer'] },
 ];
@@ -44,21 +46,42 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
 
-  const filteredNavItems = allNavItems.filter(item => role && item.roles.includes(role));
+  const navItemsForUser = React.useMemo(() => {
+    return allNavItems.filter(item => {
+      if (!role) return false;
+      if (!item.roles.includes(role)) return false;
+      
+      // Admin sees everything assigned to 'admin'
+      if (role === 'admin') return true;
+
+      // Employee sees 'employee' roles but not admin-only ones
+      if (role === 'employee') {
+          return !['/dashboard/all-orders', '/dashboard/reports'].includes(item.href)
+      }
+      
+      // Installer only sees their specific views
+      if (role === 'installer') {
+        return item.href.startsWith('/mobile');
+      }
+
+      return true;
+    });
+  }, [role]);
+
 
   const NavItems = ({ isMobile = false }: { isMobile?: boolean }) => (
     <nav className={cn(
       "flex gap-6 text-lg font-medium md:flex-row md:items-center md:gap-5 md:text-sm lg:gap-6",
       isMobile && "flex-col text-muted-foreground"
     )}>
-      {filteredNavItems.map((item) => (
+      {navItemsForUser.map((item) => (
         <Link
           key={item.href}
           href={item.href}
           onClick={() => setOpen(false)}
           className={cn(
             "flex items-center gap-2 transition-colors hover:text-foreground",
-            pathname === item.href ? "text-foreground" : "text-muted-foreground",
+            pathname.startsWith(item.href) && item.href !== '/dashboard' ? "text-foreground" : pathname === item.href ? "text-foreground" : "text-muted-foreground",
             isMobile && "py-2"
           )}
         >
@@ -83,7 +106,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <SheetContent side="left">
              <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
              <div className="flex items-center gap-2 text-lg font-semibold mb-4">
-                <Link href="/dashboard">
+                <Link href="/dashboard" onClick={() => setOpen(false)}>
                   <Image src="/logo.png" alt="MoTrack Logo" width={100} height={50} />
                 </Link>
             </div>
@@ -106,7 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" size="icon" className="rounded-full">
                 <Avatar className="h-8 w-8">
-                    <AvatarImage src={user?.avatarUrl} alt={user?.name || ""} />
+                    <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
                     <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <span className="sr-only">Toggle user menu</span>
