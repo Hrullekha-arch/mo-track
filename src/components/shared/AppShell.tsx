@@ -84,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
              <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
              <div className="flex items-center gap-2 text-lg font-semibold mb-4">
                 <Link href="/dashboard">
-                  <Image src="https://placehold.co/100x50.png" data-ai-hint="logo" alt="MoTrack Logo" width={100} height={50} />
+                  <Image src="/logo.png" alt="MoTrack Logo" width={100} height={50} />
                 </Link>
             </div>
             <NavItems isMobile />
@@ -94,7 +94,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Desktop Menu */}
         <div className="hidden md:flex md:items-center md:gap-6">
             <Link href="/dashboard" className="flex items-center gap-2 text-lg font-semibold">
-                <Image src="https://placehold.co/100x50.png" data-ai-hint="logo" alt="MoTrack Logo" width={100} height={50} />
+                <Image src="/logo.png" alt="MoTrack Logo" width={100} height={50} />
                 <span className="sr-only">MoTrack</span>
             </Link>
              <NavItems />
