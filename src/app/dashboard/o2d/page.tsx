@@ -323,7 +323,8 @@ export default function O2DPage() {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const ordersData = snapshot.docs.map(doc => {
                 const data = doc.data() as Omit<Order, 'id'>;
-                if (!data.o2dMilestones) {
+                // Automatically add o2dMilestones if it's missing
+                if (data.o2dMilestones === undefined) {
                     data.o2dMilestones = [];
                 }
                 return { id: doc.id, ...data } as Order;
@@ -411,7 +412,6 @@ export default function O2DPage() {
             await updateDoc(orderRef, {
                 o2dMilestones: arrayUnion(newStatus)
             });
-
 
             if (stepId === 10 && status === 'completed') {
                  if (orderData) {
