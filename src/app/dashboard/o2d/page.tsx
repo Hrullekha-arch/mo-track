@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward } from 'lucide-react';
+import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, O2DStep, O2DStatus } from "@/lib/types";
@@ -46,31 +46,33 @@ const formatTimestamp = (date: Date) => {
     return format(date, 'dd/MM/yyyy - HH:mm:ss');
 };
 
-function O2DProcessTimeline({ order, onStepUpdate, onQuickStepUpdate }: { order: Order; onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped') => void; onQuickStepUpdate: (orderId: string, stepId: number) => void; }) {
-    
-    // Memoize the calculated expected dates for all steps to avoid re-calculating on every render.
-    const expectedDates = O2D_PROCESS_CONFIG.reduce((acc, currentStep) => {
+const calculateExpectedDatesForOrder = (order: Order) => {
+    return O2D_PROCESS_CONFIG.reduce((acc, currentStep) => {
         let startDate: Date;
-
         if (currentStep.id === 1) {
             startDate = new Date(order.createdAt);
         } else {
-            const previousStepIndex = O2D_PROCESS_CONFIG.findIndex(s => s.id === currentStep.id) - 1;
-            const previousStep = O2D_PROCESS_CONFIG[previousStepIndex];
-            const previousStepStatus = (order.o2dMilestones || []).find(m => m.stepId === previousStep.id);
-
-            if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
-                // Rule 2: If the previous step is completed/skipped, base the new date on its actual completion time.
-                startDate = new Date(previousStepStatus.completedAt);
+            const previousStepConfig = O2D_PROCESS_CONFIG.find(s => s.id === currentStep.id - 1);
+            if (!previousStepConfig) {
+                 startDate = new Date(); // Fallback, should not happen
             } else {
-                // Rule 1: If the previous step is pending, base the new date on the previous step's expected date.
-                startDate = acc[previousStep.id]; // Get the memoized expected date of the previous step.
+                const previousStepStatus = (order.o2dMilestones || []).find(m => m.stepId === previousStepConfig.id);
+                if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
+                    startDate = new Date(previousStepStatus.completedAt);
+                } else {
+                    startDate = acc[previousStepConfig.id]; // Use previous step's expected date
+                }
             }
         }
-        
         acc[currentStep.id] = getExpectedCompletionDate(currentStep, startDate);
         return acc;
     }, {} as Record<number, Date>);
+}
+
+function O2DProcessTimeline({ order, onStepUpdate, onQuickStepUpdate }: { order: Order; onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped') => void; onQuickStepUpdate: (orderId: string, stepId: number) => void; }) {
+    
+    // Memoize the calculated expected dates for all steps to avoid re-calculating on every render.
+    const expectedDates = calculateExpectedDatesForOrder(order);
 
     return (
         <div className="relative pl-6 pr-4 py-4">
@@ -286,7 +288,7 @@ export default function O2DPage() {
             const pending = allOrders.filter(order => {
                 const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === 10);
                 return !finalO2DStep; // If final step doesn't exist, it's pending
-            });
+            }).sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
             setPendingOrders(pending);
             setLoading(false);
         });
@@ -368,48 +370,41 @@ export default function O2DPage() {
             
             <div className="space-y-4">
                 {loading ? (
-                    Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-24 w-full" />)
+                    Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                 ) : pendingOrders.length > 0 ? (
                     pendingOrders.map(order => {
+                        const expectedDates = calculateExpectedDatesForOrder(order);
+                        const completedSteps = (order.o2dMilestones || []).filter(m => m.status === 'completed' || m.status === 'skipped');
+                        const nextStepIndex = O2D_PROCESS_CONFIG.findIndex(s => !completedSteps.some(cs => cs.stepId === s.id));
+                        const currentStep = nextStepIndex !== -1 ? O2D_PROCESS_CONFIG[nextStepIndex] : null;
+
                         let cardBorderColor = "border-border";
-
-                        // Determine card border color based on current step's overdue status
-                        const nextStepIndex = (order.o2dMilestones || []).length;
-                        if (nextStepIndex < O2D_PROCESS_CONFIG.length) {
-                             const nextStep = O2D_PROCESS_CONFIG[nextStepIndex];
-                             
-                             let expectedDate: Date;
-                             if (nextStep.id === 1) {
-                                 expectedDate = getExpectedCompletionDate(nextStep, new Date(order.createdAt));
-                             } else {
-                                const previousStep = O2D_PROCESS_CONFIG[nextStepIndex - 1];
-                                const previousStepStatus = (order.o2dMilestones || []).find(m => m.stepId === previousStep.id);
-                                let startDate: Date;
-                                if (previousStepStatus) {
-                                    startDate = new Date(previousStepStatus.completedAt);
-                                } else {
-                                    // This fallback is tricky, should be based on previous expected.
-                                    // For simplicity in this overview, we'll just check against now.
-                                    // The timeline itself has the more robust logic.
-                                    startDate = new Date();
-                                }
-                                expectedDate = getExpectedCompletionDate(nextStep, startDate);
-                             }
-
-                            if (isPast(expectedDate)) {
-                                cardBorderColor = "border-red-500";
-                            }
+                        if (currentStep && isPast(expectedDates[currentStep.id])) {
+                            cardBorderColor = "border-red-500";
                         }
-
+                        
                         return (
                         <Collapsible key={order.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", cardBorderColor)}>
                             <CardHeader className="flex flex-row items-center justify-between p-4">
                                <div className='flex-grow'>
                                     <h3 className="font-semibold text-lg">{order.customerName}</h3>
                                     <p className="text-sm text-muted-foreground">ID: {order.id}</p>
-                                    <div className='mt-2 space-y-1 text-sm'>
+                                    <div className='mt-2 space-y-2 text-sm'>
                                         <p className='flex items-center gap-2'><Phone className='h-4 w-4 text-muted-foreground' /> {order.customerPhone}</p>
                                         <p className='flex items-center gap-2'><MapPin className='h-4 w-4 text-muted-foreground' /> {order.customerAddress}</p>
+                                        <p className='flex items-center gap-2'><Calendar className='h-4 w-4 text-muted-foreground' /> Order Date: {format(new Date(order.createdAt), 'dd/MM/yyyy')}</p>
+                                        {currentStep && (
+                                            <p className={cn('flex items-center gap-2 font-medium', cardBorderColor === 'border-red-500' ? 'text-red-500' : 'text-muted-foreground')}>
+                                                <Clock className='h-4 w-4'/>
+                                                Status: {currentStep.step} - Due by {formatTimestamp(expectedDates[currentStep.id])}
+                                            </p>
+                                        )}
+                                        {order.remarks && (
+                                            <p className='flex items-start gap-2 text-muted-foreground'>
+                                                <MessageCircle className='h-4 w-4 mt-0.5' /> 
+                                                <span className='italic'>"{order.remarks}"</span>
+                                            </p>
+                                        )}
                                     </div>
                                </div>
                                 <CollapsibleTrigger asChild>
@@ -447,10 +442,3 @@ export default function O2DPage() {
         </div>
     );
 }
-
-
-    
-
-    
-
-    
