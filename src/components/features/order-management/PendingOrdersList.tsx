@@ -62,6 +62,9 @@ export function PendingOrdersList() {
         // An order is "pending" if its first milestone ("Order Received") is not complete.
         // This handles orders created from external sources like Google Sheets.
         return allOrders.filter(order => {
+             // A new condition: isAcknowledged is false for orders from "New Order" dialog, which go to O2D
+            if (order.isAcknowledged === false) return false;
+
             const firstMilestone = order.milestones.find(m => m.id === 1);
             return firstMilestone && !firstMilestone.completed;
         });
@@ -85,10 +88,17 @@ export function PendingOrdersList() {
                 } : m
             );
             
-            await updateDoc(orderRef, { 
+            const updatePayload: any = {
                 milestones: newMilestones,
                 isAcknowledged: true,
-            });
+            };
+
+            // If o2dMilestones doesn't exist, initialize it.
+            if (!orderToAck.o2dMilestones) {
+                updatePayload.o2dMilestones = [];
+            }
+            
+            await updateDoc(orderRef, updatePayload);
 
             toast({ 
                 title: "Order Acknowledged", 
