@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const O2D_PROCESS_CONFIG: O2DStep[] = [
     { id: 1, step: "Receive Advance ₹1000", details: "For measurement/Fabric order", time: "30 min", role: "Salesman", icon: User, expectedDuration: { minutes: 30 } },
@@ -45,7 +46,7 @@ const formatTimestamp = (date: Date) => {
     return format(date, 'dd/MM/yyyy - HH:mm:ss');
 };
 
-function O2DProcessTimeline({ order, onStepUpdate }: { order: Order; onStepUpdate: (stepId: number) => void; }) {
+function O2DProcessTimeline({ order, onStepUpdate, onQuickStepUpdate }: { order: Order; onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped') => void; onQuickStepUpdate: (orderId: string, stepId: number) => void; }) {
     
     const getStartDateForStep = (stepId: number): Date => {
         if (stepId === 1) {
@@ -154,13 +155,27 @@ function O2DProcessTimeline({ order, onStepUpdate }: { order: Order; onStepUpdat
 
                                         </div>
                                         {!stepStatus ? (
-                                             <Button
-                                                size="sm"
-                                                onClick={() => onStepUpdate(stepConfig.id)}
+                                            <Select
                                                 disabled={!canUpdate}
+                                                onValueChange={(value) => {
+                                                    if (value === 'yes' && !isOverdue) {
+                                                        onQuickStepUpdate(order.id, stepConfig.id)
+                                                    } else if (value === 'yes' && isOverdue) {
+                                                        onStepUpdate(order.id, stepConfig.id, true, 'completed');
+                                                    } else if (value === 'no' || value === 'old_customer') {
+                                                        onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped');
+                                                    }
+                                                }}
                                             >
-                                                Update Status
-                                            </Button>
+                                                <SelectTrigger className="w-[180px]">
+                                                    <SelectValue placeholder="Update Status..." />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="yes">Yes</SelectItem>
+                                                    <SelectItem value="no">No</SelectItem>
+                                                    <SelectItem value="old_customer">Old Customer</SelectItem>
+                                                </SelectContent>
+                                            </Select>
                                         ) : (
                                             <Badge variant={stepStatus.status === 'completed' ? 'default' : 'secondary'} className={cn(
                                                 stepStatus.status === 'completed' && wasCompletedLate && 'bg-orange-500'
@@ -184,70 +199,59 @@ function UpdateO2DStepDialog({
     onClose,
     onUpdate,
     step,
+    action,
     isOverdue
 }: {
     isOpen: boolean;
     onClose: () => void;
-    onUpdate: (status: 'completed' | 'skipped', remarks: string) => void;
+    onUpdate: (remarks: string) => void;
     step: O2DStep | null;
+    action: 'completed' | 'skipped' | null;
     isOverdue: boolean;
 }) {
-    const [status, setStatus] = useState<'completed' | 'skipped' | null>(null);
     const [remarks, setRemarks] = useState("");
 
-    const showRemarks = (status === 'skipped') || (status === 'completed' && isOverdue);
-
     const handleSubmit = () => {
-        if (!status) return;
-        onUpdate(status, remarks);
+        onUpdate(remarks);
         onClose();
     };
 
     useEffect(() => {
         if (!isOpen) {
-            setStatus(null);
             setRemarks("");
         }
     }, [isOpen]);
 
-    if (!step) return null;
+    if (!step || !action) return null;
+    
+    let title = 'Add Remarks';
+    let description = 'Please provide details for this action.';
+    if (action === 'skipped') {
+        title = 'Reason for Skipping';
+        description = `Please explain why you are skipping the step: ${step.step}.`;
+    } else if (action === 'completed' && isOverdue) {
+        title = 'Reason for Delay';
+        description = `This step is overdue. Please explain the reason for the delay.`;
+    }
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Update Status for: {step.step}</DialogTitle>
-                    <DialogDescription>Did you complete this step? Provide remarks if the action is delayed or skipped.</DialogDescription>
+                    <DialogTitle>{title}</DialogTitle>
+                    <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
                 <div className="py-4 space-y-4">
-                    <RadioGroup value={status || ""} onValueChange={(value) => setStatus(value as 'completed' | 'skipped')}>
-                        <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="completed" id="completed" />
-                            <Label htmlFor="completed">Yes, step is completed</Label>
-                        </div>
-                         <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="skipped" id="skipped" />
-                            <Label htmlFor="skipped">No, skip this step</Label>
-                        </div>
-                    </RadioGroup>
-
-                    {showRemarks && (
-                        <div className="pt-4 space-y-2">
-                            <Label htmlFor="remarks">
-                                {status === 'skipped' ? 'Reason for skipping' : 'Reason for delay'}
-                            </Label>
-                            <Textarea
-                                id="remarks"
-                                value={remarks}
-                                onChange={(e) => setRemarks(e.target.value)}
-                                placeholder="Please provide details..."
-                            />
-                        </div>
-                    )}
+                     <Textarea
+                        id="remarks"
+                        value={remarks}
+                        onChange={(e) => setRemarks(e.target.value)}
+                        placeholder="Please provide details..."
+                    />
                 </div>
                 <DialogFooter>
                     <Button variant="ghost" onClick={onClose}>Cancel</Button>
-                    <Button onClick={handleSubmit} disabled={!status || (showRemarks && !remarks)}>Submit</Button>
+                    <Button onClick={handleSubmit} disabled={!remarks}>Submit</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
@@ -258,7 +262,7 @@ export default function O2DPage() {
     const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
-    const [updatingStepInfo, setUpdatingStepInfo] = useState<{orderId: string, stepId: number} | null>(null);
+    const [updatingStepInfo, setUpdatingStepInfo] = useState<{orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped' | null} | null>(null);
 
     const { user } = useAuth();
     const { toast } = useToast();
@@ -277,18 +281,17 @@ export default function O2DPage() {
         return () => unsubscribe();
     }, []);
     
-    const handleOpenUpdateDialog = (orderId: string, stepId: number) => {
-        setUpdatingStepInfo({ orderId, stepId });
+    const handleOpenRemarkDialog = (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped') => {
+        setUpdatingStepInfo({ orderId, stepId, isOverdue, action });
         setIsDialogOpen(true);
     };
 
-    const handleStepUpdate = async (status: 'completed' | 'skipped', remarks: string) => {
-        if (!user || !updatingStepInfo) {
+    const updateStepInFirestore = async (orderId: string, stepId: number, status: 'completed' | 'skipped', remarks: string) => {
+        if (!user) {
             toast({ variant: "destructive", title: "You must be logged in." });
             return;
         }
 
-        const { orderId, stepId } = updatingStepInfo;
         const newStatus: O2DStatus = {
             stepId: stepId,
             status: status,
@@ -328,21 +331,22 @@ export default function O2DPage() {
         } catch (error) {
             console.error("Error updating O2D step:", error);
             toast({ variant: "destructive", title: "Update Failed" });
-        } finally {
-            setIsDialogOpen(false);
-            setUpdatingStepInfo(null);
         }
-    };
-    
-    const updatingOrder = updatingStepInfo ? pendingOrders.find(o => o.id === updatingStepInfo.orderId) : null;
-    const updatingStepConfig = updatingStepInfo ? O2D_PROCESS_CONFIG.find(s => s.id === updatingStepInfo.stepId) : null;
-    let isCurrentStepOverdue = false;
-    if(updatingOrder && updatingStepConfig) {
-        const startDate = updatingStepConfig.id === 1 ? new Date(updatingOrder.createdAt) : new Date(updatingOrder.o2dMilestones?.find(s => s.stepId === updatingStepConfig!.id - 1)?.completedAt || updatingOrder.createdAt);
-        const expectedDate = getExpectedCompletionDate(updatingStepConfig, startDate);
-        isCurrentStepOverdue = isPast(expectedDate);
     }
 
+    const handleQuickStepUpdate = async (orderId: string, stepId: number) => {
+        await updateStepInFirestore(orderId, stepId, 'completed', '');
+    }
+
+    const handleRemarkSubmit = async (remarks: string) => {
+        if (!updatingStepInfo?.action) return;
+        await updateStepInFirestore(updatingStepInfo.orderId, updatingStepInfo.stepId, updatingStepInfo.action, remarks);
+        setIsDialogOpen(false);
+        setUpdatingStepInfo(null);
+    };
+    
+    const updatingStepConfig = updatingStepInfo ? O2D_PROCESS_CONFIG.find(s => s.id === updatingStepInfo.stepId) : null;
+    
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <header className="mb-8">
@@ -387,7 +391,11 @@ export default function O2DPage() {
                                 </CollapsibleTrigger>
                             </CardHeader>
                             <CollapsibleContent>
-                               <O2DProcessTimeline order={order} onStepUpdate={(stepId) => handleOpenUpdateDialog(order.id, stepId)} />
+                               <O2DProcessTimeline 
+                                    order={order} 
+                                    onStepUpdate={handleOpenRemarkDialog} 
+                                    onQuickStepUpdate={handleQuickStepUpdate}
+                                />
                             </CollapsibleContent>
                         </Collapsible>
                         );
@@ -402,10 +410,14 @@ export default function O2DPage() {
              <UpdateO2DStepDialog
                 isOpen={isDialogOpen}
                 onClose={() => setIsDialogOpen(false)}
-                onUpdate={handleStepUpdate}
+                onUpdate={handleRemarkSubmit}
                 step={updatingStepConfig}
-                isOverdue={isCurrentStepOverdue}
+                action={updatingStepInfo?.action || null}
+                isOverdue={updatingStepInfo?.isOverdue || false}
             />
         </div>
     );
 }
+
+
+    
