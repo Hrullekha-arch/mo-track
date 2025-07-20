@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { addDays, addHours, addMinutes, isPast } from 'date-fns';
+import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow } from 'date-fns';
 
 
 const O2D_PROCESS_CONFIG: O2DStep[] = [
@@ -36,6 +36,10 @@ function getExpectedCompletionDate(step: O2DStep, startDate: Date): Date {
     completionDate = addMinutes(completionDate, minutes);
     return completionDate;
 }
+
+const formatTimestamp = (date: Date) => {
+    return format(date, 'dd/MM/yyyy - HH:mm:ss');
+};
 
 function O2DProcessTimeline({ order, onStepComplete }: { order: Order; onStepComplete: (stepId: number) => void; }) {
     
@@ -85,19 +89,22 @@ function O2DProcessTimeline({ order, onStepComplete }: { order: Order; onStepCom
                                 </CardHeader>
                                 <CardContent>
                                     <div className="flex justify-between items-center">
-                                        <div className="text-xs text-muted-foreground">
+                                         <div className="text-xs text-muted-foreground space-y-1">
                                             {stepStatus?.completed ? (
-                                                <div className="flex items-center gap-2 text-green-600">
+                                                <div className="flex items-center gap-2 text-green-600 font-medium">
                                                     <CheckCircle className="h-4 w-4" />
-                                                    <span>Completed by {stepStatus.completedBy} on {new Date(stepStatus.completedAt).toLocaleDateString()}</span>
-                                                </div>
-                                            ) : isOverdue ? (
-                                                <div className="flex items-center gap-2 text-red-600 font-medium">
-                                                    <AlertTriangle className="h-4 w-4" />
-                                                    <span>Was due on {expectedDate.toLocaleDateString()}</span>
+                                                    <span>Completed by {stepStatus.completedBy} at {formatTimestamp(new Date(stepStatus.completedAt))}</span>
                                                 </div>
                                             ) : (
-                                                <p>Expected by: {expectedDate.toLocaleDateString()}</p>
+                                                <>
+                                                    <p>Expected by: {formatTimestamp(expectedDate)}</p>
+                                                    {isOverdue && (
+                                                        <div className="flex items-center gap-2 text-red-600 font-medium">
+                                                            <AlertTriangle className="h-4 w-4" />
+                                                            <span>Delayed by: {formatDistanceToNow(expectedDate, { addSuffix: true })}</span>
+                                                        </div>
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                          <Button
@@ -131,8 +138,6 @@ export default function O2DPage() {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const allOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
             const pending = allOrders.filter(order => {
-                // An order is in O2D if it's not yet moved to the main dashboard.
-                // We'll check if the final O2D step (ID 10) is complete.
                 const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === 10);
                 return !finalO2DStep?.completed;
             });
@@ -161,7 +166,6 @@ export default function O2DPage() {
                 o2dMilestones: arrayUnion(newStatus)
             });
 
-            // If the final step is completed, acknowledge the main order milestone
             if (stepId === 10) {
                  const orderData = pendingOrders.find(o => o.id === orderId);
                  if (orderData) {
