@@ -195,10 +195,12 @@ function O2DProcessTimeline({
                                                     disabled={!canUpdate}
                                                     onValueChange={(value) => {
                                                         const isYes = value === 'yes' || value === 'old_customer';
-                                                        if (isYes && !isOverdue) {
-                                                            onQuickStepUpdate(order.id, stepConfig.id, value)
-                                                        } else if (isYes && isOverdue) {
-                                                            onStepUpdate(order.id, stepConfig.id, true, 'completed', value);
+                                                        if (isYes) {
+                                                            if (!isOverdue) {
+                                                                onQuickStepUpdate(order.id, stepConfig.id, value);
+                                                            } else {
+                                                                onStepUpdate(order.id, stepConfig.id, true, 'completed', value);
+                                                            }
                                                         } else if (value === 'no') {
                                                             onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped', value);
                                                         }
@@ -317,11 +319,20 @@ export default function O2DPage() {
     useEffect(() => {
         const q = query(collection(db, "orders"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const allOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+            const allOrders = snapshot.docs.map(doc => {
+                const data = doc.data() as Omit<Order, 'id'>;
+                // **FIX**: Ensure o2dMilestones exists on every order object.
+                if (!data.o2dMilestones) {
+                    data.o2dMilestones = [];
+                }
+                return { id: doc.id, ...data } as Order;
+            });
+
             const pending = allOrders.filter(order => {
                 const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === 10);
                 return !finalO2DStep; // If final step doesn't exist, it's pending
             }).sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            
             setPendingOrders(pending);
             setLoading(false);
         });
@@ -531,3 +542,4 @@ export default function O2DPage() {
         </div>
     );
 }
+
