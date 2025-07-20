@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, getDoc, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, O2DStep, O2DStatus } from "@/lib/types";
+import { Order, O2DStep, O2DStatus, OrderType } from "@/lib/types";
 import { Skeleton } from '@/components/ui/skeleton';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,8 @@ import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { ConfirmOrderTypeDialog } from "@/components/features/order-management/ConfirmOrderTypeDialog";
+import { getMilestonesForOrder } from '@/lib/constants';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +85,7 @@ function O2DProcessTimeline({
     onStepUpdate, 
     onQuickStepUpdate,
     onRevertStep,
+    onConfirmOrderType,
     userRole,
     userDesignation
 }: { 
@@ -90,6 +93,7 @@ function O2DProcessTimeline({
     onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped', selection: string) => void; 
     onQuickStepUpdate: (orderId: string, stepId: number, status: 'completed' | 'skipped', selection: string) => void; 
     onRevertStep: (orderId: string, stepId: number, milestone: O2DStatus) => void;
+    onConfirmOrderType: (order: Order) => void;
     userRole: string | null;
     userDesignation: string | null;
 }) {
@@ -97,7 +101,9 @@ function O2DProcessTimeline({
     const expectedDates = calculateExpectedDatesForOrder(order);
 
     const handleAction = (status: 'completed' | 'skipped', selection: string, stepId: number, isOverdue: boolean) => {
-      if ((status === 'skipped') || (status === 'completed' && isOverdue)) {
+      if (stepId === 10 && status === 'completed') {
+        onConfirmOrderType(order);
+      } else if ((status === 'skipped') || (status === 'completed' && isOverdue)) {
         onStepUpdate(order.id, stepId, isOverdue, status, selection);
       } else {
         onQuickStepUpdate(order.id, stepId, status, selection);
@@ -355,6 +361,7 @@ export default function O2DPage() {
     const [updatingStepInfo, setUpdatingStepInfo] = useState<{orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped' | null, selection: string} | null>(null);
     const [revertingStepInfo, setRevertingStepInfo] = useState<{orderId: string, stepId: number, milestone: O2DStatus} | null>(null);
     const [filterDate, setFilterDate] = useState<Date | undefined>();
+    const [confirmOrder, setConfirmOrder] = useState<Order | null>(null);
 
     const { user, role } = useAuth();
     const { toast } = useToast();
@@ -447,34 +454,7 @@ export default function O2DPage() {
         
         try {
             const orderRef = doc(db, "orders", orderId);
-            const orderDoc = await getDoc(orderRef);
-            const orderData = orderDoc.data() as Order;
-
-            const updatePayload: any = {
-                o2dMilestones: arrayUnion(newStatus)
-            };
-            
-            // Logic to move order to main dashboard
-            if (stepId === 10 && status === 'completed') {
-                 if (orderData) {
-                    updatePayload.isAcknowledged = true;
-                    // Also update the first main milestone
-                     const firstMilestoneIndex = orderData.milestones.findIndex(m => m.id === 1);
-                     if (firstMilestoneIndex !== -1 && !orderData.milestones[firstMilestoneIndex].completed) {
-                         const updatedMilestones = [...orderData.milestones];
-                         updatedMilestones[firstMilestoneIndex] = {
-                             ...updatedMilestones[firstMilestoneIndex],
-                             completed: true,
-                             completedAt: new Date().toISOString(),
-                             completedBy: "System (O2D Complete)",
-                             location: null
-                         };
-                         updatePayload.milestones = updatedMilestones;
-                     }
-                 }
-            }
-            
-            await updateDoc(orderRef, updatePayload);
+            await updateDoc(orderRef, { o2dMilestones: arrayUnion(newStatus) });
 
             toast({ title: "Step Updated!", description: "Progress has been saved." });
         } catch (error) {
@@ -482,6 +462,69 @@ export default function O2DPage() {
             toast({ variant: "destructive", title: "Update Failed" });
         }
     }
+
+    const handleConfirmOrderType = async (order: Order, newOrderType: OrderType) => {
+        if (!user) {
+            toast({ variant: "destructive", title: "You must be logged in." });
+            return;
+        }
+
+        const stepId = 10;
+        const newStatus: O2DStatus = {
+            stepId: stepId,
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            completedBy: user.name,
+            remarks: `Order type confirmed as ${newOrderType}`,
+            selection: "Done",
+        };
+
+        try {
+            const orderRef = doc(db, "orders", order.id);
+
+            const updatePayload: any = {
+                o2dMilestones: arrayUnion(newStatus),
+                isAcknowledged: true,
+            };
+
+            // If order type has changed, update it and the main milestones
+            if (order.orderType !== newOrderType) {
+                updatePayload.orderType = newOrderType;
+                updatePayload.milestones = getMilestonesForOrder(newOrderType);
+            }
+
+            const orderDoc = await getDoc(orderRef);
+            const orderData = orderDoc.data() as Order;
+
+            // Update the first main milestone of the (potentially new) milestone set
+            const firstMilestoneIndex = updatePayload.milestones ? 
+                updatePayload.milestones.findIndex((m: { id: number; }) => m.id === 1) : 
+                orderData.milestones.findIndex(m => m.id === 1);
+            
+            const milestonesToUpdate = updatePayload.milestones ? [...updatePayload.milestones] : [...orderData.milestones];
+
+            if (firstMilestoneIndex !== -1 && !milestonesToUpdate[firstMilestoneIndex].completed) {
+                milestonesToUpdate[firstMilestoneIndex] = {
+                    ...milestonesToUpdate[firstMilestoneIndex],
+                    completed: true,
+                    completedAt: new Date().toISOString(),
+                    completedBy: "System (O2D Complete)",
+                    location: null
+                };
+                updatePayload.milestones = milestonesToUpdate;
+            }
+            
+            await updateDoc(orderRef, updatePayload);
+            toast({ title: "Order Moved!", description: `${order.id} has been moved to the main dashboard.` });
+
+        } catch (error) {
+            console.error("Error confirming order type and moving order:", error);
+            toast({ variant: "destructive", title: "Update Failed" });
+        } finally {
+            setConfirmOrder(null);
+        }
+    };
+
 
     const handleQuickStepUpdate = async (orderId: string, stepId: number, status: 'completed' | 'skipped', selection: string) => {
         await updateStepInFirestore(orderId, stepId, status, '', selection);
@@ -602,6 +645,7 @@ export default function O2DPage() {
                                     onStepUpdate={handleOpenRemarkDialog} 
                                     onQuickStepUpdate={handleQuickStepUpdate}
                                     onRevertStep={handleOpenRevertDialog}
+                                    onConfirmOrderType={() => setConfirmOrder(order)}
                                     userRole={role}
                                     userDesignation={user?.designation || null}
                                 />
@@ -641,6 +685,14 @@ export default function O2DPage() {
                 action={updatingStepInfo?.action || null}
                 isOverdue={updatingStepInfo?.isOverdue || false}
             />
+            {confirmOrder && (
+                <ConfirmOrderTypeDialog
+                    isOpen={!!confirmOrder}
+                    onClose={() => setConfirmOrder(null)}
+                    order={confirmOrder}
+                    onConfirm={handleConfirmOrderType}
+                />
+            )}
         </div>
     );
 }
