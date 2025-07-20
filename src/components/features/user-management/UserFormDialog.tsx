@@ -20,7 +20,7 @@ const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   password: z.string().optional(),
-  role: z.enum(['admin', 'employee', 'installer', 'salesman'], { required_error: "Role is required" }),
+  role: z.enum(['admin', 'employee', 'installer', 'salesman', 'Accounts', 'Hr'], { required_error: "Role is required" }),
   designation: z.enum(['CRM', 'Allocators', 'PC']).optional(),
   salesmanCode: z.string().optional(),
 }).refine(data => {
@@ -31,6 +31,18 @@ const formSchema = z.object({
 }, {
     message: "Designation is required for employees",
     path: ["designation"],
+}).refine(data => {
+    // Other roles besides employee and salesman should not have designation or salesmanCode
+    if (data.role !== 'employee' && data.designation) {
+        return false;
+    }
+    if (data.role !== 'salesman' && data.salesmanCode) {
+        return false;
+    }
+    return true;
+}, {
+    message: "This field is not applicable for the selected role.",
+    path: ["designation"], // Path can be adjusted based on where you want the error
 });
 
 
@@ -241,6 +253,8 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                             <SelectItem value="employee">Employee</SelectItem>
                             <SelectItem value="installer">Installer</SelectItem>
                             <SelectItem value="salesman">Salesman</SelectItem>
+                            <SelectItem value="Accounts">Accounts</SelectItem>
+                            <SelectItem value="Hr">HR</SelectItem>
                         </SelectContent>
                     </Select>
                     <FormMessage />

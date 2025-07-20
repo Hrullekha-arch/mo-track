@@ -38,17 +38,19 @@ export function UserManagement() {
     setIsDialogOpen(true);
   };
 
-  const { admins, employees, installers, salesmen, crm, allocators, pc } = useMemo(() => {
+  const { admins, employees, installers, salesmen, accounts, hr, crm, allocators, pc } = useMemo(() => {
     const admins = users.filter(u => u.role === 'admin');
     const employees = users.filter(u => u.role === 'employee');
     const installers = users.filter(u => u.role === 'installer');
     const salesmen = users.filter(u => u.role === 'salesman');
+    const accounts = users.filter(u => u.role === 'Accounts');
+    const hr = users.filter(u => u.role === 'Hr');
 
     const crm = employees.filter(e => e.designation === 'CRM');
     const allocators = employees.filter(e => e.designation === 'Allocators');
     const pc = employees.filter(e => e.designation === 'PC');
 
-    return { admins, employees, installers, salesmen, crm, allocators, pc };
+    return { admins, employees, installers, salesmen, accounts, hr, crm, allocators, pc };
   }, [users]);
 
 
@@ -72,11 +74,13 @@ export function UserManagement() {
         </div>
 
         <Tabs defaultValue="admin" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="admin">Admins</TabsTrigger>
                 <TabsTrigger value="employee">Employees</TabsTrigger>
                 <TabsTrigger value="installer">Installers</TabsTrigger>
                 <TabsTrigger value="salesman">Salesmen</TabsTrigger>
+                <TabsTrigger value="accounts">Accounts</TabsTrigger>
+                <TabsTrigger value="hr">HR</TabsTrigger>
             </TabsList>
             
             <TabsContent value="admin">
@@ -172,6 +176,31 @@ export function UserManagement() {
                     <SalesmanCrmAssignments />
                 </div>
             </TabsContent>
+
+             <TabsContent value="accounts">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Accounts Team</CardTitle>
+                        <CardDescription>Users with the Accounts role.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <UserTable users={accounts} title="Accounts Team" description="Users with the Accounts role." />
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
+            <TabsContent value="hr">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>HR Team</CardTitle>
+                        <CardDescription>Users with the HR role.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <UserTable users={hr} title="HR Team" description="Users with the HR role." />
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
         </Tabs>
       </div>
 

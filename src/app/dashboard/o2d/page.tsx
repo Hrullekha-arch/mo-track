@@ -83,13 +83,15 @@ function O2DProcessTimeline({
     onStepUpdate, 
     onQuickStepUpdate,
     onRevertStep,
-    role
+    userRole,
+    userDesignation
 }: { 
     order: Order; 
     onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped', selection: string) => void; 
     onQuickStepUpdate: (orderId: string, stepId: number, status: 'completed' | 'skipped', selection: string) => void; 
     onRevertStep: (orderId: string, stepId: number, milestone: O2DStatus) => void;
-    role: string | null;
+    userRole: string | null;
+    userDesignation: string | null;
 }) {
     
     const expectedDates = calculateExpectedDatesForOrder(order);
@@ -102,13 +104,30 @@ function O2DProcessTimeline({
       }
     };
     
+    const checkPermission = (stepRole: string) => {
+        if (userRole === 'admin') return true;
+
+        const requiredRoles = stepRole.split(' / ').map(r => r.trim().toLowerCase());
+        
+        if (userRole && requiredRoles.includes(userRole.toLowerCase())) {
+            return true;
+        }
+
+        if (userDesignation && requiredRoles.includes(userDesignation.toLowerCase())) {
+            return true;
+        }
+
+        return false;
+    }
+
     const renderActionButtons = (stepConfig: O2DStep, isOverdue: boolean) => {
         const stepId = stepConfig.id;
+        const hasPermission = checkPermission(stepConfig.role);
 
         if (stepId === 1) {
             return (
                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button size="sm">Action</Button></DropdownMenuTrigger>
+                    <DropdownMenuTrigger asChild><Button size="sm" disabled={!hasPermission}>Action</Button></DropdownMenuTrigger>
                     <DropdownMenuContent>
                         <DropdownMenuItem onClick={() => handleAction('completed', 'Yes', stepId, isOverdue)}>Yes</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleAction('completed', 'Old', stepId, isOverdue)}>Old</DropdownMenuItem>
@@ -121,7 +140,7 @@ function O2DProcessTimeline({
         if (stepId === 3) {
             return (
                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button size="sm">Action</Button></DropdownMenuTrigger>
+                    <DropdownMenuTrigger asChild><Button size="sm" disabled={!hasPermission}>Action</Button></DropdownMenuTrigger>
                     <DropdownMenuContent>
                         <DropdownMenuItem onClick={() => handleAction('completed', 'MZ Done', stepId, isOverdue)}>MZ Done</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleAction('skipped', 'No', stepId, isOverdue)}>No</DropdownMenuItem>
@@ -132,8 +151,8 @@ function O2DProcessTimeline({
 
         return (
             <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => handleAction('skipped', 'No', stepId, isOverdue)}>No</Button>
-                <Button size="sm" onClick={() => handleAction('completed', 'Done', stepId, isOverdue)}>Done</Button>
+                <Button variant="outline" size="sm" onClick={() => handleAction('skipped', 'No', stepId, isOverdue)} disabled={!hasPermission}>No</Button>
+                <Button size="sm" onClick={() => handleAction('completed', 'Done', stepId, isOverdue)} disabled={!hasPermission}>Done</Button>
             </div>
         );
     };
@@ -233,7 +252,7 @@ function O2DProcessTimeline({
 
                                         </div>
                                         <div className="flex items-center gap-2 flex-shrink-0">
-                                            {stepStatus && role === 'admin' && (
+                                            {stepStatus && userRole === 'admin' && (
                                                 <AlertDialogTrigger asChild>
                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => onRevertStep(order.id, stepConfig.id, stepStatus)}>
                                                         <Undo2 className="h-4 w-4" />
@@ -581,7 +600,8 @@ export default function O2DPage() {
                                     onStepUpdate={handleOpenRemarkDialog} 
                                     onQuickStepUpdate={handleQuickStepUpdate}
                                     onRevertStep={handleOpenRevertDialog}
-                                    role={role}
+                                    userRole={role}
+                                    userDesignation={user?.designation || null}
                                 />
                             </CollapsibleContent>
                         </Collapsible>
