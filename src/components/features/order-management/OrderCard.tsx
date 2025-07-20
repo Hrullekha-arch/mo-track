@@ -251,7 +251,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   return (
     <TooltipProvider>
     <Card className="flex flex-col">
-      <CardHeader>
+      <CardHeader className="p-4">
         <div className="flex items-start justify-between">
             <div className="flex-grow">
                 <CardTitle><span className="text-primary">{currentOrder.customerName}</span></CardTitle>
@@ -299,14 +299,14 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             </div>
         </div>
       </CardHeader>
-      <CardContent className="flex-grow space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-            <div className="space-y-2">
+      <CardContent className="flex-grow space-y-3 p-4 pt-0">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <div className="space-y-1">
                 <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" /><span>{currentOrder.customerPhone}</span></div>
                 <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" /><span>{currentOrder.customerAddress}</span></div>
-                <div className="flex items-center gap-2 text-muted-foreground"><Tag className="h-4 w-4" /><span>Sales: {currentOrder.salesPerson}</span></div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1">
+                <div className="flex items-center gap-2 text-muted-foreground"><Tag className="h-4 w-4" /><span>Sales: {currentOrder.salesPerson}</span></div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                     <Users className="h-4 w-4" />
                     <span>CRM: <span className="font-medium text-purple-600">{crmHandler?.name || 'Unassigned'}</span></span>
@@ -315,60 +315,61 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                     <UserIcon className="h-4 w-4" />
                     <span>Installer: <span className="font-medium text-indigo-600">{assignedInstaller?.name || 'Unassigned'}</span></span>
                 </div>
-                <div className={`flex items-center gap-2 font-semibold ${status.color}`}>
-                    <TrendingUp className="h-4 w-4" />
-                    <span>Status: {lastCompletedMilestone?.name || "Order Received"}</span>
-                </div>
             </div>
         </div>
         
         {scheduledDate && (
-             <div className="text-sm flex items-center gap-2 text-blue-500 font-medium pt-2">
+             <div className="text-sm flex items-center gap-2 text-blue-500 font-medium pt-1">
                 <CalendarClock className="h-4 w-4" />
                 <span>Scheduled: {new Date(scheduledDate).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
             </div>
         )}
+
+        <div className={`flex items-center gap-2 font-semibold ${status.color}`}>
+            <TrendingUp className="h-4 w-4" />
+            <span>Status: {lastCompletedMilestone?.name || "Order Received"}</span>
+        </div>
         
         {hasFeedback && (
             <>
-                <Separator />
-                <div className="space-y-3">
-                    <h4 className="font-semibold">Feedback</h4>
+                <Separator className="my-2" />
+                <div className="space-y-2">
+                    <h4 className="font-semibold text-sm">Feedback</h4>
                     {currentOrder.bypassedOtp && (
                         <div className="flex items-center gap-2 text-orange-500 p-2 border border-orange-500/30 bg-orange-500/10 rounded-md">
                             <AlertCircle className="h-4 w-4"/>
-                            <p className="text-sm font-medium">Feedback submitted without customer OTP.</p>
+                            <p className="text-xs font-medium">Feedback submitted without customer OTP.</p>
                         </div>
                     )}
                     {currentOrder.feedbackRating && (
                         <div>
-                            <p className="text-sm font-medium">Installer Feedback</p>
-                             <div className="flex items-center gap-1 mt-1">
+                            <p className="text-xs font-medium">Installer Feedback</p>
+                             <div className="flex items-center gap-1">
                                 {[1,2,3,4,5].map(star => (
-                                    <Star key={star} className={cn("h-5 w-5", currentOrder.feedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
+                                    <Star key={star} className={cn("h-4 w-4", currentOrder.feedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
                                 ))}
                             </div>
-                            {currentOrder.feedbackRemarks && <p className="text-sm text-muted-foreground mt-1 p-2 border rounded-md bg-muted/50">"{currentOrder.feedbackRemarks}"</p>}
+                            {currentOrder.feedbackRemarks && <p className="text-xs text-muted-foreground mt-1 p-1.5 border rounded-md bg-muted/50">"{currentOrder.feedbackRemarks}"</p>}
                         </div>
                     )}
                      {currentOrder.customerFeedbackRating && (
                         <div>
-                            <p className="text-sm font-medium">Customer Feedback</p>
-                             <div className="flex items-center gap-1 mt-1">
+                            <p className="text-xs font-medium">Customer Feedback</p>
+                             <div className="flex items-center gap-1">
                                 {[1,2,3,4,5].map(star => (
-                                    <Star key={star} className={cn("h-5 w-5", currentOrder.customerFeedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
+                                    <Star key={star} className={cn("h-4 w-4", currentOrder.customerFeedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
                                 ))}
                             </div>
-                            {currentOrder.customerFeedbackRemarks && <p className="text-sm text-muted-foreground mt-1 p-2 border rounded-md bg-muted/50">"{currentOrder.customerFeedbackRemarks}"</p>}
+                            {currentOrder.customerFeedbackRemarks && <p className="text-xs text-muted-foreground mt-1 p-1.5 border rounded-md bg-muted/50">"{currentOrder.customerFeedbackRemarks}"</p>}
                         </div>
                     )}
                 </div>
             </>
         )}
 
-        <Separator />
+        <Separator className="my-2" />
         
-        <div className="space-y-2">
+        <div className="space-y-1">
           <div className="flex items-center justify-between">
             <div className={`flex items-center gap-2 font-semibold ${status.color}`}>
               <StatusIcon className="h-5 w-5" />
@@ -382,7 +383,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         </div>
         
         {showMilestones && (
-             <div className="space-y-2 pt-4">
+             <div className="space-y-2 pt-2">
                 <div className="flex justify-between items-center">
                     <h4 className="font-semibold">Milestone Progress</h4>
                     <Badge variant={currentOrder.orderType === 'delivery' ? 'default' : currentOrder.orderType === 'stitching' ? 'secondary' : 'outline'}>{currentOrder.orderType.replace('+', ' + ')}</Badge>
@@ -391,7 +392,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             </div>
         )}
       </CardContent>
-      <CardFooter className="flex-col items-start gap-2 pt-4">
+      <CardFooter className="flex-col items-start gap-2 p-4 pt-0">
          <div className="text-xs text-muted-foreground">
             Created on {createdAtDate.toLocaleDateString()}
         </div>
