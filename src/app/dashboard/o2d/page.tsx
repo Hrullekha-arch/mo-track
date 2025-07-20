@@ -83,7 +83,6 @@ function O2DProcessTimeline({
     role: string | null;
 }) {
     
-    // Memoize the calculated expected dates for all steps to avoid re-calculating on every render.
     const expectedDates = calculateExpectedDatesForOrder(order);
 
     return (
@@ -215,7 +214,7 @@ function O2DProcessTimeline({
                                                 <div className="text-center">
                                                     {stepStatus.selection && (
                                                         <p className="text-xs text-muted-foreground capitalize mb-1">
-                                                           Selected: {stepStatus.selection.replace('_', ' ')}
+                                                           Selected: {stepStatus.selection.replace(/_/g, ' ')}
                                                         </p>
                                                     )}
                                                     <Badge variant={stepStatus.status === 'completed' ? 'default' : 'secondary'} className={cn(
