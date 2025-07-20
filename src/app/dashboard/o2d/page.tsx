@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { updateSheetForO2DStep } from '@/services/google-sheets';
 
 const O2D_PROCESS_CONFIG: O2DStep[] = [
     { id: 1, step: "Receive Advance ₹1000", details: "For measurement/Fabric order", time: "30 min", role: "Salesman", icon: User, expectedDuration: { minutes: 30 } },
@@ -58,9 +59,11 @@ const calculateExpectedDatesForOrder = (order: Order) => {
             } else {
                 const previousStepStatus = (order.o2dMilestones || []).find(m => m.stepId === previousStepConfig.id);
                 if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
+                    // Rule 2: If previous step is done, start from its actual completion time.
                     startDate = new Date(previousStepStatus.completedAt);
                 } else {
-                    startDate = acc[previousStepConfig.id]; // Use previous step's expected date
+                    // Rule 1: If previous step is pending, start from its expected completion time.
+                    startDate = acc[previousStepConfig.id];
                 }
             }
         }
@@ -371,12 +374,26 @@ export default function O2DPage() {
         
         try {
             const orderRef = doc(db, "orders", orderId);
+            const orderDoc = await getDoc(orderRef);
+            const orderData = orderDoc.data() as Order;
+
             await updateDoc(orderRef, {
                 o2dMilestones: arrayUnion(newStatus)
             });
 
+            // If the step was completed, try to update Google Sheet
+            if (status === 'completed') {
+                try {
+                    await updateSheetForO2DStep(orderData.crmOrderNo, stepId, newStatus.completedAt);
+                    toast({ title: "Google Sheet Updated!", description: "The corresponding cell has been updated." });
+                } catch (sheetError: any) {
+                    console.error("Google Sheets update failed:", sheetError);
+                    toast({ variant: "destructive", title: "Sheet Update Failed", description: sheetError.message });
+                }
+            }
+
+
             if (stepId === 10 && status === 'completed') {
-                 const orderData = pendingOrders.find(o => o.id === orderId);
                  if (orderData) {
                      const firstMilestoneIndex = orderData.milestones.findIndex(m => m.id === 1);
                      if (firstMilestoneIndex !== -1 && !orderData.milestones[firstMilestoneIndex].completed) {
