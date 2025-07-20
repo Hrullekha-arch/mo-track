@@ -105,7 +105,7 @@ function O2DProcessTimeline({
     };
     
     const checkPermission = (stepRole: string) => {
-        if (userRole === 'admin') return true;
+        if (userRole === 'admin' || stepRole === 'System') return true;
 
         const requiredRoles = stepRole.split(' / ').map(r => r.trim().toLowerCase());
         
@@ -450,12 +450,15 @@ export default function O2DPage() {
             const orderDoc = await getDoc(orderRef);
             const orderData = orderDoc.data() as Order;
 
-            await updateDoc(orderRef, {
+            const updatePayload: any = {
                 o2dMilestones: arrayUnion(newStatus)
-            });
-
+            };
+            
+            // Logic to move order to main dashboard
             if (stepId === 10 && status === 'completed') {
                  if (orderData) {
+                    updatePayload.isAcknowledged = true;
+                    // Also update the first main milestone
                      const firstMilestoneIndex = orderData.milestones.findIndex(m => m.id === 1);
                      if (firstMilestoneIndex !== -1 && !orderData.milestones[firstMilestoneIndex].completed) {
                          const updatedMilestones = [...orderData.milestones];
@@ -466,13 +469,12 @@ export default function O2DPage() {
                              completedBy: "System (O2D Complete)",
                              location: null
                          };
-                         await updateDoc(orderRef, { 
-                             milestones: updatedMilestones,
-                             isAcknowledged: true 
-                         });
+                         updatePayload.milestones = updatedMilestones;
                      }
                  }
             }
+            
+            await updateDoc(orderRef, updatePayload);
 
             toast({ title: "Step Updated!", description: "Progress has been saved." });
         } catch (error) {
