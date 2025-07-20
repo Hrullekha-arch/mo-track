@@ -111,7 +111,7 @@ function O2DProcessTimeline({
                     <DropdownMenuTrigger asChild><Button size="sm">Action</Button></DropdownMenuTrigger>
                     <DropdownMenuContent>
                         <DropdownMenuItem onClick={() => handleAction('completed', 'Yes', stepId, isOverdue)}>Yes</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleAction('completed', 'Old Customer', stepId, isOverdue)}>Old Customer</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleAction('completed', 'Old', stepId, isOverdue)}>Old</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleAction('skipped', 'No', stepId, isOverdue)}>No</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
@@ -622,5 +622,3 @@ export default function O2DPage() {
         </div>
     );
 }
-
-    
