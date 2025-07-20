@@ -24,7 +24,7 @@ const formSchema = z.object({
   customerName: z.string().min(1, "Customer name is required"),
   customerPhone: z.string().min(1, "Customer phone is required"),
   customerAddress: z.string().min(1, "Customer address is required"),
-  salesPerson: z.string().min(1, "Sales person is required"),
+  salesPerson: z.string().min(1, "Sales person name or code is required"),
   orderType: z.enum(['delivery', 'stitching', 'stitching+installation'], { required_error: "Order type is required" }),
   remarks: z.string().optional(),
 });
@@ -70,10 +70,20 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
     }
     setLoading(true);
     try {
-      // Find assigned CRM user for the selected salesman
-      const salesmanUser = salesmen.find(s => s.name === values.salesPerson);
+      // Find assigned CRM user for the selected salesman by name or code
+      const salesmanIdentifier = values.salesPerson.trim();
+      const salesmanUser = salesmen.find(s => 
+        s.name.toLowerCase() === salesmanIdentifier.toLowerCase() || 
+        (s.salesmanCode && s.salesmanCode.toLowerCase() === salesmanIdentifier.toLowerCase())
+      );
+
       if (!salesmanUser) {
-           toast({ variant: "destructive", title: "Salesman not found" });
+           toast({ 
+               variant: "destructive", 
+               title: "Salesman not found",
+               description: `Could not find a salesman with the name or code "${salesmanIdentifier}".`
+            });
+           form.setError("salesPerson", { message: "Salesman not found." });
            setLoading(false);
            return;
       }
@@ -85,7 +95,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         toast({
           variant: "destructive",
           title: "Assignment Missing",
-          description: `The salesman "${values.salesPerson}" is not assigned to a CRM handler. Please set the assignment in User Management.`,
+          description: `The salesman "${salesmanUser.name}" is not assigned to a CRM handler. Please set the assignment in User Management.`,
         });
         setLoading(false);
         return;
@@ -102,7 +112,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         customerName: values.customerName,
         customerPhone: values.customerPhone,
         customerAddress: values.customerAddress,
-        salesPerson: values.salesPerson,
+        salesPerson: salesmanUser.name, // Store the actual name
         orderType: values.orderType,
         remarks: values.remarks || "",
         milestones: newMilestones,
@@ -209,23 +219,10 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
               name="salesPerson"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Sales Person</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select a sales person" />
-                            </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                            {salesmen.length > 0 ? (
-                                salesmen.map(salesman => (
-                                    <SelectItem key={salesman.id} value={salesman.name}>{salesman.name}</SelectItem>
-                                ))
-                            ) : (
-                                <SelectItem value="loading" disabled>Loading salesmen...</SelectItem>
-                            )}
-                        </SelectContent>
-                    </Select>
+                  <FormLabel>Sales Person (Name or Code)</FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., Jane Doe or S001" {...field} />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
