@@ -1,7 +1,9 @@
-
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ClipboardList, ShoppingCart, Users, Truck } from "lucide-react";
 import Link from "next/link";
+import { getFirestore } from "firebase-admin/firestore";
+import { adminDb } from "@/lib/firebase-admin";
+import { Badge } from "@/components/ui/badge";
 
 const dashboardItems = [
     {
@@ -10,6 +12,7 @@ const dashboardItems = [
         description: "Track and manage all customer orders.",
         icon: ClipboardList,
         color: "bg-blue-500",
+        id: "orders"
     },
     {
         href: "/dashboard/purchase",
@@ -17,6 +20,7 @@ const dashboardItems = [
         description: "Manage procurement and inventory.",
         icon: ShoppingCart,
         color: "bg-green-500",
+        id: "purchase"
     },
     {
         href: "/dashboard/users",
@@ -24,6 +28,7 @@ const dashboardItems = [
         description: "Manage users and their permissions.",
         icon: Users,
         color: "bg-purple-500",
+        id: "users"
     },
     {
         href: "/dashboard/o2d",
@@ -31,10 +36,32 @@ const dashboardItems = [
         description: "Visualize the end-to-end order process.",
         icon: Truck,
         color: "bg-orange-500",
+        id: "o2d"
     },
 ];
 
-export default function DashboardPage() {
+async function getO2dCount() {
+    try {
+        const ordersSnapshot = await adminDb.collection('orders').get();
+        const orders = ordersSnapshot.docs.map(doc => doc.data());
+
+        const pendingO2dOrders = orders.filter(order => {
+             const finalStep = (order.o2dMilestones || []).find((m: any) => m.stepId === 10);
+             return !finalStep;
+        });
+
+        return pendingO2dOrders.length;
+    } catch (error) {
+        console.error("Error fetching O2D count:", error);
+        return 0;
+    }
+}
+
+
+export default async function DashboardPage() {
+
+    const o2dCount = await getO2dCount();
+
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <header className="mb-8">
@@ -50,12 +77,17 @@ export default function DashboardPage() {
                                     <div className={`p-3 rounded-lg ${item.color}`}>
                                         <item.icon className="h-6 w-6 text-white" />
                                     </div>
-                                    <div>
+                                    <div className="flex-grow">
                                         <CardTitle className="text-xl group-hover:text-primary transition-colors">
                                             {item.title}
                                         </CardTitle>
                                         <CardDescription>{item.description}</CardDescription>
                                     </div>
+                                     {item.id === 'o2d' && o2dCount > 0 && (
+                                        <Badge className="h-6 w-6 flex items-center justify-center rounded-full text-base">
+                                            {o2dCount}
+                                        </Badge>
+                                    )}
                                 </div>
                             </CardHeader>
                         </Card>
