@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, isSameDay } from 'date-fns';
+import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, isSameDay, differenceInHours } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -192,30 +192,19 @@ function O2DProcessTimeline({
                                                 </AlertDialogTrigger>
                                             )}
                                             {!stepStatus ? (
-                                                <Select
-                                                    disabled={!canUpdate}
-                                                    onValueChange={(value) => {
-                                                        const isYes = value === 'yes' || value === 'old_customer';
+                                                <div className="flex items-center gap-2">
+                                                    <Button variant="outline" size="sm" onClick={() => onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped', 'no')}>Skip</Button>
+                                                    <Button size="sm" onClick={() => {
+                                                        const isYes = true;
                                                         if (isYes) {
                                                             if (!isOverdue) {
-                                                                onQuickStepUpdate(order.id, stepConfig.id, value);
+                                                                onQuickStepUpdate(order.id, stepConfig.id, 'yes');
                                                             } else {
-                                                                onStepUpdate(order.id, stepConfig.id, true, 'completed', value);
+                                                                onStepUpdate(order.id, stepConfig.id, true, 'completed', 'yes');
                                                             }
-                                                        } else if (value === 'no') {
-                                                            onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped', value);
                                                         }
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="w-[180px]">
-                                                        <SelectValue placeholder="Update Status..." />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="yes">Yes</SelectItem>
-                                                        <SelectItem value="no">No</SelectItem>
-                                                        {stepConfig.id === 1 && <SelectItem value="old_customer">Old Customer</SelectItem>}
-                                                    </SelectContent>
-                                                </Select>
+                                                    }}>Done</Button>
+                                                </div>
                                             ) : (
                                                 <div className="text-center">
                                                     {stepStatus.selection && (
@@ -504,8 +493,16 @@ export default function O2DPage() {
                         const currentStep = nextStepIndex !== -1 ? O2D_PROCESS_CONFIG[nextStepIndex] : null;
 
                         let cardBorderColor = "border-border";
-                        if (currentStep && isPast(expectedDates[currentStep.id])) {
-                            cardBorderColor = "border-red-500";
+                        let statusTextColor = "text-primary-foreground";
+                        if (currentStep) {
+                            const expectedDate = expectedDates[currentStep.id];
+                            if (isPast(expectedDate)) {
+                                cardBorderColor = "border-red-500";
+                                statusTextColor = "text-red-500";
+                            } else if (differenceInHours(expectedDate, new Date()) <= 24) {
+                                cardBorderColor = "border-orange-500";
+                                statusTextColor = "text-orange-500";
+                            }
                         }
                         
                         return (
@@ -525,7 +522,7 @@ export default function O2DPage() {
                                             <p className='flex items-center gap-2'><Calendar className='h-4 w-4 text-muted-foreground' /> Order Date: {format(new Date(order.createdAt), 'dd/MM/yyyy')}</p>
                                         )}
                                         {currentStep && (
-                                            <p className={cn('flex items-center gap-2 font-medium', cardBorderColor === 'border-red-500' ? 'text-red-500' : 'text-primary-foreground')}>
+                                            <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
                                                 <Clock className='h-4 w-4'/>
                                                 Status: {currentStep.step} - Due by {formatTimestamp(expectedDates[currentStep.id])}
                                             </p>
