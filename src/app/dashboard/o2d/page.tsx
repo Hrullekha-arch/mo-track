@@ -3,8 +3,8 @@
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle } from 'lucide-react';
-import { collection, onSnapshot, query, doc, updateDoc, arrayUnion } from "firebase/firestore";
+import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2 } from 'lucide-react';
+import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, getDoc, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, O2DStep, O2DStatus } from "@/lib/types";
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,10 +16,10 @@ import { cn } from '@/lib/utils';
 import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 const O2D_PROCESS_CONFIG: O2DStep[] = [
     { id: 1, step: "Receive Advance ₹1000", details: "For measurement/Fabric order", time: "30 min", role: "Salesman", icon: User, expectedDuration: { minutes: 30 } },
@@ -69,7 +69,19 @@ const calculateExpectedDatesForOrder = (order: Order) => {
     }, {} as Record<number, Date>);
 }
 
-function O2DProcessTimeline({ order, onStepUpdate, onQuickStepUpdate }: { order: Order; onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped') => void; onQuickStepUpdate: (orderId: string, stepId: number) => void; }) {
+function O2DProcessTimeline({ 
+    order, 
+    onStepUpdate, 
+    onQuickStepUpdate,
+    onRevertStep,
+    role
+}: { 
+    order: Order; 
+    onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped') => void; 
+    onQuickStepUpdate: (orderId: string, stepId: number) => void; 
+    onRevertStep: (orderId: string, stepId: number, milestone: O2DStatus) => void;
+    role: string | null;
+}) {
     
     // Memoize the calculated expected dates for all steps to avoid re-calculating on every render.
     const expectedDates = calculateExpectedDatesForOrder(order);
@@ -168,35 +180,44 @@ function O2DProcessTimeline({ order, onStepUpdate, onQuickStepUpdate }: { order:
                                             )}
 
                                         </div>
-                                        {!stepStatus ? (
-                                            <Select
-                                                disabled={!canUpdate}
-                                                onValueChange={(value) => {
-                                                    if (value === 'yes' && !isOverdue) {
-                                                        onQuickStepUpdate(order.id, stepConfig.id)
-                                                    } else if (value === 'yes' && isOverdue) {
-                                                        onStepUpdate(order.id, stepConfig.id, true, 'completed');
-                                                    } else if (value === 'no' || value === 'old_customer') {
-                                                        onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped');
-                                                    }
-                                                }}
-                                            >
-                                                <SelectTrigger className="w-[180px]">
-                                                    <SelectValue placeholder="Update Status..." />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="yes">Yes</SelectItem>
-                                                    <SelectItem value="no">No</SelectItem>
-                                                    {stepConfig.id === 1 && <SelectItem value="old_customer">Old Customer</SelectItem>}
-                                                </SelectContent>
-                                            </Select>
-                                        ) : (
-                                            <Badge variant={stepStatus.status === 'completed' ? 'default' : 'secondary'} className={cn(
-                                                stepStatus.status === 'completed' && wasCompletedLate && 'bg-orange-500'
-                                            )}>
-                                                {stepStatus.status === 'completed' ? 'Done' : 'Skipped'}
-                                            </Badge>
-                                        )}
+                                        <div className="flex items-center gap-2">
+                                            {stepStatus && role === 'admin' && (
+                                                <AlertDialogTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => onRevertStep(order.id, stepConfig.id, stepStatus)}>
+                                                        <Undo2 className="h-4 w-4" />
+                                                    </Button>
+                                                </AlertDialogTrigger>
+                                            )}
+                                            {!stepStatus ? (
+                                                <Select
+                                                    disabled={!canUpdate}
+                                                    onValueChange={(value) => {
+                                                        if (value === 'yes' && !isOverdue) {
+                                                            onQuickStepUpdate(order.id, stepConfig.id)
+                                                        } else if (value === 'yes' && isOverdue) {
+                                                            onStepUpdate(order.id, stepConfig.id, true, 'completed');
+                                                        } else if (value === 'no' || value === 'old_customer') {
+                                                            onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped');
+                                                        }
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="w-[180px]">
+                                                        <SelectValue placeholder="Update Status..." />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="yes">Yes</SelectItem>
+                                                        <SelectItem value="no">No</SelectItem>
+                                                        {stepConfig.id === 1 && <SelectItem value="old_customer">Old Customer</SelectItem>}
+                                                    </SelectContent>
+                                                </Select>
+                                            ) : (
+                                                <Badge variant={stepStatus.status === 'completed' ? 'default' : 'secondary'} className={cn(
+                                                    stepStatus.status === 'completed' && wasCompletedLate && 'bg-orange-500'
+                                                )}>
+                                                    {stepStatus.status === 'completed' ? 'Done' : 'Skipped'}
+                                                </Badge>
+                                            )}
+                                        </div>
                                     </div>
                                 </CardContent>
                             </Card>
@@ -276,9 +297,11 @@ export default function O2DPage() {
     const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [isRevertDialogOpen, setIsRevertDialogOpen] = useState(false);
     const [updatingStepInfo, setUpdatingStepInfo] = useState<{orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped' | null} | null>(null);
+    const [revertingStepInfo, setRevertingStepInfo] = useState<{orderId: string, stepId: number, milestone: O2DStatus} | null>(null);
 
-    const { user } = useAuth();
+    const { user, role } = useAuth();
     const { toast } = useToast();
 
     useEffect(() => {
@@ -298,6 +321,30 @@ export default function O2DPage() {
     const handleOpenRemarkDialog = (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped') => {
         setUpdatingStepInfo({ orderId, stepId, isOverdue, action });
         setIsDialogOpen(true);
+    };
+
+    const handleOpenRevertDialog = (orderId: string, stepId: number, milestone: O2DStatus) => {
+        setRevertingStepInfo({ orderId, stepId, milestone });
+        setIsRevertDialogOpen(true);
+    };
+
+    const handleRevertStep = async () => {
+        if (!revertingStepInfo) return;
+        const { orderId, milestone } = revertingStepInfo;
+
+        try {
+            const orderRef = doc(db, "orders", orderId);
+            await updateDoc(orderRef, {
+                o2dMilestones: arrayRemove(milestone)
+            });
+            toast({ title: "Step Reverted!", description: "The step has been successfully reverted." });
+        } catch (error) {
+            console.error("Error reverting step:", error);
+            toast({ variant: "destructive", title: "Revert Failed" });
+        } finally {
+            setIsRevertDialogOpen(false);
+            setRevertingStepInfo(null);
+        }
     };
 
     const updateStepInFirestore = async (orderId: string, stepId: number, status: 'completed' | 'skipped', remarks: string) => {
@@ -360,7 +407,8 @@ export default function O2DPage() {
     };
     
     const updatingStepConfig = updatingStepInfo ? O2D_PROCESS_CONFIG.find(s => s.id === updatingStepInfo.stepId) : null;
-    
+    const revertingStepConfig = revertingStepInfo ? O2D_PROCESS_CONFIG.find(s => s.id === revertingStepInfo.stepId) : null;
+
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <header className="mb-8">
@@ -372,7 +420,8 @@ export default function O2DPage() {
                 {loading ? (
                     Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                 ) : pendingOrders.length > 0 ? (
-                    pendingOrders.map(order => {
+                    <AlertDialog>
+                    {pendingOrders.map(order => {
                         const expectedDates = calculateExpectedDatesForOrder(order);
                         const completedSteps = (order.o2dMilestones || []).filter(m => m.status === 'completed' || m.status === 'skipped');
                         const nextStepIndex = O2D_PROCESS_CONFIG.findIndex(s => !completedSteps.some(cs => cs.stepId === s.id));
@@ -419,11 +468,26 @@ export default function O2DPage() {
                                     order={order} 
                                     onStepUpdate={handleOpenRemarkDialog} 
                                     onQuickStepUpdate={handleQuickStepUpdate}
+                                    onRevertStep={handleOpenRevertDialog}
+                                    role={role}
                                 />
                             </CollapsibleContent>
                         </Collapsible>
                         );
-                    })
+                    })}
+                     <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setIsRevertDialogOpen(false)}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                    </AlertDialog>
                 ) : (
                     <Card className="text-center p-12">
                         <CardTitle>All Caught Up!</CardTitle>
