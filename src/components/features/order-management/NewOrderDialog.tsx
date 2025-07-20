@@ -71,7 +71,13 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
     setLoading(true);
     try {
       // Find assigned CRM user for the selected salesman
-      const assignmentRef = doc(db, "salesmanCrmAssignments", values.salesPerson);
+      const salesmanUser = salesmen.find(s => s.name === values.salesPerson);
+      if (!salesmanUser) {
+           toast({ variant: "destructive", title: "Salesman not found" });
+           setLoading(false);
+           return;
+      }
+      const assignmentRef = doc(db, "salesmanCrmAssignments", salesmanUser.name);
       const assignmentSnap = await getDoc(assignmentRef);
       const crmUserId = assignmentSnap.exists() ? assignmentSnap.data().crmUserId : null;
 
@@ -88,18 +94,6 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
       const newMilestones = getMilestonesForOrder(values.orderType);
       
-      // Auto-acknowledge the first milestone for orders created via the app
-      const firstMilestoneIndex = newMilestones.findIndex(m => m.id === 1);
-      if (firstMilestoneIndex !== -1) {
-          newMilestones[firstMilestoneIndex] = {
-              ...newMilestones[firstMilestoneIndex],
-              completed: true,
-              completedAt: new Date().toISOString(),
-              completedBy: user.name,
-              location: null
-          };
-      }
-      
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
       
       const newOrder = {
@@ -112,6 +106,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         orderType: values.orderType,
         remarks: values.remarks || "",
         milestones: newMilestones,
+        o2dMilestones: [], // Initialize empty O2D milestones
         createdAt: new Date().toISOString(),
         createdBy: {
             id: user.id,
@@ -119,13 +114,13 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         },
         otp: otp,
         handledByCrm: crmUserId, // Automatically assign CRM
-        isAcknowledged: true, // Mark as acknowledged since it's from the app
+        isAcknowledged: false, // Orders start in O2D, so they are not yet acknowledged for the main workflow
       };
 
       await setDoc(doc(db, "orders", trackingId), newOrder);
       toast({
         title: "Order Created",
-        description: `Order ${trackingId} has been created and moved to the main dashboard.`,
+        description: `Order ${trackingId} has been created and moved to the O2D dashboard.`,
       });
       form.reset();
       onClose();
@@ -152,7 +147,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         <DialogHeader>
           <DialogTitle>Create New Order</DialogTitle>
           <DialogDescription>
-            Fill in the details below to create a new order.
+            Fill in the details below to create a new order. It will be added to the O2D workflow.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>

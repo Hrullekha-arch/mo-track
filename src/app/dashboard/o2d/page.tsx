@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { differenceInHours, addDays, addHours, addMinutes, isPast } from 'date-fns';
+import { addDays, addHours, addMinutes, isPast } from 'date-fns';
 
 
 const O2D_PROCESS_CONFIG: O2DStep[] = [
@@ -131,9 +131,10 @@ export default function O2DPage() {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const allOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
             const pending = allOrders.filter(order => {
-                const firstMilestone = order.milestones.find(m => m.id === 1);
-                // An order is in O2D if it's not yet acknowledged (milestone 1 is not complete).
-                return firstMilestone && !firstMilestone.completed;
+                // An order is in O2D if it's not yet moved to the main dashboard.
+                // We'll check if the final O2D step (ID 10) is complete.
+                const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === 10);
+                return !finalO2DStep?.completed;
             });
             setPendingOrders(pending);
             setLoading(false);
@@ -159,6 +160,29 @@ export default function O2DPage() {
             await updateDoc(orderRef, {
                 o2dMilestones: arrayUnion(newStatus)
             });
+
+            // If the final step is completed, acknowledge the main order milestone
+            if (stepId === 10) {
+                 const orderData = pendingOrders.find(o => o.id === orderId);
+                 if (orderData) {
+                     const firstMilestoneIndex = orderData.milestones.findIndex(m => m.id === 1);
+                     if (firstMilestoneIndex !== -1 && !orderData.milestones[firstMilestoneIndex].completed) {
+                         const updatedMilestones = [...orderData.milestones];
+                         updatedMilestones[firstMilestoneIndex] = {
+                             ...updatedMilestones[firstMilestoneIndex],
+                             completed: true,
+                             completedAt: new Date().toISOString(),
+                             completedBy: "System (O2D Complete)",
+                             location: null
+                         };
+                         await updateDoc(orderRef, { 
+                             milestones: updatedMilestones,
+                             isAcknowledged: true 
+                         });
+                     }
+                 }
+            }
+
             toast({ title: "Step Updated!", description: "Progress has been saved." });
         } catch (error) {
             console.error("Error updating O2D step:", error);
@@ -180,11 +204,11 @@ export default function O2DPage() {
                     pendingOrders.map(order => {
                         const lastCompletedStepId = Math.max(0, ...(order.o2dMilestones?.filter(s => s.completed).map(s => s.stepId) || []));
                         const nextStep = O2D_PROCESS_CONFIG.find(s => s.id === lastCompletedStepId + 1);
-                        const prevStep = O2D_PROCESS_CONFIG.find(s => s.id === lastCompletedStepId);
-
+                        
                         let cardBorderColor = "border-border";
                         if (nextStep) {
-                            const startDate = prevStep?.completed ? new Date((order.o2dMilestones?.find(m => m.stepId === prevStep.id)?.completedAt || order.createdAt)) : new Date(order.createdAt);
+                            const prevStep = O2D_PROCESS_CONFIG.find(s => s.id === lastCompletedStepId);
+                            const startDate = prevStep?.id ? new Date((order.o2dMilestones?.find(m => m.stepId === prevStep.id)?.completedAt || order.createdAt)) : new Date(order.createdAt);
                             const expectedDate = getExpectedCompletionDate(nextStep, startDate);
                             if (isPast(expectedDate)) {
                                 cardBorderColor = "border-red-500";
@@ -218,7 +242,7 @@ export default function O2DPage() {
                 ) : (
                     <Card className="text-center p-12">
                         <CardTitle>All Caught Up!</CardTitle>
-                        <CardDescription>There are no new orders in the O2D phase.</CardDescription>
+                        <CardDescription>There are no new orders in the O2d phase.</CardDescription>
                     </Card>
                 )}
             </div>

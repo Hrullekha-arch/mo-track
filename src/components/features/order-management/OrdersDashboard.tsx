@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,7 +12,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useAuth } from "@/context/AuthContext";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Skeleton } from "@/components/ui/skeleton";
 import { NewOrderDialog } from "./NewOrderDialog";
 import { generateInstallationSchedule, GenerateInstallationScheduleInput, GenerateInstallationScheduleOutput } from "@/ai/flows/generate-installation-schedule";
 import { useToast } from "@/hooks/use-toast";
@@ -41,7 +40,8 @@ export function OrdersDashboard() {
 
     let ordersQuery;
     
-    // Fetch all orders now, filtering will be done client-side based on activeSummaryFilter
+    // Admins and PCs see all acknowledged orders.
+    // CRMs only see orders assigned to them.
     if (user.designation === 'CRM') {
         ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id), where("isAcknowledged", "==", true));
     } else {
@@ -81,6 +81,7 @@ export function OrdersDashboard() {
   const scheduledDate = (order: Order) => Array.isArray(order.milestones) ? order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt : undefined;
   
   const filteredOrders = useMemo(() => {
+      if (loading) return [];
       return orders.filter(order => {
           
         switch (activeSummaryFilter) {
@@ -124,14 +125,9 @@ export function OrdersDashboard() {
         
         const installerMatch = filters.installer === 'all' || order.assignedTo === filters.installer;
         
-        let crmMatch = true; 
-        if (user?.designation === 'CRM') {
-            crmMatch = order.handledByCrm === user.id;
-        }
-
-        return searchMatch && salesPersonMatch && installerMatch && crmMatch;
+        return searchMatch && salesPersonMatch && installerMatch;
       });
-  }, [orders, filters, user, activeSummaryFilter]);
+  }, [orders, filters, activeSummaryFilter, loading]);
 
 
   const summary = useMemo(() => {
@@ -215,10 +211,11 @@ export function OrdersDashboard() {
   };
 
   if (loading) {
-    return <DashboardSkeleton />;
+    // Skeleton is now in the parent page component for Suspense
+    return null;
   }
 
-  const canManage = role === 'admin' || role === 'employee';
+  const canManage = role === 'admin' || user?.designation === 'PC';
   const canCreateOrder = role === 'admin' || user?.designation === 'PC';
   const summaryColors = [
       'border-l-4 border-blue-500',
@@ -377,35 +374,4 @@ function SummaryBox({ title, value, color, isActive, onClick }: SummaryBoxProps)
             </div>
         </button>
     );
-}
-
-function DashboardSkeleton() {
-  return (
-    <div className="container mx-auto p-4 md:p-6 lg:p-8">
-      <header className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
-        <div>
-          <Skeleton className="h-9 w-48 mb-2" />
-          <Skeleton className="h-5 w-72" />
-        </div>
-        <Skeleton className="h-10 w-32" />
-      </header>
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 mb-6">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} className="h-20 w-full" />
-        ))}
-      </div>
-      <div className="mb-6 p-4 border rounded-lg bg-card">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-      </div>
-      <div className="grid gap-6 grid-cols-1 xl:grid-cols-2">
-        <Skeleton className="h-[450px] w-full" />
-        <Skeleton className="h-[450px] w-full" />
-      </div>
-    </div>
-  )
 }
