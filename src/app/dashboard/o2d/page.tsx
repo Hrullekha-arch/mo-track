@@ -52,7 +52,6 @@ const calculateExpectedDatesForOrder = (order: Order) => {
     return O2D_PROCESS_CONFIG.reduce((acc, currentStep) => {
         let startDate: Date;
         if (currentStep.id === 1) {
-            // **FIX**: Use current date as a fallback if createdAt is missing.
             startDate = order.createdAt ? new Date(order.createdAt) : new Date();
         } else {
             const previousStepConfig = O2D_PROCESS_CONFIG.find(s => s.id === currentStep.id - 1);
@@ -208,7 +207,7 @@ function O2DProcessTimeline({
                                                         }
                                                     }}
                                                 >
-                                                    <SelectTrigger className="w-[160px]">
+                                                    <SelectTrigger className="w-[180px]">
                                                         <SelectValue placeholder="Update Status..." />
                                                     </SelectTrigger>
                                                     <SelectContent>
@@ -324,7 +323,6 @@ export default function O2DPage() {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const ordersData = snapshot.docs.map(doc => {
                 const data = doc.data() as Omit<Order, 'id'>;
-                // **FIX**: Ensure o2dMilestones exists on every order object.
                 if (!data.o2dMilestones) {
                     data.o2dMilestones = [];
                 }
@@ -512,13 +510,17 @@ export default function O2DPage() {
                         
                         return (
                         <Collapsible key={order.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", cardBorderColor)}>
-                            <CardHeader className="flex flex-row items-center justify-between p-4">
-                               <div className='flex-grow'>
-                                    <h3 className="font-semibold text-lg">{order.customerName}</h3>
-                                    <p className="text-sm text-muted-foreground">ID: {order.id}</p>
-                                    <div className='mt-2 space-y-2 text-sm'>
+                            <div className="p-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                                    {/* Column 1: Customer Details */}
+                                    <div className="space-y-2 text-sm">
+                                        <h3 className="font-semibold text-lg">{order.customerName}</h3>
+                                        <p className="text-sm text-muted-foreground">ID: {order.id}</p>
                                         <p className='flex items-center gap-2'><Phone className='h-4 w-4 text-muted-foreground' /> {order.customerPhone}</p>
                                         <p className='flex items-center gap-2'><MapPin className='h-4 w-4 text-muted-foreground' /> {order.customerAddress}</p>
+                                    </div>
+                                    {/* Column 2: Order Status */}
+                                    <div className="space-y-2 text-sm">
                                          {order.createdAt && (
                                             <p className='flex items-center gap-2'><Calendar className='h-4 w-4 text-muted-foreground' /> Order Date: {format(new Date(order.createdAt), 'dd/MM/yyyy')}</p>
                                         )}
@@ -530,19 +532,19 @@ export default function O2DPage() {
                                         )}
                                         {order.remarks && (
                                             <p className='flex items-start gap-2 text-muted-foreground'>
-                                                <MessageCircle className='h-4 w-4 mt-0.5' /> 
+                                                <MessageCircle className='h-4 w-4 mt-0.5 shrink-0' /> 
                                                 <span className='italic'>"{order.remarks}"</span>
                                             </p>
                                         )}
                                     </div>
-                               </div>
+                                </div>
                                 <CollapsibleTrigger asChild>
-                                    <Button variant="ghost" size="sm">
+                                    <Button variant="ghost" size="sm" className="w-full justify-center mt-4">
+                                        <span className='mr-2'>View Process</span>
                                         <ChevronDown className="h-4 w-4" />
-                                        <span className='ml-2'>View Process</span>
                                     </Button>
                                 </CollapsibleTrigger>
-                            </CardHeader>
+                            </div>
                             <CollapsibleContent>
                                <O2DProcessTimeline 
                                     order={order} 
@@ -590,6 +592,3 @@ export default function O2DPage() {
         </div>
     );
 }
-
-
-    
