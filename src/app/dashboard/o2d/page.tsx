@@ -77,8 +77,8 @@ function O2DProcessTimeline({
     role
 }: { 
     order: Order; 
-    onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped') => void; 
-    onQuickStepUpdate: (orderId: string, stepId: number) => void; 
+    onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped', selection: string) => void; 
+    onQuickStepUpdate: (orderId: string, stepId: number, selection: string) => void; 
     onRevertStep: (orderId: string, stepId: number, milestone: O2DStatus) => void;
     role: string | null;
 }) {
@@ -194,11 +194,11 @@ function O2DProcessTimeline({
                                                     onValueChange={(value) => {
                                                         const isYes = value === 'yes' || value === 'old_customer';
                                                         if (isYes && !isOverdue) {
-                                                            onQuickStepUpdate(order.id, stepConfig.id)
+                                                            onQuickStepUpdate(order.id, stepConfig.id, value)
                                                         } else if (isYes && isOverdue) {
-                                                            onStepUpdate(order.id, stepConfig.id, true, 'completed');
+                                                            onStepUpdate(order.id, stepConfig.id, true, 'completed', value);
                                                         } else if (value === 'no') {
-                                                            onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped');
+                                                            onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped', value);
                                                         }
                                                     }}
                                                 >
@@ -212,11 +212,18 @@ function O2DProcessTimeline({
                                                     </SelectContent>
                                                 </Select>
                                             ) : (
-                                                <Badge variant={stepStatus.status === 'completed' ? 'default' : 'secondary'} className={cn(
-                                                    stepStatus.status === 'completed' && wasCompletedLate && 'bg-orange-500'
-                                                )}>
-                                                    {stepStatus.status === 'completed' ? 'Done' : 'Skipped'}
-                                                </Badge>
+                                                <div className="text-center">
+                                                    {stepStatus.selection && (
+                                                        <p className="text-xs text-muted-foreground capitalize mb-1">
+                                                           Selected: {stepStatus.selection.replace('_', ' ')}
+                                                        </p>
+                                                    )}
+                                                    <Badge variant={stepStatus.status === 'completed' ? 'default' : 'secondary'} className={cn(
+                                                        stepStatus.status === 'completed' && wasCompletedLate && 'bg-orange-500'
+                                                    )}>
+                                                        {stepStatus.status === 'completed' ? 'Done' : 'Skipped'}
+                                                    </Badge>
+                                                </div>
                                             )}
                                         </div>
                                     </div>
@@ -299,7 +306,7 @@ export default function O2DPage() {
     const [loading, setLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [isRevertDialogOpen, setIsRevertDialogOpen] = useState(false);
-    const [updatingStepInfo, setUpdatingStepInfo] = useState<{orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped' | null} | null>(null);
+    const [updatingStepInfo, setUpdatingStepInfo] = useState<{orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped' | null, selection: string} | null>(null);
     const [revertingStepInfo, setRevertingStepInfo] = useState<{orderId: string, stepId: number, milestone: O2DStatus} | null>(null);
 
     const { user, role } = useAuth();
@@ -319,8 +326,8 @@ export default function O2DPage() {
         return () => unsubscribe();
     }, []);
     
-    const handleOpenRemarkDialog = (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped') => {
-        setUpdatingStepInfo({ orderId, stepId, isOverdue, action });
+    const handleOpenRemarkDialog = (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped', selection: string) => {
+        setUpdatingStepInfo({ orderId, stepId, isOverdue, action, selection });
         setIsDialogOpen(true);
     };
 
@@ -348,7 +355,7 @@ export default function O2DPage() {
         }
     };
 
-    const updateStepInFirestore = async (orderId: string, stepId: number, status: 'completed' | 'skipped', remarks: string) => {
+    const updateStepInFirestore = async (orderId: string, stepId: number, status: 'completed' | 'skipped', remarks: string, selection: string) => {
         if (!user) {
             toast({ variant: "destructive", title: "You must be logged in." });
             return;
@@ -360,6 +367,7 @@ export default function O2DPage() {
             completedAt: new Date().toISOString(),
             completedBy: user.name,
             remarks: remarks || "",
+            selection: selection,
         };
         
         try {
@@ -396,13 +404,13 @@ export default function O2DPage() {
         }
     }
 
-    const handleQuickStepUpdate = async (orderId: string, stepId: number) => {
-        await updateStepInFirestore(orderId, stepId, 'completed', '');
+    const handleQuickStepUpdate = async (orderId: string, stepId: number, selection: string) => {
+        await updateStepInFirestore(orderId, stepId, 'completed', '', selection);
     }
 
     const handleRemarkSubmit = async (remarks: string) => {
         if (!updatingStepInfo?.action) return;
-        await updateStepInFirestore(updatingStepInfo.orderId, updatingStepInfo.stepId, updatingStepInfo.action, remarks);
+        await updateStepInFirestore(updatingStepInfo.orderId, updatingStepInfo.stepId, updatingStepInfo.action, remarks, updatingStepInfo.selection);
         setIsDialogOpen(false);
         setUpdatingStepInfo(null);
     };

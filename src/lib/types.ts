@@ -32,6 +32,7 @@ export interface O2DStatus {
     completedAt: string; // ISO Date string for when the status was set
     completedBy: string; // User name
     remarks?: string;
+    selection?: string;
 }
 
 export interface O2DStep {
