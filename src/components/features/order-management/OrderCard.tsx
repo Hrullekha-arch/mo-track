@@ -251,7 +251,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   return (
     <TooltipProvider>
     <Card className="flex flex-col">
-      <CardHeader className="p-4">
+      <CardHeader className="p-3">
         <div className="flex items-start justify-between">
             <div className="flex-grow">
                 <CardTitle><span className="text-primary">{currentOrder.customerName}</span></CardTitle>
@@ -299,7 +299,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             </div>
         </div>
       </CardHeader>
-      <CardContent className="flex-grow space-y-3 p-4 pt-0">
+      <CardContent className="flex-grow space-y-3 p-3 pt-0">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
             <div className="space-y-1">
                 <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" /><span>{currentOrder.customerPhone}</span></div>
@@ -332,7 +332,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         
         {hasFeedback && (
             <>
-                <Separator className="my-2" />
+                <Separator className="my-1" />
                 <div className="space-y-2">
                     <h4 className="font-semibold text-sm">Feedback</h4>
                     {currentOrder.bypassedOtp && (
@@ -367,7 +367,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             </>
         )}
 
-        <Separator className="my-2" />
+        <Separator className="my-1" />
         
         <div className="space-y-1">
           <div className="flex items-center justify-between">
@@ -392,59 +392,60 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             </div>
         )}
       </CardContent>
-      <CardFooter className="flex-col items-start gap-2 p-4 pt-0">
+      <CardFooter className="flex-col items-start gap-2 p-3 pt-0">
          <div className="text-xs text-muted-foreground">
             Created on {createdAtDate.toLocaleDateString()}
         </div>
          {(canAssignCrm || canAssignInstaller || canSchedule || canSendMessage) && (
-            <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-2">
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <div className="w-full">
+            <div className="w-full [column-count:2] sm:[column-count:4] [column-gap:0.5rem] pt-2">
+                <div className="break-inside-avoid mb-2">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
                             <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigningCrm(true)} disabled={!canAssignCrm}>
                                 <Users className="mr-2 h-4 w-4" />
                                 Assign CRM
                             </Button>
-                        </div>
-                    </TooltipTrigger>
-                    {!canAssignCrm && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
-                </Tooltip>
+                        </TooltipTrigger>
+                        {!canAssignCrm && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
+                    </Tooltip>
+                </div>
 
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <div className="w-full">
-                        <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)} disabled={!canAssignInstaller}>
-                            <UserIcon className="mr-2 h-4 w-4" />
-                            {assignedInstaller ? "Re-assign" : "Assign"}
-                        </Button>
-                        </div>
-                    </TooltipTrigger>
-                    {isOrderComplete ? <TooltipContent><p>Order is complete.</p></TooltipContent> : !isReadyForDelivery && <TooltipContent><p>Mark "Ready for Delivery" to assign.</p></TooltipContent>}
-                    {isReadyForDelivery && !canAssignInstaller && <TooltipContent><p>You don't have permission to assign installers.</p></TooltipContent>}
-                </Tooltip>
+                <div className="break-inside-avoid mb-2">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)} disabled={!canAssignInstaller}>
+                                <UserIcon className="mr-2 h-4 w-4" />
+                                {assignedInstaller ? "Re-assign" : "Assign"}
+                            </Button>
+                        </TooltipTrigger>
+                        {isOrderComplete ? <TooltipContent><p>Order is complete.</p></TooltipContent> : !isReadyForDelivery && <TooltipContent><p>Mark "Ready for Delivery" to assign.</p></TooltipContent>}
+                        {isReadyForDelivery && !canAssignInstaller && <TooltipContent><p>You don't have permission to assign installers.</p></TooltipContent>}
+                    </Tooltip>
+                </div>
                 
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                       <div className="w-full">
-                             <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)} disabled={!canSchedule}>
+                <div className="break-inside-avoid mb-2">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)} disabled={!canSchedule}>
                                 <CalendarClock className="mr-2 h-4 w-4" />
                                 Schedule
                             </Button>
-                       </div>
-                    </TooltipTrigger>
-                     {!canSchedule && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
-                </Tooltip>
-                 <Tooltip>
-                    <TooltipTrigger asChild>
-                       <div className="w-full">
-                             <Button variant="outline" size="sm" className="w-full" onClick={handleOpenMessageDialog} disabled={!canSendMessage}>
+                        </TooltipTrigger>
+                        {!canSchedule && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
+                    </Tooltip>
+                </div>
+
+                <div className="break-inside-avoid mb-2">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="outline" size="sm" className="w-full" onClick={handleOpenMessageDialog} disabled={!canSendMessage}>
                                 <MessageSquare className="mr-2 h-4 w-4" />
                                 Message
                             </Button>
-                       </div>
-                    </TooltipTrigger>
-                     {!canSendMessage && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
-                </Tooltip>
+                        </TooltipTrigger>
+                        {!canSendMessage && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
+                    </Tooltip>
+                </div>
             </div>
         )}
       </CardFooter>
