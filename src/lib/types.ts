@@ -1,4 +1,5 @@
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman';
 
 export interface User {
@@ -25,6 +26,28 @@ export interface Milestone {
   } | null;
 }
 
+export interface O2DStatus {
+    stepId: number;
+    completed: boolean;
+    completedAt: string; // ISO Date string
+    completedBy: string; // User name
+}
+
+export interface O2DStep {
+    id: number;
+    step: string;
+    details: string;
+    time: string;
+    role: string;
+    icon: React.ElementType;
+    expectedDuration: {
+        days?: number;
+        hours?: number;
+        minutes?: number;
+    }
+}
+
+
 export interface Order {
   id: string; // This can also be the tracking code
   crmOrderNo: string;
@@ -34,6 +57,7 @@ export interface Order {
   salesPerson: string;
   orderType: OrderType;
   milestones: Milestone[];
+  o2dMilestones?: O2DStatus[];
   remarks?: string;
   assignedTo?: string; // Installer User ID
   handledByCrm?: string; // CRM User ID
