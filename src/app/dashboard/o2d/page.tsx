@@ -87,19 +87,55 @@ function O2DProcessTimeline({
 }: { 
     order: Order; 
     onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped', selection: string) => void; 
-    onQuickStepUpdate: (orderId: string, stepId: number, selection: string) => void; 
+    onQuickStepUpdate: (orderId: string, stepId: number, status: 'completed' | 'skipped', selection: string) => void; 
     onRevertStep: (orderId: string, stepId: number, milestone: O2DStatus) => void;
     role: string | null;
 }) {
     
     const expectedDates = calculateExpectedDatesForOrder(order);
 
-    const handleAction = (selection: string, stepId: number, isOverdue: boolean) => {
-      if (!isOverdue) {
-        onQuickStepUpdate(order.id, stepId, selection);
+    const handleAction = (status: 'completed' | 'skipped', selection: string, stepId: number, isOverdue: boolean) => {
+      if ((status === 'skipped') || (status === 'completed' && isOverdue)) {
+        onStepUpdate(order.id, stepId, isOverdue, status, selection);
       } else {
-        onStepUpdate(order.id, stepId, true, "completed", selection);
+        onQuickStepUpdate(order.id, stepId, status, selection);
       }
+    };
+    
+    const renderActionButtons = (stepConfig: O2DStep, isOverdue: boolean) => {
+        const stepId = stepConfig.id;
+
+        if (stepId === 1) {
+            return (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild><Button size="sm">Action</Button></DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => handleAction('completed', 'Yes', stepId, isOverdue)}>Yes</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleAction('completed', 'Old Customer', stepId, isOverdue)}>Old Customer</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleAction('skipped', 'No', stepId, isOverdue)}>No</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            );
+        }
+
+        if (stepId === 3) {
+            return (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild><Button size="sm">Action</Button></DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => handleAction('completed', 'MZ Done', stepId, isOverdue)}>MZ Done</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleAction('skipped', 'No', stepId, isOverdue)}>No</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            );
+        }
+
+        return (
+            <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => handleAction('skipped', 'No', stepId, isOverdue)}>No</Button>
+                <Button size="sm" onClick={() => handleAction('completed', 'Done', stepId, isOverdue)}>Done</Button>
+            </div>
+        );
     };
 
     return (
@@ -205,40 +241,14 @@ function O2DProcessTimeline({
                                                 </AlertDialogTrigger>
                                             )}
                                             {!stepStatus ? (
-                                                <div className="flex items-center gap-2">
-                                                    <Button variant="outline" size="sm" onClick={() => onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped', 'no')}>Skip</Button>
-                                                    
-                                                     {stepConfig.id === 1 ? (
-                                                        <DropdownMenu>
-                                                        <DropdownMenuTrigger asChild>
-                                                            <Button size="sm">Done</Button>
-                                                        </DropdownMenuTrigger>
-                                                        <DropdownMenuContent>
-                                                            <DropdownMenuItem onClick={() => handleAction('Advance Received', stepConfig.id, isOverdue)}>
-                                                                Advance Received
-                                                            </DropdownMenuItem>
-                                                            <DropdownMenuItem onClick={() => handleAction('Old Customer', stepConfig.id, isOverdue)}>
-                                                                Old Customer
-                                                            </DropdownMenuItem>
-                                                        </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    ) : (
-                                                        <Button size="sm" onClick={() => handleAction('yes', stepConfig.id, isOverdue)}>
-                                                            Done
-                                                        </Button>
-                                                    )}
-                                                </div>
+                                                renderActionButtons(stepConfig, isOverdue)
                                             ) : (
                                                 <div className="text-center">
-                                                    {stepStatus.selection && stepStatus.selection !== "yes" && (
-                                                        <p className="text-xs text-muted-foreground capitalize mb-1">
-                                                           {stepStatus.selection}
-                                                        </p>
-                                                    )}
                                                     <Badge variant={stepStatus.status === 'completed' ? 'default' : 'secondary'} className={cn(
+                                                        'capitalize',
                                                         stepStatus.status === 'completed' && wasCompletedLate && 'bg-orange-500'
                                                     )}>
-                                                        {stepStatus.status === 'completed' ? 'Done' : 'Skipped'}
+                                                        {stepStatus.selection || stepStatus.status}
                                                     </Badge>
                                                 </div>
                                             )}
@@ -452,8 +462,8 @@ export default function O2DPage() {
         }
     }
 
-    const handleQuickStepUpdate = async (orderId: string, stepId: number, selection: string) => {
-        await updateStepInFirestore(orderId, stepId, 'completed', '', selection);
+    const handleQuickStepUpdate = async (orderId: string, stepId: number, status: 'completed' | 'skipped', selection: string) => {
+        await updateStepInFirestore(orderId, stepId, status, '', selection);
     }
 
     const handleRemarkSubmit = async (remarks: string) => {
