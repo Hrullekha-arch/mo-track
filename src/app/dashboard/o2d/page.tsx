@@ -1,9 +1,9 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2 } from 'lucide-react';
+import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, getDoc, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, O2DStep, O2DStatus } from "@/lib/types";
@@ -13,14 +13,15 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow } from 'date-fns';
+import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, isSameDay } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { updateSheetForO2DStep } from '@/services/google-sheets';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 
 const O2D_PROCESS_CONFIG: O2DStep[] = [
     { id: 1, step: "Receive Advance ₹1000", details: "For measurement/Fabric order", time: "30 min", role: "Salesman", icon: User, expectedDuration: { minutes: 30 } },
@@ -307,12 +308,13 @@ function UpdateO2DStepDialog({
 }
 
 export default function O2DPage() {
-    const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
+    const [allOrders, setAllOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [isRevertDialogOpen, setIsRevertDialogOpen] = useState(false);
     const [updatingStepInfo, setUpdatingStepInfo] = useState<{orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped' | null, selection: string} | null>(null);
     const [revertingStepInfo, setRevertingStepInfo] = useState<{orderId: string, stepId: number, milestone: O2DStatus} | null>(null);
+    const [filterDate, setFilterDate] = useState<Date | undefined>();
 
     const { user, role } = useAuth();
     const { toast } = useToast();
@@ -320,7 +322,7 @@ export default function O2DPage() {
     useEffect(() => {
         const q = query(collection(db, "orders"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const allOrders = snapshot.docs.map(doc => {
+            const ordersData = snapshot.docs.map(doc => {
                 const data = doc.data() as Omit<Order, 'id'>;
                 // **FIX**: Ensure o2dMilestones exists on every order object.
                 if (!data.o2dMilestones) {
@@ -328,21 +330,36 @@ export default function O2DPage() {
                 }
                 return { id: doc.id, ...data } as Order;
             });
-
-            const pending = allOrders.filter(order => {
-                const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === 10);
-                return !finalO2DStep; // If final step doesn't exist, it's pending
-            }).sort((a,b) => {
-                const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-                const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-                return dateA - dateB;
-            });
             
-            setPendingOrders(pending);
+            setAllOrders(ordersData);
             setLoading(false);
         });
         return () => unsubscribe();
     }, []);
+
+    const pendingOrders = useMemo(() => {
+        let orders = allOrders.filter(order => {
+            const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === 10);
+            return !finalO2DStep; // If final step doesn't exist, it's pending
+        });
+
+        if (filterDate) {
+            orders = orders.filter(order => {
+                const expectedDates = calculateExpectedDatesForOrder(order);
+                const pendingSteps = O2D_PROCESS_CONFIG.filter(stepConfig => 
+                    !(order.o2dMilestones || []).some(m => m.stepId === stepConfig.id)
+                );
+                return pendingSteps.some(step => isSameDay(expectedDates[step.id], filterDate));
+            });
+        }
+        
+        return orders.sort((a,b) => {
+            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return dateA - dateB;
+        });
+
+    }, [allOrders, filterDate]);
     
     const handleOpenRemarkDialog = (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped', selection: string) => {
         setUpdatingStepInfo({ orderId, stepId, isOverdue, action, selection });
@@ -397,17 +414,6 @@ export default function O2DPage() {
                 o2dMilestones: arrayUnion(newStatus)
             });
 
-            // If the step was completed, try to update Google Sheet
-            if (status === 'completed') {
-                try {
-                    await updateSheetForO2DStep(orderData.crmOrderNo, stepId, newStatus.completedAt);
-                    toast({ title: "Google Sheet Updated!", description: "The corresponding cell has been updated." });
-                } catch (sheetError: any) {
-                    console.error("Google Sheets update failed:", sheetError);
-                    toast({ variant: "destructive", title: "Sheet Update Failed", description: sheetError.message });
-                }
-            }
-
 
             if (stepId === 10 && status === 'completed') {
                  if (orderData) {
@@ -452,9 +458,40 @@ export default function O2DPage() {
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <header className="mb-8">
-                <h1 className="text-3xl font-bold tracking-tight">O2D (Order to Delivery) Process</h1>
-                <p className="text-muted-foreground">Manage and track all orders in the pre-production phase before they are acknowledged.</p>
+            <header className="mb-8 flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">O2D (Order to Delivery) Process</h1>
+                    <p className="text-muted-foreground">Manage and track all orders in the pre-production phase before they are acknowledged.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Popover>
+                        <PopoverTrigger asChild>
+                        <Button
+                            variant={"outline"}
+                            className={cn(
+                            "w-[240px] justify-start text-left font-normal",
+                            !filterDate && "text-muted-foreground"
+                            )}
+                        >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {filterDate ? format(filterDate, "PPP") : <span>Filter by due date...</span>}
+                        </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="end">
+                        <CalendarPicker
+                            mode="single"
+                            selected={filterDate}
+                            onSelect={setFilterDate}
+                            initialFocus
+                        />
+                        </PopoverContent>
+                    </Popover>
+                    {filterDate && (
+                        <Button variant="ghost" size="icon" onClick={() => setFilterDate(undefined)}>
+                            <X className="h-4 w-4" />
+                        </Button>
+                    )}
+                </div>
             </header>
             
             <div className="space-y-4">
@@ -534,7 +571,11 @@ export default function O2DPage() {
                 ) : (
                     <Card className="text-center p-12">
                         <CardTitle>All Caught Up!</CardTitle>
-                        <CardDescription>There are no new orders in the O2d phase.</CardDescription>
+                        <CardDescription>
+                            {filterDate 
+                                ? `There are no orders with steps due on ${format(filterDate, "PPP")}.` 
+                                : "There are no new orders in the O2D phase."}
+                        </CardDescription>
                     </Card>
                 )}
             </div>
@@ -549,4 +590,3 @@ export default function O2DPage() {
         </div>
     );
 }
-
