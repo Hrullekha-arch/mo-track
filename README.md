@@ -30,19 +30,15 @@ A Service Account is a special type of Google account intended to represent a no
 1.  Open your Google Sheet.
 2.  Go to **Extensions** > **Apps Script**. This will open a new tab with the script editor.
 3.  **Copy the Apps Script code** provided below into the `Code.gs` editor, replacing any existing code.
-4.  **Open the JSON key file** you downloaded in Step 1. You will need three pieces of information from it:
-    *   `project_id`
-    *   `client_email`
-    *   `private_key` (the entire string, including `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----`)
-5.  **Paste these three values** into the corresponding placeholder variables at the top of the `Code.gs` script.
+4.  The credentials have already been filled in for you in the script below.
 
 #### `Code.gs`
 ```javascript
 // Paste your service account credentials here.
 // You can get these from the JSON file you download from the Google Cloud Console.
-const FIREBASE_PROJECT_ID = "YOUR_FIREBASE_PROJECT_ID"; // e.g., "mo-panel"
-const FIREBASE_CLIENT_EMAIL = "YOUR_SERVICE_ACCOUNT_EMAIL"; // e.g., "....iam.gserviceaccount.com"
-const FIREBASE_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n";
+const FIREBASE_PROJECT_ID = "mo-panel"; 
+const FIREBASE_CLIENT_EMAIL = "firebase-adminsdk-fbsvc@mo-panel.iam.gserviceaccount.com"; 
+const FIREBASE_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCMpA+5vxQMu7M+\nDAThZr9sZKq16HtQSzBhCfgIknoe1SRrrD5PSj7+avJLfP2IXO9bm9ojGJqlRjU5\nHABgyyrUfDwxOdSXdWFJNsneoIvwDHM9rljZ5HlRBkAw6h+mGyEUYkheOX8KaLYG\nWiuC9FZr79nNcdjxmWciNGPah5P9M6a2EVSIbgftKqQhl/LUQeyXTxbo5Al0idAG\na/jGGIzdAmY9WSif9UkmX4/GGRubO9Xr+ccm+W4xmNd7+fZORpfSCCo/neHI10K+\nwD6DkovqR06R81K3G5bOQ/7xYGcL5qStabJD3P94T24brUXbyGeauIIpjNb27s6O\nIC93Sj47AgMBAAECggEAFIHHmTn3XnPwCtgNziABQXjcO3IOqQKNp1igxf81t1E0\n4k5XN5CH5ukJM2CiR0Pl0uHCyONJiVfXYuBmXbbCJAGJdVQNX5hJ+zb18HRQc0wd\ncZz+b6cU2W+j5H3+52WFSUebbcHMeGQURpDXT1z5TPvIMmCrVW8czqv881xZg83Q\n20ml63vNtoPsVkzy+Qrb0Sx2ntJKveN8xda0AuzPNG042u79eMheC/EFrBLowif4\nJ0jldtVCsY9w1yS4yJ94RgOxzLEmvh+6QOua+W8DybwtMgz7vckkyML1GiHS7HIj\nuW5L9BhKKXpdJIfdDbFTy41vZmwCoJ3o0Zhtj9sD4QKBgQDFv8xnR8ju31/yTrK0\nig1NRcfxaeYhonuPJURRJB4kjsMR/w6ZeL1K3LM31eeg8g8POZah3uzDlEaqpjyF\nRDB1RZTb5dd98/YKb7tWx9/0iOQGXz1zFerMwpSTxagqDJ+Xdy0koIF91Syttftt\nlfNqBvdKN4wNjM4Gm8SzTNDNDwKBgQC2Eb3gJiF53MbeIKhX9FK17YrLnB1Cyuxt\na/A0ZPu+UfyJEWVx57tmb9ip4nYlHtCO/qfQUANo9Vj4C0btTnJEQ3oP3gkqF8mH\nKNI47lR5WyxyJO+VZvrtW092ZKY1HSVmRYGGm9mSF5opjHV498HgaBvLgWVhPYk4\nsKLf7BfUFQKBgDlVP3UeSfJ/zviYupU/hVXHCo5Cztcnnb1F58XCu/6LaaE5GsmC\nSReAX3Gr0elG5PjcEIFD+c9GmSp24gsdVxNZJiyPOegpqEckV+N0NclXOw1h5ZYN\nX7MYIy2o2/W9DTRD+FGrO3/5I2gF4CzIkfdGp8Hb0v5GuaEO3nvBpLQfAoGAfz+v\nITYFN5KiOyVAAxjzpcs7skqN+NyymVdTLotVlxLeGT5bVFzNkS6ikzl/sTn0Mbyx\ntNn3SCgR4mqfS8QEAMnYSba5WP3/D8PsCXYo/BhI3A4MlLLAtZuX0ftOXtjcBrqV\naGsMiRqN2HQetkkS67BXnMf2/xtvCHwLmcz8anECgYEAsZTQL0UpZl2pKGY7SEOs\ngAweJ0h7jPZnzw+wrVAaC/L7YlESp7eqMjen+cyHeplOzEJwI8JK3LT18EIb+DRi\nMrvml64AzovJGQJCvNf1tCgB9yPEM9oD9HCgzRFM5YvWe49ct7Kz88gIb88tUCi3\no8/ftA0DZoJlzYn7VzKw2Is=\n-----END PRIVATE KEY-----\n";
 
 // --- SPREADSHEET CONFIGURATION ---
 const SHEET_NAME = "FMS-O2D";
@@ -208,3 +204,5 @@ The provided script includes a `setupTrigger` function. To set up the trigger:
 5. Once you run it, the script will automatically create a time-driven trigger that runs the `syncFirestoreToSheet` function every 5 minutes. You can verify this by clicking the **Triggers** icon (it looks like a clock) on the left sidebar.
 
 After completing these steps, the Apps Script will automatically run on your chosen schedule, read the latest data from your Firestore database, and update your Google Sheet accordingly.
+
+    
