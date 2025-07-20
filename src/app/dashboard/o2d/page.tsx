@@ -493,7 +493,7 @@ export default function O2DPage() {
                         const currentStep = nextStepIndex !== -1 ? O2D_PROCESS_CONFIG[nextStepIndex] : null;
 
                         let cardBorderColor = "border-border";
-                        let statusTextColor = "text-primary-foreground";
+                        let statusTextColor = "text-primary";
                         if (currentStep) {
                             const expectedDate = expectedDates[currentStep.id];
                             if (isPast(expectedDate)) {
