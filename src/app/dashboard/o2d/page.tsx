@@ -525,7 +525,7 @@ export default function O2DPage() {
                                             <p className='flex items-center gap-2'><Calendar className='h-4 w-4 text-muted-foreground' /> Order Date: {format(new Date(order.createdAt), 'dd/MM/yyyy')}</p>
                                         )}
                                         {currentStep && (
-                                            <p className={cn('flex items-center gap-2 font-medium', cardBorderColor === 'border-red-500' ? 'text-red-500' : 'text-muted-foreground')}>
+                                            <p className={cn('flex items-center gap-2 font-medium', cardBorderColor === 'border-red-500' ? 'text-red-500' : 'text-primary-foreground')}>
                                                 <Clock className='h-4 w-4'/>
                                                 Status: {currentStep.step} - Due by {formatTimestamp(expectedDates[currentStep.id])}
                                             </p>
@@ -592,3 +592,5 @@ export default function O2DPage() {
         </div>
     );
 }
+
+    
