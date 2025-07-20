@@ -52,12 +52,18 @@ function O2DProcessTimeline({ order, onStepUpdate, onQuickStepUpdate }: { order:
         if (stepId === 1) {
             return new Date(order.createdAt);
         }
-        const prevStepConfig = O2D_PROCESS_CONFIG.find(s => s.id === stepId - 1);
-        if (!prevStepConfig) return new Date(order.createdAt);
-        
-        const prevStepStatus = order.o2dMilestones?.find(s => s.stepId === prevStepConfig.id);
-        return prevStepStatus?.completedAt ? new Date(prevStepStatus.completedAt) : getStartDateForStep(prevStepConfig.id);
-    }
+    
+        const completedMilestonesBefore = (order.o2dMilestones || [])
+            .filter(m => m.stepId < stepId && m.completedAt)
+            .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+    
+        if (completedMilestonesBefore.length > 0) {
+            return new Date(completedMilestonesBefore[0].completedAt);
+        }
+    
+        // Fallback to order creation date if no prior steps are complete
+        return new Date(order.createdAt);
+    };
     
     return (
         <div className="relative pl-6 pr-4 py-4">
@@ -173,7 +179,7 @@ function O2DProcessTimeline({ order, onStepUpdate, onQuickStepUpdate }: { order:
                                                 <SelectContent>
                                                     <SelectItem value="yes">Yes</SelectItem>
                                                     <SelectItem value="no">No</SelectItem>
-                                                    <SelectItem value="old_customer">Old Customer</SelectItem>
+                                                    {stepConfig.id === 1 && <SelectItem value="old_customer">Old Customer</SelectItem>}
                                                 </SelectContent>
                                             </Select>
                                         ) : (
@@ -365,7 +371,11 @@ export default function O2DPage() {
                         
                         let cardBorderColor = "border-border";
                         if (nextStep) {
-                            const startDate = nextStep.id === 1 ? new Date(order.createdAt) : new Date(lastCompletedStep!.completedAt);
+                            const lastCompletedDate = (order.o2dMilestones || [])
+                                .filter(m => m.stepId < nextStep.id && m.completedAt)
+                                .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())[0]?.completedAt;
+
+                            const startDate = lastCompletedDate ? new Date(lastCompletedDate) : new Date(order.createdAt);
                             const expectedDate = getExpectedCompletionDate(nextStep, startDate);
                             if (isPast(expectedDate)) {
                                 cardBorderColor = "border-red-500";
@@ -419,5 +429,7 @@ export default function O2DPage() {
     );
 }
 
+
+    
 
     
