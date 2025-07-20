@@ -192,11 +192,12 @@ function O2DProcessTimeline({
                                                 <Select
                                                     disabled={!canUpdate}
                                                     onValueChange={(value) => {
-                                                        if (value === 'yes' && !isOverdue) {
+                                                        const isYes = value === 'yes' || value === 'old_customer';
+                                                        if (isYes && !isOverdue) {
                                                             onQuickStepUpdate(order.id, stepConfig.id)
-                                                        } else if (value === 'yes' && isOverdue) {
+                                                        } else if (isYes && isOverdue) {
                                                             onStepUpdate(order.id, stepConfig.id, true, 'completed');
-                                                        } else if (value === 'no' || value === 'old_customer') {
+                                                        } else if (value === 'no') {
                                                             onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped');
                                                         }
                                                     }}
