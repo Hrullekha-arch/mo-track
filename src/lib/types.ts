@@ -28,9 +28,10 @@ export interface Milestone {
 
 export interface O2DStatus {
     stepId: number;
-    completed: boolean;
-    completedAt: string; // ISO Date string
+    status: 'completed' | 'skipped' | 'pending';
+    completedAt: string; // ISO Date string for when the status was set
     completedBy: string; // User name
+    remarks?: string;
 }
 
 export interface O2DStep {

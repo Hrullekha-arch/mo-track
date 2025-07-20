@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle } from 'lucide-react';
+import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, O2DStep, O2DStatus } from "@/lib/types";
@@ -14,7 +14,10 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow } from 'date-fns';
-
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Textarea } from "@/components/ui/textarea";
 
 const O2D_PROCESS_CONFIG: O2DStep[] = [
     { id: 1, step: "Receive Advance ₹1000", details: "For measurement/Fabric order", time: "30 min", role: "Salesman", icon: User, expectedDuration: { minutes: 30 } },
@@ -41,7 +44,18 @@ const formatTimestamp = (date: Date) => {
     return format(date, 'dd/MM/yyyy - HH:mm:ss');
 };
 
-function O2DProcessTimeline({ order, onStepComplete }: { order: Order; onStepComplete: (stepId: number) => void; }) {
+function O2DProcessTimeline({ order, onStepUpdate }: { order: Order; onStepUpdate: (stepId: number) => void; }) {
+    
+    const getStartDateForStep = (stepId: number): Date => {
+        if (stepId === 1) {
+            return new Date(order.createdAt);
+        }
+        const prevStepConfig = O2D_PROCESS_CONFIG.find(s => s.id === stepId - 1);
+        if (!prevStepConfig) return new Date(order.createdAt);
+        
+        const prevStepStatus = order.o2dMilestones?.find(s => s.stepId === prevStepConfig.id);
+        return prevStepStatus?.completedAt ? new Date(prevStepStatus.completedAt) : getStartDateForStep(prevStepConfig.id);
+    }
     
     return (
         <div className="relative pl-6 pr-4 py-4">
@@ -49,13 +63,15 @@ function O2DProcessTimeline({ order, onStepComplete }: { order: Order; onStepCom
             <div className="space-y-4">
                 {O2D_PROCESS_CONFIG.map((stepConfig, index) => {
                     const stepStatus = order.o2dMilestones?.find(s => s.stepId === stepConfig.id);
-                    const prevStepStatus = index === 0 ? { completed: true, completedAt: order.createdAt } : order.o2dMilestones?.find(s => s.stepId === O2D_PROCESS_CONFIG[index-1].id);
+                    const prevStepStatus = index === 0 ? { status: 'completed' } : order.o2dMilestones?.find(s => s.stepId === O2D_PROCESS_CONFIG[index-1].id);
                     
-                    const canComplete = !stepStatus?.completed && prevStepStatus?.completed;
-                    
-                    const startDate = prevStepStatus?.completedAt ? new Date(prevStepStatus.completedAt) : new Date(order.createdAt);
+                    const canUpdate = !stepStatus && prevStepStatus?.status !== 'pending';
+                    const isPending = !stepStatus;
+
+                    const startDate = getStartDateForStep(stepConfig.id);
                     const expectedDate = getExpectedCompletionDate(stepConfig, startDate);
-                    const isOverdue = isPast(expectedDate) && !stepStatus?.completed;
+                    const isOverdue = isPast(expectedDate) && isPending;
+                    const wasCompletedLate = stepStatus?.status === 'completed' && new Date(stepStatus.completedAt) > expectedDate;
 
                     const Icon = stepConfig.icon;
                     return (
@@ -63,14 +79,23 @@ function O2DProcessTimeline({ order, onStepComplete }: { order: Order; onStepCom
                             <div className="flex h-18 w-18 items-center justify-center shrink-0">
                                 <div className={cn(
                                     "flex h-12 w-12 items-center justify-center rounded-full border-2 border-border shadow-sm",
-                                    stepStatus?.completed ? "bg-green-50" : "bg-card"
+                                    stepStatus?.status === 'completed' && !wasCompletedLate && "bg-green-50",
+                                    stepStatus?.status === 'completed' && wasCompletedLate && "bg-orange-50",
+                                    stepStatus?.status === 'skipped' && "bg-gray-100",
+                                    !stepStatus && "bg-card"
                                 )}>
-                                     <Icon className={cn("h-6 w-6", stepStatus?.completed ? "text-green-500" : "text-muted-foreground")} />
+                                     <Icon className={cn("h-6 w-6", 
+                                        stepStatus?.status === 'completed' && !wasCompletedLate && "text-green-500",
+                                        stepStatus?.status === 'completed' && wasCompletedLate && "text-orange-500",
+                                        stepStatus?.status === 'skipped' && "text-gray-500",
+                                        !stepStatus && "text-muted-foreground")} />
                                 </div>
                             </div>
                             <Card className={cn(
                                 "w-full group hover:shadow-md transition-shadow duration-300",
-                                isOverdue && !stepStatus?.completed ? "border-red-500 bg-red-50" : ""
+                                isPending && isOverdue ? "border-red-500 bg-red-50" : "",
+                                stepStatus?.status === 'completed' && wasCompletedLate ? "border-orange-500 bg-orange-50" : "",
+                                stepStatus?.status === 'skipped' ? "border-gray-400 bg-gray-50" : ""
                             )}>
                                 <CardHeader>
                                     <div className="flex justify-between items-start">
@@ -89,32 +114,59 @@ function O2DProcessTimeline({ order, onStepComplete }: { order: Order; onStepCom
                                 </CardHeader>
                                 <CardContent>
                                     <div className="flex justify-between items-center">
-                                         <div className="text-xs text-muted-foreground space-y-1">
-                                             <p>Expected by: {formatTimestamp(expectedDate)}</p>
-                                            {stepStatus?.completed ? (
+                                         <div className="text-xs text-muted-foreground space-y-2">
+                                            <p>Expected by: {formatTimestamp(expectedDate)}</p>
+                                            
+                                            {stepStatus?.status === 'completed' && (
                                                 <div className="flex items-center gap-2 text-green-600 font-medium">
                                                     <CheckCircle className="h-4 w-4" />
                                                     <span>Completed by {stepStatus.completedBy} at {formatTimestamp(new Date(stepStatus.completedAt))}</span>
                                                 </div>
-                                            ) : (
-                                                <>
-                                                    {isOverdue && (
-                                                        <div className="flex items-center gap-2 text-red-600 font-medium">
-                                                            <AlertTriangle className="h-4 w-4" />
-                                                            <span>Delayed by: {formatDistanceToNow(expectedDate, { addSuffix: false })}</span>
-                                                        </div>
-                                                    )}
-                                                </>
                                             )}
+
+                                            {stepStatus?.status === 'skipped' && (
+                                                <div className="flex items-center gap-2 text-gray-600 font-medium">
+                                                    <SkipForward className="h-4 w-4" />
+                                                    <span>Skipped by {stepStatus.completedBy} at {formatTimestamp(new Date(stepStatus.completedAt))}</span>
+                                                </div>
+                                            )}
+
+                                            {isPending && isOverdue && (
+                                                <div className="flex items-center gap-2 text-red-600 font-medium">
+                                                    <AlertTriangle className="h-4 w-4" />
+                                                    <span>Delayed by: {formatDistanceToNow(expectedDate, { addSuffix: false })}</span>
+                                                </div>
+                                            )}
+
+                                             {stepStatus?.status === 'completed' && wasCompletedLate && (
+                                                <div className="flex items-center gap-2 text-orange-600 font-medium">
+                                                    <MessageSquareWarning className="h-4 w-4" />
+                                                    <span>Completed {formatDistanceToNow(expectedDate, { addSuffix: true })}</span>
+                                                </div>
+                                            )}
+
+                                            {stepStatus?.remarks && (
+                                                 <div className="text-xs italic text-muted-foreground pt-1 border-t mt-2">
+                                                    <span className="font-semibold">Remarks:</span> "{stepStatus.remarks}"
+                                                 </div>
+                                            )}
+
                                         </div>
-                                         <Button
-                                            size="sm"
-                                            onClick={() => onStepComplete(stepConfig.id)}
-                                            disabled={!canComplete}
-                                            variant={stepStatus?.completed ? "ghost" : "default"}
-                                        >
-                                            {stepStatus?.completed ? "Done" : "Mark as Complete"}
-                                        </Button>
+                                        {!stepStatus ? (
+                                             <Button
+                                                size="sm"
+                                                onClick={() => onStepUpdate(stepConfig.id)}
+                                                disabled={!canUpdate}
+                                            >
+                                                Update Status
+                                            </Button>
+                                        ) : (
+                                            <Badge variant={stepStatus.status === 'completed' ? 'default' : 'secondary'} className={cn(
+                                                stepStatus.status === 'completed' && wasCompletedLate && 'bg-orange-500'
+                                            )}>
+                                                {stepStatus.status === 'completed' ? 'Done' : 'Skipped'}
+                                            </Badge>
+                                        )}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -126,10 +178,87 @@ function O2DProcessTimeline({ order, onStepComplete }: { order: Order; onStepCom
     );
 }
 
+function UpdateO2DStepDialog({
+    isOpen,
+    onClose,
+    onUpdate,
+    step,
+    isOverdue
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onUpdate: (status: 'completed' | 'skipped', remarks: string) => void;
+    step: O2DStep | null;
+    isOverdue: boolean;
+}) {
+    const [status, setStatus] = useState<'completed' | 'skipped' | null>(null);
+    const [remarks, setRemarks] = useState("");
+
+    const showRemarks = (status === 'skipped') || (status === 'completed' && isOverdue);
+
+    const handleSubmit = () => {
+        if (!status) return;
+        onUpdate(status, remarks);
+        onClose();
+    };
+
+    useEffect(() => {
+        if (!isOpen) {
+            setStatus(null);
+            setRemarks("");
+        }
+    }, [isOpen]);
+
+    if (!step) return null;
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Update Status for: {step.step}</DialogTitle>
+                    <DialogDescription>Did you complete this step? Provide remarks if the action is delayed or skipped.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                    <RadioGroup value={status || ""} onValueChange={(value) => setStatus(value as 'completed' | 'skipped')}>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="completed" id="completed" />
+                            <Label htmlFor="completed">Yes, step is completed</Label>
+                        </div>
+                         <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="skipped" id="skipped" />
+                            <Label htmlFor="skipped">No, skip this step</Label>
+                        </div>
+                    </RadioGroup>
+
+                    {showRemarks && (
+                        <div className="pt-4 space-y-2">
+                            <Label htmlFor="remarks">
+                                {status === 'skipped' ? 'Reason for skipping' : 'Reason for delay'}
+                            </Label>
+                            <Textarea
+                                id="remarks"
+                                value={remarks}
+                                onChange={(e) => setRemarks(e.target.value)}
+                                placeholder="Please provide details..."
+                            />
+                        </div>
+                    )}
+                </div>
+                <DialogFooter>
+                    <Button variant="ghost" onClick={onClose}>Cancel</Button>
+                    <Button onClick={handleSubmit} disabled={!status || (showRemarks && !remarks)}>Submit</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
 
 export default function O2DPage() {
     const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
+    const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [updatingStepInfo, setUpdatingStepInfo] = useState<{orderId: string, stepId: number} | null>(null);
+
     const { user } = useAuth();
     const { toast } = useToast();
 
@@ -139,25 +268,32 @@ export default function O2DPage() {
             const allOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
             const pending = allOrders.filter(order => {
                 const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === 10);
-                return !finalO2DStep?.completed;
+                return !finalO2DStep; // If final step doesn't exist, it's pending
             });
             setPendingOrders(pending);
             setLoading(false);
         });
         return () => unsubscribe();
     }, []);
+    
+    const handleOpenUpdateDialog = (orderId: string, stepId: number) => {
+        setUpdatingStepInfo({ orderId, stepId });
+        setIsDialogOpen(true);
+    };
 
-    const handleStepComplete = async (orderId: string, stepId: number) => {
-        if (!user) {
+    const handleStepUpdate = async (status: 'completed' | 'skipped', remarks: string) => {
+        if (!user || !updatingStepInfo) {
             toast({ variant: "destructive", title: "You must be logged in." });
             return;
         }
 
+        const { orderId, stepId } = updatingStepInfo;
         const newStatus: O2DStatus = {
             stepId: stepId,
-            completed: true,
+            status: status,
             completedAt: new Date().toISOString(),
             completedBy: user.name,
+            remarks: remarks || "",
         };
         
         try {
@@ -166,7 +302,7 @@ export default function O2DPage() {
                 o2dMilestones: arrayUnion(newStatus)
             });
 
-            if (stepId === 10) {
+            if (stepId === 10 && status === 'completed') {
                  const orderData = pendingOrders.find(o => o.id === orderId);
                  if (orderData) {
                      const firstMilestoneIndex = orderData.milestones.findIndex(m => m.id === 1);
@@ -191,8 +327,20 @@ export default function O2DPage() {
         } catch (error) {
             console.error("Error updating O2D step:", error);
             toast({ variant: "destructive", title: "Update Failed" });
+        } finally {
+            setIsDialogOpen(false);
+            setUpdatingStepInfo(null);
         }
     };
+    
+    const updatingOrder = updatingStepInfo ? pendingOrders.find(o => o.id === updatingStepInfo.orderId) : null;
+    const updatingStepConfig = updatingStepInfo ? O2D_PROCESS_CONFIG.find(s => s.id === updatingStepInfo.stepId) : null;
+    let isCurrentStepOverdue = false;
+    if(updatingOrder && updatingStepConfig) {
+        const startDate = updatingStepConfig.id === 1 ? new Date(updatingOrder.createdAt) : new Date(updatingOrder.o2dMilestones?.find(s => s.stepId === updatingStepConfig!.id - 1)?.completedAt || updatingOrder.createdAt);
+        const expectedDate = getExpectedCompletionDate(updatingStepConfig, startDate);
+        isCurrentStepOverdue = isPast(expectedDate);
+    }
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -206,13 +354,13 @@ export default function O2DPage() {
                     Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-24 w-full" />)
                 ) : pendingOrders.length > 0 ? (
                     pendingOrders.map(order => {
-                        const lastCompletedStepId = Math.max(0, ...(order.o2dMilestones?.filter(s => s.completed).map(s => s.stepId) || []));
-                        const nextStep = O2D_PROCESS_CONFIG.find(s => s.id === lastCompletedStepId + 1);
+                        const lastCompletedStep = order.o2dMilestones?.slice().reverse().find(s => s.status);
+                        const nextStepId = lastCompletedStep ? lastCompletedStep.stepId + 1 : 1;
+                        const nextStep = O2D_PROCESS_CONFIG.find(s => s.id === nextStepId);
                         
                         let cardBorderColor = "border-border";
                         if (nextStep) {
-                            const prevStep = O2D_PROCESS_CONFIG.find(s => s.id === lastCompletedStepId);
-                            const startDate = prevStep?.id ? new Date((order.o2dMilestones?.find(m => m.stepId === prevStep.id)?.completedAt || order.createdAt)) : new Date(order.createdAt);
+                            const startDate = nextStep.id === 1 ? new Date(order.createdAt) : new Date(lastCompletedStep!.completedAt);
                             const expectedDate = getExpectedCompletionDate(nextStep, startDate);
                             if (isPast(expectedDate)) {
                                 cardBorderColor = "border-red-500";
@@ -238,7 +386,7 @@ export default function O2DPage() {
                                 </CollapsibleTrigger>
                             </CardHeader>
                             <CollapsibleContent>
-                               <O2DProcessTimeline order={order} onStepComplete={(stepId) => handleStepComplete(order.id, stepId)} />
+                               <O2DProcessTimeline order={order} onStepUpdate={(stepId) => handleOpenUpdateDialog(order.id, stepId)} />
                             </CollapsibleContent>
                         </Collapsible>
                         );
@@ -250,6 +398,13 @@ export default function O2DPage() {
                     </Card>
                 )}
             </div>
+             <UpdateO2DStepDialog
+                isOpen={isDialogOpen}
+                onClose={() => setIsDialogOpen(false)}
+                onUpdate={handleStepUpdate}
+                step={updatingStepConfig}
+                isOverdue={isCurrentStepOverdue}
+            />
         </div>
     );
 }
