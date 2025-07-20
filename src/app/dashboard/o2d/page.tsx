@@ -51,7 +51,8 @@ const calculateExpectedDatesForOrder = (order: Order) => {
     return O2D_PROCESS_CONFIG.reduce((acc, currentStep) => {
         let startDate: Date;
         if (currentStep.id === 1) {
-            startDate = new Date(order.createdAt);
+            // **FIX**: Use current date as a fallback if createdAt is missing.
+            startDate = order.createdAt ? new Date(order.createdAt) : new Date();
         } else {
             const previousStepConfig = O2D_PROCESS_CONFIG.find(s => s.id === currentStep.id - 1);
             if (!previousStepConfig) {
@@ -331,7 +332,11 @@ export default function O2DPage() {
             const pending = allOrders.filter(order => {
                 const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === 10);
                 return !finalO2DStep; // If final step doesn't exist, it's pending
-            }).sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            }).sort((a,b) => {
+                const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return dateA - dateB;
+            });
             
             setPendingOrders(pending);
             setLoading(false);
@@ -477,7 +482,9 @@ export default function O2DPage() {
                                     <div className='mt-2 space-y-2 text-sm'>
                                         <p className='flex items-center gap-2'><Phone className='h-4 w-4 text-muted-foreground' /> {order.customerPhone}</p>
                                         <p className='flex items-center gap-2'><MapPin className='h-4 w-4 text-muted-foreground' /> {order.customerAddress}</p>
-                                        <p className='flex items-center gap-2'><Calendar className='h-4 w-4 text-muted-foreground' /> Order Date: {format(new Date(order.createdAt), 'dd/MM/yyyy')}</p>
+                                         {order.createdAt && (
+                                            <p className='flex items-center gap-2'><Calendar className='h-4 w-4 text-muted-foreground' /> Order Date: {format(new Date(order.createdAt), 'dd/MM/yyyy')}</p>
+                                        )}
                                         {currentStep && (
                                             <p className={cn('flex items-center gap-2 font-medium', cardBorderColor === 'border-red-500' ? 'text-red-500' : 'text-muted-foreground')}>
                                                 <Clock className='h-4 w-4'/>
