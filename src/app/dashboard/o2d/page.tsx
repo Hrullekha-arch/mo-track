@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
@@ -145,8 +145,8 @@ function O2DProcessTimeline({
                                     </div>
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="flex justify-between items-center">
-                                         <div className="text-xs text-muted-foreground space-y-2">
+                                    <div className="flex justify-between items-center flex-wrap gap-4">
+                                         <div className="text-xs text-muted-foreground space-y-2 flex-grow">
                                             <p>Expected by: {formatTimestamp(expectedDate)}</p>
                                             
                                             {stepStatus?.status === 'completed' && (
@@ -184,7 +184,7 @@ function O2DProcessTimeline({
                                             )}
 
                                         </div>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 flex-shrink-0">
                                             {stepStatus && role === 'admin' && (
                                                 <AlertDialogTrigger asChild>
                                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => onRevertStep(order.id, stepConfig.id, stepStatus)}>
@@ -208,7 +208,7 @@ function O2DProcessTimeline({
                                                         }
                                                     }}
                                                 >
-                                                    <SelectTrigger className="w-[180px]">
+                                                    <SelectTrigger className="w-[160px]">
                                                         <SelectValue placeholder="Update Status..." />
                                                     </SelectTrigger>
                                                     <SelectContent>
@@ -590,3 +590,6 @@ export default function O2DPage() {
         </div>
     );
 }
+
+
+    
