@@ -18,10 +18,15 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const O2D_PROCESS_CONFIG: O2DStep[] = [
     { id: 1, step: "Receive Advance ₹1000", details: "For measurement/Fabric order", time: "30 min", role: "Salesman", icon: User, expectedDuration: { minutes: 30 } },
@@ -88,6 +93,14 @@ function O2DProcessTimeline({
 }) {
     
     const expectedDates = calculateExpectedDatesForOrder(order);
+
+    const handleAction = (selection: string, stepId: number, isOverdue: boolean) => {
+      if (!isOverdue) {
+        onQuickStepUpdate(order.id, stepId, selection);
+      } else {
+        onStepUpdate(order.id, stepId, true, "completed", selection);
+      }
+    };
 
     return (
         <div className="relative pl-6 pr-4 py-4">
@@ -194,22 +207,32 @@ function O2DProcessTimeline({
                                             {!stepStatus ? (
                                                 <div className="flex items-center gap-2">
                                                     <Button variant="outline" size="sm" onClick={() => onStepUpdate(order.id, stepConfig.id, isOverdue, 'skipped', 'no')}>Skip</Button>
-                                                    <Button size="sm" onClick={() => {
-                                                        const isYes = true;
-                                                        if (isYes) {
-                                                            if (!isOverdue) {
-                                                                onQuickStepUpdate(order.id, stepConfig.id, 'yes');
-                                                            } else {
-                                                                onStepUpdate(order.id, stepConfig.id, true, 'completed', 'yes');
-                                                            }
-                                                        }
-                                                    }}>Done</Button>
+                                                    
+                                                     {stepConfig.id === 1 ? (
+                                                        <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button size="sm">Done</Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent>
+                                                            <DropdownMenuItem onClick={() => handleAction('Advance Received', stepConfig.id, isOverdue)}>
+                                                                Advance Received
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => handleAction('Old Customer', stepConfig.id, isOverdue)}>
+                                                                Old Customer
+                                                            </DropdownMenuItem>
+                                                        </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    ) : (
+                                                        <Button size="sm" onClick={() => handleAction('yes', stepConfig.id, isOverdue)}>
+                                                            Done
+                                                        </Button>
+                                                    )}
                                                 </div>
                                             ) : (
                                                 <div className="text-center">
-                                                    {stepStatus.selection && (
+                                                    {stepStatus.selection && stepStatus.selection !== "yes" && (
                                                         <p className="text-xs text-muted-foreground capitalize mb-1">
-                                                           Selected: {stepStatus.selection.replace(/_/g, ' ')}
+                                                           {stepStatus.selection}
                                                         </p>
                                                     )}
                                                     <Badge variant={stepStatus.status === 'completed' ? 'default' : 'secondary'} className={cn(
