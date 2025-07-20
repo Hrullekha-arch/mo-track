@@ -90,6 +90,7 @@ function O2DProcessTimeline({ order, onStepComplete }: { order: Order; onStepCom
                                 <CardContent>
                                     <div className="flex justify-between items-center">
                                          <div className="text-xs text-muted-foreground space-y-1">
+                                             <p>Expected by: {formatTimestamp(expectedDate)}</p>
                                             {stepStatus?.completed ? (
                                                 <div className="flex items-center gap-2 text-green-600 font-medium">
                                                     <CheckCircle className="h-4 w-4" />
@@ -97,11 +98,10 @@ function O2DProcessTimeline({ order, onStepComplete }: { order: Order; onStepCom
                                                 </div>
                                             ) : (
                                                 <>
-                                                    <p>Expected by: {formatTimestamp(expectedDate)}</p>
                                                     {isOverdue && (
                                                         <div className="flex items-center gap-2 text-red-600 font-medium">
                                                             <AlertTriangle className="h-4 w-4" />
-                                                            <span>Delayed by: {formatDistanceToNow(expectedDate, { addSuffix: true })}</span>
+                                                            <span>Delayed by: {formatDistanceToNow(expectedDate, { addSuffix: false })}</span>
                                                         </div>
                                                     )}
                                                 </>
