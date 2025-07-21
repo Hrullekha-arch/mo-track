@@ -255,7 +255,9 @@ export default function NewPurchaseRequestPage() {
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <Card className="max-w-4xl mx-auto">
                 <CardHeader>
-                    <CardTitle className="text-2xl text-center text-primary">Purchase Request</CardTitle>
+                    <CardTitle className="text-2xl text-center text-primary">
+                        {formType === 'fabric' ? 'Fabric Purchase Request' : 'Furniture Purchase Request'}
+                    </CardTitle>
                 </CardHeader>
                 <CardContent>
                     <Form {...form}>
@@ -418,4 +420,3 @@ export default function NewPurchaseRequestPage() {
     );
 }
 
-    
