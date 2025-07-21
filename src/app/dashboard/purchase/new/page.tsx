@@ -268,6 +268,11 @@ export default function NewPurchaseRequestPage() {
         resolver: zodResolver(formSchema),
         defaultValues: {
             type: "fabric",
+            email: "",
+            dealId: "",
+            customerName: "",
+            salesman: "",
+            workType: "",
             fabricDetails: [{ fabricName: "", quantity: "" }],
             furnitureDetails: [],
         },
