@@ -3,8 +3,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers } from 'lucide-react';
-import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
+import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers, MoreVertical, Trash2 } from 'lucide-react';
+import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStep, PurchaseStatus } from "@/lib/types";
 import { Skeleton } from '@/components/ui/skeleton';
@@ -18,6 +18,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 const PURCHASE_PROCESS_CONFIG: PurchaseStep[] = [
     { id: 1, step: "Verify Authorization", details: "Check if the request is authorized", time: "30 min", role: "Accounts", icon: UserCheck, expectedDuration: { minutes: 30 } },
@@ -232,6 +233,7 @@ export default function PurchasePage() {
     const [loading, setLoading] = useState(true);
     const { user, role, designation } = useAuth();
     const { toast } = useToast();
+    const [deletingRequest, setDeletingRequest] = useState<PurchaseRequest | null>(null);
 
     useEffect(() => {
         const q = query(collection(db, "purchaseRequests"));
@@ -287,6 +289,18 @@ export default function PurchasePage() {
             toast({ variant: "destructive", title: "Update Failed" });
         }
     };
+
+    const handleDelete = async () => {
+        if (!deletingRequest) return;
+        try {
+            await deleteDoc(doc(db, "purchaseRequests", deletingRequest.id));
+            toast({ title: "Purchase Request Deleted" });
+            setDeletingRequest(null);
+        } catch (error) {
+            console.error("Error deleting purchase request:", error);
+            toast({ variant: "destructive", title: "Deletion Failed" });
+        }
+    };
     
     const handleRevertStep = async () => {
         // Placeholder for revert logic
@@ -312,11 +326,30 @@ export default function PurchasePage() {
                                     <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
                                 </div>
                                 <div className="text-right flex flex-col items-end">
+                                    <div className="flex items-center gap-2">
+                                         {role === 'admin' && (
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                        <MoreVertical className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem 
+                                                        className="text-destructive focus:text-destructive"
+                                                        onClick={() => setDeletingRequest(request)}
+                                                    >
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        )}
+                                        {request.vendorType !== 'undecided' && (
+                                            <Badge className='mt-2' variant="outline">{request.vendorType} vendor</Badge>
+                                        )}
+                                    </div>
                                     {request.createdAt && (
-                                        <p className='flex items-center gap-2 text-sm'><Calendar className='h-4 w-4 text-muted-foreground' /> {format(new Date(request.createdAt), 'dd/MM/yyyy')}</p>
-                                    )}
-                                    {request.vendorType !== 'undecided' && (
-                                        <Badge className='mt-2' variant="outline">{request.vendorType} vendor</Badge>
+                                        <p className='flex items-center gap-2 text-sm mt-2'><Calendar className='h-4 w-4 text-muted-foreground' /> {format(new Date(request.createdAt), 'dd/MM/yyyy')}</p>
                                     )}
                                 </div>
                             </div>
@@ -403,9 +436,9 @@ export default function PurchasePage() {
                 {loading ? (
                     Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                 ) : purchaseRequests.length > 0 ? (
-                    <AlertDialog>
+                    <>
                         {purchaseRequests.map(request => <PurchaseRequestCard key={request.id} request={request} />)}
-                    </AlertDialog>
+                    </>
                 ) : (
                     <Card className="text-center p-12">
                         <CardTitle>No Purchase Requests</CardTitle>
@@ -415,8 +448,20 @@ export default function PurchasePage() {
                     </Card>
                 )}
             </div>
+             <AlertDialog open={!!deletingRequest} onOpenChange={() => setDeletingRequest(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete the purchase request for <span className="font-bold">{deletingRequest?.customerName}</span> (ID: {deletingRequest?.dealId}). This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
-
-    
