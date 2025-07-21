@@ -5,13 +5,13 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, PlusCircle, Trash2, ArrowLeft } from "lucide-react";
+import { CalendarIcon, PlusCircle, Trash2, ArrowLeft, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -21,6 +21,9 @@ import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { PurchaseRequest } from "@/lib/types";
+import { useState } from "react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 
 const fabricDetailSchema = z.object({
   fabricName: z.string().min(1, "Fabric name is required"),
@@ -183,11 +186,83 @@ const FurnitureForm = ({ form }: { form: any }) => {
     );
 };
 
+const PurchaseRequestPreviewDialog = ({
+    isOpen,
+    onClose,
+    onConfirm,
+    data,
+    isSubmitting,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+    data: PurchaseFormValues | null;
+    isSubmitting: boolean;
+}) => {
+    if (!data) return null;
+
+    const details = data.type === 'fabric' ? data.fabricDetails : data.furnitureDetails;
+    const itemName = data.type === 'fabric' ? 'Fabric' : 'Furniture';
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Confirm Purchase Request</DialogTitle>
+                    <DialogDescription>Please review the details below before submitting.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-4 max-h-[70vh] overflow-y-auto pr-4">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Request Details</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2 text-sm">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><p className="text-muted-foreground">Customer Name</p><p className="font-medium">{data.customerName}</p></div>
+                                <div><p className="text-muted-foreground">Deal ID</p><p className="font-medium">{data.dealId}</p></div>
+                                <div><p className="text-muted-foreground">Email</p><p className="font-medium">{data.email || 'N/A'}</p></div>
+                                <div><p className="text-muted-foreground">Salesman</p><p className="font-medium">{data.salesman}</p></div>
+                                <div><p className="text-muted-foreground">Work Type</p><p className="font-medium">{data.workType}</p></div>
+                                <div><p className="text-muted-foreground">Promise Delivery</p><p className="font-medium">{format(data.promiseDeliveryDate, "PPP")}</p></div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                     <Card>
+                        <CardHeader>
+                            <CardTitle>{itemName} Details</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {details?.map((item, index) => (
+                                <div key={index}>
+                                    <div className="flex justify-between items-center text-sm">
+                                        <p className="font-medium">{data.type === 'fabric' ? (item as any).fabricName : (item as any).furnitureName}</p>
+                                        <p className="text-muted-foreground">Qty: <span className="font-medium text-foreground">{item.quantity}</span> {data.type === 'fabric' && 'Mtr'}</p>
+                                    </div>
+                                    {index < details.length - 1 && <Separator className="my-2" />}
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                </div>
+                <DialogFooter>
+                    <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+                    <Button onClick={onConfirm} disabled={isSubmitting}>
+                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Confirm & Submit
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 
 export default function NewPurchaseRequestPage() {
     const { user } = useAuth();
     const { toast } = useToast();
     const router = useRouter();
+    const [previewData, setPreviewData] = useState<PurchaseFormValues | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const form = useForm<PurchaseFormValues>({
         resolver: zodResolver(formSchema),
@@ -200,41 +275,44 @@ export default function NewPurchaseRequestPage() {
 
     const formType = form.watch("type");
 
-    const onSubmit = async (data: PurchaseFormValues) => {
-        if (!user) {
-            toast({ variant: "destructive", title: "You must be logged in" });
-            return;
-        }
+    const handlePreview = (data: PurchaseFormValues) => {
+        setPreviewData(data);
+    };
 
-        const newRequestRef = doc(db, "purchaseRequests", data.dealId);
-
-        const requestData: PurchaseRequest = {
-            id: data.dealId,
-            email: data.email || "",
-            dealId: data.dealId,
-            customerName: data.customerName,
-            promiseDeliveryDate: data.promiseDeliveryDate.toISOString(),
-            salesman: data.salesman,
-            workType: data.workType,
-            fabricDetails: data.fabricDetails || [],
-            furnitureDetails: data.furnitureDetails || [],
-
-            createdAt: new Date().toISOString(),
-            createdBy: {
-                id: user.id,
-                name: user.name,
-            },
-            milestones: [],
-            vendorType: 'undecided',
-            status: 'pending',
-        };
-
+    const handleConfirmSubmit = async () => {
+        if (!previewData || !user) return;
+        setIsSubmitting(true);
+        
         try {
+            const newRequestRef = doc(db, "purchaseRequests", previewData.dealId);
+
+            const requestData: PurchaseRequest = {
+                id: previewData.dealId,
+                email: previewData.email || "",
+                dealId: previewData.dealId,
+                customerName: previewData.customerName,
+                promiseDeliveryDate: previewData.promiseDeliveryDate.toISOString(),
+                salesman: previewData.salesman,
+                workType: previewData.workType,
+                fabricDetails: previewData.fabricDetails || [],
+                furnitureDetails: previewData.furnitureDetails || [],
+
+                createdAt: new Date().toISOString(),
+                createdBy: {
+                    id: user.id,
+                    name: user.name,
+                },
+                milestones: [],
+                vendorType: 'undecided',
+                status: 'pending',
+            };
+
             await setDoc(newRequestRef, requestData);
             toast({
                 title: "Purchase Request Created",
                 description: "Your request has been submitted for approval.",
             });
+            setPreviewData(null);
             router.push("/dashboard/purchase");
         } catch (error) {
             console.error("Error creating purchase request: ", error);
@@ -243,8 +321,11 @@ export default function NewPurchaseRequestPage() {
                 title: "Error",
                 description: "Failed to create purchase request.",
             });
+        } finally {
+            setIsSubmitting(false);
         }
     };
+
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -262,7 +343,7 @@ export default function NewPurchaseRequestPage() {
                 </CardHeader>
                 <CardContent>
                     <Form {...form}>
-                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+                        <form onSubmit={form.handleSubmit(handlePreview)} className="space-y-8">
                             <Tabs
                                 value={formType}
                                 onValueChange={(value) => {
@@ -410,11 +491,19 @@ export default function NewPurchaseRequestPage() {
                                 </TabsContent>
                             </Tabs>
 
-                            <Button type="submit" className="w-full" size="lg">Submit</Button>
+                            <Button type="submit" className="w-full" size="lg">Review & Submit</Button>
                         </form>
                     </Form>
                 </CardContent>
             </Card>
+
+            <PurchaseRequestPreviewDialog
+                isOpen={!!previewData}
+                onClose={() => setPreviewData(null)}
+                onConfirm={handleConfirmSubmit}
+                data={previewData}
+                isSubmitting={isSubmitting}
+            />
         </div>
     );
 }
