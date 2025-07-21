@@ -1,6 +1,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -87,4 +88,42 @@ export interface Order {
 export interface SalesmanCrmAssignment {
   id: string; // Salesman Name
   crmUserId: string;
+}
+
+// Purchase Process Types
+export interface PurchaseRequest {
+  id: string;
+  itemName: string;
+  requestingPerson: string;
+  createdAt: string; // ISO Date string
+  createdBy: {
+    id: string;
+    name: string;
+  };
+  milestones: PurchaseStatus[];
+  vendorType: 'existing' | 'new' | 'undecided';
+  status: 'pending' | 'completed' | 'cancelled';
+  remarks?: string;
+}
+
+export interface PurchaseStatus {
+  stepId: number;
+  status: 'completed' | 'skipped' | 'pending';
+  completedAt: string; // ISO Date string
+  completedBy: string; // User name
+  remarks?: string;
+}
+
+export interface PurchaseStep {
+    id: number;
+    step: string;
+    details: string;
+    time: string;
+    role: string;
+    icon: React.ElementType;
+    expectedDuration: {
+        days?: number;
+        hours?: number;
+        minutes?: number;
+    }
 }

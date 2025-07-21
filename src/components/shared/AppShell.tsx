@@ -27,14 +27,18 @@ import {
   Table,
   CheckSquare,
   Home,
+  ShoppingCart,
+  Truck
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 
 const allNavItems = [
   { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee'] },
-  { href: "/dashboard/pending", icon: CheckSquare, label: "Orders to be Received", roles: ['admin', 'employee'] },
+  { href: "/dashboard/o2d", icon: Truck, label: "O2D", roles: ['admin', 'employee'] },
+  { href: "/dashboard/pending", icon: CheckSquare, label: "To Be Received", roles: ['admin', 'employee'] },
   { href: "/dashboard/orders", icon: ClipboardList, label: "Orders Dashboard", roles: ['admin', 'employee'] },
+  { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
   { href: "/dashboard/all-orders", icon: Table, label: "All Orders (Admin)", roles: ['admin'] },
   { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin', 'employee'] },
   { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },
