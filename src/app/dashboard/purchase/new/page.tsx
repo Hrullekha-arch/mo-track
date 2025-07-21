@@ -46,23 +46,23 @@ const formSchema = z.object({
 }).refine(
   (data) => {
     if (data.type === 'fabric') {
-        return data.fabricDetails && data.fabricDetails.length > 0;
+        return data.fabricDetails && data.fabricDetails.length > 0 && data.fabricDetails.every(f => f.fabricName && f.quantity);
     }
     return true;
   },
   {
-    message: "At least one fabric detail is required.",
+    message: "At least one fabric detail with name and quantity is required.",
     path: ["fabricDetails"],
   }
 ).refine(
   (data) => {
     if (data.type === 'furniture') {
-        return data.furnitureDetails && data.furnitureDetails.length > 0;
+        return data.furnitureDetails && data.furnitureDetails.length > 0 && data.furnitureDetails.every(f => f.furnitureName && f.quantity);
     }
     return true;
   },
   {
-    message: "At least one furniture detail is required.",
+    message: "At least one furniture detail with name and quantity is required.",
     path: ["furnitureDetails"],
   }
 );
@@ -196,6 +196,7 @@ export default function NewPurchaseRequestPage() {
         defaultValues: {
             type: "fabric",
             fabricDetails: [{ fabricName: "", quantity: "" }],
+            furnitureDetails: [],
         },
     });
 
@@ -271,11 +272,18 @@ export default function NewPurchaseRequestPage() {
                             <Tabs
                                 value={formType}
                                 onValueChange={(value) => {
-                                    form.setValue("type", value as "fabric" | "furniture");
-                                    if (value === 'fabric' && !form.getValues('fabricDetails')?.length) {
-                                        form.setValue('fabricDetails', [{ fabricName: '', quantity: '' }]);
-                                    } else if (value === 'furniture' && !form.getValues('furnitureDetails')?.length) {
-                                        form.setValue('furnitureDetails', [{ furnitureName: '', quantity: '' }]);
+                                    const newType = value as "fabric" | "furniture";
+                                    form.setValue("type", newType);
+                                    if (newType === 'fabric') {
+                                        if (!form.getValues('fabricDetails')?.length) {
+                                          form.setValue('fabricDetails', [{ fabricName: '', quantity: '' }]);
+                                        }
+                                        form.setValue('furnitureDetails', []);
+                                    } else if (newType === 'furniture') {
+                                         if (!form.getValues('furnitureDetails')?.length) {
+                                           form.setValue('furnitureDetails', [{ furnitureName: '', quantity: '' }]);
+                                        }
+                                        form.setValue('fabricDetails', []);
                                     }
                                 }}
                                 className="w-full"
@@ -425,4 +433,3 @@ export default function NewPurchaseRequestPage() {
         </div>
     );
 }
-
