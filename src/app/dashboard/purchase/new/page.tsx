@@ -288,6 +288,7 @@ export default function NewPurchaseRequestPage() {
 
             const requestData: PurchaseRequest = {
                 id: previewData.dealId,
+                type: previewData.type,
                 email: previewData.email || "",
                 dealId: previewData.dealId,
                 customerName: previewData.customerName,

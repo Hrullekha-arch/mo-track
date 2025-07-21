@@ -91,6 +91,7 @@ export interface SalesmanCrmAssignment {
 // Purchase Process Types
 export interface PurchaseRequest {
   id: string;
+  type: 'fabric' | 'furniture';
   // Common fields from new form
   email: string;
   dealId: string;
