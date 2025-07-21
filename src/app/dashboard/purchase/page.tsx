@@ -112,18 +112,18 @@ function PurchaseProcessTimeline({
     request, 
     onQuickStepUpdate,
     onVendorTypeSelect,
+    onRevertStep,
     userRole,
     userDesignation,
     showAllSteps = false,
-    setRevertingStepInfo,
 }: { 
     request: PurchaseRequest; 
     onQuickStepUpdate: (requestId: string, stepId: number, status: 'completed' | 'skipped') => void;
     onVendorTypeSelect: (requestId: string, vendorType: 'existing' | 'new') => void;
+    onRevertStep: (requestId: string, stepId: number, milestone: PurchaseStatus) => void;
     userRole: string | null;
     userDesignation: string | null;
     showAllSteps: boolean;
-    setRevertingStepInfo: (info: {requestId: string, stepId: number, milestone: PurchaseStatus} | null) => void;
 }) {
     
     const expectedDates = calculateExpectedDatesForRequest(request);
@@ -261,7 +261,7 @@ function PurchaseProcessTimeline({
                                          <div className="flex items-center gap-2 flex-shrink-0">
                                             {stepStatus && userRole === 'admin' && (
                                                 <AlertDialogTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setRevertingStepInfo({ requestId: request.id, stepId: stepConfig.id, milestone: stepStatus })}>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => onRevertStep(request.id, stepConfig.id, stepStatus)}>
                                                         <Undo2 className="h-4 w-4" />
                                                     </Button>
                                                 </AlertDialogTrigger>
@@ -366,6 +366,10 @@ export default function PurchasePage() {
             toast({ variant: "destructive", title: "Deletion Failed" });
         }
     };
+
+    const handleOpenRevertDialog = (requestId: string, stepId: number, milestone: PurchaseStatus) => {
+        setRevertingStepInfo({ requestId, stepId, milestone });
+    };
     
     const handleRevertStep = async () => {
         if (!revertingStepInfo) return;
@@ -463,23 +467,39 @@ export default function PurchasePage() {
                                 <div className="text-right flex flex-col items-end">
                                     <div className="flex items-center gap-2">
                                          {role === 'admin' && (
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                        <MoreVertical className="h-4 w-4" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                    <AlertDialogTrigger asChild>
-                                                        <DropdownMenuItem 
-                                                            className="text-destructive focus:text-destructive"
-                                                            onClick={() => setDeletingRequest(request)}
-                                                        >
-                                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                                        </DropdownMenuItem>
-                                                    </AlertDialogTrigger>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
+                                            <AlertDialog>
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                            <MoreVertical className="h-4 w-4" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end">
+                                                        <AlertDialogTrigger asChild>
+                                                            <DropdownMenuItem 
+                                                                className="text-destructive focus:text-destructive"
+                                                                onClick={() => setDeletingRequest(request)}
+                                                            >
+                                                                <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                            </DropdownMenuItem>
+                                                        </AlertDialogTrigger>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                                 {deletingRequest && deletingRequest.id === request.id && (
+                                                     <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This will permanently delete the purchase request for <span className="font-bold">{deletingRequest?.customerName}</span> (ID: {deletingRequest?.dealId}). This action cannot be undone.
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel onClick={() => setDeletingRequest(null)}>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                 )}
+                                            </AlertDialog>
                                         )}
                                         {request.vendorType !== 'undecided' && (
                                             <Badge className='mt-2 capitalize' variant="outline">{request.vendorType} vendor</Badge>
@@ -545,10 +565,10 @@ export default function PurchasePage() {
                             request={request}
                             onQuickStepUpdate={updateStepInFirestore}
                             onVendorTypeSelect={handleVendorTypeSelect}
+                            onRevertStep={handleOpenRevertDialog}
                             userRole={role}
                             userDesignation={designation}
                             showAllSteps={showAllSteps}
-                            setRevertingStepInfo={setRevertingStepInfo}
                         />
                          {revertingStepInfo && revertingStepInfo.requestId === request.id && (
                              <AlertDialogContent>
@@ -634,21 +654,6 @@ export default function PurchasePage() {
                     </div>
                 </TabsContent>
             </Tabs>
-            
-             <AlertDialog open={!!deletingRequest} onOpenChange={() => setDeletingRequest(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will permanently delete the purchase request for <span className="font-bold">{deletingRequest?.customerName}</span> (ID: {deletingRequest?.dealId}). This action cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </div>
     );
 }
