@@ -202,17 +202,10 @@ function PurchaseProcessTimeline({
                     const Icon = stepConfig.icon;
 
                     const prevStep = getPrevStep(stepConfig.id);
-                    const prevStepStatus = prevStep ? request.milestones.find(m => m.stepId === prevStep.id) : { status: 'completed' }; // Treat as completed for first step
+                    // For the first step, prevStep is null, we treat its status as 'completed' to allow action.
+                    const prevStepStatus = prevStep ? request.milestones.find(m => m.stepId === prevStep.id) : { status: 'completed' };
                     
-                    let canAct = false;
-                    if(stepConfig.id === 1) {
-                        canAct = !stepStatus;
-                    } else if (stepConfig.id === 5) { // Vendor selection
-                         const step4Status = request.milestones.find(m => m.stepId === 4);
-                         canAct = !stepStatus && !!step4Status && (step4Status.status === 'completed' || step4Status.status === 'skipped');
-                    } else if (request.vendorType !== 'undecided') {
-                         canAct = !stepStatus && !!prevStepStatus && (prevStepStatus.status === 'completed' || prevStepStatus.status === 'skipped');
-                    }
+                    const canAct = !stepStatus && (prevStepStatus?.status === 'completed' || prevStepStatus?.status === 'skipped');
                     
                     return (
                         <div key={stepConfig.id} className="relative flex items-start gap-4">
@@ -283,15 +276,18 @@ function PurchaseProcessTimeline({
     );
 }
 
-const PurchaseRequestCard = ({ request, onRevertStep, onDeleteRequest, onQuickStepUpdate, onVendorTypeSelect }: { request: PurchaseRequest, onRevertStep: (requestId: string, stepId: number, milestone: PurchaseStatus) => void, onDeleteRequest: (request: PurchaseRequest) => void, onQuickStepUpdate: (requestId: string, stepId: number, status: 'completed' | 'skipped') => void, onVendorTypeSelect: (requestId: string, vendorType: 'existing' | 'new') => void }) => {
+const PurchaseRequestCard = ({ request }: { request: PurchaseRequest }) => {
     const [showAllSteps, setShowAllSteps] = useState(false);
-    const { role, user, designation } = useAuth();
+    const { user, role, designation } = useAuth();
+    const { toast } = useToast();
     
+    const [deletingRequest, setDeletingRequest] = useState<PurchaseRequest | null>(null);
+    const [revertingStepInfo, setRevertingStepInfo] = useState<{requestId: string, stepId: number, milestone: PurchaseStatus} | null>(null);
+
     const hasFabric = request.fabricDetails && request.fabricDetails.length > 0 && request.fabricDetails.some(f => f.fabricName);
     const hasFurniture = request.furnitureDetails && request.furnitureDetails.length > 0 && request.furnitureDetails.some(f => f.furnitureName);
     const defaultTab = hasFabric ? "fabric" : "furniture";
 
-    // Status Calculation
     const expectedDates = calculateExpectedDatesForRequest(request);
     let processSteps = [...PURCHASE_PROCESS_CONFIG];
     if (request.vendorType === 'existing') processSteps.push(...EXISTING_VENDOR_BRANCH);
@@ -312,7 +308,7 @@ const PurchaseRequestCard = ({ request, onRevertStep, onDeleteRequest, onQuickSt
         statusTextColor = "text-green-600";
     } else if (currentStep) {
         statusText = currentStep.step;
-        if (currentStep.id !== 5) {
+        if (currentStep.id !== 5 && expectedDates[currentStep.id]) {
              const expectedDate = expectedDates[currentStep.id];
             if (isPast(expectedDate)) {
                 statusTextColor = "text-red-500";
@@ -321,14 +317,92 @@ const PurchaseRequestCard = ({ request, onRevertStep, onDeleteRequest, onQuickSt
             }
         }
     }
+    
+    // --- Handlers for this specific card ---
+    
+    const handleQuickStepUpdate = async (requestId: string, stepId: number, status: 'completed' | 'skipped') => {
+        if (!user) return toast({ variant: "destructive", title: "You must be logged in." });
 
+        const newStatus: PurchaseStatus = { stepId, status, completedAt: new Date().toISOString(), completedBy: user.name };
+        try {
+            const requestRef = doc(db, "purchaseRequests", requestId);
+            const updatePayload: any = { milestones: arrayUnion(newStatus) };
+            if (stepId === 6 || stepId === 11) {
+                updatePayload.poMilestones = [];
+                updatePayload.poDeliveryDate = null;
+            }
+            await updateDoc(requestRef, updatePayload);
+            toast({ title: "Step Updated!", description: "Progress has been saved." });
+        } catch (error) {
+            console.error("Error updating purchase step:", error);
+            toast({ variant: "destructive", title: "Update Failed" });
+        }
+    };
+    
+    const handleVendorTypeSelect = async (requestId: string, vendorType: 'existing' | 'new') => {
+        if (!user) return;
+        const newStatus: PurchaseStatus = { stepId: 5, status: 'completed', completedAt: new Date().toISOString(), completedBy: user.name, remarks: `Selected ${vendorType} vendor`};
+        try {
+            const requestRef = doc(db, "purchaseRequests", requestId);
+            await updateDoc(requestRef, { vendorType, milestones: arrayUnion(newStatus) });
+            toast({ title: "Vendor Type Selected", description: `Switched to ${vendorType} vendor workflow.` });
+        } catch (error) {
+            console.error("Error setting vendor type:", error);
+            toast({ variant: "destructive", title: "Update Failed" });
+        }
+    };
+
+    const handleRevertStep = async () => {
+        if (!revertingStepInfo) return;
+        const { requestId, stepId, milestone } = revertingStepInfo;
+    
+        try {
+            const requestRef = doc(db, "purchaseRequests", requestId);
+            let updatePayload: any = { milestones: arrayRemove(milestone) };
+    
+            if (stepId === 5) {
+                updatePayload.vendorType = 'undecided';
+                const docSnap = await getDoc(requestRef);
+                if (docSnap.exists()) {
+                    const currentRequest = docSnap.data() as PurchaseRequest;
+                    const branchToRemove = currentRequest.vendorType === 'existing' ? EXISTING_VENDOR_BRANCH : NEW_VENDOR_BRANCH;
+                    const branchStepIds = branchToRemove.map(s => s.id);
+                    const milestonesToRevert = currentRequest.milestones.filter(m => branchStepIds.includes(m.stepId));
+                    if (milestonesToRevert.length > 0) {
+                       await updateDoc(requestRef, { milestones: arrayRemove(...milestonesToRevert) });
+                    }
+                }
+            }
+             
+            await updateDoc(requestRef, updatePayload);
+            toast({ title: "Step Reverted!", description: "The step has been successfully reverted." });
+        } catch (error) {
+            console.error("Error reverting step:", error);
+            toast({ variant: "destructive", title: "Revert Failed" });
+        } finally {
+            setRevertingStepInfo(null);
+        }
+    };
+    
+     const handleDelete = async () => {
+        if (!deletingRequest) return;
+        try {
+            await deleteDoc(doc(db, "purchaseRequests", deletingRequest.id));
+            toast({ title: "Purchase Request Deleted" });
+            setDeletingRequest(null);
+        } catch (error) {
+            console.error("Error deleting purchase request:", error);
+            toast({ variant: "destructive", title: "Deletion Failed" });
+        }
+    };
+    
+    const revertingStepConfig = revertingStepInfo ? ALL_STEPS_MAP[revertingStepInfo.stepId] : null;
 
     return (
-         <AlertDialog>
+        <AlertDialog open={!!deletingRequest || !!revertingStepInfo} onOpenChange={(open) => { if (!open) { setDeletingRequest(null); setRevertingStepInfo(null); } }}>
              <Collapsible key={request.id} className="border-2 rounded-lg bg-card overflow-hidden">
                 <div className="p-4 space-y-4">
                     <div className="flex gap-4">
-                        {/* Column 1: Request Details */}
                         <div className="flex-1 space-y-2">
                              <div className="flex justify-between items-start">
                                 <div className="space-y-1 text-sm">
@@ -354,7 +428,7 @@ const PurchaseRequestCard = ({ request, onRevertStep, onDeleteRequest, onQuickSt
                                                     <AlertDialogTrigger asChild>
                                                         <DropdownMenuItem 
                                                             className="text-destructive focus:text-destructive"
-                                                            onClick={() => onDeleteRequest(request)}
+                                                            onClick={() => setDeletingRequest(request)}
                                                         >
                                                             <Trash2 className="mr-2 h-4 w-4" /> Delete
                                                         </DropdownMenuItem>
@@ -375,7 +449,6 @@ const PurchaseRequestCard = ({ request, onRevertStep, onDeleteRequest, onQuickSt
 
                         <Separator orientation="vertical" className="h-auto" />
 
-                        {/* Column 2: Item Details with Tabs */}
                         <div className="flex-1">
                              <Tabs defaultValue={defaultTab} className="w-full">
                                 <TabsList className="grid w-full grid-cols-2">
@@ -423,15 +496,44 @@ const PurchaseRequestCard = ({ request, onRevertStep, onDeleteRequest, onQuickSt
                     </div>
                     <PurchaseProcessTimeline
                         request={request}
-                        onQuickStepUpdate={onQuickStepUpdate}
-                        onVendorTypeSelect={onVendorTypeSelect}
-                        onRevertStep={onRevertStep}
+                        onQuickStepUpdate={handleQuickStepUpdate}
+                        onVendorTypeSelect={handleVendorTypeSelect}
+                        onRevertStep={(requestId, stepId, milestone) => setRevertingStepInfo({ requestId, stepId, milestone })}
                         userRole={role}
                         userDesignation={designation}
                         showAllSteps={showAllSteps}
                     />
                 </CollapsibleContent>
             </Collapsible>
+            
+            {!!deletingRequest && (
+                 <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete the purchase request for <span className="font-bold">{deletingRequest?.customerName}</span> (ID: {deletingRequest?.dealId}). This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            )}
+             {!!revertingStepInfo && (
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+             )}
         </AlertDialog>
     )
 }
@@ -440,10 +542,6 @@ const PurchaseRequestCard = ({ request, onRevertStep, onDeleteRequest, onQuickSt
 export default function PurchasePage() {
     const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
     const [loading, setLoading] = useState(true);
-    const { user, role, designation } = useAuth();
-    const { toast } = useToast();
-    const [deletingRequest, setDeletingRequest] = useState<PurchaseRequest | null>(null);
-    const [revertingStepInfo, setRevertingStepInfo] = useState<{requestId: string, stepId: number, milestone: PurchaseStatus} | null>(null);
 
     useEffect(() => {
         const q = query(collection(db, "purchaseRequests"));
@@ -455,117 +553,11 @@ export default function PurchasePage() {
         return () => unsubscribe();
     }, []);
 
-    const updateStepInFirestore = async (requestId: string, stepId: number, status: 'completed' | 'skipped') => {
-        if (!user) {
-            toast({ variant: "destructive", title: "You must be logged in." });
-            return;
-        }
-
-        const newStatus: PurchaseStatus = {
-            stepId,
-            status,
-            completedAt: new Date().toISOString(),
-            completedBy: user.name,
-        };
-        
-        try {
-            const requestRef = doc(db, "purchaseRequests", requestId);
-            const updatePayload: any = { milestones: arrayUnion(newStatus) };
-
-             // When last step is completed, initialize PO tracking
-            if (stepId === 6 || stepId === 11) {
-                updatePayload.poMilestones = [];
-                updatePayload.poDeliveryDate = null; // To be set in the next phase
-            }
-
-            await updateDoc(requestRef, updatePayload);
-            toast({ title: "Step Updated!", description: "Progress has been saved." });
-        } catch (error) {
-            console.error("Error updating purchase step:", error);
-            toast({ variant: "destructive", title: "Update Failed" });
-        }
-    }
-    
-    const handleVendorTypeSelect = async (requestId: string, vendorType: 'existing' | 'new') => {
-        if (!user) return;
-        const newStatus: PurchaseStatus = {
-            stepId: 5, // Vendor selection step
-            status: 'completed',
-            completedAt: new Date().toISOString(),
-            completedBy: user.name,
-            remarks: `Selected ${vendorType} vendor`,
-        };
-        try {
-            const requestRef = doc(db, "purchaseRequests", requestId);
-            await updateDoc(requestRef, { 
-                vendorType,
-                milestones: arrayUnion(newStatus) 
-            });
-            toast({ title: "Vendor Type Selected", description: `Switched to ${vendorType} vendor workflow.` });
-        } catch (error) {
-            console.error("Error setting vendor type:", error);
-            toast({ variant: "destructive", title: "Update Failed" });
-        }
-    };
-
-    const handleDelete = async () => {
-        if (!deletingRequest) return;
-        try {
-            await deleteDoc(doc(db, "purchaseRequests", deletingRequest.id));
-            toast({ title: "Purchase Request Deleted" });
-            setDeletingRequest(null);
-        } catch (error) {
-            console.error("Error deleting purchase request:", error);
-            toast({ variant: "destructive", title: "Deletion Failed" });
-        }
-    };
-
-    const handleOpenRevertDialog = (requestId: string, stepId: number, milestone: PurchaseStatus) => {
-        setRevertingStepInfo({ requestId, stepId, milestone });
-    };
-    
-    const handleRevertStep = async () => {
-        if (!revertingStepInfo) return;
-        const { requestId, stepId, milestone } = revertingStepInfo;
-    
-        try {
-            const requestRef = doc(db, "purchaseRequests", requestId);
-            let updatePayload: any = {
-                milestones: arrayRemove(milestone)
-            };
-    
-            if (stepId === 5) {
-                updatePayload.vendorType = 'undecided';
-                const docSnap = await getDoc(requestRef);
-                if (docSnap.exists()) {
-                    const currentRequest = docSnap.data() as PurchaseRequest;
-                    const branchToRemove = currentRequest.vendorType === 'existing' ? EXISTING_VENDOR_BRANCH : NEW_VENDOR_BRANCH;
-                    const branchStepIds = branchToRemove.map(s => s.id);
-                    const milestonesToRevert = currentRequest.milestones.filter(m => branchStepIds.includes(m.stepId));
-                    if (milestonesToRevert.length > 0) {
-                       await updateDoc(requestRef, { milestones: arrayRemove(...milestonesToRevert) });
-                    }
-                }
-            }
-             
-            await updateDoc(requestRef, updatePayload);
-            toast({ title: "Step Reverted!", description: "The step has been successfully reverted." });
-        } catch (error) {
-            console.error("Error reverting step:", error);
-            toast({ variant: "destructive", title: "Revert Failed" });
-        } finally {
-            setRevertingStepInfo(null);
-        }
-    };
-
-    const revertingStepConfig = revertingStepInfo ? ALL_STEPS_MAP[revertingStepInfo.stepId] : null;
-
     const isFabricRequest = (req: PurchaseRequest) => req.type === 'fabric';
     const isFurnitureRequest = (req: PurchaseRequest) => req.type === 'furniture';
 
     const fabricRequests = purchaseRequests.filter(isFabricRequest);
     const furnitureRequests = purchaseRequests.filter(isFurnitureRequest);
-
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -593,14 +585,7 @@ export default function PurchasePage() {
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : fabricRequests.length > 0 ? (
                              fabricRequests.map(request => (
-                                <PurchaseRequestCard 
-                                    key={request.id} 
-                                    request={request} 
-                                    onRevertStep={handleOpenRevertDialog}
-                                    onDeleteRequest={setDeletingRequest}
-                                    onQuickStepUpdate={updateStepInFirestore}
-                                    onVendorTypeSelect={handleVendorTypeSelect}
-                                />
+                                <PurchaseRequestCard key={request.id} request={request} />
                              ))
                         ) : (
                             <Card className="text-center p-12">
@@ -618,14 +603,7 @@ export default function PurchasePage() {
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : furnitureRequests.length > 0 ? (
                             furnitureRequests.map(request => (
-                                 <PurchaseRequestCard 
-                                    key={request.id} 
-                                    request={request} 
-                                    onRevertStep={handleOpenRevertDialog}
-                                    onDeleteRequest={setDeletingRequest}
-                                    onQuickStepUpdate={updateStepInFirestore}
-                                    onVendorTypeSelect={handleVendorTypeSelect}
-                                />
+                                 <PurchaseRequestCard key={request.id} request={request} />
                             ))
                         ) : (
                             <Card className="text-center p-12">
@@ -638,36 +616,7 @@ export default function PurchasePage() {
                     </div>
                 </TabsContent>
             </Tabs>
-
-            <AlertDialog open={!!deletingRequest} onOpenChange={() => setDeletingRequest(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will permanently delete the purchase request for <span className="font-bold">{deletingRequest?.customerName}</span> (ID: {deletingRequest?.dealId}). This action cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-            
-            <AlertDialog open={!!revertingStepInfo} onOpenChange={() => setRevertingStepInfo(null)}>
-                 <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </div>
     );
 }
+
