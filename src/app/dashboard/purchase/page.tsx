@@ -28,7 +28,7 @@ const PURCHASE_PROCESS_CONFIG: PurchaseStep[] = [
     { id: 2, step: "Payment Verification", details: "Verify payment availability", time: "30 min", role: "Accounts", icon: Banknote, expectedDuration: { minutes: 30 } },
     { id: 3, step: "Stock Verification", details: "Check current stock levels", time: "30 min", role: "PC", icon: PackageSearch, expectedDuration: { minutes: 30 } },
     { id: 4, step: "Inform Requesting Person", details: "Update the person who made the request", time: "30 min", role: "PC", icon: MessageSquare, expectedDuration: { minutes: 30 } },
-    { id: 5, step: "Select Vendor Type", details: "Is this an existing or new vendor?", time: "N/A", role: "PC", icon: Briefcase, expectedDuration: {} },
+    { id: 5, step: "Select Vendor Type", details: "Yes for Existing, No for New", time: "N/A", role: "PC", icon: Briefcase, expectedDuration: {} },
 ];
 
 const EXISTING_VENDOR_BRANCH: PurchaseStep[] = [
@@ -87,7 +87,7 @@ const calculateExpectedDatesForRequest = (request: PurchaseRequest) => {
             let prevStepConfig = allSteps[currentIndex - 1];
 
             // If the previous step was the vendor choice, the base is the step before THAT
-            if (prevStepConfig.id === 5) {
+            if (prevStepConfig && prevStepConfig.id === 5) {
                 prevStepConfig = allSteps[currentIndex - 2];
             }
             
@@ -161,6 +161,30 @@ function PurchaseProcessTimeline({
         }
         return prevStep;
     }
+    
+    const renderActionButtons = (stepConfig: PurchaseStep) => {
+        const hasPermission = checkPermission(stepConfig.role);
+
+        const handleAction = (action: 'yes' | 'no') => {
+            if (stepConfig.id === 5) {
+                const vendorType = action === 'yes' ? 'existing' : 'new';
+                onVendorTypeSelect(request.id, vendorType);
+            } else {
+                const status = action === 'yes' ? 'completed' : 'skipped';
+                onQuickStepUpdate(request.id, stepConfig.id, status);
+            }
+        };
+
+        return (
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild><Button size="sm" disabled={!hasPermission}>Action</Button></DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => handleAction('yes')}>Yes</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleAction('no')}>No</DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        );
+    };
 
     return (
         <div className="relative pl-6 pr-4 py-4">
@@ -180,6 +204,11 @@ function PurchaseProcessTimeline({
                     
                     const canAct = !stepStatus && (stepConfig.id === 1 || (prevStepStatus && prevStepStatus.status === 'completed'));
                     
+                    let selectionText = stepStatus?.status;
+                    if(stepConfig.id === 5 && stepStatus?.status === 'completed') {
+                        selectionText = request.vendorType;
+                    }
+
                     return (
                         <div key={stepConfig.id} className="relative flex items-start gap-4">
                             <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-border shadow-sm shrink-0 bg-card">
@@ -226,15 +255,10 @@ function PurchaseProcessTimeline({
                                                     </Button>
                                                 </AlertDialogTrigger>
                                             )}
-                                            {canAct && stepConfig.id === 5 ? (
-                                                <div className="flex gap-2">
-                                                    <Button size="sm" onClick={() => onVendorTypeSelect(request.id, 'existing')} disabled={!checkPermission(stepConfig.role)}>Existing Vendor</Button>
-                                                    <Button size="sm" onClick={() => onVendorTypeSelect(request.id, 'new')} disabled={!checkPermission(stepConfig.role)}>New Vendor</Button>
-                                                </div>
-                                            ) : canAct ? (
-                                                <Button size="sm" onClick={() => onQuickStepUpdate(request.id, stepConfig.id, 'completed')} disabled={!checkPermission(stepConfig.role)}>Mark as Done</Button>
+                                            {canAct ? (
+                                                renderActionButtons(stepConfig)
                                             ) : (
-                                                 stepStatus?.status === 'completed' ? <Badge>Completed</Badge> : null
+                                                stepStatus?.status ? <Badge className="capitalize">{selectionText}</Badge> : null
                                             )}
                                         </div>
                                     </div>
@@ -370,12 +394,17 @@ export default function PurchasePage() {
                                     <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
                                     {isCompleted ? (
                                         <p className='flex items-center gap-2 font-medium text-green-600'><CheckCircle className='h-4 w-4'/> Status: Completed</p>
-                                    ) : currentStep && (
+                                    ) : currentStep && currentStep.id !== 5 ? (
                                         <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
                                             <Clock className='h-4 w-4'/>
                                             Status: {currentStep.step} - Due by {formatTimestamp(expectedDates[currentStep.id])}
                                         </p>
-                                    )}
+                                    ) : currentStep ? (
+                                        <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
+                                            <Clock className='h-4 w-4'/>
+                                            Status: {currentStep.step}
+                                        </p>
+                                    ): null }
                                 </div>
                                 <div className="text-right flex flex-col items-end">
                                     <div className="flex items-center gap-2">
