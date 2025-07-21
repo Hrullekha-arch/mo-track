@@ -279,6 +279,7 @@ export default function PurchasePage() {
     const { user, role, designation } = useAuth();
     const { toast } = useToast();
     const [deletingRequest, setDeletingRequest] = useState<PurchaseRequest | null>(null);
+    const [revertingStepInfo, setRevertingStepInfo] = useState<{requestId: string, stepId: number, milestone: PurchaseStatus} | null>(null);
 
     useEffect(() => {
         const q = query(collection(db, "purchaseRequests"));
@@ -348,8 +349,24 @@ export default function PurchasePage() {
     };
     
     const handleRevertStep = async () => {
-        // Placeholder for revert logic
+        if (!revertingStepInfo) return;
+        const { requestId, milestone } = revertingStepInfo;
+
+        try {
+            const requestRef = doc(db, "purchaseRequests", requestId);
+            await updateDoc(requestRef, {
+                milestones: arrayRemove(milestone)
+            });
+            toast({ title: "Step Reverted!", description: "The step has been successfully reverted." });
+        } catch (error) {
+            console.error("Error reverting step:", error);
+            toast({ variant: "destructive", title: "Revert Failed" });
+        } finally {
+            setRevertingStepInfo(null);
+        }
     };
+
+    const revertingStepConfig = revertingStepInfo ? ALL_STEPS_MAP[revertingStepInfo.stepId] : null;
 
     const PurchaseRequestCard = ({ request }: { request: PurchaseRequest }) => {
         const [showAllSteps, setShowAllSteps] = useState(false);
@@ -489,7 +506,7 @@ export default function PurchasePage() {
                         onStepUpdate={() => {}}
                         onQuickStepUpdate={updateStepInFirestore}
                         onVendorTypeSelect={handleVendorTypeSelect}
-                        onRevertStep={() => {}}
+                        onRevertStep={(requestId, stepId, milestone) => setRevertingStepInfo({ requestId, stepId, milestone })}
                         userRole={role}
                         userDesignation={designation}
                         showAllSteps={showAllSteps}
@@ -531,7 +548,11 @@ export default function PurchasePage() {
                         {loading ? (
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : fabricRequests.length > 0 ? (
-                             fabricRequests.map(request => <PurchaseRequestCard key={request.id} request={request} />)
+                             fabricRequests.map(request => (
+                                <AlertDialog key={request.id}>
+                                    <PurchaseRequestCard request={request} />
+                                </AlertDialog>
+                             ))
                         ) : (
                             <Card className="text-center p-12">
                                 <CardTitle>No Fabric Requests</CardTitle>
@@ -547,7 +568,11 @@ export default function PurchasePage() {
                         {loading ? (
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : furnitureRequests.length > 0 ? (
-                            furnitureRequests.map(request => <PurchaseRequestCard key={request.id} request={request} />)
+                            furnitureRequests.map(request => (
+                                <AlertDialog key={request.id}>
+                                    <PurchaseRequestCard request={request} />
+                                </AlertDialog>
+                            ))
                         ) : (
                             <Card className="text-center p-12">
                                 <CardTitle>No Furniture Requests</CardTitle>
@@ -559,6 +584,19 @@ export default function PurchasePage() {
                     </div>
                 </TabsContent>
             </Tabs>
+            
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setRevertingStepInfo(null)}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
 
              <AlertDialog open={!!deletingRequest} onOpenChange={() => setDeletingRequest(null)}>
                 <AlertDialogContent>
