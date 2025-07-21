@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers, MoreVertical, Trash2 } from 'lucide-react';
+import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers, MoreVertical, Trash2, Clock } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStep, PurchaseStatus } from "@/lib/types";
@@ -58,11 +58,19 @@ function getExpectedCompletionDate(step: PurchaseStep, startDate: Date): Date {
 }
 
 const formatTimestamp = (date: Date) => {
-    return format(date, 'dd/MM/yyyy - HH:mm:ss');
+    return format(date, 'dd/MM/yyyy - HH:mm');
 };
 
 const calculateExpectedDatesForRequest = (request: PurchaseRequest) => {
-    const allSteps = [...PURCHASE_PROCESS_CONFIG, ...(request.vendorType === 'existing' ? EXISTING_VENDOR_BRANCH : NEW_VENDOR_BRANCH)];
+    let allSteps = [...PURCHASE_PROCESS_CONFIG];
+     if (request.vendorType === 'existing') {
+        allSteps.push(...EXISTING_VENDOR_BRANCH);
+    } else if (request.vendorType === 'new') {
+        allSteps.push(...NEW_VENDOR_BRANCH);
+    } else {
+        // If vendorType is undecided, only calculate for the initial steps
+        allSteps = PURCHASE_PROCESS_CONFIG;
+    }
     
     return allSteps.reduce((acc, currentStep) => {
         if (currentStep.id === 5) { // Skip vendor selection step for date calculation
@@ -143,6 +151,17 @@ function PurchaseProcessTimeline({
         return false;
     }
 
+    const getPrevStep = (currentStepId: number) => {
+        const currentIndex = processSteps.findIndex(s => s.id === currentStepId);
+        if (currentIndex <= 0) return null;
+        let prevStep = processSteps[currentIndex - 1];
+        // If the previous step was the vendor choice, go back one more
+        if (prevStep && prevStep.id === 5) {
+             return processSteps[currentIndex - 2];
+        }
+        return prevStep;
+    }
+
     return (
         <div className="relative pl-6 pr-4 py-4">
             <div className="absolute left-9 top-0 h-full w-0.5 bg-border -translate-x-1/2" aria-hidden="true"></div>
@@ -156,12 +175,11 @@ function PurchaseProcessTimeline({
 
                     const Icon = stepConfig.icon;
 
-                    // Logic to check if the previous step is completed to allow action
-                    const prevStepIndex = PURCHASE_PROCESS_CONFIG.findIndex(s => s.id === stepConfig.id) - 1;
-                    const prevStep = prevStepIndex >= 0 ? PURCHASE_PROCESS_CONFIG[prevStepIndex] : { id: 0 };
-                    const prevStepStatus = request.milestones.find(m => m.stepId === prevStep.id);
-                    const canAct = (stepConfig.id === 1 || (prevStepStatus && prevStepStatus.status === 'completed')) && !stepStatus;
-
+                    const prevStep = getPrevStep(stepConfig.id);
+                    const prevStepStatus = prevStep ? request.milestones.find(m => m.stepId === prevStep.id) : null;
+                    
+                    const canAct = !stepStatus && (stepConfig.id === 1 || (prevStepStatus && prevStepStatus.status === 'completed'));
+                    
                     return (
                         <div key={stepConfig.id} className="relative flex items-start gap-4">
                             <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-border shadow-sm shrink-0 bg-card">
@@ -311,13 +329,35 @@ export default function PurchasePage() {
 
     const PurchaseRequestCard = ({ request }: { request: PurchaseRequest }) => {
         const [showAllSteps, setShowAllSteps] = useState(false);
-        const cardBorderColor = "border-border"; // Add logic for overdue if needed
         const hasFabric = request.fabricDetails && request.fabricDetails.length > 0 && request.fabricDetails.some(f => f.fabricName);
         const hasFurniture = request.furnitureDetails && request.furnitureDetails.length > 0 && request.furnitureDetails.some(f => f.furnitureName);
         const defaultTab = hasFabric ? "fabric" : "furniture";
 
+        // Status Calculation
+        const expectedDates = calculateExpectedDatesForRequest(request);
+        let processSteps = [...PURCHASE_PROCESS_CONFIG];
+        if (request.vendorType === 'existing') processSteps.push(...EXISTING_VENDOR_BRANCH);
+        else if (request.vendorType === 'new') processSteps.push(...NEW_VENDOR_BRANCH);
+
+        const completedSteps = (request.milestones || []);
+        const nextStepIndex = processSteps.findIndex(s => !completedSteps.some(cs => cs.stepId === s.id));
+        const currentStep = nextStepIndex !== -1 ? processSteps[nextStepIndex] : null;
+        const lastStep = processSteps[processSteps.length -1];
+        const isCompleted = completedSteps.some(cs => cs.stepId === lastStep.id);
+
+        let statusTextColor = "text-primary";
+        if (!isCompleted && currentStep) {
+            const expectedDate = expectedDates[currentStep.id];
+            if (isPast(expectedDate)) {
+                statusTextColor = "text-red-500";
+            } else if (differenceInHours(expectedDate, new Date()) <= 24) {
+                statusTextColor = "text-orange-500";
+            }
+        }
+
+
         return (
-             <Collapsible key={request.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", cardBorderColor)}>
+             <Collapsible key={request.id} className="border-2 rounded-lg bg-card overflow-hidden">
                 <div className="p-4 space-y-4">
                     <div className="flex gap-4">
                         {/* Column 1: Request Details */}
@@ -328,6 +368,14 @@ export default function PurchasePage() {
                                     <p className="text-sm text-muted-foreground">ID: {request.dealId}</p>
                                     <p className='flex items-center gap-2 pt-1'><User className='h-4 w-4 text-muted-foreground' /> Salesman: {request.salesman}</p>
                                     <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
+                                    {isCompleted ? (
+                                        <p className='flex items-center gap-2 font-medium text-green-600'><CheckCircle className='h-4 w-4'/> Status: Completed</p>
+                                    ) : currentStep && (
+                                        <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
+                                            <Clock className='h-4 w-4'/>
+                                            Status: {currentStep.step} - Due by {formatTimestamp(expectedDates[currentStep.id])}
+                                        </p>
+                                    )}
                                 </div>
                                 <div className="text-right flex flex-col items-end">
                                     <div className="flex items-center gap-2">
@@ -394,7 +442,7 @@ export default function PurchasePage() {
 
 
                     <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm" className="w-full justify-center !mt-4">
+                        <Button variant="ghost" size="sm" className="w-full !mt-4">
                             <span className='mr-2'>View Process</span>
                             <ChevronDown className="h-4 w-4" />
                         </Button>
