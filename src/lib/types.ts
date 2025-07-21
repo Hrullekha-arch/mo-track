@@ -1,7 +1,5 @@
 
 
-
-
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -93,8 +91,23 @@ export interface SalesmanCrmAssignment {
 // Purchase Process Types
 export interface PurchaseRequest {
   id: string;
-  itemName: string;
-  requestingPerson: string;
+  // Common fields from new form
+  email: string;
+  dealId: string;
+  customerName: string;
+  promiseDeliveryDate: string; // ISO Date string
+  salesman: string;
+  workType: string;
+  
+  // Dynamic details
+  fabricDetails?: { fabricName: string; quantity: string }[];
+  furnitureDetails?: { furnitureName: string; quantity: string }[];
+  
+  // Original simple fields (can be deprecated or used for other types)
+  itemName?: string;
+  requestingPerson?: string;
+
+  // Workflow fields
   createdAt: string; // ISO Date string
   createdBy: {
     id: string;
@@ -127,3 +140,5 @@ export interface PurchaseStep {
         minutes?: number;
     }
 }
+
+    

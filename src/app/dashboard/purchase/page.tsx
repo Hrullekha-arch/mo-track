@@ -14,11 +14,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, differenceInHours } from 'date-fns';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { NewPurchaseRequestDialog } from '@/components/features/purchase/NewPurchaseRequestDialog';
+import Link from 'next/link';
 
 const PURCHASE_PROCESS_CONFIG: PurchaseStep[] = [
     { id: 1, step: "Verify Authorization", details: "Check if the request is authorized", time: "30 min", role: "Accounts", icon: UserCheck, expectedDuration: { minutes: 30 } },
@@ -231,7 +228,6 @@ function PurchaseProcessTimeline({
 export default function PurchasePage() {
     const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
     const [loading, setLoading] = useState(true);
-    const [isNewRequestDialogOpen, setIsNewRequestDialogOpen] = useState(false);
     const { user, role, designation } = useAuth();
     const { toast } = useToast();
 
@@ -303,9 +299,9 @@ export default function PurchasePage() {
                 <div className="p-4">
                     <div className="flex justify-between items-start">
                         <div className="space-y-2 text-sm">
-                            <h3 className="font-semibold text-lg">{request.itemName}</h3>
+                            <h3 className="font-semibold text-lg">{request.itemName || request.customerName}</h3>
                             <p className="text-sm text-muted-foreground">ID: {request.id}</p>
-                            <p className='flex items-center gap-2'><User className='h-4 w-4 text-muted-foreground' /> Requested by: {request.requestingPerson}</p>
+                             <p className='flex items-center gap-2'><User className='h-4 w-4 text-muted-foreground' /> Requested by: {request.requestingPerson || request.salesman}</p>
                         </div>
                         <div className="text-right">
                              {request.createdAt && (
@@ -352,9 +348,11 @@ export default function PurchasePage() {
                     <h1 className="text-3xl font-bold tracking-tight">Purchase Process</h1>
                     <p className="text-muted-foreground">Manage and track all purchase requests from authorization to placing the order.</p>
                 </div>
-                <Button onClick={() => setIsNewRequestDialogOpen(true)}>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    New Purchase Request
+                <Button asChild>
+                    <Link href="/dashboard/purchase/new">
+                        <PlusCircle className="mr-2 h-4 w-4" />
+                        New Purchase Request
+                    </Link>
                 </Button>
             </header>
             
@@ -374,11 +372,8 @@ export default function PurchasePage() {
                     </Card>
                 )}
             </div>
-            
-            <NewPurchaseRequestDialog
-                isOpen={isNewRequestDialogOpen}
-                onClose={() => setIsNewRequestDialogOpen(false)}
-            />
         </div>
     );
 }
+
+    
