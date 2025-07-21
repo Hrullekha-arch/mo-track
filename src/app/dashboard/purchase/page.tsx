@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2 } from 'lucide-react';
+import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStep, PurchaseStatus } from "@/lib/types";
@@ -16,6 +16,8 @@ import { cn } from '@/lib/utils';
 import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, differenceInHours } from 'date-fns';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 
 const PURCHASE_PROCESS_CONFIG: PurchaseStep[] = [
     { id: 1, step: "Verify Authorization", details: "Check if the request is authorized", time: "30 min", role: "Accounts", icon: UserCheck, expectedDuration: { minutes: 30 } },
@@ -293,17 +295,20 @@ export default function PurchasePage() {
     const PurchaseRequestCard = ({ request }: { request: PurchaseRequest }) => {
         const [showAllSteps, setShowAllSteps] = useState(false);
         const cardBorderColor = "border-border"; // Add logic for overdue if needed
+        const hasFabric = request.fabricDetails && request.fabricDetails.length > 0 && request.fabricDetails.some(f => f.fabricName);
+        const hasFurniture = request.furnitureDetails && request.furnitureDetails.length > 0 && request.furnitureDetails.some(f => f.furnitureName);
 
         return (
              <Collapsible key={request.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", cardBorderColor)}>
-                <div className="p-4">
+                <div className="p-4 space-y-4">
                     <div className="flex justify-between items-start">
                         <div className="space-y-2 text-sm">
-                            <h3 className="font-semibold text-lg">{request.itemName || request.customerName}</h3>
-                            <p className="text-sm text-muted-foreground">ID: {request.id}</p>
-                             <p className='flex items-center gap-2'><User className='h-4 w-4 text-muted-foreground' /> Requested by: {request.requestingPerson || request.salesman}</p>
+                            <h3 className="font-semibold text-lg">{request.customerName}</h3>
+                            <p className="text-sm text-muted-foreground">ID: {request.dealId}</p>
+                            <p className='flex items-center gap-2'><User className='h-4 w-4 text-muted-foreground' /> Salesman: {request.salesman}</p>
+                            <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex flex-col items-end">
                              {request.createdAt && (
                                 <p className='flex items-center gap-2 text-sm'><Calendar className='h-4 w-4 text-muted-foreground' /> {format(new Date(request.createdAt), 'dd/MM/yyyy')}</p>
                             )}
@@ -312,8 +317,40 @@ export default function PurchasePage() {
                             )}
                         </div>
                     </div>
+
+                    {(hasFabric || hasFurniture) && <Separator />}
+
+                    {hasFabric && (
+                        <div>
+                            <h4 className="text-sm font-medium mb-2 flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Fabric Details</h4>
+                            <div className="space-y-1 text-sm text-muted-foreground pl-6">
+                                {request.fabricDetails?.map((item, index) => item.fabricName && (
+                                    <div key={index} className="flex justify-between">
+                                        <span>{item.fabricName}</span>
+                                        <span className="font-mono">{item.quantity} Mtr</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    
+                    {hasFurniture && (
+                         <div>
+                            <h4 className="text-sm font-medium mb-2 flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Furniture Details</h4>
+                            <div className="space-y-1 text-sm text-muted-foreground pl-6">
+                                {request.furnitureDetails?.map((item, index) => item.furnitureName && (
+                                    <div key={index} className="flex justify-between">
+                                        <span>{item.furnitureName}</span>
+                                        <span className="font-mono">{item.quantity}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+
                     <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm" className="w-full justify-center mt-4">
+                        <Button variant="ghost" size="sm" className="w-full justify-center !mt-4">
                             <span className='mr-2'>View Process</span>
                             <ChevronDown className="h-4 w-4" />
                         </Button>
@@ -375,5 +412,3 @@ export default function PurchasePage() {
         </div>
     );
 }
-
-    
