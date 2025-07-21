@@ -212,7 +212,12 @@ function O2DProcessTimeline({
                                 <CardContent>
                                     <div className="flex justify-between items-center flex-wrap gap-4">
                                          <div className="text-xs text-muted-foreground space-y-2 flex-grow">
-                                            <p>Expected by: {formatTimestamp(expectedDate)}</p>
+                                            <p className={cn(
+                                                isPending && isOverdue ? "text-red-600 font-medium" : "",
+                                                stepStatus?.status === 'completed' && wasCompletedLate ? "text-orange-600" : ""
+                                            )}>
+                                                Expected by: {formatTimestamp(expectedDate)}
+                                            </p>
                                             
                                             {stepStatus?.status === 'completed' && (
                                                 <div className="flex items-center gap-2 text-green-600 font-medium">
@@ -699,5 +704,3 @@ export default function O2DPage() {
         </div>
     );
 }
-
-    
