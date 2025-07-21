@@ -422,6 +422,13 @@ export default function PurchasePage() {
         )
     }
 
+    const isFabricRequest = (req: PurchaseRequest) => req.fabricDetails && req.fabricDetails.length > 0 && req.fabricDetails.some(f => f.fabricName);
+    const isFurnitureRequest = (req: PurchaseRequest) => req.furnitureDetails && req.furnitureDetails.length > 0 && req.furnitureDetails.some(f => f.furnitureName);
+
+    const fabricRequests = purchaseRequests.filter(isFabricRequest);
+    const furnitureRequests = purchaseRequests.filter(isFurnitureRequest);
+
+
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <header className="mb-8 flex items-center justify-between">
@@ -437,22 +444,45 @@ export default function PurchasePage() {
                 </Button>
             </header>
             
-            <div className="space-y-4">
-                {loading ? (
-                    Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
-                ) : purchaseRequests.length > 0 ? (
-                    <>
-                        {purchaseRequests.map(request => <PurchaseRequestCard key={request.id} request={request} />)}
-                    </>
-                ) : (
-                    <Card className="text-center p-12">
-                        <CardTitle>No Purchase Requests</CardTitle>
-                        <CardDescription>
-                            Click "New Purchase Request" to get started.
-                        </CardDescription>
-                    </Card>
-                )}
-            </div>
+             <Tabs defaultValue="fabric" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="fabric">Fabric Requests</TabsTrigger>
+                    <TabsTrigger value="furniture">Furniture Requests</TabsTrigger>
+                </TabsList>
+                <TabsContent value="fabric">
+                    <div className="space-y-4 pt-4">
+                        {loading ? (
+                            Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
+                        ) : fabricRequests.length > 0 ? (
+                             fabricRequests.map(request => <PurchaseRequestCard key={request.id} request={request} />)
+                        ) : (
+                            <Card className="text-center p-12">
+                                <CardTitle>No Fabric Requests</CardTitle>
+                                <CardDescription>
+                                    Create a new fabric purchase request to see it here.
+                                </CardDescription>
+                            </Card>
+                        )}
+                    </div>
+                </TabsContent>
+                <TabsContent value="furniture">
+                    <div className="space-y-4 pt-4">
+                        {loading ? (
+                            Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
+                        ) : furnitureRequests.length > 0 ? (
+                            furnitureRequests.map(request => <PurchaseRequestCard key={request.id} request={request} />)
+                        ) : (
+                            <Card className="text-center p-12">
+                                <CardTitle>No Furniture Requests</CardTitle>
+                                <CardDescription>
+                                    Create a new furniture purchase request to see it here.
+                                </CardDescription>
+                            </Card>
+                        )}
+                    </div>
+                </TabsContent>
+            </Tabs>
+
              <AlertDialog open={!!deletingRequest} onOpenChange={() => setDeletingRequest(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
