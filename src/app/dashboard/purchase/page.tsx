@@ -256,7 +256,7 @@ function PurchaseProcessTimeline({
                                             {canAct ? (
                                                 renderActionButtons(stepConfig)
                                             ) : (
-                                                stepStatus?.status ? <Badge className="capitalize">{selectionText}</Badge> : null
+                                                stepStatus?.status ? <Badge className="capitalize">{stepConfig.id === 5 ? request.vendorType : stepStatus.status}</Badge> : null
                                             )}
                                         </div>
                                     </div>
@@ -348,13 +348,33 @@ export default function PurchasePage() {
     
     const handleRevertStep = async () => {
         if (!revertingStepInfo) return;
-        const { requestId, milestone } = revertingStepInfo;
-
+        const { requestId, stepId, milestone } = revertingStepInfo;
+    
         try {
             const requestRef = doc(db, "purchaseRequests", requestId);
-            await updateDoc(requestRef, {
+            const updatePayload: any = {
                 milestones: arrayRemove(milestone)
-            });
+            };
+    
+            // If reverting step 5 (vendor selection), also reset the vendorType
+            if (stepId === 5) {
+                updatePayload.vendorType = 'undecided';
+                
+                // Also remove subsequent steps from the branch that was chosen
+                const requestDoc = await doc(db, "purchaseRequests", requestId).get();
+                const currentRequest = requestDoc.data() as PurchaseRequest;
+                const branchToRemove = currentRequest.vendorType === 'existing' ? EXISTING_VENDOR_BRANCH : NEW_VENDOR_BRANCH;
+                const branchStepIds = branchToRemove.map(s => s.id);
+                const milestonesToKeep = currentRequest.milestones.filter(m => !branchStepIds.includes(m.stepId));
+                
+                updatePayload.milestones = milestonesToKeep; // This will be an array of objects
+                await updateDoc(requestRef, { milestones: arrayRemove(milestone) }); // Remove step 5 first
+                await updateDoc(requestRef, { vendorType: 'undecided', milestones: milestonesToKeep }); // Then reset all other state
+
+            } else {
+                 await updateDoc(requestRef, updatePayload);
+            }
+    
             toast({ title: "Step Reverted!", description: "The step has been successfully reverted." });
         } catch (error) {
             console.error("Error reverting step:", error);
@@ -397,6 +417,7 @@ export default function PurchasePage() {
 
         return (
              <Collapsible key={request.id} className="border-2 rounded-lg bg-card overflow-hidden">
+                 <AlertDialog>
                 <div className="p-4 space-y-4">
                     <div className="flex gap-4">
                         {/* Column 1: Request Details */}
@@ -509,12 +530,25 @@ export default function PurchasePage() {
                         setRevertingStepInfo={setRevertingStepInfo}
                     />
                 </CollapsibleContent>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setRevertingStepInfo(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+                </AlertDialog>
             </Collapsible>
         )
     }
 
-    const isFabricRequest = (req: PurchaseRequest) => req.fabricDetails && req.fabricDetails.length > 0 && req.fabricDetails.some(f => f.fabricName);
-    const isFurnitureRequest = (req: PurchaseRequest) => req.furnitureDetails && req.furnitureDetails.length > 0 && req.furnitureDetails.some(f => f.furnitureName);
+    const isFabricRequest = (req: PurchaseRequest) => req.type === 'fabric';
+    const isFurnitureRequest = (req: PurchaseRequest) => req.type === 'furniture';
 
     const fabricRequests = purchaseRequests.filter(isFabricRequest);
     const furnitureRequests = purchaseRequests.filter(isFurnitureRequest);
@@ -546,21 +580,7 @@ export default function PurchasePage() {
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : fabricRequests.length > 0 ? (
                              fabricRequests.map(request => (
-                                <AlertDialog key={request.id}>
-                                    <PurchaseRequestCard request={request} />
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel onClick={() => setRevertingStepInfo(null)}>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                 </AlertDialog>
+                                <PurchaseRequestCard key={request.id} request={request} />
                              ))
                         ) : (
                             <Card className="text-center p-12">
@@ -578,21 +598,7 @@ export default function PurchasePage() {
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : furnitureRequests.length > 0 ? (
                             furnitureRequests.map(request => (
-                                <AlertDialog key={request.id}>
-                                    <PurchaseRequestCard request={request} />
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel onClick={() => setRevertingStepInfo(null)}>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                 </AlertDialog>
+                                <PurchaseRequestCard key={request.id} request={request} />
                             ))
                         ) : (
                             <Card className="text-center p-12">
