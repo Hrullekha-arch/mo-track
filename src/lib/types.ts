@@ -92,7 +92,6 @@ export interface SalesmanCrmAssignment {
 export interface PurchaseRequest {
   id: string;
   type: 'fabric' | 'furniture';
-  // Common fields from new form
   email: string;
   dealId: string;
   customerName: string;
@@ -100,15 +99,9 @@ export interface PurchaseRequest {
   salesman: string;
   workType: string;
   
-  // Dynamic details
   fabricDetails?: { fabricName: string; quantity: string }[];
   furnitureDetails?: { furnitureName: string; quantity: string }[];
   
-  // Original simple fields (can be deprecated or used for other types)
-  itemName?: string;
-  requestingPerson?: string;
-
-  // Workflow fields
   createdAt: string; // ISO Date string
   createdBy: {
     id: string;
@@ -118,6 +111,10 @@ export interface PurchaseRequest {
   vendorType: 'existing' | 'new' | 'undecided';
   status: 'pending' | 'completed' | 'cancelled';
   remarks?: string;
+
+  // PO Tracking
+  poMilestones?: PurchaseStatus[];
+  poDeliveryDate?: string | null; // Date promised by vendor
 }
 
 export interface PurchaseStatus {
@@ -141,5 +138,3 @@ export interface PurchaseStep {
         minutes?: number;
     }
 }
-
-    

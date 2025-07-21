@@ -5,7 +5,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers, MoreVertical, Trash2, Clock } from 'lucide-react';
-import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStep, PurchaseStatus } from "@/lib/types";
 import { Skeleton } from '@/components/ui/skeleton';
@@ -91,11 +91,15 @@ const calculateExpectedDatesForRequest = (request: PurchaseRequest) => {
                 prevStepConfig = allSteps[currentIndex - 2];
             }
             
-            const previousStepStatus = (request.milestones || []).find(m => m.stepId === prevStepConfig.id);
-            if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
-                startDate = new Date(previousStepStatus.completedAt);
+            if (!prevStepConfig) {
+                 startDate = new Date(); // Fallback
             } else {
-                startDate = acc[prevStepConfig.id] || new Date();
+                const previousStepStatus = (request.milestones || []).find(m => m.stepId === prevStepConfig.id);
+                if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
+                    startDate = new Date(previousStepStatus.completedAt);
+                } else {
+                    startDate = acc[prevStepConfig.id] || new Date();
+                }
             }
         }
         acc[currentStep.id] = getExpectedCompletionDate(currentStep, startDate);
@@ -200,7 +204,16 @@ function PurchaseProcessTimeline({
                     const prevStep = getPrevStep(stepConfig.id);
                     const prevStepStatus = prevStep ? request.milestones.find(m => m.stepId === prevStep.id) : null;
                     
-                    const canAct = !stepStatus && (stepConfig.id === 1 || (prevStepStatus && prevStepStatus.status === 'completed'));
+                    let canAct = false;
+                    if(stepConfig.id === 1) {
+                        canAct = !stepStatus;
+                    } else if (stepConfig.id === 5) {
+                         const step4Status = request.milestones.find(m => m.stepId === 4);
+                         canAct = !stepStatus && !!step4Status && step4Status.status === 'completed';
+                    } else if (request.vendorType !== 'undecided') {
+                         canAct = !stepStatus && !!prevStepStatus && prevStepStatus.status === 'completed';
+                    }
+
                     
                     let selectionText = stepStatus?.status;
                     if(stepConfig.id === 5 && stepStatus?.status === 'completed') {
@@ -304,7 +317,15 @@ export default function PurchasePage() {
         
         try {
             const requestRef = doc(db, "purchaseRequests", requestId);
-            await updateDoc(requestRef, { milestones: arrayUnion(newStatus) });
+            const updatePayload: any = { milestones: arrayUnion(newStatus) };
+
+             // When last step is completed, initialize PO tracking
+            if (stepId === 6 || stepId === 11) {
+                updatePayload.poMilestones = [];
+                updatePayload.poDeliveryDate = null; // To be set in the next phase
+            }
+
+            await updateDoc(requestRef, updatePayload);
             toast({ title: "Step Updated!", description: "Progress has been saved." });
         } catch (error) {
             console.error("Error updating purchase step:", error);
@@ -352,29 +373,25 @@ export default function PurchasePage() {
     
         try {
             const requestRef = doc(db, "purchaseRequests", requestId);
-            const updatePayload: any = {
+            let updatePayload: any = {
                 milestones: arrayRemove(milestone)
             };
     
-            // If reverting step 5 (vendor selection), also reset the vendorType
             if (stepId === 5) {
                 updatePayload.vendorType = 'undecided';
-                
-                // Also remove subsequent steps from the branch that was chosen
-                const requestDoc = await doc(db, "purchaseRequests", requestId).get();
-                const currentRequest = requestDoc.data() as PurchaseRequest;
-                const branchToRemove = currentRequest.vendorType === 'existing' ? EXISTING_VENDOR_BRANCH : NEW_VENDOR_BRANCH;
-                const branchStepIds = branchToRemove.map(s => s.id);
-                const milestonesToKeep = currentRequest.milestones.filter(m => !branchStepIds.includes(m.stepId));
-                
-                updatePayload.milestones = milestonesToKeep; // This will be an array of objects
-                await updateDoc(requestRef, { milestones: arrayRemove(milestone) }); // Remove step 5 first
-                await updateDoc(requestRef, { vendorType: 'undecided', milestones: milestonesToKeep }); // Then reset all other state
-
-            } else {
-                 await updateDoc(requestRef, updatePayload);
+                const docSnap = await getDoc(requestRef);
+                if (docSnap.exists()) {
+                    const currentRequest = docSnap.data() as PurchaseRequest;
+                    const branchToRemove = currentRequest.vendorType === 'existing' ? EXISTING_VENDOR_BRANCH : NEW_VENDOR_BRANCH;
+                    const branchStepIds = branchToRemove.map(s => s.id);
+                    const milestonesToRevert = currentRequest.milestones.filter(m => branchStepIds.includes(m.stepId));
+                    if (milestonesToRevert.length > 0) {
+                       await updateDoc(requestRef, { milestones: arrayRemove(...milestonesToRevert) });
+                    }
+                }
             }
-    
+             
+            await updateDoc(requestRef, updatePayload);
             toast({ title: "Step Reverted!", description: "The step has been successfully reverted." });
         } catch (error) {
             console.error("Error reverting step:", error);
@@ -401,11 +418,13 @@ export default function PurchasePage() {
         const completedSteps = (request.milestones || []);
         const nextStepIndex = processSteps.findIndex(s => !completedSteps.some(cs => cs.stepId === s.id));
         const currentStep = nextStepIndex !== -1 ? processSteps[nextStepIndex] : null;
-        const lastStep = processSteps[processSteps.length -1];
-        const isCompleted = completedSteps.some(cs => cs.stepId === lastStep.id);
+        
+        const lastStepInExisting = EXISTING_VENDOR_BRANCH[EXISTING_VENDOR_BRANCH.length - 1];
+        const lastStepInNew = NEW_VENDOR_BRANCH[NEW_VENDOR_BRANCH.length - 1];
+        const isCompleted = completedSteps.some(cs => (cs.stepId === lastStepInExisting.id || cs.stepId === lastStepInNew.id) && cs.status === 'completed');
 
         let statusTextColor = "text-primary";
-        if (!isCompleted && currentStep) {
+        if (!isCompleted && currentStep && currentStep.id !== 5) {
             const expectedDate = expectedDates[currentStep.id];
             if (isPast(expectedDate)) {
                 statusTextColor = "text-red-500";
@@ -417,7 +436,6 @@ export default function PurchasePage() {
 
         return (
              <Collapsible key={request.id} className="border-2 rounded-lg bg-card overflow-hidden">
-                 <AlertDialog>
                 <div className="p-4 space-y-4">
                     <div className="flex gap-4">
                         {/* Column 1: Request Details */}
@@ -429,7 +447,7 @@ export default function PurchasePage() {
                                     <p className='flex items-center gap-2 pt-1'><User className='h-4 w-4 text-muted-foreground' /> Salesman: {request.salesman}</p>
                                     <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
                                     {isCompleted ? (
-                                        <p className='flex items-center gap-2 font-medium text-green-600'><CheckCircle className='h-4 w-4'/> Status: Completed</p>
+                                        <p className='flex items-center gap-2 font-medium text-green-600'><CheckCircle className='h-4 w-4'/> Status: Order Placed</p>
                                     ) : currentStep && currentStep.id !== 5 ? (
                                         <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
                                             <Clock className='h-4 w-4'/>
@@ -520,29 +538,32 @@ export default function PurchasePage() {
                            {showAllSteps ? 'Show Pending Steps' : 'Show All Steps'}
                         </Button>
                     </div>
-                    <PurchaseProcessTimeline
-                        request={request}
-                        onQuickStepUpdate={updateStepInFirestore}
-                        onVendorTypeSelect={handleVendorTypeSelect}
-                        userRole={role}
-                        userDesignation={designation}
-                        showAllSteps={showAllSteps}
-                        setRevertingStepInfo={setRevertingStepInfo}
-                    />
+                     <AlertDialog>
+                        <PurchaseProcessTimeline
+                            request={request}
+                            onQuickStepUpdate={updateStepInFirestore}
+                            onVendorTypeSelect={handleVendorTypeSelect}
+                            userRole={role}
+                            userDesignation={designation}
+                            showAllSteps={showAllSteps}
+                            setRevertingStepInfo={setRevertingStepInfo}
+                        />
+                         {revertingStepInfo && revertingStepInfo.requestId === request.id && (
+                             <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel onClick={() => setRevertingStepInfo(null)}>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                         )}
+                    </AlertDialog>
                 </CollapsibleContent>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setRevertingStepInfo(null)}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-                </AlertDialog>
             </Collapsible>
         )
     }
