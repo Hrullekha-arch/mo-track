@@ -470,12 +470,14 @@ export default function PurchasePage() {
                                                     </Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
-                                                    <DropdownMenuItem 
-                                                        className="text-destructive focus:text-destructive"
-                                                        onClick={() => setDeletingRequest(request)}
-                                                    >
-                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                                    </DropdownMenuItem>
+                                                    <AlertDialogTrigger asChild>
+                                                        <DropdownMenuItem 
+                                                            className="text-destructive focus:text-destructive"
+                                                            onClick={() => setDeletingRequest(request)}
+                                                        >
+                                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                        </DropdownMenuItem>
+                                                    </AlertDialogTrigger>
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
                                         )}
@@ -651,3 +653,6 @@ export default function PurchasePage() {
     );
 }
 
+
+
+    
