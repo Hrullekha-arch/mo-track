@@ -49,7 +49,7 @@ const formSchema = z.object({
         return data.fabricDetails && data.fabricDetails.length > 0;
     }
     return true;
-  }, 
+  },
   {
     message: "At least one fabric detail is required.",
     path: ["fabricDetails"],
@@ -60,7 +60,7 @@ const formSchema = z.object({
         return data.furnitureDetails && data.furnitureDetails.length > 0;
     }
     return true;
-  }, 
+  },
   {
     message: "At least one furniture detail is required.",
     path: ["furnitureDetails"],
@@ -190,7 +190,7 @@ export default function NewPurchaseRequestPage() {
     const { toast } = useToast();
     const router = useRouter();
     const [salesmen, setSalesmen] = useState<User[]>([]);
-    
+
     const form = useForm<PurchaseFormValues>({
         resolver: zodResolver(formSchema),
         defaultValues: {
@@ -228,7 +228,7 @@ export default function NewPurchaseRequestPage() {
             workType: data.workType,
             fabricDetails: data.fabricDetails || [],
             furnitureDetails: data.furnitureDetails || [],
-            
+
             createdAt: new Date().toISOString(),
             createdBy: {
                 id: user.id,
@@ -283,7 +283,7 @@ export default function NewPurchaseRequestPage() {
                                     <TabsTrigger value="fabric">Fabric</TabsTrigger>
                                     <TabsTrigger value="furniture">Furniture</TabsTrigger>
                                 </TabsList>
-                                
+
                                 <div className="space-y-6 pt-6">
                                      <FormField
                                         control={form.control}
@@ -373,7 +373,7 @@ export default function NewPurchaseRequestPage() {
                                                     <FormControl>
                                                         <SelectTrigger>
                                                             <SelectValue placeholder="Select Salesman" />
-                                                        </Trigger>
+                                                        </SelectTrigger>
                                                     </FormControl>
                                                     <SelectContent>
                                                         {salesmen.map(s => (
@@ -391,11 +391,11 @@ export default function NewPurchaseRequestPage() {
                                         render={({ field }) => (
                                             <FormItem>
                                                 <FormLabel>Type Of Work</FormLabel>
-                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                     <FormControl>
                                                         <SelectTrigger>
                                                             <SelectValue placeholder="Select Type" />
-                                                        </Trigger>
+                                                        </SelectTrigger>
                                                     </FormControl>
                                                     <SelectContent>
                                                         <SelectItem value="Stitching">Stitching</SelectItem>
