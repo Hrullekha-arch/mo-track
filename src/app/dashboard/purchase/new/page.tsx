@@ -202,9 +202,10 @@ export default function NewPurchaseRequestPage() {
     const formType = form.watch("type");
 
      useEffect(() => {
-        const salesmenQuery = query(collection(db, "users"), where("role", "==", "salesman"));
-        const unsubscribe = onSnapshot(salesmenQuery, (snapshot) => {
-            const salesmenData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+        const usersQuery = query(collection(db, "users"));
+        const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
+            const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+            const salesmenData = allUsers.filter(u => u.role === 'salesman');
             setSalesmen(salesmenData.sort((a, b) => a.name.localeCompare(b.name)));
         });
         return () => unsubscribe();
@@ -424,3 +425,4 @@ export default function NewPurchaseRequestPage() {
         </div>
     );
 }
+
