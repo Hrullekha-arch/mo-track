@@ -16,12 +16,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { useAuth } from "@/context/AuthContext";
-import { collection, doc, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { collection, doc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { User, PurchaseRequest } from "@/lib/types";
+import { PurchaseRequest } from "@/lib/types";
 
 const fabricDetailSchema = z.object({
   fabricName: z.string().min(1, "Fabric name is required"),
@@ -207,10 +206,10 @@ export default function NewPurchaseRequestPage() {
             return;
         }
 
-        const newRequestRef = doc(collection(db, "purchaseRequests"));
+        const newRequestRef = doc(db, "purchaseRequests", data.dealId);
 
         const requestData: PurchaseRequest = {
-            id: newRequestRef.id,
+            id: data.dealId,
             email: data.email || "",
             dealId: data.dealId,
             customerName: data.customerName,
