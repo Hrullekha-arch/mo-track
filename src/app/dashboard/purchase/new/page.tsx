@@ -189,7 +189,6 @@ export default function NewPurchaseRequestPage() {
     const { user } = useAuth();
     const { toast } = useToast();
     const router = useRouter();
-    const [salesmen, setSalesmen] = useState<User[]>([]);
 
     const form = useForm<PurchaseFormValues>({
         resolver: zodResolver(formSchema),
@@ -201,16 +200,6 @@ export default function NewPurchaseRequestPage() {
     });
 
     const formType = form.watch("type");
-
-     useEffect(() => {
-        const usersQuery = query(collection(db, "users"));
-        const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
-            const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-            const salesmenData = allUsers.filter(u => u.role === 'salesman');
-            setSalesmen(salesmenData.sort((a, b) => a.name.localeCompare(b.name)));
-        });
-        return () => unsubscribe();
-    }, []);
 
     const onSubmit = async (data: PurchaseFormValues) => {
         if (!user) {
@@ -378,18 +367,9 @@ export default function NewPurchaseRequestPage() {
                                         render={({ field }) => (
                                             <FormItem>
                                                 <FormLabel>Salesman</FormLabel>
-                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                    <FormControl>
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Select Salesman" />
-                                                        </SelectTrigger>
-                                                    </FormControl>
-                                                    <SelectContent>
-                                                        {salesmen.map(s => (
-                                                             <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
+                                                <FormControl>
+                                                    <Input placeholder="Enter salesman name" {...field} />
+                                                </FormControl>
                                                 <FormMessage />
                                             </FormItem>
                                         )}
