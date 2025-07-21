@@ -43,24 +43,29 @@ const formSchema = z.object({
   workType: z.string().min(1, "Type of work is required"),
   fabricDetails: z.array(fabricDetailSchema).optional(),
   furnitureDetails: z.array(furnitureDetailSchema).optional(),
-}).refine(data => {
+}).refine(
+  (data) => {
     if (data.type === 'fabric') {
         return data.fabricDetails && data.fabricDetails.length > 0;
     }
     return true;
-}, {
+  }, 
+  {
     message: "At least one fabric detail is required.",
     path: ["fabricDetails"],
-})
-.refine(data => {
+  }
+).refine(
+  (data) => {
     if (data.type === 'furniture') {
         return data.furnitureDetails && data.furnitureDetails.length > 0;
     }
     return true;
-}, {
+  }, 
+  {
     message: "At least one furniture detail is required.",
     path: ["furnitureDetails"],
-});
+  }
+);
 
 
 type PurchaseFormValues = z.infer<typeof formSchema>;
