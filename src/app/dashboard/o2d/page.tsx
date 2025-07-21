@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X } from 'lucide-react';
+import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X, Eye, EyeOff } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, getDoc, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, O2DStep, O2DStatus, OrderType } from "@/lib/types";
@@ -87,7 +87,8 @@ function O2DProcessTimeline({
     onRevertStep,
     onConfirmOrderType,
     userRole,
-    userDesignation
+    userDesignation,
+    showAllSteps = false
 }: { 
     order: Order; 
     onStepUpdate: (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped', selection: string) => void; 
@@ -96,9 +97,22 @@ function O2DProcessTimeline({
     onConfirmOrderType: (order: Order) => void;
     userRole: string | null;
     userDesignation: string | null;
+    showAllSteps: boolean;
 }) {
     
     const expectedDates = calculateExpectedDatesForOrder(order);
+
+    const stepsToShow = useMemo(() => {
+        if (showAllSteps) {
+            return O2D_PROCESS_CONFIG;
+        }
+        const lastCompletedIndex = O2D_PROCESS_CONFIG.findLastIndex(step => 
+            (order.o2dMilestones || []).some(m => m.stepId === step.id)
+        );
+        // Show from the step after the last completed one. If none are completed, show all.
+        return O2D_PROCESS_CONFIG.slice(lastCompletedIndex + 1);
+    }, [order.o2dMilestones, showAllSteps]);
+
 
     const handleAction = (status: 'completed' | 'skipped', selection: string, stepId: number, isOverdue: boolean) => {
       if (stepId === 10 && status === 'completed') {
@@ -167,11 +181,11 @@ function O2DProcessTimeline({
         <div className="relative pl-6 pr-4 py-4">
             <div className="absolute left-9 top-0 h-full w-0.5 bg-border -translate-x-1/2" aria-hidden="true"></div>
             <div className="space-y-4">
-                {O2D_PROCESS_CONFIG.map((stepConfig, index) => {
+                {(showAllSteps ? O2D_PROCESS_CONFIG : stepsToShow).map((stepConfig, index) => {
                     const stepStatus = order.o2dMilestones?.find(s => s.stepId === stepConfig.id);
-                    const prevStepStatus = index === 0 ? { status: 'completed' } : order.o2dMilestones?.find(s => s.stepId === O2D_PROCESS_CONFIG[index-1].id);
+                    const prevStepConfigIndex = O2D_PROCESS_CONFIG.findIndex(s => s.id === stepConfig.id) - 1;
+                    const prevStepStatus = prevStepConfigIndex < 0 ? { status: 'completed' } : order.o2dMilestones?.find(s => s.stepId === O2D_PROCESS_CONFIG[prevStepConfigIndex].id);
                     
-                    const canUpdate = !stepStatus && (index === 0 || prevStepStatus?.status);
                     const isPending = !stepStatus;
                     
                     const expectedDate = expectedDates[stepConfig.id];
@@ -180,7 +194,7 @@ function O2DProcessTimeline({
 
                     const Icon = stepConfig.icon;
                     return (
-                        <div key={index} className="relative flex items-start gap-4">
+                        <div key={stepConfig.id} className="relative flex items-start gap-4">
                             <div className="flex h-18 w-18 items-center justify-center shrink-0">
                                 <div className={cn(
                                     "flex h-12 w-12 items-center justify-center rounded-full border-2 border-border shadow-sm",
@@ -265,15 +279,15 @@ function O2DProcessTimeline({
                                                     </Button>
                                                 </AlertDialogTrigger>
                                             )}
-                                            {!stepStatus ? (
+                                            {!stepStatus && prevStepStatus?.status ? (
                                                 renderActionButtons(stepConfig, isOverdue)
                                             ) : (
                                                 <div className="text-center">
-                                                    <Badge variant={stepStatus.status === 'completed' ? 'default' : 'secondary'} className={cn(
+                                                    <Badge variant={stepStatus?.status === 'completed' ? 'default' : 'secondary'} className={cn(
                                                         'capitalize',
-                                                        stepStatus.status === 'completed' && wasCompletedLate && 'bg-orange-500'
+                                                        stepStatus?.status === 'completed' && wasCompletedLate && 'bg-orange-500'
                                                     )}>
-                                                        {stepStatus.selection || stepStatus.status}
+                                                        {stepStatus?.selection || stepStatus?.status}
                                                     </Badge>
                                                 </div>
                                             )}
@@ -540,6 +554,86 @@ export default function O2DPage() {
     const updatingStepConfig = updatingStepInfo ? O2D_PROCESS_CONFIG.find(s => s.id === updatingStepInfo.stepId) : null;
     const revertingStepConfig = revertingStepInfo ? O2D_PROCESS_CONFIG.find(s => s.id === revertingStepInfo.stepId) : null;
 
+    const OrderCard = ({ order }: { order: Order }) => {
+        const [showAllSteps, setShowAllSteps] = useState(false);
+        
+        const expectedDates = calculateExpectedDatesForOrder(order);
+        const completedSteps = (order.o2dMilestones || []).filter(m => m.status === 'completed' || m.status === 'skipped');
+        const nextStepIndex = O2D_PROCESS_CONFIG.findIndex(s => !completedSteps.some(cs => cs.stepId === s.id));
+        const currentStep = nextStepIndex !== -1 ? O2D_PROCESS_CONFIG[nextStepIndex] : null;
+
+        let cardBorderColor = "border-border";
+        let statusTextColor = "text-primary";
+        if (currentStep) {
+            const expectedDate = expectedDates[currentStep.id];
+            if (isPast(expectedDate)) {
+                cardBorderColor = "border-red-500";
+                statusTextColor = "text-red-500";
+            } else if (differenceInHours(expectedDate, new Date()) <= 24) {
+                cardBorderColor = "border-orange-500";
+                statusTextColor = "text-orange-500";
+            }
+        }
+
+        return (
+             <Collapsible key={order.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", cardBorderColor)}>
+                <div className="p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                        {/* Column 1: Customer Details */}
+                        <div className="space-y-2 text-sm">
+                            <h3 className="font-semibold text-lg">{order.customerName}</h3>
+                            <p className="text-sm text-muted-foreground">ID: {order.id}</p>
+                            <p className='flex items-center gap-2'><Phone className='h-4 w-4 text-muted-foreground' /> {order.customerPhone}</p>
+                            <p className='flex items-center gap-2'><MapPin className='h-4 w-4 text-muted-foreground' /> {order.customerAddress}</p>
+                        </div>
+                        {/* Column 2: Order Status */}
+                        <div className="space-y-2 text-sm">
+                                {order.createdAt && (
+                                <p className='flex items-center gap-2'><Calendar className='h-4 w-4 text-muted-foreground' /> Order Date: {format(new Date(order.createdAt), 'dd/MM/yyyy')}</p>
+                            )}
+                            {currentStep && (
+                                <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
+                                    <Clock className='h-4 w-4'/>
+                                    Status: {currentStep.step} - Due by {formatTimestamp(expectedDates[currentStep.id])}
+                                </p>
+                            )}
+                            {order.remarks && (
+                                <p className='flex items-start gap-2 text-muted-foreground'>
+                                    <MessageCircle className='h-4 w-4 mt-0.5 shrink-0' /> 
+                                    <span className='italic'>"{order.remarks}"</span>
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                    <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" className="w-full justify-center mt-4">
+                            <span className='mr-2'>View Process</span>
+                            <ChevronDown className="h-4 w-4" />
+                        </Button>
+                    </CollapsibleTrigger>
+                </div>
+                <CollapsibleContent>
+                    <div className="px-4 pb-2 border-t">
+                        <Button variant="link" onClick={() => setShowAllSteps(prev => !prev)} className="text-xs">
+                           {showAllSteps ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+                           {showAllSteps ? 'Show Pending Steps' : 'Show All Steps'}
+                        </Button>
+                    </div>
+                    <O2DProcessTimeline 
+                        order={order} 
+                        onStepUpdate={handleOpenRemarkDialog} 
+                        onQuickStepUpdate={handleQuickStepUpdate}
+                        onRevertStep={handleOpenRevertDialog}
+                        onConfirmOrderType={() => setConfirmOrder(order)}
+                        userRole={role}
+                        userDesignation={user?.designation || null}
+                        showAllSteps={showAllSteps}
+                    />
+                </CollapsibleContent>
+            </Collapsible>
+        )
+    }
+
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <header className="mb-8 flex items-center justify-between">
@@ -583,76 +677,7 @@ export default function O2DPage() {
                     Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                 ) : pendingOrders.length > 0 ? (
                     <AlertDialog>
-                    {pendingOrders.map(order => {
-                        const expectedDates = calculateExpectedDatesForOrder(order);
-                        const completedSteps = (order.o2dMilestones || []).filter(m => m.status === 'completed' || m.status === 'skipped');
-                        const nextStepIndex = O2D_PROCESS_CONFIG.findIndex(s => !completedSteps.some(cs => cs.stepId === s.id));
-                        const currentStep = nextStepIndex !== -1 ? O2D_PROCESS_CONFIG[nextStepIndex] : null;
-
-                        let cardBorderColor = "border-border";
-                        let statusTextColor = "text-primary";
-                        if (currentStep) {
-                            const expectedDate = expectedDates[currentStep.id];
-                            if (isPast(expectedDate)) {
-                                cardBorderColor = "border-red-500";
-                                statusTextColor = "text-red-500";
-                            } else if (differenceInHours(expectedDate, new Date()) <= 24) {
-                                cardBorderColor = "border-orange-500";
-                                statusTextColor = "text-orange-500";
-                            }
-                        }
-                        
-                        return (
-                        <Collapsible key={order.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", cardBorderColor)}>
-                            <div className="p-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                                    {/* Column 1: Customer Details */}
-                                    <div className="space-y-2 text-sm">
-                                        <h3 className="font-semibold text-lg">{order.customerName}</h3>
-                                        <p className="text-sm text-muted-foreground">ID: {order.id}</p>
-                                        <p className='flex items-center gap-2'><Phone className='h-4 w-4 text-muted-foreground' /> {order.customerPhone}</p>
-                                        <p className='flex items-center gap-2'><MapPin className='h-4 w-4 text-muted-foreground' /> {order.customerAddress}</p>
-                                    </div>
-                                    {/* Column 2: Order Status */}
-                                    <div className="space-y-2 text-sm">
-                                         {order.createdAt && (
-                                            <p className='flex items-center gap-2'><Calendar className='h-4 w-4 text-muted-foreground' /> Order Date: {format(new Date(order.createdAt), 'dd/MM/yyyy')}</p>
-                                        )}
-                                        {currentStep && (
-                                            <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
-                                                <Clock className='h-4 w-4'/>
-                                                Status: {currentStep.step} - Due by {formatTimestamp(expectedDates[currentStep.id])}
-                                            </p>
-                                        )}
-                                        {order.remarks && (
-                                            <p className='flex items-start gap-2 text-muted-foreground'>
-                                                <MessageCircle className='h-4 w-4 mt-0.5 shrink-0' /> 
-                                                <span className='italic'>"{order.remarks}"</span>
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                                <CollapsibleTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="w-full justify-center mt-4">
-                                        <span className='mr-2'>View Process</span>
-                                        <ChevronDown className="h-4 w-4" />
-                                    </Button>
-                                </CollapsibleTrigger>
-                            </div>
-                            <CollapsibleContent>
-                               <O2DProcessTimeline 
-                                    order={order} 
-                                    onStepUpdate={handleOpenRemarkDialog} 
-                                    onQuickStepUpdate={handleQuickStepUpdate}
-                                    onRevertStep={handleOpenRevertDialog}
-                                    onConfirmOrderType={() => setConfirmOrder(order)}
-                                    userRole={role}
-                                    userDesignation={user?.designation || null}
-                                />
-                            </CollapsibleContent>
-                        </Collapsible>
-                        );
-                    })}
+                    {pendingOrders.map(order => <OrderCard key={order.id} order={order} />)}
                      <AlertDialogContent>
                         <AlertDialogHeader>
                             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
@@ -696,3 +721,5 @@ export default function O2DPage() {
         </div>
     );
 }
+
+    
