@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
@@ -19,6 +20,8 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 
 const PURCHASE_PROCESS_CONFIG: PurchaseStep[] = [
     { id: 1, step: "Verify Authorization", details: "Check if the request is authorized", time: "30 min", role: "Accounts", icon: UserCheck, expectedDuration: { minutes: 30 } },
@@ -311,13 +314,14 @@ export default function PurchasePage() {
         const cardBorderColor = "border-border"; // Add logic for overdue if needed
         const hasFabric = request.fabricDetails && request.fabricDetails.length > 0 && request.fabricDetails.some(f => f.fabricName);
         const hasFurniture = request.furnitureDetails && request.furnitureDetails.length > 0 && request.furnitureDetails.some(f => f.furnitureName);
+        const defaultTab = hasFabric ? "fabric" : "furniture";
 
         return (
              <Collapsible key={request.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", cardBorderColor)}>
                 <div className="p-4 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                    <div className="flex gap-4">
                         {/* Column 1: Request Details */}
-                        <div className="space-y-2">
+                        <div className="flex-1 space-y-2">
                              <div className="flex justify-between items-start">
                                 <div className="space-y-1 text-sm">
                                     <h3 className="font-semibold text-lg">{request.customerName}</h3>
@@ -355,35 +359,36 @@ export default function PurchasePage() {
                             </div>
                         </div>
 
-                        {/* Column 2: Item Details */}
-                        <div className="space-y-4">
-                            {hasFabric && (
-                                <div>
-                                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Fabric Details</h4>
-                                    <div className="space-y-1 text-sm text-muted-foreground pl-6">
+                        <Separator orientation="vertical" className="h-auto" />
+
+                        {/* Column 2: Item Details with Tabs */}
+                        <div className="flex-1">
+                             <Tabs defaultValue={defaultTab} className="w-full">
+                                <TabsList className="grid w-full grid-cols-2">
+                                    <TabsTrigger value="fabric" disabled={!hasFabric}>Fabric</TabsTrigger>
+                                    <TabsTrigger value="furniture" disabled={!hasFurniture}>Furniture</TabsTrigger>
+                                </TabsList>
+                                <TabsContent value="fabric">
+                                    <div className="space-y-1 text-sm text-muted-foreground pt-2">
                                         {request.fabricDetails?.map((item, index) => item.fabricName && (
-                                            <div key={index} className="flex justify-between">
+                                            <div key={index} className="flex justify-between p-1 rounded-md hover:bg-muted/50">
                                                 <span>{item.fabricName}</span>
                                                 <span className="font-mono">{item.quantity} Mtr</span>
                                             </div>
                                         ))}
                                     </div>
-                                </div>
-                            )}
-                            
-                            {hasFurniture && (
-                                <div>
-                                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Furniture Details</h4>
-                                    <div className="space-y-1 text-sm text-muted-foreground pl-6">
+                                </TabsContent>
+                                <TabsContent value="furniture">
+                                    <div className="space-y-1 text-sm text-muted-foreground pt-2">
                                         {request.furnitureDetails?.map((item, index) => item.furnitureName && (
-                                            <div key={index} className="flex justify-between">
+                                            <div key={index} className="flex justify-between p-1 rounded-md hover:bg-muted/50">
                                                 <span>{item.furnitureName}</span>
                                                 <span className="font-mono">{item.quantity}</span>
                                             </div>
                                         ))}
                                     </div>
-                                </div>
-                            )}
+                                </TabsContent>
+                            </Tabs>
                         </div>
                     </div>
 
