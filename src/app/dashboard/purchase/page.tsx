@@ -480,7 +480,7 @@ export default function PurchasePage() {
                                             </DropdownMenu>
                                         )}
                                         {request.vendorType !== 'undecided' && (
-                                            <Badge className='mt-2' variant="outline">{request.vendorType} vendor</Badge>
+                                            <Badge className='mt-2 capitalize' variant="outline">{request.vendorType} vendor</Badge>
                                         )}
                                     </div>
                                     {request.createdAt && (
@@ -650,3 +650,4 @@ export default function PurchasePage() {
         </div>
     );
 }
+
