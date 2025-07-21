@@ -1,5 +1,5 @@
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users, Truck } from "lucide-react";
+import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck } from "lucide-react";
 import Link from "next/link";
 import { getFirestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
@@ -21,6 +21,14 @@ const dashboardItems = [
         icon: ShoppingCart,
         color: "bg-green-500",
         id: "purchase"
+    },
+    {
+        href: "/dashboard/po-tracking",
+        title: "PO to Order Receive",
+        description: "Track items from PO generation to receipt.",
+        icon: PackageCheck,
+        color: "bg-teal-500",
+        id: "po-tracking"
     },
     {
         href: "/dashboard/users",
@@ -68,7 +76,7 @@ export default async function DashboardPage() {
                 <h1 className="text-3xl font-bold tracking-tight">Home Dashboard</h1>
                 <p className="text-muted-foreground">Welcome! Select a module to get started.</p>
             </header>
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {dashboardItems.map((item) => (
                     <Link href={item.href} key={item.title}>
                         <Card className="group hover:shadow-lg transition-shadow duration-300 transform hover:-translate-y-1">
