@@ -119,8 +119,8 @@ const FabricForm = ({ form }: { form: any }) => {
                 Add Fabric
             </Button>
         </div>
-    )
-}
+    );
+};
 
 const FurnitureForm = ({ form }: { form: any }) => {
     const { fields, append, remove } = useFieldArray({
@@ -176,8 +176,8 @@ const FurnitureForm = ({ form }: { form: any }) => {
                 Add Furniture
             </Button>
         </div>
-    )
-}
+    );
+};
 
 
 export default function NewPurchaseRequestPage() {
@@ -368,7 +368,7 @@ export default function NewPurchaseRequestPage() {
                                                     <FormControl>
                                                         <SelectTrigger>
                                                             <SelectValue placeholder="Select Salesman" />
-                                                        </SelectTrigger>
+                                                        </Trigger>
                                                     </FormControl>
                                                     <SelectContent>
                                                         {salesmen.map(s => (
