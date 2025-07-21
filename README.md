@@ -38,94 +38,147 @@ A Service Account is a special type of Google account intended to represent a no
 // You can get these from the JSON file you download from the Google Cloud Console.
 const FIREBASE_PROJECT_ID = "mo-panel"; 
 const FIREBASE_CLIENT_EMAIL = "firebase-adminsdk-fbsvc@mo-panel.iam.gserviceaccount.com"; 
-const FIREBASE_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCMpA+5vxQMu7M+\nDAThZr9sZKq16HtQSzBhCfgIknoe1SRrrD5PSj7+avJLfP2IXO9bm9ojGJqlRjU5\nHABgyyrUfDwxOdSXdWFJNsneoIvwDHM9rljZ5HlRBkAw6h+mGyEUYkheOX8KaLYG\nWiuC9FZr79nNcdjxmWciNGPah5P9M6a2EVSIbgftKqQhl/LUQeyXTxbo5Al0idAG\na/jGGIzdAmY9WSif9UkmX4/GGRubO9Xr+ccm+W4xmNd7+fZORpfSCCo/neHI10K+\nwD6DkovqR06R81K3G5bOQ/7xYGcL5qStabJD3P94T24brUXbyGeauIIpjNb27s6O\nIC93Sj47AgMBAAECggEAFIHHmTn3XnPwCtgNziABQXjcO3IOqQKNp1igxf81t1E0\n4k5XN5CH5ukJM2CiR0Pl0uHCyONJiVfXYuBmXbbCJAGJdVQNX5hJ+zb18HRQc0wd\ncZz+b6cU2W+j5H3+52WFSUebbcHMeGQURpDXT1z5TPvIMmCrVW8czqv881xZg83Q\n20ml63vNtoPsVkzy+Qrb0Sx2ntJKveN8xda0AuzPNG042u79eMheC/EFrBLowif4\nJ0jldtVCsY9w1yS4yJ94RgOxzLEmvh+6QOua+W8DybwtMgz7vckkyML1GiHS7HIj\nuW5L9BhKKXpdJIfdDbFTy41vZmwCoJ3o0Zhtj9sD4QKBgQDFv8xnR8ju31/yTrK0\nig1NRcfxaeYhonuPJURRJB4kjsMR/w6ZeL1K3LM31eeg8g8POZah3uzDlEaqpjyF\nRDB1RZTb5dd98/YKb7tWx9/0iOQGXz1zFerMwpSTxagqDJ+Xdy0koIF91Syttftt\nlfNqBvdKN4wNjM4Gm8SzTNDNDwKBgQC2Eb3gJiF53MbeIKhX9FK17YrLnB1Cyuxt\na/A0ZPu+UfyJEWVx57tmb9ip4nYlHtCO/qfQUANo9Vj4C0btTnJEQ3oP3gkqF8mH\nKNI47lR5WyxyJO+VZvrtW092ZKY1HSVmRYGGm9mSF5opjHV498HgaBvLgWVhPYk4\nsKLf7BfUFQKBgDlVP3UeSfJ/zviYupU/hVXHCo5Cztcnnb1F58XCu/6LaaE5GsmC\nSReAX3Gr0elG5PjcEIFD+c9GmSp24gsdVxNZJiyPOegpqEckV+N0NclXOw1h5ZYN\nX7MYIy2o2/W9DTRD+FGrO3/5I2gF4CzIkfdGp8Hb0v5GuaEO3nvBpLQfAoGAfz+v\nITYFN5KiOyVAAxjzpcs7skqN+NyymVdTLotVlxLeGT5bVFzNkS6ikzl/sTn0Mbyx\ntNn3SCgR4mqfS8QEAMnYSba5WP3/D8PsCXYo/BhI3A4MlLLAtZuX0ftOXtjcBrqV\naGsMiRqN2HQetkkS67BXnMf2/xtvCHwLmcz8anECgYEAsZTQL0UpZl2pKGY7SEOs\ngAweJ0h7jPZnzw+wrVAaC/L7YlESp7eqMjen+cyHeplOzEJwI8JK3LT18EIb+DRi\nMrvml64AzovJGQJCvNf1tCgB9yPEM9oD9HCgzRFM5YvWe49ct7Kz88gIb88tUCi3\no8/ftA0DZoJlzYn7VzKw2Is=\n-----END PRIVATE KEY-----\n";
+const FIREBASE_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCMpA+5vxQMu7M+\nDAThZr9sZKq16HtQSzBhCfgIknoe1SRrrD5PSj7+avJLfP2IXO9bm9ojGJqlRjU5\nHABgyyrUfDwxOdSXdWFJNsneoIvwDHM9rljZ5HlRBkAw6h+mGyEUYkheOX8KaLYG\nWiuC9FZr79nNcdjxmWciNGPah5P9M6a2EVSIbgftKqQhl/LUQeyXTxbo5Al0idAG\na/jGGIzdAmY9WSif9UkmX4/GGRubO9Xr+ccm+W4xmNd7+fZORpfSCCo/neHI10K+\nwD6DkovqR06R81K3G5bOQ/7xYGcL5qStabJD3P94T24brUXbyGeauIIpjNb27s6O\nIC93Sj47AgMBAAECggEAFIHHmTn3XnPwCtgNziABQXjcO3IOqQKNp1igxf81t1E0\n4k5XN5CH5ukJM2CiR0Pl0uHCyONJiVfXYuBmXbbCJAGJdVQNX5hJ+zeb18HRQc0wd\ncZz+b6cU2W+j5H3+52WFSUebbcHMeGURpDXT1z5TPvIMmCrVW8czqv881xZg83Q\n20ml63vNtoPsVkzy+Qrb0Sx2ntJKveN8xda0AuzPNG042u79eMheC/EFrBLowif4\nJ0jldtVCsY9w1yS4yJ94RgOxzLEmvh+6QOua+W8DybwtMgz7vckkyML1GiHS7HIj\nuW5L9BhKKXpdJIfdDbFTy41vZmwCoJ3o0Zhtj9sD4QKBgQDFv8xnR8ju31/yTrK0\nig1NRcfxaeYhonuPJURRJB4kjsMR/w6ZeL1K3LM31eeg8g8POZah3uzDlEaqpjyF\nRDB1RZTb5dd98/YKb7tWx9/0iOQGXz1zFerMwpSTxagqDJ+Xdy0koIF91Syttftt\nlfNqBvdKN4wNjM4Gm8SzTNDNDwKBgQC2Eb3gJiF53MbeIKhX9FK17YrLnB1Cyuxt\na/A0ZPu+UfyJEWVx57tmb9ip4nYlHtCO/qfQUANo9Vj4C0btTnJEQ3oP3gkqF8mH\nKNI47lR5WyxyJO+VZvrtW092ZKY1HSVmRYGGm9mSF5opjHV498HgaBvLgWVhPYk4\nsKLf7BfUFQKBgDlVP3UeSfJ/zviYupU/hVXHCo5Cztcnnb1F58XCu/6LaaE5GsmC\nSReAX3Gr0elG5PjcEIFD+c9GmSp24gsdVxNZJiyPOegpqEckV+N0NclXOw1h5ZYN\nX7MYIy2o2/W9DTRD+FGrO3/5I2gF4CzIkfdGp8Hb0v5GuaEO3nvBpLQfAoGAfz+v\nITYFN5KiOyVAAxjzpcs7skqN+NyymVdTLotVlxLeGT5bVFzNkS6ikzl/sTn0Mbyx\ntNn3SCgR4mqfS8QEAMnYSba5WP3/D8PsCXYo/BhI3A4MlLLAtZuX0ftOXtjcBrqV\naGsMiRqN2HQetkkS67BXnMf2/xtvCHwLmcz8anECgYEAsZTQL0UpZl2pKGY7SEOs\ngAweJ0h7jPZnzw+wrVAaC/L7YlESp7eqMjen+cyHeplOzEJwI8JK3LT18EIb+DRi\nMrvml64AzovJGQJCvNf1tCgB9yPEM9oD9HCgzRFM5YvWe49ct7Kz88gIb88tUCi3\no8/ftA0DZoJlzYn7VzKw2Is=\n-----END PRIVATE KEY-----\n";
 
 // --- SPREADSHEET CONFIGURATION ---
-const SHEET_NAME = "FMS-O2D";
-const CRM_ORDER_ID_COLUMN_LETTER = 'G'; // The column with the unique ID to match rows.
 const START_ROW = 2; // The first row of actual data.
 
-// Maps Firestore o2dMilestones stepId to the column it should update.
-const STEP_TO_COLUMN_MAP = {
-  1: 'K',
-  2: 'O',
-  3: 'S',
-  4: 'W',
-  5: 'AA',
-  6: 'AE',
-  7: 'AI',
-  8: 'AM',
-  9: 'AQ'
+const CONFIG = {
+  'furniture': {
+    SHEET_NAME: "FMS-O2D",
+    ID_COLUMN_LETTER: 'G',
+    COLUMNS: {
+      DEAL_ID: 'G', // This is also the unique ID
+      CUSTOMER_NAME: 'C',
+      CUSTOMER_PHONE: 'D',
+      REMARKS: 'E',
+      SALES_PERSON: 'F',
+      CUSTOMER_ADDRESS: 'H',
+      WORK_TYPE: 'B', // Assuming 'B' for work type
+      DELIVERY_DATE: 'I', // Assuming 'I' for promise delivery date
+    },
+    MILESTONE_MAP: {
+      1: 'J', 2: 'N', 3: 'R', 4: 'V', 5: 'Z', 6: 'AD', 7: 'AH', 8: 'AL', 9: 'AP'
+    }
+  },
+  'fabric': {
+    SHEET_NAME: "FMS_Fabric",
+    ID_COLUMN_LETTER: 'H',
+    COLUMNS: {
+      DEAL_ID: 'H', // This is also the unique ID
+      CUSTOMER_NAME: 'B',
+      CUSTOMER_PHONE: 'C',
+      REMARKS: 'F',
+      SALES_PERSON: 'E',
+      CUSTOMER_ADDRESS: 'D',
+      WORK_TYPE: 'G', 
+      DELIVERY_DATE: 'I'
+    },
+    MILESTONE_MAP: {
+      1: 'K', 2: 'M', 3: 'O', 4: 'V', 5: 'Z', 6: 'AD', 7: 'AH', 8: 'AL', 9: 'AP', 10: 'AT', 11: 'AX'
+    }
+  }
 };
 
-// Main function to run to sync data.
+
+// --- MAIN SYNC FUNCTION ---
 function syncFirestoreToSheet() {
   const firestore = getFirestoreService();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
-  
+  const allRequests = firestore.getDocuments("purchaseRequests");
+  Logger.log("Found " + allRequests.length + " purchase requests in Firestore.");
+
+  allRequests.forEach(requestDoc => {
+    const request = requestDoc.fields;
+    const type = request.type ? request.type.stringValue : null;
+
+    if (type && CONFIG[type]) {
+      processRequest(firestore, request, CONFIG[type]);
+    } else {
+      Logger.log("Skipping request with unknown or missing type: " + (request.dealId ? request.dealId.stringValue : 'No ID'));
+    }
+  });
+
+  Logger.log("Sync complete.");
+}
+
+function processRequest(firestore, request, config) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(config.SHEET_NAME);
   if (!sheet) {
-    Logger.log("Sheet '" + SHEET_NAME + "' not found.");
+    Logger.log("Sheet '" + config.SHEET_NAME + "' not found.");
     return;
   }
-  
-  // Get all orders from Firestore
-  const allOrders = firestore.getDocuments("orders");
-  Logger.log("Found " + allOrders.length + " orders in Firestore.");
 
-  // Get all CRM Order IDs from the sheet to create a map for quick lookups
-  const crmOrderIdColumnIndex = getColumnIndex(CRM_ORDER_ID_COLUMN_LETTER);
+  const idToRowMap = createIdToRowMap(sheet, config.ID_COLUMN_LETTER);
+  const dealId = request.dealId ? request.dealId.stringValue : null;
+  if (!dealId) {
+    Logger.log("Skipping request with no Deal ID.");
+    return;
+  }
+
+  let rowNumber = idToRowMap.get(dealId);
+
+  if (!rowNumber) {
+    // If the request is not in the sheet, add it as a new row
+    rowNumber = sheet.getLastRow() + 1;
+    const newRowData = {
+      [config.COLUMNS.DEAL_ID]: dealId,
+      [config.COLUMNS.CUSTOMER_NAME]: request.customerName ? request.customerName.stringValue : '',
+      [config.COLUMNS.CUSTOMER_PHONE]: request.email ? request.email.stringValue : '', // Using email as phone for now
+      [config.COLUMNS.REMARKS]: request.remarks ? request.remarks.stringValue : '',
+      [config.COLUMNS.SALES_PERSON]: request.salesman ? request.salesman.stringValue : '',
+      [config.COLUMNS.CUSTOMER_ADDRESS]: request.customerName ? request.customerName.stringValue : '', // Using name as address for now
+      [config.COLUMNS.WORK_TYPE]: request.workType ? request.workType.stringValue : '',
+      [config.COLUMNS.DELIVERY_DATE]: request.promiseDeliveryDate ? Utilities.formatDate(new Date(request.promiseDeliveryDate.stringValue), Session.getScriptTimeZone(), "dd/MM/yyyy") : '',
+    };
+
+    // This is a simplified way to set values. A more robust solution would handle non-contiguous columns.
+    for (const colName in newRowData) {
+        if (newRowData.hasOwnProperty(colName)) {
+            const colLetter = colName; // In this setup, keys of newRowData are column letters
+            const colValue = newRowData[colName];
+            updateCell(sheet, rowNumber, colLetter, colValue);
+        }
+    }
+    Logger.log("Added new request with Deal ID '" + dealId + "' to sheet '" + config.SHEET_NAME + "' on row " + rowNumber);
+  }
+
+  // Update milestone statuses
+  if (request.milestones && request.milestones.arrayValue && request.milestones.arrayValue.values) {
+    request.milestones.arrayValue.values.forEach(milestoneValue => {
+      const milestone = milestoneValue.mapValue.fields;
+      const stepId = milestone.stepId.integerValue;
+      const status = milestone.status.stringValue;
+
+      if (config.MILESTONE_MAP[stepId] && status === 'completed') {
+        const columnLetter = config.MILESTONE_MAP[stepId];
+        const completedAt = milestone.completedAt.stringValue; // Assuming stringValue for ISO date
+        const formattedDate = Utilities.formatDate(new Date(completedAt), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+        updateCell(sheet, rowNumber, columnLetter, formattedDate);
+      }
+    });
+  }
+}
+
+// --- HELPER FUNCTIONS ---
+
+function createIdToRowMap(sheet, idColumnLetter) {
+  const idColumnIndex = getColumnIndex(idColumnLetter);
   const lastRow = sheet.getLastRow();
   if (lastRow < START_ROW) {
-    Logger.log("No data rows found in the sheet.");
-    return;
+    return new Map();
   }
-  const range = sheet.getRange(START_ROW, crmOrderIdColumnIndex, lastRow - START_ROW + 1, 1);
-  const sheetOrderIds = range.getValues();
+  const range = sheet.getRange(START_ROW, idColumnIndex, lastRow - START_ROW + 1, 1);
+  const sheetIds = range.getValues();
   
   const idToRowMap = new Map();
-  sheetOrderIds.forEach((row, index) => {
+  sheetIds.forEach((row, index) => {
     if (row[0]) {
       idToRowMap.set(row[0].toString().trim(), START_ROW + index);
     }
   });
-
-  // Iterate over Firestore orders and update the sheet
-  allOrders.forEach(orderDoc => {
-    const order = orderDoc.fields;
-    const crmOrderNo = order.crmOrderNo ? order.crmOrderNo.stringValue : null;
-    
-    if (crmOrderNo && idToRowMap.has(crmOrderNo)) {
-      const rowNumber = idToRowMap.get(crmOrderNo);
-      
-      // Update O2D milestone statuses
-      if (order.o2dMilestones && order.o2dMilestones.arrayValue && order.o2dMilestones.arrayValue.values) {
-        order.o2dMilestones.arrayValue.values.forEach(milestoneValue => {
-          const milestone = milestoneValue.mapValue.fields;
-          const stepId = milestone.stepId.integerValue;
-          const status = milestone.status.stringValue;
-          
-          if (STEP_TO_COLUMN_MAP[stepId] && status === 'completed') {
-            const columnLetter = STEP_TO_COLUMN_MAP[stepId];
-            const completedAt = milestone.completedAt.timestampValue;
-            // Format to a more standard 'dd/MM/yyyy HH:mm:ss' format
-            const formattedDate = Utilities.formatDate(new Date(completedAt), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
-            updateCell(sheet, rowNumber, columnLetter, formattedDate);
-          }
-        });
-      }
-    } else {
-      if (crmOrderNo) {
-        Logger.log("Order with CRM ID '" + crmOrderNo + "' found in Firestore but not in Sheet.");
-      }
-    }
-  });
-  
-  Logger.log("Sync complete.");
+  return idToRowMap;
 }
 
-/**
- * Helper function to update a single cell to avoid writing if the value is already the same.
- */
 function updateCell(sheet, row, colLetter, value) {
   const cell = sheet.getRange(colLetter + row);
   if (cell.getValue().toString() !== value.toString()) {
@@ -133,9 +186,6 @@ function updateCell(sheet, row, colLetter, value) {
   }
 }
 
-/**
- * Helper function to convert column letter to index.
- */
 function getColumnIndex(letter) {
   let column = 0, length = letter.length;
   for (let i = 0; i < length; i++) {
@@ -144,10 +194,6 @@ function getColumnIndex(letter) {
   return column;
 }
 
-
-/**
- * Initializes and returns a Firestore service instance.
- */
 function getFirestoreService() {
   return FirestoreApp.getFirestore(
     FIREBASE_CLIENT_EMAIL,
@@ -156,7 +202,6 @@ function getFirestoreService() {
   );
 }
 
-// Function to set up a trigger automatically if one doesn't exist
 function setupTrigger() {
   const functionName = 'syncFirestoreToSheet';
   const triggers = ScriptApp.getProjectTriggers();
@@ -171,14 +216,13 @@ function setupTrigger() {
   if (!triggerExists) {
     ScriptApp.newTrigger(functionName)
       .timeBased()
-      .everyMinutes(5) // You can change this to 10, 15, 30, etc.
+      .everyMinutes(5)
       .create();
     Logger.log('Trigger for ' + functionName + ' created.');
   } else {
     Logger.log('Trigger for ' + functionName + ' already exists.');
   }
 }
-
 ```
 
 ### 3. Add the Firestore Library to Apps Script
@@ -204,5 +248,3 @@ The provided script includes a `setupTrigger` function. To set up the trigger:
 5. Once you run it, the script will automatically create a time-driven trigger that runs the `syncFirestoreToSheet` function every 5 minutes. You can verify this by clicking the **Triggers** icon (it looks like a clock) on the left sidebar.
 
 After completing these steps, the Apps Script will automatically run on your chosen schedule, read the latest data from your Firestore database, and update your Google Sheet accordingly.
-
-    
