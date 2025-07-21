@@ -214,11 +214,6 @@ function PurchaseProcessTimeline({
                          canAct = !stepStatus && !!prevStepStatus && (prevStepStatus.status === 'completed' || prevStepStatus.status === 'skipped');
                     }
                     
-                    let selectionText = stepStatus?.status;
-                    if(stepConfig.id === 5 && stepStatus?.status === 'completed') {
-                        selectionText = request.vendorType;
-                    }
-
                     return (
                         <div key={stepConfig.id} className="relative flex items-start gap-4">
                             <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-border shadow-sm shrink-0 bg-card">
@@ -247,6 +242,12 @@ function PurchaseProcessTimeline({
                                                 <div className="flex items-center gap-2 text-green-600 font-medium">
                                                     <CheckCircle className="h-4 w-4" />
                                                     <span>Completed by {stepStatus.completedBy} at {formatTimestamp(new Date(stepStatus.completedAt))}</span>
+                                                </div>
+                                            )}
+                                             {stepStatus?.status === 'skipped' && (
+                                                <div className="flex items-center gap-2 text-gray-600 font-medium">
+                                                    <SkipForward className="h-4 w-4" />
+                                                    <span>Skipped by {stepStatus.completedBy} at {formatTimestamp(new Date(stepStatus.completedAt))}</span>
                                                 </div>
                                             )}
 
@@ -406,7 +407,7 @@ export default function PurchasePage() {
 
     const revertingStepConfig = revertingStepInfo ? ALL_STEPS_MAP[revertingStepInfo.stepId] : null;
 
-    const PurchaseRequestCard = ({ request }: { request: PurchaseRequest }) => {
+    const PurchaseRequestCard = ({ request, onRevertStep }: { request: PurchaseRequest, onRevertStep: (requestId: string, stepId: number, milestone: PurchaseStatus) => void }) => {
         const [showAllSteps, setShowAllSteps] = useState(false);
         const hasFabric = request.fabricDetails && request.fabricDetails.length > 0 && request.fabricDetails.some(f => f.fabricName);
         const hasFurniture = request.furnitureDetails && request.furnitureDetails.length > 0 && request.furnitureDetails.some(f => f.furnitureName);
@@ -439,7 +440,6 @@ export default function PurchasePage() {
 
         return (
              <Collapsible key={request.id} className="border-2 rounded-lg bg-card overflow-hidden">
-                 <AlertDialog>
                 <div className="p-4 space-y-4">
                     <div className="flex gap-4">
                         {/* Column 1: Request Details */}
@@ -467,7 +467,7 @@ export default function PurchasePage() {
                                 <div className="text-right flex flex-col items-end">
                                     <div className="flex items-center gap-2">
                                          {role === 'admin' && (
-                                           
+                                            <AlertDialog>
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>
                                                         <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -485,7 +485,21 @@ export default function PurchasePage() {
                                                         </AlertDialogTrigger>
                                                     </DropdownMenuContent>
                                                 </DropdownMenu>
-                                           
+                                                {deletingRequest && deletingRequest.id === request.id && (
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This will permanently delete the purchase request for <span className="font-bold">{deletingRequest?.customerName}</span> (ID: {deletingRequest?.dealId}). This action cannot be undone.
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel onClick={() => setDeletingRequest(null)}>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                )}
+                                            </AlertDialog>
                                         )}
                                         {request.vendorType !== 'undecided' && (
                                             <Badge className='mt-2 capitalize' variant="outline">{request.vendorType} vendor</Badge>
@@ -546,47 +560,32 @@ export default function PurchasePage() {
                            {showAllSteps ? 'Show Pending Steps' : 'Show All Steps'}
                         </Button>
                     </div>
-                    
+                    <AlertDialog>
                         <PurchaseProcessTimeline
                             request={request}
                             onQuickStepUpdate={updateStepInFirestore}
                             onVendorTypeSelect={handleVendorTypeSelect}
-                            onRevertStep={handleOpenRevertDialog}
+                            onRevertStep={onRevertStep}
                             userRole={role}
                             userDesignation={designation}
                             showAllSteps={showAllSteps}
                         />
-                         
+                         {revertingStepInfo && revertingStepInfo.requestId === request.id && (
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel onClick={() => setRevertingStepInfo(null)}>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        )}
+                    </AlertDialog>
                 </CollapsibleContent>
-                {deletingRequest && deletingRequest.id === request.id && (
-                     <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This will permanently delete the purchase request for <span className="font-bold">{deletingRequest?.customerName}</span> (ID: {deletingRequest?.dealId}). This action cannot be undone.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setDeletingRequest(null)}>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                    )}
-                {revertingStepInfo && revertingStepInfo.requestId === request.id && (
-                    <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setRevertingStepInfo(null)}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-                )}
-                 </AlertDialog>
             </Collapsible>
         )
     }
@@ -624,7 +623,7 @@ export default function PurchasePage() {
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : fabricRequests.length > 0 ? (
                              fabricRequests.map(request => (
-                                <PurchaseRequestCard key={request.id} request={request} />
+                                <PurchaseRequestCard key={request.id} request={request} onRevertStep={handleOpenRevertDialog} />
                              ))
                         ) : (
                             <Card className="text-center p-12">
@@ -642,7 +641,7 @@ export default function PurchasePage() {
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : furnitureRequests.length > 0 ? (
                             furnitureRequests.map(request => (
-                                <PurchaseRequestCard key={request.id} request={request} />
+                                <PurchaseRequestCard key={request.id} request={request} onRevertStep={handleOpenRevertDialog} />
                             ))
                         ) : (
                             <Card className="text-center p-12">
@@ -658,7 +657,3 @@ export default function PurchasePage() {
         </div>
     );
 }
-
-
-
-    
