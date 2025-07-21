@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, PlusCircle, Trash2 } from "lucide-react";
+import { CalendarIcon, PlusCircle, Trash2, ArrowLeft } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -250,9 +250,15 @@ export default function NewPurchaseRequestPage() {
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <Card className="max-w-4xl mx-auto">
                 <CardHeader>
-                    <CardTitle className="text-2xl text-center text-primary">
-                        {formType === 'fabric' ? 'Fabric Purchase Request' : 'Furniture Purchase Request'}
-                    </CardTitle>
+                    <div className="flex items-center justify-between">
+                         <Button variant="ghost" size="icon" onClick={() => router.back()}>
+                            <ArrowLeft className="h-6 w-6" />
+                        </Button>
+                        <CardTitle className="text-2xl text-center text-primary flex-grow">
+                            {formType === 'fabric' ? 'Fabric Purchase Request' : 'Furniture Purchase Request'}
+                        </CardTitle>
+                         <div className="w-8"></div>
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <Form {...form}>
