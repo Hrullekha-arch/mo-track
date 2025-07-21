@@ -21,7 +21,7 @@ import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { User } from "@/lib/types";
+import { User, PurchaseRequest } from "@/lib/types";
 
 const fabricDetailSchema = z.object({
   fabricName: z.string().min(1, "Fabric name is required"),
@@ -213,7 +213,7 @@ export default function NewPurchaseRequestPage() {
 
         const newRequestRef = doc(collection(db, "purchaseRequests"));
 
-        const requestData = {
+        const requestData: PurchaseRequest = {
             id: newRequestRef.id,
             email: data.email || "",
             dealId: data.dealId,
@@ -230,8 +230,8 @@ export default function NewPurchaseRequestPage() {
                 name: user.name,
             },
             milestones: [],
-            vendorType: 'undecided' as 'undecided',
-            status: 'pending' as 'pending',
+            vendorType: 'undecided',
+            status: 'pending',
         };
 
         try {
@@ -390,7 +390,7 @@ export default function NewPurchaseRequestPage() {
                                                     <FormControl>
                                                         <SelectTrigger>
                                                             <SelectValue placeholder="Select Type" />
-                                                        </SelectTrigger>
+                                                        </Trigger>
                                                     </FormControl>
                                                     <SelectContent>
                                                         <SelectItem value="Stitching">Stitching</SelectItem>
@@ -419,4 +419,3 @@ export default function NewPurchaseRequestPage() {
         </div>
     );
 }
-
