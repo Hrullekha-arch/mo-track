@@ -144,36 +144,14 @@ function O2DProcessTimeline({
         const stepId = stepConfig.id;
         const hasPermission = checkPermission(stepConfig.role);
 
-        if (stepId === 1) {
-            return (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button size="sm" disabled={!hasPermission}>Action</Button></DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => handleAction('completed', 'Yes', stepId, isOverdue)}>Yes</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleAction('completed', 'Old', stepId, isOverdue)}>Old</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleAction('skipped', 'No', stepId, isOverdue)}>No</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            );
-        }
-
-        if (stepId === 3) {
-            return (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild><Button size="sm" disabled={!hasPermission}>Action</Button></DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => handleAction('completed', 'MZ Done', stepId, isOverdue)}>MZ Done</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleAction('skipped', 'No', stepId, isOverdue)}>No</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            );
-        }
-
         return (
-            <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => handleAction('skipped', 'No', stepId, isOverdue)} disabled={!hasPermission}>No</Button>
-                <Button size="sm" onClick={() => handleAction('completed', 'Done', stepId, isOverdue)} disabled={!hasPermission}>Done</Button>
-            </div>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild><Button size="sm" disabled={!hasPermission}>Action</Button></DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => handleAction('completed', 'Yes', stepId, isOverdue)}>Yes</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleAction('skipped', 'No', stepId, isOverdue)}>No</DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
         );
     };
 
