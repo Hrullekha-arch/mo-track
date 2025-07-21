@@ -301,53 +301,57 @@ export default function PurchasePage() {
         return (
              <Collapsible key={request.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", cardBorderColor)}>
                 <div className="p-4 space-y-4">
-                    <div className="flex justify-between items-start">
-                        <div className="space-y-1 text-sm">
-                            <h3 className="font-semibold text-lg">{request.customerName}</h3>
-                            <p className="text-sm text-muted-foreground">ID: {request.dealId}</p>
-                            <p className='flex items-center gap-2 pt-1'><User className='h-4 w-4 text-muted-foreground' /> Salesman: {request.salesman}</p>
-                            <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
-                        </div>
-                        <div className="text-right flex flex-col items-end">
-                             {request.createdAt && (
-                                <p className='flex items-center gap-2 text-sm'><Calendar className='h-4 w-4 text-muted-foreground' /> {format(new Date(request.createdAt), 'dd/MM/yyyy')}</p>
-                            )}
-                            {request.vendorType !== 'undecided' && (
-                                <Badge className='mt-2' variant="outline">{request.vendorType} vendor</Badge>
-                            )}
-                        </div>
-                    </div>
-
-                    {(hasFabric || hasFurniture) && <Separator />}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                        {hasFabric && (
-                            <div>
-                                <h4 className="text-sm font-medium mb-2 flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Fabric Details</h4>
-                                <div className="space-y-1 text-sm text-muted-foreground pl-6">
-                                    {request.fabricDetails?.map((item, index) => item.fabricName && (
-                                        <div key={index} className="flex justify-between">
-                                            <span>{item.fabricName}</span>
-                                            <span className="font-mono">{item.quantity} Mtr</span>
-                                        </div>
-                                    ))}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        {/* Column 1: Request Details */}
+                        <div className="space-y-2">
+                             <div className="flex justify-between items-start">
+                                <div className="space-y-1 text-sm">
+                                    <h3 className="font-semibold text-lg">{request.customerName}</h3>
+                                    <p className="text-sm text-muted-foreground">ID: {request.dealId}</p>
+                                    <p className='flex items-center gap-2 pt-1'><User className='h-4 w-4 text-muted-foreground' /> Salesman: {request.salesman}</p>
+                                    <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
+                                </div>
+                                <div className="text-right flex flex-col items-end">
+                                    {request.createdAt && (
+                                        <p className='flex items-center gap-2 text-sm'><Calendar className='h-4 w-4 text-muted-foreground' /> {format(new Date(request.createdAt), 'dd/MM/yyyy')}</p>
+                                    )}
+                                    {request.vendorType !== 'undecided' && (
+                                        <Badge className='mt-2' variant="outline">{request.vendorType} vendor</Badge>
+                                    )}
                                 </div>
                             </div>
-                        )}
-                        
-                        {hasFurniture && (
-                             <div>
-                                <h4 className="text-sm font-medium mb-2 flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Furniture Details</h4>
-                                <div className="space-y-1 text-sm text-muted-foreground pl-6">
-                                    {request.furnitureDetails?.map((item, index) => item.furnitureName && (
-                                        <div key={index} className="flex justify-between">
-                                            <span>{item.furnitureName}</span>
-                                            <span className="font-mono">{item.quantity}</span>
-                                        </div>
-                                    ))}
+                        </div>
+
+                        {/* Column 2: Item Details */}
+                        <div className="space-y-4">
+                            {hasFabric && (
+                                <div>
+                                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Fabric Details</h4>
+                                    <div className="space-y-1 text-sm text-muted-foreground pl-6">
+                                        {request.fabricDetails?.map((item, index) => item.fabricName && (
+                                            <div key={index} className="flex justify-between">
+                                                <span>{item.fabricName}</span>
+                                                <span className="font-mono">{item.quantity} Mtr</span>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                            
+                            {hasFurniture && (
+                                <div>
+                                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Furniture Details</h4>
+                                    <div className="space-y-1 text-sm text-muted-foreground pl-6">
+                                        {request.furnitureDetails?.map((item, index) => item.furnitureName && (
+                                            <div key={index} className="flex justify-between">
+                                                <span>{item.furnitureName}</span>
+                                                <span className="font-mono">{item.quantity}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
 
@@ -415,3 +419,4 @@ export default function PurchasePage() {
     );
 }
 
+    
