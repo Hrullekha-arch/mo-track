@@ -94,7 +94,7 @@ function PoTrackingTimeline({ request, onStepUpdate }: { request: PurchaseReques
                                 <CardContent>
                                     <div className="flex justify-between items-center flex-wrap gap-4">
                                         <div className="text-xs text-muted-foreground space-y-2 flex-grow">
-                                            {request.poDeliveryDate ? (
+                                            {request.poDeliveryDate || [1,2].includes(stepConfig.id) ? (
                                                 <p>Expected by: {formatTimestamp(expectedDate)}</p>
                                             ) : (
                                                 <p>Set PO Confirmation to see dates.</p>
@@ -131,14 +131,20 @@ function PoTrackingTimeline({ request, onStepUpdate }: { request: PurchaseReques
     );
 }
 
-function SetPoDateDialog({ isOpen, onClose, onConfirm }: { isOpen: boolean, onClose: () => void, onConfirm: (date: Date) => void }) {
-    const [date, setDate] = useState<Date | undefined>(new Date());
+function SetPoDateDialog({ isOpen, onClose, onConfirm, initialDate }: { isOpen: boolean, onClose: () => void, onConfirm: (date: Date) => void, initialDate?: string | null }) {
+    const [date, setDate] = useState<Date | undefined>(initialDate ? new Date(initialDate) : new Date());
 
     const handleConfirm = () => {
         if(date) {
             onConfirm(date);
         }
     };
+    
+    useEffect(() => {
+        if (isOpen) {
+             setDate(initialDate ? new Date(initialDate) : new Date());
+        }
+    }, [isOpen, initialDate]);
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -174,7 +180,7 @@ export default function PoTrackingPage() {
     const { user } = useAuth();
     const { toast } = useToast();
     const [updatingRequest, setUpdatingRequest] = useState<{requestId: string, stepId: number} | null>(null);
-    const [requestForDate, setRequestForDate] = useState<PurchaseRequest | null>(null);
+    const [requestForDate, setRequestForDate] = useState<{request: PurchaseRequest, stepId: number} | null>(null);
 
     useEffect(() => {
         // We only want to track POs for which an order has been placed.
@@ -206,9 +212,9 @@ export default function PoTrackingPage() {
         const request = requests.find(r => r.id === requestId);
         if (!request) return;
 
-        // For step 1, we must have a delivery date.
-        if (stepId === 1 && !request.poDeliveryDate) {
-            setRequestForDate(request);
+        // For step 1 and 2, we must have a delivery date.
+        if (stepId === 1 || stepId === 2) {
+            setRequestForDate({request, stepId});
             return;
         }
 
@@ -242,16 +248,17 @@ export default function PoTrackingPage() {
     
     const handleSetPoDate = async (date: Date) => {
         if (!requestForDate || !user) return;
+        const { request, stepId } = requestForDate;
         
         try {
-            const requestRef = doc(db, "purchaseRequests", requestForDate.id);
+            const requestRef = doc(db, "purchaseRequests", request.id);
             await updateDoc(requestRef, {
                 poDeliveryDate: date.toISOString(),
             });
 
-            // Now, complete step 1
+            // Now, complete the step that triggered this
              const newStatus: PurchaseStatus = {
-                stepId: 1,
+                stepId: stepId,
                 status: 'completed',
                 completedAt: new Date().toISOString(),
                 completedBy: user.name,
@@ -260,7 +267,7 @@ export default function PoTrackingPage() {
                 poMilestones: arrayUnion(newStatus)
             });
 
-            toast({ title: "Delivery Date Set & Step 1 Completed" });
+            toast({ title: `Delivery Date Set & Step ${stepId} Completed` });
         } catch (error) {
             console.error("Error setting PO date:", error);
             toast({ variant: "destructive", title: "Update Failed" });
@@ -338,10 +345,9 @@ export default function PoTrackingPage() {
                 isOpen={!!requestForDate}
                 onClose={() => setRequestForDate(null)}
                 onConfirm={handleSetPoDate}
+                initialDate={requestForDate?.request.poDeliveryDate}
             />
 
         </div>
     );
 }
-
-    
