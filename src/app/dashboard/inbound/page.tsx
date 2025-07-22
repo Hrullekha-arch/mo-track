@@ -7,61 +7,53 @@ import { db } from "@/lib/firebase";
 import { PurchaseRequest } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
-import { Archive, Layers, Package } from 'lucide-react';
+import { Archive, ChevronRight, Package } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 function InboundCard({ request }: { request: PurchaseRequest }) {
-    const hasFabric = request.fabricDetails && request.fabricDetails.length > 0 && request.fabricDetails.some(f => f.fabricName);
-    const hasFurniture = request.furnitureDetails && request.furnitureDetails.length > 0 && request.furnitureDetails.some(f => f.furnitureName);
-    const defaultTab = hasFabric ? "fabric" : "furniture";
+    const items = [
+        ...(request.fabricDetails?.filter(f => f.fabricName).map(f => ({ name: f.fabricName, qty: `${f.quantity} Mtr`, po: f.poNumber || '-' })) || []),
+        ...(request.furnitureDetails?.filter(f => f.furnitureName).map(f => ({ name: f.furnitureName, qty: f.quantity, po: f.poNumber || '-' })) || [])
+    ];
 
     return (
         <Card>
             <CardHeader>
                 <div className="flex justify-between items-start">
                     <div>
-                        <CardTitle>{request.customerName}</CardTitle>
-                        <CardDescription>Deal ID: {request.dealId}</CardDescription>
+                        <p className="font-semibold">{request.customerName}</p>
+                        <p className="text-sm text-muted-foreground">Deal ID: {request.dealId}</p>
                     </div>
                     <Badge variant={request.type === 'fabric' ? 'default' : 'secondary'} className="capitalize">{request.type}</Badge>
                 </div>
             </CardHeader>
             <CardContent>
-                <Tabs defaultValue={defaultTab} className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="fabric" disabled={!hasFabric}>Fabric</TabsTrigger>
-                        <TabsTrigger value="furniture" disabled={!hasFurniture}>Furniture</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="fabric">
-                        <div className="space-y-2 text-sm text-muted-foreground pt-2">
-                            <h4 className="font-semibold text-foreground">Received Fabric</h4>
-                             <Separator />
-                            {request.fabricDetails?.map((item, index) => item.fabricName && (
-                                <div key={index} className="flex justify-between p-2 rounded-md hover:bg-muted/50">
-                                    <span>{item.fabricName}</span>
-                                    <span className="font-mono">{item.quantity} Mtr</span>
-                                </div>
-                            ))}
+                <h4 className="font-medium text-sm text-muted-foreground">Items</h4>
+                <Separator className="my-2" />
+                <div className="space-y-2">
+                    {/* Header */}
+                    <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-muted-foreground px-2">
+                        <div className="col-span-3">PO</div>
+                        <div className="col-span-5">Item Name</div>
+                        <div className="col-span-3 text-right">Qty</div>
+                        <div className="col-span-1"></div>
+                    </div>
+                     <Separator className="my-2" />
+                    {items.map((item, index) => (
+                        <div key={index} className="grid grid-cols-12 gap-2 items-center p-2 rounded-md hover:bg-muted/50 text-sm">
+                            <div className="col-span-3 font-mono">{item.po}</div>
+                            <div className="col-span-5">{item.name}</div>
+                            <div className="col-span-3 text-right font-mono">{item.qty}</div>
+                            <div className="col-span-1 flex justify-end">
+                                <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                            </div>
                         </div>
-                    </TabsContent>
-                    <TabsContent value="furniture">
-                        <div className="space-y-2 text-sm text-muted-foreground pt-2">
-                             <h4 className="font-semibold text-foreground">Received Furniture</h4>
-                             <Separator />
-                            {request.furnitureDetails?.map((item, index) => item.furnitureName && (
-                                <div key={index} className="flex justify-between p-2 rounded-md hover:bg-muted/50">
-                                    <span>{item.furnitureName}</span>
-                                    <span className="font-mono">{item.quantity}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </TabsContent>
-                </Tabs>
+                    ))}
+                </div>
             </CardContent>
         </Card>
-    )
+    );
 }
 
 
