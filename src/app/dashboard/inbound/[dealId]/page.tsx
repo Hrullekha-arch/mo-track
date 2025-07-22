@@ -7,13 +7,14 @@ import { db } from "@/lib/firebase";
 import { PurchaseRequest, InboundMilestone, FabricDetail, FurnitureDetail } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight } from 'lucide-react';
+import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 const INBOUND_PROCESS_CONFIG = [
     { id: 1, name: 'QNQ as per PO', time: "30 min", icon: Ruler },
@@ -135,18 +136,28 @@ export default function InboundProcessPage({ params }: { params: { dealId: strin
                                 const qtyUnit = request.type === 'fabric' ? 'Mtr' : '';
 
                                 return (
-                                    <div key={index}>
+                                    <Collapsible key={index} asChild>
                                         <Card className="overflow-hidden">
                                             <div className="bg-muted/50 p-4 flex justify-between items-center">
                                                 <div>
                                                     <p className="font-semibold">{name}</p>
                                                     <p className="text-sm text-muted-foreground">Qty: {qty} {qtyUnit}</p>
                                                 </div>
-                                                <Badge variant="secondary">PO: {po || 'N/A'}</Badge>
+                                                <div className="flex items-center gap-4">
+                                                    <Badge variant="secondary">PO: {po || 'N/A'}</Badge>
+                                                    <CollapsibleTrigger asChild>
+                                                        <Button variant="ghost" size="sm">
+                                                            View Process
+                                                            <ChevronDown className="h-4 w-4 ml-2" />
+                                                        </Button>
+                                                    </CollapsibleTrigger>
+                                                </div>
                                             </div>
-                                           <ItemProcessTimeline item={item} />
+                                            <CollapsibleContent>
+                                                <ItemProcessTimeline item={item} />
+                                            </CollapsibleContent>
                                         </Card>
-                                    </div>
+                                    </Collapsible>
                                 );
                             })}
                         </div>
