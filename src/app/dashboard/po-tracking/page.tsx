@@ -239,7 +239,9 @@ function PoConfirmationDialog({
                                         name={`fabricDetails.${index}.poNumber`}
                                         render={({ field }) => (
                                             <FormItem className="grid grid-cols-3 items-center gap-4">
-                                                <FormLabel className="text-right">{request.fabricDetails?.[index]?.fabricName}</FormLabel>
+                                                <FormLabel className="text-right">
+                                                    {request.fabricDetails?.[index]?.fabricName} (Qty: {request.fabricDetails?.[index]?.quantity} Mtr)
+                                                </FormLabel>
                                                 <FormControl className="col-span-2">
                                                     <Input placeholder="Enter PO Number" {...field} />
                                                 </FormControl>
@@ -259,7 +261,9 @@ function PoConfirmationDialog({
                                         name={`furnitureDetails.${index}.poNumber`}
                                         render={({ field }) => (
                                             <FormItem className="grid grid-cols-3 items-center gap-4">
-                                                <FormLabel className="text-right">{request.furnitureDetails?.[index]?.furnitureName}</FormLabel>
+                                                <FormLabel className="text-right">
+                                                   {request.furnitureDetails?.[index]?.furnitureName} (Qty: {request.furnitureDetails?.[index]?.quantity})
+                                                </FormLabel>
                                                 <FormControl className="col-span-2">
                                                     <Input placeholder="Enter PO Number" {...field} />
                                                 </FormControl>
@@ -323,8 +327,8 @@ export default function PoTrackingPage() {
         const request = requests.find(r => r.id === requestId);
         if (!request) return;
 
-        // For step 1, we must have a delivery date.
-        if (stepId === 1) {
+        // For step 1 and 2, we need the delivery date dialog
+        if (stepId === 1 || stepId === 2) {
             setRequestForConfirmation({request, stepId});
             return;
         }
@@ -516,3 +520,5 @@ export default function PoTrackingPage() {
         </div>
     );
 }
+
+    
