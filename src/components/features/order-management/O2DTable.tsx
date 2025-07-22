@@ -293,21 +293,19 @@ export function O2DTable() {
   
   if (!isAuthorized) {
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <Card className="mt-8">
-                <CardHeader className="text-center">
-                    <ShieldAlert className="h-12 w-12 text-destructive mx-auto" />
-                    <CardTitle className="mt-4">Access Denied</CardTitle>
-                    <CardDescription>You do not have permission to view this page.</CardDescription>
-                </CardHeader>
-            </Card>
-        </div>
+        <Card className="mt-8">
+            <CardHeader className="text-center">
+                <ShieldAlert className="h-12 w-12 text-destructive mx-auto" />
+                <CardTitle className="mt-4">Access Denied</CardTitle>
+                <CardDescription>You do not have permission to view this page.</CardDescription>
+            </CardHeader>
+        </Card>
     )
   }
 
   return (
     <>
-    <div className="container mx-auto p-4 md:p-6 lg:p-8">
+    <div className="w-full">
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">O2D Orders</h1>
           <p className="text-muted-foreground">A detailed view of all orders currently in the O2D phase.</p>
@@ -449,3 +447,5 @@ export function O2DTable() {
     </>
   );
 }
+
+    

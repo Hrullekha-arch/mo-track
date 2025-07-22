@@ -60,7 +60,7 @@ export function UserManagement() {
   
   return (
     <>
-      <div className="container mx-auto p-4 md:p-6 lg:p-8">
+      <div className="w-full">
         <div className="flex items-center justify-between mb-8">
           <div>
               <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
@@ -262,3 +262,5 @@ function UserManagementSkeleton() {
         </div>
     )
 }
+
+    
