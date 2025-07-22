@@ -41,8 +41,8 @@ export default function AllOrdersPage() {
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="orders">
-                    <Suspense fallback={<OrdersDashboardSkeleton />}>
-                        <OrdersDashboard />
+                    <Suspense fallback={<AllOrdersSkeleton />}>
+                        <AllOrdersTable />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="purchase">
