@@ -4,20 +4,22 @@
 import { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest } from "@/lib/types";
+import { PurchaseRequest, FabricDetail, FurnitureDetail } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
-import { Archive, ChevronRight, Package, Search } from 'lucide-react';
+import { Archive, ChevronRight, Package, Search, CheckCircle2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 
+const TOTAL_INBOUND_STEPS = 5;
+
 function InboundCard({ request }: { request: PurchaseRequest }) {
     const items = [
-        ...(request.fabricDetails?.filter(f => f.fabricName).map(f => ({ name: f.fabricName, qty: `${f.quantity} Mtr`, po: f.poNumber || '-' })) || []),
-        ...(request.furnitureDetails?.filter(f => f.furnitureName).map(f => ({ name: f.furnitureName, qty: f.quantity, po: f.poNumber || '-' })) || [])
+        ...(request.fabricDetails?.filter(f => f.fabricName).map(f => ({ ...f, type: 'fabric' as const })) || []),
+        ...(request.furnitureDetails?.filter(f => f.furnitureName).map(f => ({ ...f, type: 'furniture' as const })) || [])
     ];
 
     return (
@@ -48,13 +50,28 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
                             <div className="col-span-4 text-right">Qty</div>
                         </div>
                         <Separator className="my-2" />
-                        {items.map((item, index) => (
-                            <div key={index} className="grid grid-cols-12 gap-2 items-center p-2 rounded-md text-sm">
-                                <div className="col-span-3 font-mono">{item.po}</div>
-                                <div className="col-span-5 truncate">{item.name}</div>
-                                <div className="col-span-4 text-right font-mono">{item.qty}</div>
-                            </div>
-                        ))}
+                        {items.map((item, index) => {
+                            const isComplete = (item.inboundMilestones?.filter(m => m.status === 'completed').length || 0) === TOTAL_INBOUND_STEPS;
+                            const name = item.type === 'fabric' ? item.fabricName : item.furnitureName;
+                            const qty = item.type === 'fabric' ? `${item.quantity} Mtr` : item.quantity;
+
+                            return (
+                                <div 
+                                    key={index} 
+                                    className={cn(
+                                        "grid grid-cols-12 gap-2 items-center p-2 rounded-md text-sm",
+                                        isComplete && "bg-green-50 text-green-800"
+                                    )}
+                                >
+                                    <div className="col-span-3 font-mono">{item.poNumber || '-'}</div>
+                                    <div className="col-span-5 truncate font-medium">{name}</div>
+                                    <div className="col-span-4 text-right font-mono flex items-center justify-end gap-2">
+                                        <span>{qty}</span>
+                                        {isComplete && <Badge variant="default" className="bg-green-600 hover:bg-green-700 h-5 text-xs">Received</Badge>}
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </CardContent>
             </Card>
@@ -105,7 +122,7 @@ export default function InboundPage() {
             const itemMatch = items.some(item => 
                 item.name.toLowerCase().includes(query) || 
                 item.po.toLowerCase().includes(query) ||
-                item.qty.toLowerCase().includes(query)
+                String(item.qty).toLowerCase().includes(query)
             );
 
             return customerNameMatch || dealIdMatch || itemMatch;
