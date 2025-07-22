@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, use } from 'react';
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, InboundMilestone, FabricDetail, FurnitureDetail } from "@/lib/types";
@@ -54,10 +54,10 @@ function ItemProcessTimeline({ item }: { item: FabricDetail | FurnitureDetail })
     );
 }
 
-export default function InboundProcessPage({ params }: { params: { dealId: string } }) {
+export default function InboundProcessPage({ params }: { params: Promise<{ dealId: string }> }) {
+    const { dealId } = use(params);
     const [request, setRequest] = useState<PurchaseRequest | null>(null);
     const [loading, setLoading] = useState(true);
-    const { dealId } = params;
 
     useEffect(() => {
         const docRef = doc(db, "purchaseRequests", dealId);
