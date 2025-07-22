@@ -67,7 +67,7 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
                                     <div className="col-span-5 truncate font-medium">{name}</div>
                                     <div className="col-span-4 text-right font-mono flex items-center justify-end gap-2">
                                         <span>{qty}</span>
-                                        {isComplete && <Badge variant="default" className="bg-green-600 hover:bg-green-700 h-5 text-xs">Received</Badge>}
+                                        {isComplete && <CheckCircle2 className="h-5 w-5 text-green-600" />}
                                     </div>
                                 </div>
                             );
