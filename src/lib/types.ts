@@ -134,6 +134,7 @@ export interface PurchaseRequest {
   remarks?: string;
 
   // PO Tracking
+  vendorName?: string;
   poMilestones?: PurchaseStatus[];
   poDeliveryDate?: string | null; // Date promised by vendor
 }
