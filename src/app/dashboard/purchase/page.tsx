@@ -1,10 +1,9 @@
 
-
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers, MoreVertical, Trash2, Clock } from 'lucide-react';
+import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers, MoreVertical, Trash2, Clock, Ban } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStep, PurchaseStatus } from "@/lib/types";
@@ -19,7 +18,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 
@@ -134,6 +133,11 @@ function PurchaseProcessTimeline({
     } else if (request.vendorType === 'new') {
         processSteps.push(...NEW_VENDOR_BRANCH);
     }
+    
+    const isBlocked = useMemo(() => {
+        return request.milestones.some(m => m.stepId <= 3 && m.status === 'skipped');
+    }, [request.milestones]);
+
 
     const stepsToShow = useMemo(() => {
         if (showAllSteps) {
@@ -179,7 +183,11 @@ function PurchaseProcessTimeline({
 
         return (
             <DropdownMenu>
-                <DropdownMenuTrigger asChild><Button size="sm" disabled={!hasPermission}>Action</Button></DropdownMenuTrigger>
+                <DropdownMenuTrigger asChild>
+                    <Button size="sm" disabled={!hasPermission || isBlocked}>
+                        Action
+                    </Button>
+                </DropdownMenuTrigger>
                 <DropdownMenuContent>
                     <DropdownMenuItem onClick={() => handleAction('yes')}>Yes</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => handleAction('no')}>No</DropdownMenuItem>
@@ -191,6 +199,12 @@ function PurchaseProcessTimeline({
     return (
         <div className="relative pl-6 pr-4 py-4">
             <div className="absolute left-9 top-0 h-full w-0.5 bg-border -translate-x-1/2" aria-hidden="true"></div>
+            {isBlocked && (
+                <div className="mb-4 flex items-center gap-2 rounded-lg border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+                    <Ban className="h-5 w-5 shrink-0" />
+                    <p>This request is blocked because a verification step was failed. No further actions can be taken.</p>
+                </div>
+            )}
             <div className="space-y-4">
                 {(showAllSteps ? processSteps : stepsToShow).map((stepConfig) => {
                     const stepStatus = request.milestones?.find(s => s.stepId === stepConfig.id);
@@ -202,19 +216,32 @@ function PurchaseProcessTimeline({
                     const Icon = stepConfig.icon;
 
                     const prevStep = getPrevStep(stepConfig.id);
-                    // For the first step, prevStep is null, we treat its status as 'completed' to allow action.
                     const prevStepStatus = prevStep ? request.milestones.find(m => m.stepId === prevStep.id) : { status: 'completed' };
                     
-                    const canAct = isPending && (prevStepStatus?.status === 'completed' || prevStepStatus?.status === 'skipped');
+                    const canAct = useMemo(() => {
+                        if (isPending) {
+                            if (!prevStep) { // This is the first step
+                                return true;
+                            }
+                            const prevStatus = request.milestones.find(m => m.stepId === prevStep.id);
+                            // Can act if prev step is completed (not skipped)
+                            if (prevStatus?.status === 'completed') {
+                                return true;
+                            }
+                        }
+                        return false;
+                    }, [isPending, prevStep, request.milestones]);
                     
                     return (
                         <div key={stepConfig.id} className="relative flex items-start gap-4">
                             <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-border shadow-sm shrink-0 bg-card">
                                 <Icon className={cn("h-6 w-6", 
-                                   stepStatus?.status === 'completed' ? "text-green-500" : isOverdue ? "text-red-500" : "text-muted-foreground"
+                                   stepStatus?.status === 'completed' ? "text-green-500" :
+                                   stepStatus?.status === 'skipped' ? "text-destructive" :
+                                   isOverdue ? "text-red-500" : "text-muted-foreground"
                                 )} />
                             </div>
-                            <Card className={cn("w-full group hover:shadow-md", isPending && isOverdue ? "border-red-500 bg-red-50" : "")}>
+                            <Card className={cn("w-full group hover:shadow-md", isPending && isOverdue ? "border-red-500 bg-red-50" : stepStatus?.status === 'skipped' ? 'border-destructive/50 bg-destructive/5' : '')}>
                                 <CardHeader>
                                     <div className="flex justify-between items-start">
                                         <div>
@@ -238,8 +265,8 @@ function PurchaseProcessTimeline({
                                                 </div>
                                             )}
                                              {stepStatus?.status === 'skipped' && (
-                                                <div className="flex items-center gap-2 text-gray-600 font-medium">
-                                                    <SkipForward className="h-4 w-4" />
+                                                <div className="flex items-center gap-2 text-destructive font-medium">
+                                                    <Ban className="h-4 w-4" />
                                                     <span>Skipped by {stepStatus.completedBy} at {formatTimestamp(new Date(stepStatus.completedAt))}</span>
                                                 </div>
                                             )}
@@ -262,7 +289,7 @@ function PurchaseProcessTimeline({
                                             {canAct ? (
                                                 renderActionButtons(stepConfig)
                                             ) : (
-                                                stepStatus?.status && <Badge className="capitalize">{stepConfig.id === 5 && request.vendorType !== 'undecided' ? request.vendorType : stepStatus.status}</Badge>
+                                                stepStatus?.status && <Badge variant={stepStatus.status === 'skipped' ? 'destructive' : 'default'} className="capitalize">{stepConfig.id === 5 && request.vendorType !== 'undecided' ? request.vendorType : stepStatus.status}</Badge>
                                             )}
                                         </div>
                                     </div>
@@ -306,10 +333,18 @@ const PurchaseRequestCard = ({
     const lastStepInNew = NEW_VENDOR_BRANCH[NEW_VENDOR_BRANCH.length - 1];
     const isCompleted = completedSteps.some(cs => (cs.stepId === lastStepInExisting.id || cs.stepId === lastStepInNew.id) && cs.status === 'completed');
 
+    const isBlocked = useMemo(() => {
+        return request.milestones.some(m => m.stepId <= 3 && m.status === 'skipped');
+    }, [request.milestones]);
+
     let statusTextColor = "text-primary";
     let statusText = "In Progress";
     let pendingWith = "";
-    if (isCompleted) {
+    if (isBlocked) {
+        statusText = "Blocked";
+        statusTextColor = "text-destructive";
+        pendingWith = "Action Required";
+    } else if (isCompleted) {
         statusText = "Order Placed";
         statusTextColor = "text-green-600";
     } else if (currentStep) {
@@ -358,7 +393,7 @@ const PurchaseRequestCard = ({
     };
     
     return (
-        <Collapsible key={request.id} className="border-2 rounded-lg bg-card overflow-hidden">
+        <Collapsible key={request.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", isBlocked && 'border-destructive')}>
             <div className="p-4 space-y-4">
                 <div className="flex gap-4">
                     <div className="flex-1 space-y-2">
@@ -376,23 +411,25 @@ const PurchaseRequestCard = ({
                             <div className="text-right flex flex-col items-end">
                                 <div className="flex items-center gap-2">
                                      {role === 'admin' && (
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                    <MoreVertical className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <AlertDialogTrigger asChild>
-                                                    <DropdownMenuItem 
-                                                        className="text-destructive focus:text-destructive"
-                                                        onClick={() => onDeleteRequest(request)}
-                                                    >
-                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                                    </DropdownMenuItem>
-                                                </AlertDialogTrigger>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
+                                        <AlertDialog>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                        <MoreVertical className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <AlertDialogTrigger asChild>
+                                                        <DropdownMenuItem 
+                                                            className="text-destructive focus:text-destructive"
+                                                            onClick={() => onDeleteRequest(request)}
+                                                        >
+                                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                        </DropdownMenuItem>
+                                                    </AlertDialogTrigger>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </AlertDialog>
                                     )}
                                     {request.vendorType !== 'undecided' && (
                                         <Badge className='mt-2 capitalize' variant="outline">{request.vendorType} vendor</Badge>
@@ -452,17 +489,15 @@ const PurchaseRequestCard = ({
                        {showAllSteps ? 'Show Pending Steps' : 'Show All Steps'}
                     </Button>
                 </div>
-                 <AlertDialog>
-                    <PurchaseProcessTimeline
-                        request={request}
-                        onQuickStepUpdate={handleQuickStepUpdate}
-                        onVendorTypeSelect={handleVendorTypeSelect}
-                        onRevertStep={onRevertStep}
-                        userRole={role}
-                        userDesignation={designation}
-                        showAllSteps={showAllSteps}
-                    />
-                </AlertDialog>
+                <PurchaseProcessTimeline
+                    request={request}
+                    onQuickStepUpdate={handleQuickStepUpdate}
+                    onVendorTypeSelect={handleVendorTypeSelect}
+                    onRevertStep={onRevertStep}
+                    userRole={role}
+                    userDesignation={designation}
+                    showAllSteps={showAllSteps}
+                />
             </CollapsibleContent>
         </Collapsible>
     )
@@ -485,6 +520,10 @@ export default function PurchasePage() {
         });
         return () => unsubscribe();
     }, []);
+
+    const handleOpenRevertDialog = (requestId: string, stepId: number, milestone: PurchaseStatus) => {
+        setRevertingStepInfo({ requestId, stepId, milestone });
+    };
 
     const handleRevertStep = async () => {
         if (!revertingStepInfo) return;
@@ -563,14 +602,16 @@ export default function PurchasePage() {
                         {loading ? (
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : fabricRequests.length > 0 ? (
-                             fabricRequests.map(request => (
-                                <PurchaseRequestCard 
-                                    key={request.id} 
-                                    request={request}
-                                    onRevertStep={(requestId, stepId, milestone) => setRevertingStepInfo({ requestId, stepId, milestone })}
-                                    onDeleteRequest={setDeletingRequest}
-                                />
-                             ))
+                             <AlertDialog>
+                                {fabricRequests.map(request => (
+                                    <PurchaseRequestCard 
+                                        key={request.id} 
+                                        request={request}
+                                        onRevertStep={handleOpenRevertDialog}
+                                        onDeleteRequest={setDeletingRequest}
+                                    />
+                                ))}
+                            </AlertDialog>
                         ) : (
                             <Card className="text-center p-12">
                                 <CardTitle>No Fabric Requests</CardTitle>
@@ -586,14 +627,16 @@ export default function PurchasePage() {
                         {loading ? (
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : furnitureRequests.length > 0 ? (
-                            furnitureRequests.map(request => (
-                                 <PurchaseRequestCard 
-                                    key={request.id} 
-                                    request={request} 
-                                    onRevertStep={(requestId, stepId, milestone) => setRevertingStepInfo({ requestId, stepId, milestone })}
-                                    onDeleteRequest={setDeletingRequest}
-                                />
-                            ))
+                            <AlertDialog>
+                                {furnitureRequests.map(request => (
+                                    <PurchaseRequestCard 
+                                        key={request.id} 
+                                        request={request} 
+                                        onRevertStep={handleOpenRevertDialog}
+                                        onDeleteRequest={setDeletingRequest}
+                                    />
+                                ))}
+                             </AlertDialog>
                         ) : (
                             <Card className="text-center p-12">
                                 <CardTitle>No Furniture Requests</CardTitle>
@@ -639,3 +682,5 @@ export default function PurchasePage() {
         </div>
     );
 }
+
+    
