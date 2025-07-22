@@ -10,6 +10,7 @@ import PurchasePage from "../purchase/page";
 import PoTrackingPage from "../po-tracking/page";
 import InboundPage from "../inbound/page";
 import { UserManagement } from "@/components/features/user-management/UserManagement";
+import { O2DTable } from "@/components/features/order-management/O2DTable";
 
 
 export default function AllOrdersPage() {
@@ -35,7 +36,9 @@ export default function AllOrdersPage() {
                     </Suspense>
                 </TabsContent>
                 <TabsContent value="o2d">
-                    <O2DPage />
+                    <Suspense fallback={<AllOrdersSkeleton />}>
+                        <O2DTable />
+                    </Suspense>
                 </TabsContent>
                  <TabsContent value="orders">
                     <Suspense fallback={<OrdersDashboardSkeleton />}>
