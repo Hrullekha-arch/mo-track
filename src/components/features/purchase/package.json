@@ -1,0 +1,5 @@
+
+{
+    "name": "purchase",
+    "main": "./PurchaseRequestTable.tsx"
+}
