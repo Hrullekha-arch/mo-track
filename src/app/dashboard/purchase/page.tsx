@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers, MoreVertical, Trash2, Clock, Ban } from 'lucide-react';
+import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers, MoreVertical, Trash2, Clock, Ban, Loader2 } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStep, PurchaseStatus } from "@/lib/types";
@@ -301,17 +301,17 @@ function PurchaseProcessTimeline({
 
 const PurchaseRequestCard = ({ 
     request, 
+    onRevertStep,
+    onDeleteRequest,
 }: { 
     request: PurchaseRequest;
+    onRevertStep: (requestId: string, stepId: number, milestone: PurchaseStatus) => void;
+    onDeleteRequest: (request: PurchaseRequest) => void;
 }) => {
     const [showAllSteps, setShowAllSteps] = useState(false);
     const { user, role, designation } = useAuth();
     const { toast } = useToast();
-    const [isReverting, setIsReverting] = useState(false);
-    const [isDeleting, setIsDeleting] = useState(false);
-    const [revertingStepInfo, setRevertingStepInfo] = useState<{requestId: string, stepId: number, milestone: PurchaseStatus} | null>(null);
-    const [deletingRequest, setDeletingRequest] = useState<PurchaseRequest | null>(null);
-
+   
     const hasFabric = request.fabricDetails && request.fabricDetails.length > 0 && request.fabricDetails.some(f => f.fabricName);
     const hasFurniture = request.furnitureDetails && request.furnitureDetails.length > 0 && request.furnitureDetails.some(f => f.furnitureName);
     const defaultTab = hasFabric ? "fabric" : "furniture";
@@ -387,62 +387,8 @@ const PurchaseRequestCard = ({
             toast({ variant: "destructive", title: "Update Failed" });
         }
     };
-
-    const handleOpenRevertDialog = (requestId: string, stepId: number, milestone: PurchaseStatus) => {
-        setRevertingStepInfo({ requestId, stepId, milestone });
-    };
-
-    const handleRevertStep = async () => {
-        if (!revertingStepInfo) return;
-        setIsReverting(true);
-        const { requestId, stepId, milestone } = revertingStepInfo;
-    
-        try {
-            const requestRef = doc(db, "purchaseRequests", requestId);
-            let updatePayload: any = { milestones: arrayRemove(milestone) };
-    
-            if (stepId === 5) {
-                updatePayload.vendorType = 'undecided';
-                const docSnap = await getDoc(requestRef);
-                if (docSnap.exists()) {
-                    const currentRequest = docSnap.data() as PurchaseRequest;
-                    const branchToRemove = currentRequest.vendorType === 'existing' ? EXISTING_VENDOR_BRANCH : NEW_VENDOR_BRANCH;
-                    const branchStepIds = branchToRemove.map(s => s.id);
-                    const milestonesToRevert = currentRequest.milestones.filter(m => branchStepIds.includes(m.stepId));
-                    if (milestonesToRevert.length > 0) {
-                       await updateDoc(requestRef, { milestones: arrayRemove(...milestonesToRevert) });
-                    }
-                }
-            }
-             
-            await updateDoc(requestRef, updatePayload);
-            toast({ title: "Step Reverted!", description: "The step has been successfully reverted." });
-        } catch (error) {
-            console.error("Error reverting step:", error);
-            toast({ variant: "destructive", title: "Revert Failed" });
-        } finally {
-            setIsReverting(false);
-            setRevertingStepInfo(null);
-        }
-    };
-    
-     const handleDelete = async () => {
-        if (!deletingRequest) return;
-        setIsDeleting(true);
-        try {
-            await deleteDoc(doc(db, "purchaseRequests", deletingRequest.id));
-            toast({ title: "Purchase Request Deleted" });
-            setDeletingRequest(null);
-        } catch (error) {
-            console.error("Error deleting purchase request:", error);
-            toast({ variant: "destructive", title: "Deletion Failed" });
-        } finally {
-            setIsDeleting(false);
-        }
-    };
     
     return (
-        <AlertDialog>
             <Collapsible key={request.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", isBlocked && 'border-destructive')}>
                 <div className="p-4 space-y-4">
                     <div className="flex gap-4">
@@ -453,7 +399,7 @@ const PurchaseRequestCard = ({
                                     <p className="text-sm text-muted-foreground">ID: {request.dealId}</p>
                                     <p className='flex items-center gap-2 pt-1'><User className='h-4 w-4 text-muted-foreground' /> Salesman: {request.salesman}</p>
                                     <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
-                                    <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
+                                     <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
                                         <Clock className='h-4 w-4'/>
                                         Status: {statusText} {pendingWith && `(Pending with: ${pendingWith})`}
                                     </p>
@@ -471,7 +417,7 @@ const PurchaseRequestCard = ({
                                                     <AlertDialogTrigger asChild>
                                                         <DropdownMenuItem 
                                                             className="text-destructive focus:text-destructive"
-                                                            onClick={() => setDeletingRequest(request)}
+                                                            onClick={() => onDeleteRequest(request)}
                                                         >
                                                             <Trash2 className="mr-2 h-4 w-4" /> Delete
                                                         </DropdownMenuItem>
@@ -541,14 +487,154 @@ const PurchaseRequestCard = ({
                         request={request}
                         onQuickStepUpdate={handleQuickStepUpdate}
                         onVendorTypeSelect={handleVendorTypeSelect}
-                        onRevertStep={handleOpenRevertDialog}
+                        onRevertStep={onRevertStep}
                         userRole={role}
                         userDesignation={designation}
                         showAllSteps={showAllSteps}
                     />
                 </CollapsibleContent>
             </Collapsible>
-            
+    )
+}
+
+
+export default function PurchasePage() {
+    const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+    const [loading, setLoading] = useState(true);
+    const { toast } = useToast();
+    const [deletingRequest, setDeletingRequest] = useState<PurchaseRequest | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [revertingStepInfo, setRevertingStepInfo] = useState<{requestId: string, stepId: number, milestone: PurchaseStatus} | null>(null);
+    const [isReverting, setIsReverting] = useState(false);
+
+
+    useEffect(() => {
+        const q = query(collection(db, "purchaseRequests"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            setPurchaseRequests(requestsData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    const isFabricRequest = (req: PurchaseRequest) => req.type === 'fabric';
+    const isFurnitureRequest = (req: PurchaseRequest) => req.type === 'furniture';
+
+    const fabricRequests = purchaseRequests.filter(isFabricRequest);
+    const furnitureRequests = purchaseRequests.filter(isFurnitureRequest);
+
+    const handleOpenRevertDialog = (requestId: string, stepId: number, milestone: PurchaseStatus) => {
+        setRevertingStepInfo({ requestId, stepId, milestone });
+    };
+
+    const handleRevertStep = async () => {
+        if (!revertingStepInfo) return;
+        setIsReverting(true);
+        const { requestId, stepId, milestone } = revertingStepInfo;
+    
+        try {
+            const requestRef = doc(db, "purchaseRequests", requestId);
+            let updatePayload: any = { milestones: arrayRemove(milestone) };
+    
+            if (stepId === 5) {
+                updatePayload.vendorType = 'undecided';
+                const docSnap = await getDoc(requestRef);
+                if (docSnap.exists()) {
+                    const currentRequest = docSnap.data() as PurchaseRequest;
+                    const branchToRemove = currentRequest.vendorType === 'existing' ? EXISTING_VENDOR_BRANCH : NEW_VENDOR_BRANCH;
+                    const branchStepIds = branchToRemove.map(s => s.id);
+                    const milestonesToRevert = currentRequest.milestones.filter(m => branchStepIds.includes(m.stepId));
+                    if (milestonesToRevert.length > 0) {
+                       await updateDoc(requestRef, { milestones: arrayRemove(...milestonesToRevert) });
+                    }
+                }
+            }
+             
+            await updateDoc(requestRef, updatePayload);
+            toast({ title: "Step Reverted!", description: "The step has been successfully reverted." });
+        } catch (error) {
+            console.error("Error reverting step:", error);
+            toast({ variant: "destructive", title: "Revert Failed" });
+        } finally {
+            setIsReverting(false);
+            setRevertingStepInfo(null);
+        }
+    };
+    
+     const handleDelete = async () => {
+        if (!deletingRequest) return;
+        setIsDeleting(true);
+        try {
+            await deleteDoc(doc(db, "purchaseRequests", deletingRequest.id));
+            toast({ title: "Purchase Request Deleted" });
+            setDeletingRequest(null);
+        } catch (error) {
+            console.error("Error deleting purchase request:", error);
+            toast({ variant: "destructive", title: "Deletion Failed" });
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const renderRequests = (requests: PurchaseRequest[]) => {
+         if (loading) {
+            return Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />);
+        }
+        if (requests.length === 0) {
+            return (
+                <Card className="text-center p-12">
+                    <CardTitle>No Requests Found</CardTitle>
+                    <CardDescription>
+                        Create a new purchase request to see it here.
+                    </CardDescription>
+                </Card>
+            );
+        }
+        return requests.map(request => (
+            <PurchaseRequestCard 
+                key={request.id} 
+                request={request}
+                onRevertStep={handleOpenRevertDialog}
+                onDeleteRequest={setDeletingRequest}
+            />
+        ));
+    };
+
+    return (
+        <AlertDialog>
+            <div className="container mx-auto p-4 md:p-6 lg:p-8">
+                <header className="mb-8 flex items-center justify-between">
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight">Purchase Process</h1>
+                        <p className="text-muted-foreground">Manage and track all purchase requests from authorization to placing the order.</p>
+                    </div>
+                    <Button asChild>
+                        <Link href="/dashboard/purchase/new">
+                            <PlusCircle className="mr-2 h-4 w-4" />
+                            New Purchase Request
+                        </Link>
+                    </Button>
+                </header>
+                
+                <Tabs defaultValue="fabric" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="fabric">Fabric Requests</TabsTrigger>
+                        <TabsTrigger value="furniture">Furniture Requests</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="fabric">
+                        <div className="space-y-4 pt-4">
+                            {renderRequests(fabricRequests)}
+                        </div>
+                    </TabsContent>
+                    <TabsContent value="furniture">
+                        <div className="space-y-4 pt-4">
+                           {renderRequests(furnitureRequests)}
+                        </div>
+                    </TabsContent>
+                </Tabs>
+            </div>
+
             {!!deletingRequest && (
                 <AlertDialogContent>
                     <AlertDialogHeader>
@@ -581,96 +667,7 @@ const PurchaseRequestCard = ({
                     </AlertDialogFooter>
                 </AlertDialogContent>
             )}
-
         </AlertDialog>
-    )
-}
-
-
-export default function PurchasePage() {
-    const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
-    const [loading, setLoading] = useState(true);
-    const { toast } = useToast();
-
-    useEffect(() => {
-        const q = query(collection(db, "purchaseRequests"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-            setPurchaseRequests(requestsData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-            setLoading(false);
-        });
-        return () => unsubscribe();
-    }, []);
-
-    const isFabricRequest = (req: PurchaseRequest) => req.type === 'fabric';
-    const isFurnitureRequest = (req: PurchaseRequest) => req.type === 'furniture';
-
-    const fabricRequests = purchaseRequests.filter(isFabricRequest);
-    const furnitureRequests = purchaseRequests.filter(isFurnitureRequest);
-
-    return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <header className="mb-8 flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Purchase Process</h1>
-                    <p className="text-muted-foreground">Manage and track all purchase requests from authorization to placing the order.</p>
-                </div>
-                <Button asChild>
-                    <Link href="/dashboard/purchase/new">
-                        <PlusCircle className="mr-2 h-4 w-4" />
-                        New Purchase Request
-                    </Link>
-                </Button>
-            </header>
-            
-             <Tabs defaultValue="fabric" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="fabric">Fabric Requests</TabsTrigger>
-                    <TabsTrigger value="furniture">Furniture Requests</TabsTrigger>
-                </TabsList>
-                <TabsContent value="fabric">
-                    <div className="space-y-4 pt-4">
-                        {loading ? (
-                            Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
-                        ) : fabricRequests.length > 0 ? (
-                            fabricRequests.map(request => (
-                                <PurchaseRequestCard 
-                                    key={request.id} 
-                                    request={request}
-                                />
-                            ))
-                        ) : (
-                            <Card className="text-center p-12">
-                                <CardTitle>No Fabric Requests</CardTitle>
-                                <CardDescription>
-                                    Create a new fabric purchase request to see it here.
-                                </CardDescription>
-                            </Card>
-                        )}
-                    </div>
-                </TabsContent>
-                <TabsContent value="furniture">
-                    <div className="space-y-4 pt-4">
-                        {loading ? (
-                            Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
-                        ) : furnitureRequests.length > 0 ? (
-                            furnitureRequests.map(request => (
-                                <PurchaseRequestCard 
-                                    key={request.id} 
-                                    request={request} 
-                                />
-                            ))
-                        ) : (
-                            <Card className="text-center p-12">
-                                <CardTitle>No Furniture Requests</CardTitle>
-                                <CardDescription>
-                                    Create a new furniture purchase request to see it here.
-                                </CardDescription>
-                            </Card>
-                        )}
-                    </div>
-                </TabsContent>
-            </Tabs>
-        </div>
     );
 }
+
