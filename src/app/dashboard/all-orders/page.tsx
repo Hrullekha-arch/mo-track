@@ -15,7 +15,7 @@ import { O2DTable } from "@/components/features/order-management/O2DTable";
 
 export default function AllOrdersPage() {
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
+        <div className="w-full p-4 md:p-6 lg:p-8">
             <header className="mb-8">
                 <h1 className="text-3xl font-bold tracking-tight">Details</h1>
                 <p className="text-muted-foreground">A comprehensive view of all data and processes.</p>

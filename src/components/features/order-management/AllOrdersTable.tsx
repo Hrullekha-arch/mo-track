@@ -390,7 +390,7 @@ export function AllOrdersTable() {
   return (
     <>
     <TooltipProvider>
-    <div className="container mx-auto p-4 md:p-6 lg:p-8">
+    <div className="w-full">
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">All Orders</h1>
           <p className="text-muted-foreground">A detailed, searchable view of every order in the system.</p>
