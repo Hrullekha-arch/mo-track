@@ -60,6 +60,8 @@ export interface FabricDetail {
     fabricName: string;
     quantity: string;
     poNumber?: string;
+    vendorName?: string;
+    expectedDeliveryDate?: string;
     inboundMilestones?: InboundMilestone[];
 }
 
@@ -67,6 +69,8 @@ export interface FurnitureDetail {
     furnitureName: string;
     quantity: string;
     poNumber?: string;
+    vendorName?: string;
+    expectedDeliveryDate?: string;
     inboundMilestones?: InboundMilestone[];
 }
 
@@ -134,7 +138,6 @@ export interface PurchaseRequest {
   remarks?: string;
 
   // PO Tracking
-  vendorName?: string;
   poMilestones?: PurchaseStatus[];
   poDeliveryDate?: string | null; // Date promised by vendor
 }

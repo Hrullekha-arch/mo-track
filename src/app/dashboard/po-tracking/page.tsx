@@ -146,14 +146,15 @@ function PoTrackingTimeline({ request, onStepUpdate, onRevertStep, userRole }: {
 
 
 const poConfirmationSchema = z.object({
-    vendorName: z.string().min(1, "Vendor name is required."),
     poDeliveryDate: z.date({ required_error: "A delivery date is required." }),
     fabricDetails: z.array(z.object({ 
         poNumber: z.string().optional(),
+        vendorName: z.string().optional(),
         expectedDeliveryDate: z.date({ required_error: "A delivery date is required for each item." }),
     })).optional(),
     furnitureDetails: z.array(z.object({ 
         poNumber: z.string().optional(),
+        vendorName: z.string().optional(),
         expectedDeliveryDate: z.date({ required_error: "A delivery date is required for each item." }),
     })).optional(),
 });
@@ -173,15 +174,16 @@ function PoConfirmationDialog({
     const form = useForm<PoConfirmationFormValues>({
         resolver: zodResolver(poConfirmationSchema),
         defaultValues: {
-            vendorName: request?.vendorName || '',
             poDeliveryDate: request?.poDeliveryDate ? new Date(request.poDeliveryDate) : new Date(),
             fabricDetails: request?.fabricDetails?.map(d => ({ 
                 poNumber: d.poNumber || '',
-                expectedDeliveryDate: new Date()
+                vendorName: d.vendorName || '',
+                expectedDeliveryDate: d.expectedDeliveryDate ? new Date(d.expectedDeliveryDate) : new Date()
             })),
             furnitureDetails: request?.furnitureDetails?.map(d => ({ 
                 poNumber: d.poNumber || '',
-                expectedDeliveryDate: new Date()
+                vendorName: d.vendorName || '',
+                expectedDeliveryDate: d.expectedDeliveryDate ? new Date(d.expectedDeliveryDate) : new Date()
             })),
         },
     });
@@ -192,15 +194,16 @@ function PoConfirmationDialog({
     useEffect(() => {
         if (request) {
             form.reset({
-                vendorName: request.vendorName || '',
                 poDeliveryDate: request.poDeliveryDate ? new Date(request.poDeliveryDate) : new Date(),
                 fabricDetails: request.fabricDetails?.map(d => ({ 
                     poNumber: d.poNumber || '',
-                    expectedDeliveryDate: new Date() // Reset to today or a more specific logic
+                    vendorName: d.vendorName || '',
+                    expectedDeliveryDate: d.expectedDeliveryDate ? new Date(d.expectedDeliveryDate) : new Date()
                 })),
                 furnitureDetails: request.furnitureDetails?.map(d => ({ 
                     poNumber: d.poNumber || '',
-                    expectedDeliveryDate: new Date()
+                    vendorName: d.vendorName || '',
+                    expectedDeliveryDate: d.expectedDeliveryDate ? new Date(d.expectedDeliveryDate) : new Date()
                 })),
             });
         }
@@ -223,26 +226,13 @@ function PoConfirmationDialog({
                 </DialogHeader>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
-                        <FormField
-                            control={form.control}
-                            name="vendorName"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Vendor Name</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="Enter vendor name" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
                         <h4 className="font-semibold pt-4 border-t">Item Details</h4>
                         
                         {request.type === 'fabric' && request.fabricDetails && (
                             <div className="space-y-4">
                                 {fabricFields.fields.map((item, index) => (
-                                    <Card key={item.id} className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                                        <div className="md:col-span-1">
+                                    <Card key={item.id} className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                                        <div className="md:col-span-2">
                                             <Label>{request.fabricDetails?.[index]?.fabricName}</Label>
                                             <p className="text-sm text-muted-foreground">Qty: {request.fabricDetails?.[index]?.quantity} Mtr</p>
                                         </div>
@@ -258,9 +248,19 @@ function PoConfirmationDialog({
                                         />
                                         <FormField
                                             control={form.control}
+                                            name={`fabricDetails.${index}.vendorName`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Vendor Name</FormLabel>
+                                                    <FormControl><Input placeholder="Enter Vendor Name" {...field} /></FormControl>
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={form.control}
                                             name={`fabricDetails.${index}.expectedDeliveryDate`}
                                             render={({ field }) => (
-                                                <FormItem className="flex flex-col">
+                                                <FormItem className="flex flex-col md:col-span-2">
                                                     <FormLabel>Expected Date</FormLabel>
                                                     <Popover>
                                                         <PopoverTrigger asChild>
@@ -287,12 +287,12 @@ function PoConfirmationDialog({
                          {request.type === 'furniture' && request.furnitureDetails && (
                             <div className="space-y-4">
                                 {furnitureFields.fields.map((item, index) => (
-                                    <Card key={item.id} className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                                         <div className="md:col-span-1">
+                                     <Card key={item.id} className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                                        <div className="md:col-span-2">
                                             <Label>{request.furnitureDetails?.[index]?.furnitureName}</Label>
                                             <p className="text-sm text-muted-foreground">Qty: {request.furnitureDetails?.[index]?.quantity}</p>
                                         </div>
-                                        <FormField
+                                         <FormField
                                             control={form.control}
                                             name={`furnitureDetails.${index}.poNumber`}
                                             render={({ field }) => (
@@ -302,11 +302,21 @@ function PoConfirmationDialog({
                                                 </FormItem>
                                             )}
                                         />
+                                         <FormField
+                                            control={form.control}
+                                            name={`furnitureDetails.${index}.vendorName`}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>Vendor Name</FormLabel>
+                                                    <FormControl><Input placeholder="Enter Vendor Name" {...field} /></FormControl>
+                                                </FormItem>
+                                            )}
+                                        />
                                         <FormField
                                             control={form.control}
                                             name={`furnitureDetails.${index}.expectedDeliveryDate`}
                                             render={({ field }) => (
-                                                <FormItem className="flex flex-col">
+                                                <FormItem className="flex flex-col md:col-span-2">
                                                     <FormLabel>Expected Date</FormLabel>
                                                     <Popover>
                                                         <PopoverTrigger asChild>
@@ -443,8 +453,6 @@ export default function PoTrackingPage() {
         try {
             const requestRef = doc(db, "purchaseRequests", request.id);
             const updatePayload: any = {
-                vendorName: values.vendorName,
-                // The main poDeliveryDate can be the latest of all item dates
                 poDeliveryDate: values.poDeliveryDate.toISOString(), 
             };
 
@@ -452,12 +460,14 @@ export default function PoTrackingPage() {
                 updatePayload.fabricDetails = request.fabricDetails?.map((item, index) => ({
                     ...item,
                     poNumber: values.fabricDetails?.[index]?.poNumber || '',
+                    vendorName: values.fabricDetails?.[index]?.vendorName || '',
                     expectedDeliveryDate: values.fabricDetails?.[index]?.expectedDeliveryDate.toISOString(),
                 }));
             } else if (request.type === 'furniture' && values.furnitureDetails) {
                 updatePayload.furnitureDetails = request.furnitureDetails?.map((item, index) => ({
                     ...item,
                     poNumber: values.furnitureDetails?.[index]?.poNumber || '',
+                    vendorName: values.furnitureDetails?.[index]?.vendorName || '',
                     expectedDeliveryDate: values.furnitureDetails?.[index]?.expectedDeliveryDate.toISOString(),
                 }));
             }
@@ -521,7 +531,13 @@ export default function PoTrackingPage() {
                                         <CardTitle>Request for: {request.customerName}</CardTitle>
                                         <CardDescription>Deal ID: {request.dealId}</CardDescription>
                                     </div>
-                                    {request.vendorName && <Badge variant="secondary">Vendor: {request.vendorName}</Badge>}
+                                    <div className="flex flex-col items-end gap-1">
+                                        {(request.fabricDetails?.map(d => d.vendorName).filter(Boolean) as string[] || [])
+                                            .concat(request.furnitureDetails?.map(d => d.vendorName).filter(Boolean) as string[] || [])
+                                            .filter((v, i, a) => a.indexOf(v) === i) // Unique vendors
+                                            .map(vendor => <Badge key={vendor} variant="secondary">{vendor}</Badge>)
+                                        }
+                                    </div>
                                 </div>
                             </CardHeader>
                             <CardContent>
