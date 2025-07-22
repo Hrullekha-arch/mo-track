@@ -394,8 +394,8 @@ export default function PoTrackingPage() {
         const request = requests.find(r => r.id === requestId);
         if (!request) return;
 
-        // For step 1 and 2, we need the delivery date dialog
-        if (stepId === 1 || stepId === 2) {
+        // For step 1, we need the delivery date dialog
+        if (stepId === 1) {
             setRequestForConfirmation({request, stepId});
             return;
         }
@@ -611,3 +611,6 @@ export default function PoTrackingPage() {
         </div>
     );
 }
+
+
+    
