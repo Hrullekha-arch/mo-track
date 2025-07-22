@@ -56,9 +56,10 @@ function ItemProcessTimeline({ item }: { item: FabricDetail | FurnitureDetail })
 export default function InboundProcessPage({ params }: { params: { dealId: string } }) {
     const [request, setRequest] = useState<PurchaseRequest | null>(null);
     const [loading, setLoading] = useState(true);
+    const { dealId } = params;
 
     useEffect(() => {
-        const docRef = doc(db, "purchaseRequests", params.dealId);
+        const docRef = doc(db, "purchaseRequests", dealId);
         const unsubscribe = onSnapshot(docRef, (doc) => {
             if (doc.exists()) {
                 setRequest({ id: doc.id, ...doc.data() } as PurchaseRequest);
@@ -69,7 +70,7 @@ export default function InboundProcessPage({ params }: { params: { dealId: strin
         });
 
         return () => unsubscribe();
-    }, [params.dealId]);
+    }, [dealId]);
 
     const items = request?.type === 'fabric' ? request.fabricDetails : request.furnitureDetails;
 
@@ -88,7 +89,7 @@ export default function InboundProcessPage({ params }: { params: { dealId: strin
         return (
              <div className="container mx-auto p-4 md:p-6 lg:p-8 text-center">
                 <h1 className="text-2xl font-bold">Request not found</h1>
-                <p className="text-muted-foreground">The request with ID {params.dealId} could not be found.</p>
+                <p className="text-muted-foreground">The request with ID {dealId} could not be found.</p>
                 <Button asChild variant="link" className="mt-4">
                     <Link href="/dashboard/inbound">Go Back</Link>
                 </Button>
@@ -155,4 +156,3 @@ export default function InboundProcessPage({ params }: { params: { dealId: strin
         </div>
     );
 }
-
