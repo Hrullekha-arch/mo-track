@@ -72,8 +72,6 @@ export default function InboundProcessPage({ params }: { params: { dealId: strin
         return () => unsubscribe();
     }, [dealId]);
 
-    const items = request?.type === 'fabric' ? request.fabricDetails : request.furnitureDetails;
-
     if (loading) {
         return (
             <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-4">
@@ -96,6 +94,8 @@ export default function InboundProcessPage({ params }: { params: { dealId: strin
             </div>
         )
     }
+
+    const items = request.type === 'fabric' ? request.fabricDetails : request.furnitureDetails;
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
