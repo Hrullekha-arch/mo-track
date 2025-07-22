@@ -1,16 +1,17 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
-import { Archive, ChevronRight, Package } from 'lucide-react';
+import { Archive, ChevronRight, Package, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
 
 function InboundCard({ request }: { request: PurchaseRequest }) {
     const items = [
@@ -64,6 +65,7 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
 export default function InboundPage() {
     const [inboundRequests, setInboundRequests] = useState<PurchaseRequest[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState("");
 
     useEffect(() => {
         // A PO is considered "inbound" once it's marked as "PO Confirmation" (step 1)
@@ -84,6 +86,29 @@ export default function InboundPage() {
 
         return () => unsubscribe();
     }, []);
+    
+    const filteredInboundRequests = useMemo(() => {
+        if (!searchQuery) {
+            return inboundRequests;
+        }
+        return inboundRequests.filter(request => {
+            const query = searchQuery.toLowerCase();
+            const customerNameMatch = request.customerName.toLowerCase().includes(query);
+            const dealIdMatch = request.dealId.toLowerCase().includes(query);
+
+            const items = [
+                ...(request.fabricDetails?.map(f => ({ name: f.fabricName || '', po: f.poNumber || '' })) || []),
+                ...(request.furnitureDetails?.map(f => ({ name: f.furnitureName || '', po: f.poNumber || '' })) || [])
+            ];
+
+            const itemMatch = items.some(item => 
+                item.name.toLowerCase().includes(query) || 
+                item.po.toLowerCase().includes(query)
+            );
+
+            return customerNameMatch || dealIdMatch || itemMatch;
+        });
+    }, [inboundRequests, searchQuery]);
 
     if (loading) {
         return (
@@ -109,10 +134,20 @@ export default function InboundPage() {
                     A log of all materials for which a Purchase Order has been confirmed with a vendor.
                 </p>
             </header>
+            
+            <div className="mb-6 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                <Input
+                    placeholder="Search by Deal ID, Customer, Item Name or PO Number..."
+                    className="pl-10"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                />
+            </div>
 
-            {inboundRequests.length > 0 ? (
+            {filteredInboundRequests.length > 0 ? (
                 <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-                    {inboundRequests.map(request => (
+                    {filteredInboundRequests.map(request => (
                         <InboundCard key={request.id} request={request} />
                     ))}
                 </div>
@@ -123,7 +158,10 @@ export default function InboundPage() {
                     </div>
                     <CardTitle>No Inbound Items Found</CardTitle>
                     <CardDescription>
-                        When a purchase order completes the "PO Confirmation" step, it will appear here.
+                        {searchQuery 
+                            ? `No items match your search for "${searchQuery}".`
+                            : `When a purchase order completes the "PO Confirmation" step, it will appear here.`
+                        }
                     </CardDescription>
                 </Card>
             )}
