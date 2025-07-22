@@ -2,9 +2,9 @@
 "use client";
 
 import { useState, useEffect, use } from 'react';
-import { doc, onSnapshot, updateDoc, arrayRemove } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest, InboundMilestone, FabricDetail, FurnitureDetail } from "@/lib/types";
+import { PurchaseRequest, InboundMilestone, FabricDetail, FurnitureDetail, PurchaseStatus } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2 } from 'lucide-react';
@@ -18,6 +18,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { PO_PROCESS_CONFIG } from '@/lib/constants';
 
 
 const INBOUND_PROCESS_CONFIG = [
@@ -154,6 +155,36 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
             await updateDoc(requestRef, { [payloadKey]: items });
             
             toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete.`});
+
+            // --- Start of new logic: Check if all items are fully received ---
+            const allItems = items as Array<FabricDetail | FurnitureDetail>;
+            const allItemsCompleted = allItems.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
+
+            if (allItemsCompleted) {
+                // Fetch the latest doc to check poMilestones
+                const latestDoc = await getDoc(requestRef);
+                const latestRequestData = latestDoc.data() as PurchaseRequest;
+                const poStep3 = latestRequestData.poMilestones?.find(m => m.stepId === 3);
+
+                if (!poStep3) {
+                    const poMilestoneStep3: PurchaseStatus = {
+                        stepId: 3,
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: "System (Auto)",
+                        remarks: "Automatically completed after all items were received in Inbound.",
+                    };
+                    await updateDoc(requestRef, {
+                        poMilestones: arrayUnion(poMilestoneStep3)
+                    });
+                    toast({
+                        title: "PO Process Updated!",
+                        description: `Step "${PO_PROCESS_CONFIG.find(p=>p.id===3)?.step}" was automatically marked as done.`,
+                        duration: 5000,
+                    });
+                }
+            }
+            // --- End of new logic ---
 
         } catch (error) {
             console.error("Error updating inbound status:", error);
@@ -311,3 +342,5 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         </AlertDialog>
     );
 }
+
+    
