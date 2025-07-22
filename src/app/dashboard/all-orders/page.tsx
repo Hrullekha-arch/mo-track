@@ -5,7 +5,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import O2DPage from "../o2d/page";
-import { PendingOrdersList } from "@/components/features/order-management/PendingOrdersList";
 import { OrdersDashboard } from "@/components/features/order-management/OrdersDashboard";
 import PurchasePage from "../purchase/page";
 import PoTrackingPage from "../po-tracking/page";
