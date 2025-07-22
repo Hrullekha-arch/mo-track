@@ -57,11 +57,11 @@ const dashboardItems = [
     },
     {
         href: "/dashboard/all-orders",
-        title: "All Orders",
-        description: "View a detailed table of all orders.",
+        title: "Details",
+        description: "View a detailed table of all items.",
         icon: Table,
         color: "bg-gray-500",
-        id: "all-orders"
+        id: "details"
     },
 ];
 
