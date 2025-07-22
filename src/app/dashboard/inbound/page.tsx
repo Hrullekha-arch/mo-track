@@ -70,26 +70,17 @@ export default function InboundPage() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // A PO is considered "inbound" once it's marked as "Sent to Location" (step 5)
-        const q = query(
-            collection(db, "purchaseRequests"),
-            where("poMilestones", "array-contains", {
-                stepId: 5,
-                status: 'completed',
-                // We cannot query for fields inside the object, so we filter client-side
-            })
-        );
-
+        // A PO is considered "inbound" once it's marked as "PO Confirmation" (step 1)
         const unsubscribe = onSnapshot(query(collection(db, "purchaseRequests")), (snapshot) => {
             const allRequests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
             
             const filteredRequests = allRequests.filter(req => 
-                req.poMilestones?.some(m => m.stepId === 5 && m.status === 'completed')
+                req.poMilestones?.some(m => m.stepId === 1 && m.status === 'completed')
             );
             
             setInboundRequests(filteredRequests.sort((a,b) => {
-                 const aDate = a.poMilestones?.find(m => m.stepId === 5)?.completedAt || a.createdAt;
-                 const bDate = b.poMilestones?.find(m => m.stepId === 5)?.completedAt || b.createdAt;
+                 const aDate = a.poMilestones?.find(m => m.stepId === 1)?.completedAt || a.createdAt;
+                 const bDate = b.poMilestones?.find(m => m.stepId === 1)?.completedAt || b.createdAt;
                  return new Date(bDate).getTime() - new Date(aDate).getTime();
             }));
             setLoading(false);
@@ -119,7 +110,7 @@ export default function InboundPage() {
             <header className="mb-8">
                 <h1 className="text-3xl font-bold tracking-tight">Inbound Materials</h1>
                 <p className="text-muted-foreground">
-                    A log of all materials that have been received and processed through the PO tracking system.
+                    A log of all materials for which a Purchase Order has been confirmed with a vendor.
                 </p>
             </header>
 
@@ -136,7 +127,7 @@ export default function InboundPage() {
                     </div>
                     <CardTitle>No Inbound Items Found</CardTitle>
                     <CardDescription>
-                        When a purchase order completes the "PO to Order Receive" workflow, it will appear here.
+                        When a purchase order completes the "PO Confirmation" step, it will appear here.
                     </CardDescription>
                 </Card>
             )}
