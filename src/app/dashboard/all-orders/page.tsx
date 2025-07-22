@@ -48,17 +48,17 @@ export default function AllOrdersPage() {
                 </TabsContent>
                  <TabsContent value="purchase">
                     <Suspense fallback={<AllOrdersSkeleton />}>
-                        <PurchaseRequestTable />
+                        <PurchaseRequestTable view="all" />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="po-tracking">
                      <Suspense fallback={<AllOrdersSkeleton />}>
-                        <PurchaseRequestTable />
+                        <PurchaseRequestTable view="po-tracking" />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="inbound">
                      <Suspense fallback={<AllOrdersSkeleton />}>
-                        <PurchaseRequestTable />
+                        <PurchaseRequestTable view="all" />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="users">

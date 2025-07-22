@@ -47,7 +47,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 
-export function PurchaseRequestTable() {
+export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-tracking' }) {
   const [requests, setRequests] = React.useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -64,13 +64,22 @@ export function PurchaseRequestTable() {
   React.useEffect(() => {
     const requestsQuery = query(collection(db, "purchaseRequests"));
     const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
-      const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+      let requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+
+      if (view === 'po-tracking') {
+          requestsData = requestsData.filter(req => {
+              const isOrderPlaced = req.milestones.some(m => (m.stepId === 6 || m.stepId === 11) && m.status === 'completed');
+              const isPoProcessCompleted = req.poMilestones?.some(m => m.stepId === 5 && m.status === 'completed');
+              return isOrderPlaced && !isPoProcessCompleted;
+          });
+      }
+
       setRequests(requestsData);
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [view]);
   
   const handleDeleteRequest = async () => {
     if (!deletingRequest) return;
@@ -284,8 +293,8 @@ export function PurchaseRequestTable() {
     <>
     <div className="w-full">
         <header className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Purchase Requests</h1>
-          <p className="text-muted-foreground">A detailed view of all purchase requests.</p>
+          <h1 className="text-3xl font-bold tracking-tight">{view === 'po-tracking' ? 'PO Tracking' : 'Purchase Requests'}</h1>
+          <p className="text-muted-foreground">A detailed view of all {view === 'po-tracking' ? 'active purchase orders' : 'purchase requests'}.</p>
         </header>
         <Card>
             <CardContent className="p-4">
