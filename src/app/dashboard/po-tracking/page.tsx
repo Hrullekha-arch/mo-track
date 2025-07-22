@@ -66,7 +66,17 @@ const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
     }, {} as Record<number, Date>);
 }
 
-function PoTrackingTimeline({ request, onStepUpdate, onRevertStep, userRole }: { request: PurchaseRequest, onStepUpdate: (requestId: string, stepId: number) => void; onRevertStep: (requestId: string, milestone: PurchaseStatus) => void; userRole: string | null; }) {
+function PoTrackingTimeline({ 
+    request, 
+    onStepUpdate, 
+    onRevertStep, 
+    userRole 
+}: { 
+    request: PurchaseRequest, 
+    onStepUpdate: (requestId: string, stepId: number) => void; 
+    onRevertStep: (requestId: string, milestone: PurchaseStatus) => void; 
+    userRole: string | null; 
+}) {
     const expectedDates = calculateExpectedDatesForPO(request);
     
     return (
@@ -76,15 +86,17 @@ function PoTrackingTimeline({ request, onStepUpdate, onRevertStep, userRole }: {
                 {PO_PROCESS_CONFIG.map((stepConfig) => {
                     const stepStatus = request.poMilestones?.find(s => s.stepId === stepConfig.id);
                     const prevStepConfig = PO_PROCESS_CONFIG.find(s => s.id === stepConfig.id - 1);
-                    const prevStepStatus = prevStepConfig ? request.poMilestones?.find(s => s.id === prevStepConfig.id) : { status: 'completed' };
+                    const prevStepStatus = prevStepConfig ? request.poMilestones?.find(s => s.stepId === prevStepConfig.id) : null;
 
                     const isPending = !stepStatus;
                     const expectedDate = expectedDates[stepConfig.id];
                     const isOverdue = isPast(expectedDate) && isPending;
                     const Icon = stepConfig.icon;
 
-                    // A step is actionable if it's pending AND the previous step is completed. The first step is always actionable if no steps are completed.
-                    const isActionable = isPending && (stepConfig.id === 1 || request.poMilestones?.some(m => m.stepId === stepConfig.id - 1 && m.status === 'completed'));
+                    const isActionable = isPending && (
+                        stepConfig.id === 1 || 
+                        (prevStepStatus && prevStepStatus.status === 'completed')
+                    );
                     
                     return (
                         <div key={stepConfig.id} className="relative flex items-start gap-4">
@@ -134,7 +146,9 @@ function PoTrackingTimeline({ request, onStepUpdate, onRevertStep, userRole }: {
                                                 </AlertDialogTrigger>
                                             )}
                                             {isActionable && (
-                                                 <Button size="sm" onClick={() => onStepUpdate(request.id, stepConfig.id)}>Mark as Done</Button>
+                                                 <AlertDialogTrigger asChild>
+                                                    <Button size="sm" onClick={() => onStepUpdate(request.id, stepConfig.id)}>Mark as Done</Button>
+                                                 </AlertDialogTrigger>
                                             )}
                                             {stepStatus && !isActionable && <Badge variant="default">Done</Badge>}
                                         </div>
@@ -399,12 +413,21 @@ export default function PoTrackingPage() {
         const request = requests.find(r => r.id === requestId);
         if (!request) return;
 
+        // Guard against invalid progression
+        const previousStep = PO_PROCESS_CONFIG.find(s => s.id === stepId - 1);
+        const isPreviousDone = request.poMilestones?.some(m => m.stepId === previousStep?.id && m.status === 'completed');
+        if (stepId !== 1 && !isPreviousDone) {
+            toast({ variant: "destructive", title: "Previous step not completed yet!" });
+            return;
+        }
+
         // For step 1, we need the delivery date dialog
         if (stepId === 1) {
             setRequestForConfirmation({request, stepId});
             return;
         }
 
+        // For other steps, set the request to be confirmed via AlertDialog
         setUpdatingRequest({requestId, stepId});
     };
     
@@ -437,10 +460,10 @@ export default function PoTrackingPage() {
             if (milestone.stepId === 1) {
                 updatePayload.poDeliveryDate = null;
                 if (currentRequest.type === 'fabric' && currentRequest.fabricDetails) {
-                    updatePayload.fabricDetails = currentRequest.fabricDetails.map(d => ({ ...d, expectedDeliveryDate: undefined }));
+                    updatePayload.fabricDetails = currentRequest.fabricDetails.map(d => ({ ...d, poNumber: '', vendorName: '', expectedDeliveryDate: undefined }));
                 }
                 if (currentRequest.type === 'furniture' && currentRequest.furnitureDetails) {
-                    updatePayload.furnitureDetails = currentRequest.furnitureDetails.map(d => ({ ...d, expectedDeliveryDate: undefined }));
+                    updatePayload.furnitureDetails = currentRequest.furnitureDetails.map(d => ({ ...d, poNumber: '', vendorName: '', expectedDeliveryDate: undefined }));
                 }
             }
     
@@ -562,16 +585,16 @@ export default function PoTrackingPage() {
 
     return (
         <div className="space-y-4">
-             <AlertDialog>
-                <header className="mb-8">
-                    <h1 className="text-3xl font-bold tracking-tight">PO to Order Receive</h1>
-                    <p className="text-muted-foreground">Track items from Purchase Order generation to receipt.</p>
-                </header>
+            <header className="mb-8">
+                <h1 className="text-3xl font-bold tracking-tight">PO to Order Receive</h1>
+                <p className="text-muted-foreground">Track items from Purchase Order generation to receipt.</p>
+            </header>
 
-                <div className="space-y-4">
-                {requests.length > 0 ? (
-                    requests.map(request => (
-                        <Card key={request.id}>
+            <div className="space-y-4">
+            {requests.length > 0 ? (
+                requests.map(request => (
+                    <AlertDialog key={request.id}>
+                        <Card>
                             <CardHeader>
                                 <div className="flex justify-between items-start">
                                     <div>
@@ -588,64 +611,63 @@ export default function PoTrackingPage() {
                                 </div>
                             </CardHeader>
                             <CardContent>
-                                    <PoTrackingTimeline request={request} onStepUpdate={handleStepUpdate} onRevertStep={(requestId, milestone) => setRevertingStep({requestId, milestone})} userRole={role} />
-                                    {updatingRequest?.requestId === request.id && (
-                                        <AlertDialogContent>
-                                            <AlertDialogHeader>
-                                                <AlertDialogTitle>Confirm Action</AlertDialogTitle>
-                                                <AlertDialogDescription>
-                                                    Are you sure you want to mark step "{PO_PROCESS_CONFIG.find(s => s.id === updatingRequest.stepId)?.step}" as complete?
-                                                </AlertDialogDescription>
-                                            </AlertDialogHeader>
-                                            <AlertDialogFooter>
-                                                <AlertDialogCancel onClick={() => setUpdatingRequest(null)}>Cancel</AlertDialogCancel>
-                                                <AlertDialogAction onClick={confirmStepUpdate}>Confirm</AlertDialogAction>
-                                            </AlertDialogFooter>
-                                        </AlertDialogContent>
-                                    )}
+                                <PoTrackingTimeline 
+                                    request={request} 
+                                    onStepUpdate={handleStepUpdate} 
+                                    onRevertStep={(requestId, milestone) => setRevertingStep({requestId, milestone})} 
+                                    userRole={role} 
+                                />
+                                {updatingRequest?.requestId === request.id && (
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Confirm Action</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                Are you sure you want to mark step "{PO_PROCESS_CONFIG.find(s => s.id === updatingRequest.stepId)?.step}" as complete?
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel onClick={() => setUpdatingRequest(null)}>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={confirmStepUpdate}>Confirm</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                )}
+                                {revertingStep?.requestId === request.id && (
+                                     <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone. Reverting this step will also remove all subsequent completed steps in the PO timeline.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel onClick={() => setRevertingStep(null)}>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                )}
                             </CardContent>
                         </Card>
-                    ))
-                ) : (
-                    <Card className="text-center p-12">
-                        <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
-                            <FileCheck className="h-8 w-8" />
-                        </div>
-                        <CardTitle>No Active POs</CardTitle>
-                        <CardDescription>
-                            There are no purchase requests awaiting tracking.
-                        </CardDescription>
-                    </Card>
-                )}
-                </div>
-
-                {revertingStep && (
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone. Reverting this step will also remove all subsequent completed steps in the PO timeline.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setRevertingStep(null)}>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                )}
-
-                <PoConfirmationDialog
-                    isOpen={!!requestForConfirmation}
-                    onClose={() => setRequestForConfirmation(null)}
-                    onConfirm={handlePoConfirmation}
-                    request={requestForConfirmation?.request || null}
-                />
-            </AlertDialog>
+                    </AlertDialog>
+                ))
+            ) : (
+                <Card className="text-center p-12">
+                    <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
+                        <FileCheck className="h-8 w-8" />
+                    </div>
+                    <CardTitle>No Active POs</CardTitle>
+                    <CardDescription>
+                        There are no purchase requests awaiting tracking.
+                    </CardDescription>
+                </Card>
+            )}
+            </div>
+            
+            <PoConfirmationDialog
+                isOpen={!!requestForConfirmation}
+                onClose={() => setRequestForConfirmation(null)}
+                onConfirm={handlePoConfirmation}
+                request={requestForConfirmation?.request || null}
+            />
         </div>
     );
 }
-
-
-    
-
-    
