@@ -31,7 +31,7 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
                         <div className="flex flex-col items-end gap-2">
                              <Badge variant={request.type === 'fabric' ? 'default' : 'secondary'} className="capitalize">{request.type}</Badge>
                              <div className="flex items-center gap-2 text-muted-foreground">
-                                View Process <ChevronRight className="h-4 w-4" />
+                                <ChevronRight className="h-5 w-5" />
                             </div>
                         </div>
                     </div>
