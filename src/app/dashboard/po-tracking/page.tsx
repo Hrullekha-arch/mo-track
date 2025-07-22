@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Check, Clock, FileCheck, Loader2, Send, ThumbsUp, Truck, Undo2 } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, where, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest, PurchaseStep, PurchaseStatus } from "@/lib/types"; // Re-using some types
+import { PurchaseRequest, PurchaseStep, PurchaseStatus, FabricDetail, FurnitureDetail } from "@/lib/types"; // Re-using some types
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
@@ -146,7 +146,6 @@ function PoTrackingTimeline({ request, onStepUpdate, onRevertStep, userRole }: {
 
 
 const poConfirmationSchema = z.object({
-    poDeliveryDate: z.date({ required_error: "A delivery date is required." }),
     fabricDetails: z.array(z.object({ 
         poNumber: z.string().optional(),
         vendorName: z.string().optional(),
@@ -174,7 +173,6 @@ function PoConfirmationDialog({
     const form = useForm<PoConfirmationFormValues>({
         resolver: zodResolver(poConfirmationSchema),
         defaultValues: {
-            poDeliveryDate: request?.poDeliveryDate ? new Date(request.poDeliveryDate) : new Date(),
             fabricDetails: request?.fabricDetails?.map(d => ({ 
                 poNumber: d.poNumber || '',
                 vendorName: d.vendorName || '',
@@ -194,7 +192,6 @@ function PoConfirmationDialog({
     useEffect(() => {
         if (request) {
             form.reset({
-                poDeliveryDate: request.poDeliveryDate ? new Date(request.poDeliveryDate) : new Date(),
                 fabricDetails: request.fabricDetails?.map(d => ({ 
                     poNumber: d.poNumber || '',
                     vendorName: d.vendorName || '',
@@ -217,7 +214,7 @@ function PoConfirmationDialog({
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-3xl">
+            <DialogContent className="max-w-4xl">
                 <DialogHeader>
                     <DialogTitle>PO Confirmation</DialogTitle>
                     <DialogDescription>
@@ -231,54 +228,56 @@ function PoConfirmationDialog({
                         {request.type === 'fabric' && request.fabricDetails && (
                             <div className="space-y-4">
                                 {fabricFields.fields.map((item, index) => (
-                                    <Card key={item.id} className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-                                        <div className="md:col-span-2">
+                                    <Card key={item.id} className="p-4 space-y-4">
+                                        <div>
                                             <Label>{request.fabricDetails?.[index]?.fabricName}</Label>
                                             <p className="text-sm text-muted-foreground">Qty: {request.fabricDetails?.[index]?.quantity} Mtr</p>
                                         </div>
-                                         <FormField
-                                            control={form.control}
-                                            name={`fabricDetails.${index}.poNumber`}
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>PO Number</FormLabel>
-                                                    <FormControl><Input placeholder="Enter PO Number" {...field} /></FormControl>
-                                                </FormItem>
-                                            )}
-                                        />
-                                        <FormField
-                                            control={form.control}
-                                            name={`fabricDetails.${index}.vendorName`}
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Vendor Name</FormLabel>
-                                                    <FormControl><Input placeholder="Enter Vendor Name" {...field} /></FormControl>
-                                                </FormItem>
-                                            )}
-                                        />
-                                        <FormField
-                                            control={form.control}
-                                            name={`fabricDetails.${index}.expectedDeliveryDate`}
-                                            render={({ field }) => (
-                                                <FormItem className="flex flex-col md:col-span-2">
-                                                    <FormLabel>Expected Date</FormLabel>
-                                                    <Popover>
-                                                        <PopoverTrigger asChild>
-                                                            <FormControl>
-                                                                <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
-                                                                    {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                                </Button>
-                                                            </FormControl>
-                                                        </PopoverTrigger>
-                                                        <PopoverContent className="w-auto p-0" align="start">
-                                                            <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
-                                                        </PopoverContent>
-                                                    </Popover>
-                                                     <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                                            <FormField
+                                                control={form.control}
+                                                name={`fabricDetails.${index}.poNumber`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>PO Number</FormLabel>
+                                                        <FormControl><Input placeholder="Enter PO Number" {...field} /></FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={form.control}
+                                                name={`fabricDetails.${index}.vendorName`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Vendor Name</FormLabel>
+                                                        <FormControl><Input placeholder="Enter Vendor Name" {...field} /></FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={form.control}
+                                                name={`fabricDetails.${index}.expectedDeliveryDate`}
+                                                render={({ field }) => (
+                                                    <FormItem className="flex flex-col">
+                                                        <FormLabel>Expected Date</FormLabel>
+                                                        <Popover>
+                                                            <PopoverTrigger asChild>
+                                                                <FormControl>
+                                                                    <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
+                                                                        {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                                    </Button>
+                                                                </FormControl>
+                                                            </PopoverTrigger>
+                                                            <PopoverContent className="w-auto p-0" align="start">
+                                                                <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                                                            </PopoverContent>
+                                                        </Popover>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                        </div>
                                     </Card>
                                 ))}
                             </div>
@@ -287,54 +286,56 @@ function PoConfirmationDialog({
                          {request.type === 'furniture' && request.furnitureDetails && (
                             <div className="space-y-4">
                                 {furnitureFields.fields.map((item, index) => (
-                                     <Card key={item.id} className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-                                        <div className="md:col-span-2">
+                                     <Card key={item.id} className="p-4 space-y-4">
+                                         <div>
                                             <Label>{request.furnitureDetails?.[index]?.furnitureName}</Label>
                                             <p className="text-sm text-muted-foreground">Qty: {request.furnitureDetails?.[index]?.quantity}</p>
                                         </div>
-                                         <FormField
-                                            control={form.control}
-                                            name={`furnitureDetails.${index}.poNumber`}
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                     <FormLabel>PO Number</FormLabel>
-                                                     <FormControl><Input placeholder="Enter PO Number" {...field} /></FormControl>
-                                                </FormItem>
-                                            )}
-                                        />
-                                         <FormField
-                                            control={form.control}
-                                            name={`furnitureDetails.${index}.vendorName`}
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormLabel>Vendor Name</FormLabel>
-                                                    <FormControl><Input placeholder="Enter Vendor Name" {...field} /></FormControl>
-                                                </FormItem>
-                                            )}
-                                        />
-                                        <FormField
-                                            control={form.control}
-                                            name={`furnitureDetails.${index}.expectedDeliveryDate`}
-                                            render={({ field }) => (
-                                                <FormItem className="flex flex-col md:col-span-2">
-                                                    <FormLabel>Expected Date</FormLabel>
-                                                    <Popover>
-                                                        <PopoverTrigger asChild>
-                                                            <FormControl>
-                                                                <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
-                                                                    {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                                </Button>
-                                                            </FormControl>
-                                                        </PopoverTrigger>
-                                                        <PopoverContent className="w-auto p-0" align="start">
-                                                            <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
-                                                        </PopoverContent>
-                                                    </Popover>
-                                                     <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                                            <FormField
+                                                control={form.control}
+                                                name={`furnitureDetails.${index}.poNumber`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>PO Number</FormLabel>
+                                                        <FormControl><Input placeholder="Enter PO Number" {...field} /></FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={form.control}
+                                                name={`furnitureDetails.${index}.vendorName`}
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Vendor Name</FormLabel>
+                                                        <FormControl><Input placeholder="Enter Vendor Name" {...field} /></FormControl>
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={form.control}
+                                                name={`furnitureDetails.${index}.expectedDeliveryDate`}
+                                                render={({ field }) => (
+                                                    <FormItem className="flex flex-col">
+                                                        <FormLabel>Expected Date</FormLabel>
+                                                        <Popover>
+                                                            <PopoverTrigger asChild>
+                                                                <FormControl>
+                                                                    <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
+                                                                        {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                                    </Button>
+                                                                </FormControl>
+                                                            </PopoverTrigger>
+                                                            <PopoverContent className="w-auto p-0" align="start">
+                                                                <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                                                            </PopoverContent>
+                                                        </Popover>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                        </div>
                                     </Card>
                                 ))}
                             </div>
@@ -452,26 +453,39 @@ export default function PoTrackingPage() {
         
         try {
             const requestRef = doc(db, "purchaseRequests", request.id);
-            const updatePayload: any = {
-                poDeliveryDate: values.poDeliveryDate.toISOString(), 
-            };
+            const updatePayload: any = {};
+
+            let allExpectedDates: Date[] = [];
 
             if (request.type === 'fabric' && values.fabricDetails) {
-                updatePayload.fabricDetails = request.fabricDetails?.map((item, index) => ({
-                    ...item,
-                    poNumber: values.fabricDetails?.[index]?.poNumber || '',
-                    vendorName: values.fabricDetails?.[index]?.vendorName || '',
-                    expectedDeliveryDate: values.fabricDetails?.[index]?.expectedDeliveryDate.toISOString(),
-                }));
+                updatePayload.fabricDetails = request.fabricDetails?.map((item, index) => {
+                    const expectedDate = values.fabricDetails?.[index]?.expectedDeliveryDate;
+                    if(expectedDate) allExpectedDates.push(expectedDate);
+                    return {
+                        ...item,
+                        poNumber: values.fabricDetails?.[index]?.poNumber || '',
+                        vendorName: values.fabricDetails?.[index]?.vendorName || '',
+                        expectedDeliveryDate: expectedDate ? expectedDate.toISOString() : undefined,
+                    }
+                });
             } else if (request.type === 'furniture' && values.furnitureDetails) {
-                updatePayload.furnitureDetails = request.furnitureDetails?.map((item, index) => ({
-                    ...item,
-                    poNumber: values.furnitureDetails?.[index]?.poNumber || '',
-                    vendorName: values.furnitureDetails?.[index]?.vendorName || '',
-                    expectedDeliveryDate: values.furnitureDetails?.[index]?.expectedDeliveryDate.toISOString(),
-                }));
+                updatePayload.furnitureDetails = request.furnitureDetails?.map((item, index) => {
+                    const expectedDate = values.furnitureDetails?.[index]?.expectedDeliveryDate;
+                    if(expectedDate) allExpectedDates.push(expectedDate);
+                    return {
+                        ...item,
+                        poNumber: values.furnitureDetails?.[index]?.poNumber || '',
+                        vendorName: values.furnitureDetails?.[index]?.vendorName || '',
+                        expectedDeliveryDate: expectedDate ? expectedDate.toISOString() : undefined,
+                    }
+                });
             }
             
+            // Set main poDeliveryDate to the latest of all item dates
+            if (allExpectedDates.length > 0) {
+                updatePayload.poDeliveryDate = new Date(Math.max.apply(null, allExpectedDates.map(d => d.getTime()))).toISOString();
+            }
+
             await updateDoc(requestRef, updatePayload);
 
 
