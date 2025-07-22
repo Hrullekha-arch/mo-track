@@ -3,8 +3,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Check, Clock, FileCheck, Loader2, Send, ThumbsUp, Truck } from 'lucide-react';
-import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, where } from "firebase/firestore";
+import { Check, Clock, FileCheck, Loader2, Send, ThumbsUp, Truck, Undo2 } from 'lucide-react';
+import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, where, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStep, PurchaseStatus } from "@/lib/types"; // Re-using some types
 import { Skeleton } from '@/components/ui/skeleton';
@@ -65,7 +65,7 @@ const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
     }, {} as Record<number, Date>);
 }
 
-function PoTrackingTimeline({ request, onStepUpdate }: { request: PurchaseRequest, onStepUpdate: (requestId: string, stepId: number) => void; }) {
+function PoTrackingTimeline({ request, onStepUpdate, onRevertStep, userRole }: { request: PurchaseRequest, onStepUpdate: (requestId: string, stepId: number) => void; onRevertStep: (requestId: string, milestone: PurchaseStatus) => void; userRole: string | null; }) {
     const expectedDates = calculateExpectedDatesForPO(request);
     
     return (
@@ -100,7 +100,7 @@ function PoTrackingTimeline({ request, onStepUpdate }: { request: PurchaseReques
                                 <CardContent>
                                     <div className="flex justify-between items-center flex-wrap gap-4">
                                         <div className="text-xs text-muted-foreground space-y-2 flex-grow">
-                                            {request.poDeliveryDate || [1,2].includes(stepConfig.id) ? (
+                                            {request.poDeliveryDate || [1,2].includes(stepConfig.id) || stepConfig.id > 3 ? (
                                                 <p>Expected by: {formatTimestamp(expectedDate)}</p>
                                             ) : (
                                                 <p>Set PO Confirmation to see dates.</p>
@@ -109,7 +109,7 @@ function PoTrackingTimeline({ request, onStepUpdate }: { request: PurchaseReques
                                             {stepStatus?.status === 'completed' && (
                                                 <div className="flex items-center gap-2 text-green-600 font-medium">
                                                     <Check className="h-4 w-4" />
-                                                    <span>Completed at {formatTimestamp(new Date(stepStatus.completedAt))}</span>
+                                                    <span>Completed at {formatTimestamp(new Date(stepStatus.completedAt))} by {stepStatus.completedBy}</span>
                                                 </div>
                                             )}
 
@@ -120,12 +120,19 @@ function PoTrackingTimeline({ request, onStepUpdate }: { request: PurchaseReques
                                                 </div>
                                             )}
                                         </div>
-                                        {!stepStatus && prevStepStatus?.status === 'completed' && (
-                                             <AlertDialogTrigger asChild>
-                                                <Button size="sm" onClick={() => onStepUpdate(request.id, stepConfig.id)}>Mark as Done</Button>
-                                             </AlertDialogTrigger>
-                                        )}
-                                        {stepStatus && <Badge variant="default">Done</Badge>}
+                                        <div className="flex items-center gap-2">
+                                            {stepStatus && userRole === 'admin' && (
+                                                <AlertDialogTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => onRevertStep(request.id, stepStatus)}>
+                                                        <Undo2 className="h-4 w-4" />
+                                                    </Button>
+                                                </AlertDialogTrigger>
+                                            )}
+                                            {!stepStatus && prevStepStatus?.status === 'completed' && (
+                                                 <Button size="sm" onClick={() => onStepUpdate(request.id, stepConfig.id)}>Mark as Done</Button>
+                                            )}
+                                            {stepStatus && <Badge variant="default">Done</Badge>}
+                                        </div>
                                     </div>
                                 </CardContent>
                             </Card>
@@ -279,10 +286,12 @@ function PoConfirmationDialog({
 export default function PoTrackingPage() {
     const [requests, setRequests] = useState<PurchaseRequest[]>([]);
     const [loading, setLoading] = useState(true);
-    const { user } = useAuth();
+    const { user, role } = useAuth();
     const { toast } = useToast();
     const [updatingRequest, setUpdatingRequest] = useState<{requestId: string, stepId: number} | null>(null);
     const [requestForConfirmation, setRequestForConfirmation] = useState<{request: PurchaseRequest, stepId: number} | null>(null);
+    const [revertingStep, setRevertingStep] = useState<{requestId: string, milestone: PurchaseStatus} | null>(null);
+
 
     useEffect(() => {
         // We only want to track POs for which an order has been placed.
@@ -314,14 +323,33 @@ export default function PoTrackingPage() {
         const request = requests.find(r => r.id === requestId);
         if (!request) return;
 
-        // For step 1 and 2, we must have a delivery date.
-        if (stepId === 1 || stepId === 2) {
+        // For step 1, we must have a delivery date.
+        if (stepId === 1) {
             setRequestForConfirmation({request, stepId});
             return;
         }
 
         setUpdatingRequest({requestId, stepId});
     };
+    
+    const handleRevertStep = async () => {
+        if (!revertingStep || !user) return;
+        const { requestId, milestone } = revertingStep;
+
+        try {
+            const requestRef = doc(db, "purchaseRequests", requestId);
+            await updateDoc(requestRef, {
+                poMilestones: arrayRemove(milestone)
+            });
+            toast({ title: "PO Step Reverted!" });
+        } catch (error) {
+            console.error("Error reverting PO step:", error);
+            toast({ variant: "destructive", title: "Revert Failed" });
+        } finally {
+            setRevertingStep(null);
+        }
+    };
+
 
     const confirmStepUpdate = async () => {
         if (!updatingRequest || !user) return;
@@ -397,6 +425,8 @@ export default function PoTrackingPage() {
         }
     };
 
+    const revertingStepConfig = revertingStep ? PO_PROCESS_CONFIG.find(s => s.id === revertingStep.milestone.stepId) : null;
+
 
     if (loading) {
         return (
@@ -415,60 +445,74 @@ export default function PoTrackingPage() {
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <header className="mb-8">
-                <h1 className="text-3xl font-bold tracking-tight">PO to Order Receive</h1>
-                <p className="text-muted-foreground">Track items from Purchase Order generation to receipt.</p>
-            </header>
+             <AlertDialog>
+                <header className="mb-8">
+                    <h1 className="text-3xl font-bold tracking-tight">PO to Order Receive</h1>
+                    <p className="text-muted-foreground">Track items from Purchase Order generation to receipt.</p>
+                </header>
 
-            <div className="space-y-4">
-            {requests.length > 0 ? (
-                requests.map(request => (
-                    <Card key={request.id}>
-                        <CardHeader>
-                            <CardTitle>Request for: {request.customerName}</CardTitle>
-                            <CardDescription>Deal ID: {request.dealId}</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                             <AlertDialog>
-                                <PoTrackingTimeline request={request} onStepUpdate={handleStepUpdate} />
-                                 {updatingRequest?.requestId === request.id && (
-                                     <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Confirm Action</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                Are you sure you want to mark step "{PO_PROCESS_CONFIG.find(s => s.id === updatingRequest.stepId)?.step}" as complete?
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel onClick={() => setUpdatingRequest(null)}>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={confirmStepUpdate}>Confirm</AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                 )}
-                             </AlertDialog>
-                        </CardContent>
+                <div className="space-y-4">
+                {requests.length > 0 ? (
+                    requests.map(request => (
+                        <Card key={request.id}>
+                            <CardHeader>
+                                <CardTitle>Request for: {request.customerName}</CardTitle>
+                                <CardDescription>Deal ID: {request.dealId}</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                    <PoTrackingTimeline request={request} onStepUpdate={handleStepUpdate} onRevertStep={(requestId, milestone) => setRevertingStep({requestId, milestone})} userRole={role} />
+                                    {updatingRequest?.requestId === request.id && (
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>Confirm Action</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                    Are you sure you want to mark step "{PO_PROCESS_CONFIG.find(s => s.id === updatingRequest.stepId)?.step}" as complete?
+                                                </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel onClick={() => setUpdatingRequest(null)}>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction onClick={confirmStepUpdate}>Confirm</AlertDialogAction>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    )}
+                            </CardContent>
+                        </Card>
+                    ))
+                ) : (
+                    <Card className="text-center p-12">
+                        <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
+                            <FileCheck className="h-8 w-8" />
+                        </div>
+                        <CardTitle>No Active POs</CardTitle>
+                        <CardDescription>
+                            There are no purchase requests awaiting tracking.
+                        </CardDescription>
                     </Card>
-                ))
-            ) : (
-                 <Card className="text-center p-12">
-                    <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
-                        <FileCheck className="h-8 w-8" />
-                    </div>
-                    <CardTitle>No Active POs</CardTitle>
-                    <CardDescription>
-                        There are no purchase requests awaiting tracking.
-                    </CardDescription>
-                </Card>
-            )}
-            </div>
+                )}
+                </div>
 
-             <PoConfirmationDialog
-                isOpen={!!requestForConfirmation}
-                onClose={() => setRequestForConfirmation(null)}
-                onConfirm={handlePoConfirmation}
-                request={requestForConfirmation?.request || null}
-            />
+                {revertingStep && (
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setRevertingStep(null)}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                )}
 
+                <PoConfirmationDialog
+                    isOpen={!!requestForConfirmation}
+                    onClose={() => setRequestForConfirmation(null)}
+                    onConfirm={handlePoConfirmation}
+                    request={requestForConfirmation?.request || null}
+                />
+            </AlertDialog>
         </div>
     );
 }
