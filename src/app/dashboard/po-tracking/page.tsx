@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Check, Clock, FileCheck, Loader2, Send, ThumbsUp, Truck, Undo2 } from 'lucide-react';
-import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, where, arrayRemove } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, where, arrayRemove, addDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStep, PurchaseStatus, FabricDetail, FurnitureDetail } from "@/lib/types"; // Re-using some types
 import { Skeleton } from '@/components/ui/skeleton';
@@ -499,6 +499,27 @@ export default function PoTrackingPage() {
              await updateDoc(requestRef, {
                 poMilestones: arrayUnion(newStatus)
             });
+            
+            // Create documents in Po2od collection
+            const po2odCollectionRef = collection(db, "Po2od");
+
+            const itemsToProcess = request.type === 'fabric' ? updatePayload.fabricDetails : updatePayload.furnitureDetails;
+
+            for (const item of itemsToProcess) {
+                 const itemName = request.type === 'fabric' ? item.fabricName : item.furnitureName;
+                 const po2odData = {
+                    dealId: request.dealId,
+                    poNumber: item.poNumber || '',
+                    itemName: itemName,
+                    customerName: request.customerName,
+                    salesman: request.salesman,
+                    vendorTime: item.expectedDeliveryDate,
+                    qty: item.quantity,
+                    vendorName: item.vendorName || '',
+                 };
+                 await addDoc(po2odCollectionRef, po2odData);
+            }
+
 
             toast({ title: `PO Confirmed & Step ${stepId} Completed` });
         } catch (error) {
