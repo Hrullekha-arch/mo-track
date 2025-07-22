@@ -1,5 +1,6 @@
+
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive } from "lucide-react";
+import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table } from "lucide-react";
 import Link from "next/link";
 import { getFirestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
@@ -30,6 +31,14 @@ const dashboardItems = [
         color: "bg-teal-500",
         id: "po-tracking"
     },
+     {
+        href: "/dashboard/inbound",
+        title: "Inbound",
+        description: "Manage all incoming materials and stock.",
+        icon: Archive,
+        color: "bg-rose-500",
+        id: "inbound"
+    },
     {
         href: "/dashboard/users",
         title: "Users & Accounts",
@@ -47,12 +56,12 @@ const dashboardItems = [
         id: "o2d"
     },
     {
-        href: "/dashboard/inbound",
-        title: "Inbound",
-        description: "Manage all incoming materials and stock.",
-        icon: Archive,
-        color: "bg-rose-500",
-        id: "inbound"
+        href: "/dashboard/all-orders",
+        title: "All Orders",
+        description: "View a detailed table of all orders.",
+        icon: Table,
+        color: "bg-gray-500",
+        id: "all-orders"
     },
 ];
 
