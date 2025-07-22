@@ -434,7 +434,7 @@ export default function PoTrackingPage() {
 
     if (loading) {
         return (
-            <div className="container mx-auto p-4 md:p-6 lg:p-8">
+            <div className="space-y-4">
                  <header className="mb-8">
                     <Skeleton className="h-9 w-1/2 mb-2" />
                     <Skeleton className="h-5 w-3/4" />
@@ -448,7 +448,7 @@ export default function PoTrackingPage() {
     }
 
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
+        <div className="space-y-4">
              <AlertDialog>
                 <header className="mb-8">
                     <h1 className="text-3xl font-bold tracking-tight">PO to Order Receive</h1>
@@ -520,5 +520,3 @@ export default function PoTrackingPage() {
         </div>
     );
 }
-
-    

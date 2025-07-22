@@ -603,8 +603,8 @@ export default function PurchasePage() {
 
     return (
         <AlertDialog>
-            <div className="container mx-auto p-4 md:p-6 lg:p-8">
-                <header className="mb-8 flex items-center justify-between">
+            <div className="space-y-4">
+                <header className="flex items-center justify-between">
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">Purchase Process</h1>
                         <p className="text-muted-foreground">Manage and track all purchase requests from authorization to placing the order.</p>

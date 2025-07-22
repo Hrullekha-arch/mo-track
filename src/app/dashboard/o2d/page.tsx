@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { ConfirmOrderTypeDialog } from "@/components/features/order-management/ConfirmOrderTypeDialog";
 import { getMilestonesForOrder } from '@/lib/constants';
@@ -618,8 +618,8 @@ export default function O2DPage() {
     }
 
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <header className="mb-8 flex items-center justify-between">
+        <div className="space-y-4">
+            <header className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">O2D (Order to Delivery) Process</h1>
                     <p className="text-muted-foreground">Manage and track all orders in the pre-production phase before they are acknowledged.</p>
