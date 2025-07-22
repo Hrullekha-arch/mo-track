@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
@@ -409,9 +410,17 @@ export default function PoTrackingPage() {
 
         try {
             const requestRef = doc(db, "purchaseRequests", requestId);
-            await updateDoc(requestRef, {
+            
+            const updatePayload: any = {
                 poMilestones: arrayRemove(milestone)
-            });
+            };
+
+            // If reverting step 1, also clear the overall PO delivery date
+            if (milestone.stepId === 1) {
+                updatePayload.poDeliveryDate = null;
+            }
+
+            await updateDoc(requestRef, updatePayload);
             toast({ title: "PO Step Reverted!" });
         } catch (error) {
             console.error("Error reverting PO step:", error);
