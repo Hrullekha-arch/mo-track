@@ -57,7 +57,9 @@ export default function AllOrdersPage() {
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="inbound">
-                    <InboundPage />
+                     <Suspense fallback={<AllOrdersSkeleton />}>
+                        <PurchaseRequestTable />
+                    </Suspense>
                 </TabsContent>
                  <TabsContent value="users">
                     <UserManagement />
