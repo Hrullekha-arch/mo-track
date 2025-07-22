@@ -73,8 +73,9 @@ export function UserManagement() {
           )}
         </div>
 
-        <Tabs defaultValue="admin" className="w-full">
-            <TabsList className="grid w-full grid-cols-6">
+        <Tabs defaultValue="all" className="w-full">
+            <TabsList className="grid w-full grid-cols-7">
+                <TabsTrigger value="all">All Users</TabsTrigger>
                 <TabsTrigger value="admin">Admins</TabsTrigger>
                 <TabsTrigger value="employee">Employees</TabsTrigger>
                 <TabsTrigger value="installer">Installers</TabsTrigger>
@@ -83,6 +84,18 @@ export function UserManagement() {
                 <TabsTrigger value="hr">HR</TabsTrigger>
             </TabsList>
             
+            <TabsContent value="all">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>All Users</CardTitle>
+                        <CardDescription>A comprehensive list of every user in the system.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <UserTable users={users} title="All Users" description="A comprehensive list of every user in the system." />
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
             <TabsContent value="admin">
                 <Card>
                     <CardHeader>
