@@ -233,14 +233,14 @@ function PoConfirmationDialog({
                                             <Label>{request.fabricDetails?.[index]?.fabricName}</Label>
                                             <p className="text-sm text-muted-foreground">Qty: {request.fabricDetails?.[index]?.quantity} Mtr</p>
                                         </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                                        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
                                             <FormField
                                                 control={form.control}
                                                 name={`fabricDetails.${index}.poNumber`}
                                                 render={({ field }) => (
-                                                    <FormItem>
+                                                    <FormItem className="md:col-span-1">
                                                         <FormLabel>PO Number</FormLabel>
-                                                        <FormControl><Input placeholder="Enter PO Number" {...field} /></FormControl>
+                                                        <FormControl><Input placeholder="PO..." {...field} /></FormControl>
                                                     </FormItem>
                                                 )}
                                             />
@@ -248,7 +248,7 @@ function PoConfirmationDialog({
                                                 control={form.control}
                                                 name={`fabricDetails.${index}.vendorName`}
                                                 render={({ field }) => (
-                                                    <FormItem>
+                                                    <FormItem className="md:col-span-3">
                                                         <FormLabel>Vendor Name</FormLabel>
                                                         <FormControl><Input placeholder="Enter Vendor Name" {...field} /></FormControl>
                                                     </FormItem>
@@ -258,7 +258,7 @@ function PoConfirmationDialog({
                                                 control={form.control}
                                                 name={`fabricDetails.${index}.expectedDeliveryDate`}
                                                 render={({ field }) => (
-                                                    <FormItem className="flex flex-col">
+                                                    <FormItem className="flex flex-col md:col-span-2">
                                                         <FormLabel>Expected Date</FormLabel>
                                                         <Popover>
                                                             <PopoverTrigger asChild>
@@ -291,14 +291,14 @@ function PoConfirmationDialog({
                                             <Label>{request.furnitureDetails?.[index]?.furnitureName}</Label>
                                             <p className="text-sm text-muted-foreground">Qty: {request.furnitureDetails?.[index]?.quantity}</p>
                                         </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                                        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
                                             <FormField
                                                 control={form.control}
                                                 name={`furnitureDetails.${index}.poNumber`}
                                                 render={({ field }) => (
-                                                    <FormItem>
+                                                    <FormItem className="md:col-span-1">
                                                         <FormLabel>PO Number</FormLabel>
-                                                        <FormControl><Input placeholder="Enter PO Number" {...field} /></FormControl>
+                                                        <FormControl><Input placeholder="PO..." {...field} /></FormControl>
                                                     </FormItem>
                                                 )}
                                             />
@@ -306,7 +306,7 @@ function PoConfirmationDialog({
                                                 control={form.control}
                                                 name={`furnitureDetails.${index}.vendorName`}
                                                 render={({ field }) => (
-                                                    <FormItem>
+                                                    <FormItem className="md:col-span-3">
                                                         <FormLabel>Vendor Name</FormLabel>
                                                         <FormControl><Input placeholder="Enter Vendor Name" {...field} /></FormControl>
                                                     </FormItem>
@@ -316,7 +316,7 @@ function PoConfirmationDialog({
                                                 control={form.control}
                                                 name={`furnitureDetails.${index}.expectedDeliveryDate`}
                                                 render={({ field }) => (
-                                                    <FormItem className="flex flex-col">
+                                                    <FormItem className="flex flex-col md:col-span-2">
                                                         <FormLabel>Expected Date</FormLabel>
                                                         <Popover>
                                                             <PopoverTrigger asChild>
