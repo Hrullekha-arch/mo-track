@@ -5,7 +5,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Check, Clock, FileCheck, Loader2, Send, ThumbsUp, Truck, Undo2 } from 'lucide-react';
-import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, where, arrayRemove } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, where, arrayRemove, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStep, PurchaseStatus, FabricDetail, FurnitureDetail } from "@/lib/types"; // Re-using some types
 import { Skeleton } from '@/components/ui/skeleton';
@@ -75,13 +75,17 @@ function PoTrackingTimeline({ request, onStepUpdate, onRevertStep, userRole }: {
             <div className="space-y-4">
                 {PO_PROCESS_CONFIG.map((stepConfig) => {
                     const stepStatus = request.poMilestones?.find(s => s.stepId === stepConfig.id);
-                    const prevStepStatus = stepConfig.id === 1 ? { status: 'completed' } : request.poMilestones?.find(s => s.stepId === stepConfig.id - 1);
-                    
+                    const prevStepConfig = PO_PROCESS_CONFIG.find(s => s.id === stepConfig.id - 1);
+                    const prevStepStatus = prevStepConfig ? request.poMilestones?.find(s => s.id === prevStepConfig.id) : { status: 'completed' };
+
                     const isPending = !stepStatus;
                     const expectedDate = expectedDates[stepConfig.id];
                     const isOverdue = isPast(expectedDate) && isPending;
-
                     const Icon = stepConfig.icon;
+
+                    // A step is actionable if it's pending AND the previous step is completed. The first step is always actionable if no steps are completed.
+                    const isActionable = isPending && (stepConfig.id === 1 || request.poMilestones?.some(m => m.stepId === stepConfig.id - 1 && m.status === 'completed'));
+                    
                     return (
                         <div key={stepConfig.id} className="relative flex items-start gap-4">
                             <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-border shadow-sm shrink-0 bg-card">
@@ -101,7 +105,7 @@ function PoTrackingTimeline({ request, onStepUpdate, onRevertStep, userRole }: {
                                 <CardContent>
                                     <div className="flex justify-between items-center flex-wrap gap-4">
                                         <div className="text-xs text-muted-foreground space-y-2 flex-grow">
-                                            {request.poDeliveryDate || [1,2].includes(stepConfig.id) || stepConfig.id > 3 ? (
+                                            {request.poDeliveryDate || ![2,3].includes(stepConfig.id) ? (
                                                 <p>Expected by: {formatTimestamp(expectedDate)}</p>
                                             ) : (
                                                 <p>Set PO Confirmation to see dates.</p>
@@ -129,10 +133,10 @@ function PoTrackingTimeline({ request, onStepUpdate, onRevertStep, userRole }: {
                                                     </Button>
                                                 </AlertDialogTrigger>
                                             )}
-                                            {!stepStatus && prevStepStatus?.status === 'completed' && (
+                                            {isActionable && (
                                                  <Button size="sm" onClick={() => onStepUpdate(request.id, stepConfig.id)}>Mark as Done</Button>
                                             )}
-                                            {stepStatus && <Badge variant="default">Done</Badge>}
+                                            {stepStatus && !isActionable && <Badge variant="default">Done</Badge>}
                                         </div>
                                     </div>
                                 </CardContent>
@@ -407,19 +411,39 @@ export default function PoTrackingPage() {
     const handleRevertStep = async () => {
         if (!revertingStep || !user) return;
         const { requestId, milestone } = revertingStep;
-
+    
         try {
             const requestRef = doc(db, "purchaseRequests", requestId);
+            const requestDoc = await getDoc(requestRef);
+            if (!requestDoc.exists()) throw new Error("Request not found");
+    
+            const currentRequest = requestDoc.data() as PurchaseRequest;
+            const currentMilestones = currentRequest.poMilestones || [];
             
+            // Find the index of the step to revert
+            const stepIndexToRevert = PO_PROCESS_CONFIG.findIndex(p => p.id === milestone.stepId);
+            
+            // Filter out the milestone being reverted and all subsequent milestones
+            const milestonesToKeep = currentMilestones.filter(m => {
+                const stepIndex = PO_PROCESS_CONFIG.findIndex(p => p.id === m.stepId);
+                return stepIndex < stepIndexToRevert;
+            });
+    
             const updatePayload: any = {
-                poMilestones: arrayRemove(milestone)
+                poMilestones: milestonesToKeep
             };
-
-            // If reverting step 1, also clear the overall PO delivery date
+    
+            // If reverting step 1, also clear the overall PO delivery date and item-specific dates
             if (milestone.stepId === 1) {
                 updatePayload.poDeliveryDate = null;
+                if (currentRequest.type === 'fabric' && currentRequest.fabricDetails) {
+                    updatePayload.fabricDetails = currentRequest.fabricDetails.map(d => ({ ...d, expectedDeliveryDate: undefined }));
+                }
+                if (currentRequest.type === 'furniture' && currentRequest.furnitureDetails) {
+                    updatePayload.furnitureDetails = currentRequest.furnitureDetails.map(d => ({ ...d, expectedDeliveryDate: undefined }));
+                }
             }
-
+    
             await updateDoc(requestRef, updatePayload);
             toast({ title: "PO Step Reverted!" });
         } catch (error) {
@@ -600,7 +624,7 @@ export default function PoTrackingPage() {
                         <AlertDialogHeader>
                             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                             <AlertDialogDescription>
-                                This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
+                                This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone. Reverting this step will also remove all subsequent completed steps in the PO timeline.
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -621,5 +645,7 @@ export default function PoTrackingPage() {
     );
 }
 
+
+    
 
     
