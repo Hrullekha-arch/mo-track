@@ -20,10 +20,16 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PO_PROCESS_CONFIG } from '@/lib/constants';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useForm, useFieldArray, FormProvider } from "react-hook-form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 
 
 const formatTimestamp = (date: Date) => {
-    return format(date, 'dd/MM/yyyy - HH:mm');
+    return format(date, 'dd/yyyy - HH:mm');
 };
 
 const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
@@ -131,47 +137,143 @@ function PoTrackingTimeline({ request, onStepUpdate }: { request: PurchaseReques
     );
 }
 
-function SetPoDateDialog({ isOpen, onClose, onConfirm, initialDate }: { isOpen: boolean, onClose: () => void, onConfirm: (date: Date) => void, initialDate?: string | null }) {
-    const [date, setDate] = useState<Date | undefined>(initialDate ? new Date(initialDate) : new Date());
 
-    const handleConfirm = () => {
-        if(date) {
-            onConfirm(date);
-        }
-    };
-    
+const poConfirmationSchema = z.object({
+    poDeliveryDate: z.date({ required_error: "A delivery date is required." }),
+    fabricDetails: z.array(z.object({ poNumber: z.string().optional() })).optional(),
+    furnitureDetails: z.array(z.object({ poNumber: z.string().optional() })).optional(),
+});
+type PoConfirmationFormValues = z.infer<typeof poConfirmationSchema>;
+
+function PoConfirmationDialog({ 
+    isOpen, 
+    onClose, 
+    onConfirm, 
+    request 
+}: { 
+    isOpen: boolean; 
+    onClose: () => void; 
+    onConfirm: (values: {
+        date: Date,
+        fabricDetails?: { poNumber?: string }[],
+        furnitureDetails?: { poNumber?: string }[]
+    }) => void; 
+    request: PurchaseRequest | null 
+}) {
+    const form = useForm<PoConfirmationFormValues>({
+        resolver: zodResolver(poConfirmationSchema),
+        defaultValues: {
+            poDeliveryDate: request?.poDeliveryDate ? new Date(request.poDeliveryDate) : new Date(),
+            fabricDetails: request?.fabricDetails?.map(d => ({ poNumber: d.poNumber || '' })),
+            furnitureDetails: request?.furnitureDetails?.map(d => ({ poNumber: d.poNumber || '' })),
+        },
+    });
+
+    const fabricFields = useFieldArray({ control: form.control, name: "fabricDetails" });
+    const furnitureFields = useFieldArray({ control: form.control, name: "furnitureDetails" });
+
     useEffect(() => {
-        if (isOpen) {
-             setDate(initialDate ? new Date(initialDate) : new Date());
+        if (request) {
+            form.reset({
+                poDeliveryDate: request.poDeliveryDate ? new Date(request.poDeliveryDate) : new Date(),
+                fabricDetails: request.fabricDetails?.map(d => ({ poNumber: d.poNumber || '' })),
+                furnitureDetails: request.furnitureDetails?.map(d => ({ poNumber: d.poNumber || '' })),
+            });
         }
-    }, [isOpen, initialDate]);
+    }, [request, form]);
+
+    const handleSubmit = (data: PoConfirmationFormValues) => {
+        onConfirm({ 
+            date: data.poDeliveryDate, 
+            fabricDetails: data.fabricDetails, 
+            furnitureDetails: data.furnitureDetails 
+        });
+    };
+
+    if (!request) return null;
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent>
+            <DialogContent className="max-w-2xl">
                 <DialogHeader>
-                    <DialogTitle>Set Promised Delivery Date</DialogTitle>
+                    <DialogTitle>PO Confirmation</DialogTitle>
                     <DialogDescription>
-                        Please select the delivery date promised by the vendor for this Purchase Order.
+                        Set the vendor's promised delivery date and enter PO numbers for each item.
                     </DialogDescription>
                 </DialogHeader>
-                 <div className="py-4 flex justify-center">
-                    <Calendar
-                        mode="single"
-                        selected={date}
-                        onSelect={setDate}
-                        disabled={(d) => d < new Date(new Date().setDate(new Date().getDate() - 1))}
-                        initialFocus
-                    />
-                </div>
-                <DialogFooter>
-                    <Button variant="ghost" onClick={onClose}>Cancel</Button>
-                    <Button onClick={handleConfirm} disabled={!date}>Confirm Date</Button>
-                </DialogFooter>
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
+                        <FormField
+                            control={form.control}
+                            name="poDeliveryDate"
+                            render={({ field }) => (
+                                <FormItem className="flex flex-col items-center">
+                                    <FormLabel>Promised Delivery Date</FormLabel>
+                                    <Calendar
+                                        mode="single"
+                                        selected={field.value}
+                                        onSelect={field.onChange}
+                                        disabled={(d) => d < new Date(new Date().setDate(new Date().getDate() - 1))}
+                                        initialFocus
+                                    />
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
+                        <h4 className="font-semibold pt-4 border-t">Item PO Numbers</h4>
+                        
+                        {request.type === 'fabric' && request.fabricDetails && (
+                            <div className="space-y-2">
+                                {fabricFields.fields.map((item, index) => (
+                                    <FormField
+                                        key={item.id}
+                                        control={form.control}
+                                        name={`fabricDetails.${index}.poNumber`}
+                                        render={({ field }) => (
+                                            <FormItem className="grid grid-cols-3 items-center gap-4">
+                                                <FormLabel className="text-right">{request.fabricDetails?.[index]?.fabricName}</FormLabel>
+                                                <FormControl className="col-span-2">
+                                                    <Input placeholder="Enter PO Number" {...field} />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
+                                ))}
+                            </div>
+                        )}
+
+                        {request.type === 'furniture' && request.furnitureDetails && (
+                            <div className="space-y-2">
+                                {furnitureFields.fields.map((item, index) => (
+                                    <FormField
+                                        key={item.id}
+                                        control={form.control}
+                                        name={`furnitureDetails.${index}.poNumber`}
+                                        render={({ field }) => (
+                                            <FormItem className="grid grid-cols-3 items-center gap-4">
+                                                <FormLabel className="text-right">{request.furnitureDetails?.[index]?.furnitureName}</FormLabel>
+                                                <FormControl className="col-span-2">
+                                                    <Input placeholder="Enter PO Number" {...field} />
+                                                </FormControl>
+                                            </FormItem>
+                                        )}
+                                    />
+                                ))}
+                            </div>
+                        )}
+
+                        <DialogFooter className="pt-4">
+                            <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+                            <Button type="submit">Confirm</Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
             </DialogContent>
         </Dialog>
     );
 }
+
 
 
 export default function PoTrackingPage() {
@@ -180,7 +282,7 @@ export default function PoTrackingPage() {
     const { user } = useAuth();
     const { toast } = useToast();
     const [updatingRequest, setUpdatingRequest] = useState<{requestId: string, stepId: number} | null>(null);
-    const [requestForDate, setRequestForDate] = useState<{request: PurchaseRequest, stepId: number} | null>(null);
+    const [requestForConfirmation, setRequestForConfirmation] = useState<{request: PurchaseRequest, stepId: number} | null>(null);
 
     useEffect(() => {
         // We only want to track POs for which an order has been placed.
@@ -214,7 +316,7 @@ export default function PoTrackingPage() {
 
         // For step 1 and 2, we must have a delivery date.
         if (stepId === 1 || stepId === 2) {
-            setRequestForDate({request, stepId});
+            setRequestForConfirmation({request, stepId});
             return;
         }
 
@@ -246,15 +348,34 @@ export default function PoTrackingPage() {
         }
     }
     
-    const handleSetPoDate = async (date: Date) => {
-        if (!requestForDate || !user) return;
-        const { request, stepId } = requestForDate;
+    const handlePoConfirmation = async (values: {
+        date: Date,
+        fabricDetails?: { poNumber?: string }[],
+        furnitureDetails?: { poNumber?: string }[]
+    }) => {
+        if (!requestForConfirmation || !user) return;
+        const { request, stepId } = requestForConfirmation;
         
         try {
             const requestRef = doc(db, "purchaseRequests", request.id);
-            await updateDoc(requestRef, {
-                poDeliveryDate: date.toISOString(),
-            });
+            const updatePayload: any = {
+                poDeliveryDate: values.date.toISOString(),
+            };
+
+            if (request.type === 'fabric' && values.fabricDetails) {
+                updatePayload.fabricDetails = request.fabricDetails?.map((item, index) => ({
+                    ...item,
+                    poNumber: values.fabricDetails?.[index]?.poNumber || ''
+                }));
+            } else if (request.type === 'furniture' && values.furnitureDetails) {
+                updatePayload.furnitureDetails = request.furnitureDetails?.map((item, index) => ({
+                    ...item,
+                    poNumber: values.furnitureDetails?.[index]?.poNumber || ''
+                }));
+            }
+            
+            await updateDoc(requestRef, updatePayload);
+
 
             // Now, complete the step that triggered this
              const newStatus: PurchaseStatus = {
@@ -267,12 +388,12 @@ export default function PoTrackingPage() {
                 poMilestones: arrayUnion(newStatus)
             });
 
-            toast({ title: `Delivery Date Set & Step ${stepId} Completed` });
+            toast({ title: `PO Confirmed & Step ${stepId} Completed` });
         } catch (error) {
             console.error("Error setting PO date:", error);
             toast({ variant: "destructive", title: "Update Failed" });
         } finally {
-            setRequestForDate(null);
+            setRequestForConfirmation(null);
         }
     };
 
@@ -341,11 +462,11 @@ export default function PoTrackingPage() {
             )}
             </div>
 
-             <SetPoDateDialog
-                isOpen={!!requestForDate}
-                onClose={() => setRequestForDate(null)}
-                onConfirm={handleSetPoDate}
-                initialDate={requestForDate?.request.poDeliveryDate}
+             <PoConfirmationDialog
+                isOpen={!!requestForConfirmation}
+                onClose={() => setRequestForConfirmation(null)}
+                onConfirm={handlePoConfirmation}
+                request={requestForConfirmation?.request || null}
             />
 
         </div>

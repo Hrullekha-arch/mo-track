@@ -99,8 +99,8 @@ export interface PurchaseRequest {
   salesman: string;
   workType: string;
   
-  fabricDetails?: { fabricName: string; quantity: string }[];
-  furnitureDetails?: { furnitureName: string; quantity: string }[];
+  fabricDetails?: { fabricName: string; quantity: string; poNumber?: string; }[];
+  furnitureDetails?: { furnitureName: string; quantity: string; poNumber?: string; }[];
   
   createdAt: string; // ISO Date string
   createdBy: {
