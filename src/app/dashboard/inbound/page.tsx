@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
@@ -97,13 +98,14 @@ export default function InboundPage() {
             const dealIdMatch = request.dealId.toLowerCase().includes(query);
 
             const items = [
-                ...(request.fabricDetails?.map(f => ({ name: f.fabricName || '', po: f.poNumber || '' })) || []),
-                ...(request.furnitureDetails?.map(f => ({ name: f.furnitureName || '', po: f.poNumber || '' })) || [])
+                ...(request.fabricDetails?.map(f => ({ name: f.fabricName || '', po: f.poNumber || '', qty: f.quantity || '' })) || []),
+                ...(request.furnitureDetails?.map(f => ({ name: f.furnitureName || '', po: f.poNumber || '', qty: f.quantity || '' })) || [])
             ];
 
             const itemMatch = items.some(item => 
                 item.name.toLowerCase().includes(query) || 
-                item.po.toLowerCase().includes(query)
+                item.po.toLowerCase().includes(query) ||
+                item.qty.toLowerCase().includes(query)
             );
 
             return customerNameMatch || dealIdMatch || itemMatch;
@@ -138,7 +140,7 @@ export default function InboundPage() {
             <div className="mb-6 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                 <Input
-                    placeholder="Search by Deal ID, Customer, Item Name or PO Number..."
+                    placeholder="Search by Deal ID, Customer, Item, PO or Qty..."
                     className="pl-10"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
