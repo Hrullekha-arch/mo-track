@@ -1,5 +1,6 @@
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -47,6 +48,27 @@ export interface O2DStep {
         hours?: number;
         minutes?: number;
     }
+}
+
+export interface InboundMilestone {
+    stepId: number;
+    status: 'completed' | 'pending';
+    completedAt?: string;
+    completedBy?: string;
+}
+
+export interface FabricDetail {
+    fabricName: string;
+    quantity: string;
+    poNumber?: string;
+    inboundMilestones?: InboundMilestone[];
+}
+
+export interface FurnitureDetail {
+    furnitureName: string;
+    quantity: string;
+    poNumber?: string;
+    inboundMilestones?: InboundMilestone[];
 }
 
 
@@ -99,8 +121,8 @@ export interface PurchaseRequest {
   salesman: string;
   workType: string;
   
-  fabricDetails?: { fabricName: string; quantity: string; poNumber?: string; }[];
-  furnitureDetails?: { furnitureName: string; quantity: string; poNumber?: string; }[];
+  fabricDetails?: FabricDetail[];
+  furnitureDetails?: FurnitureDetail[];
   
   createdAt: string; // ISO Date string
   createdBy: {
