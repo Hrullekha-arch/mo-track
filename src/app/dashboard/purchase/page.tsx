@@ -208,17 +208,13 @@ function PurchaseProcessTimeline({
             <div className="space-y-4">
                 {(showAllSteps ? processSteps : stepsToShow).map((stepConfig) => {
                     const stepStatus = request.milestones?.find(s => s.stepId === stepConfig.id);
-                    
                     const isPending = !stepStatus;
                     const expectedDate = expectedDates[stepConfig.id];
                     const isOverdue = isPast(expectedDate) && isPending;
-
                     const Icon = stepConfig.icon;
-
                     const prevStep = getPrevStep(stepConfig.id);
-                    const prevStepStatus = prevStep ? request.milestones.find(m => m.stepId === prevStep.id) : { status: 'completed' };
-                    
-                    const canAct = useMemo(() => {
+
+                    const canAct = (() => {
                         if (isPending) {
                             if (!prevStep) { // This is the first step
                                 return true;
@@ -230,7 +226,7 @@ function PurchaseProcessTimeline({
                             }
                         }
                         return false;
-                    }, [isPending, prevStep, request.milestones]);
+                    })();
                     
                     return (
                         <div key={stepConfig.id} className="relative flex items-start gap-4">
@@ -305,17 +301,17 @@ function PurchaseProcessTimeline({
 
 const PurchaseRequestCard = ({ 
     request, 
-    onRevertStep, 
-    onDeleteRequest 
 }: { 
-    request: PurchaseRequest,
-    onRevertStep: (requestId: string, stepId: number, milestone: PurchaseStatus) => void;
-    onDeleteRequest: (request: PurchaseRequest) => void;
+    request: PurchaseRequest;
 }) => {
     const [showAllSteps, setShowAllSteps] = useState(false);
     const { user, role, designation } = useAuth();
     const { toast } = useToast();
-    
+    const [isReverting, setIsReverting] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [revertingStepInfo, setRevertingStepInfo] = useState<{requestId: string, stepId: number, milestone: PurchaseStatus} | null>(null);
+    const [deletingRequest, setDeletingRequest] = useState<PurchaseRequest | null>(null);
+
     const hasFabric = request.fabricDetails && request.fabricDetails.length > 0 && request.fabricDetails.some(f => f.fabricName);
     const hasFurniture = request.furnitureDetails && request.furnitureDetails.length > 0 && request.furnitureDetails.some(f => f.furnitureName);
     const defaultTab = hasFabric ? "fabric" : "furniture";
@@ -391,135 +387,6 @@ const PurchaseRequestCard = ({
             toast({ variant: "destructive", title: "Update Failed" });
         }
     };
-    
-    return (
-        <Collapsible key={request.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", isBlocked && 'border-destructive')}>
-            <div className="p-4 space-y-4">
-                <div className="flex gap-4">
-                    <div className="flex-1 space-y-2">
-                         <div className="flex justify-between items-start">
-                            <div className="space-y-1 text-sm">
-                                <h3 className="font-semibold text-lg">{request.customerName}</h3>
-                                <p className="text-sm text-muted-foreground">ID: {request.dealId}</p>
-                                <p className='flex items-center gap-2 pt-1'><User className='h-4 w-4 text-muted-foreground' /> Salesman: {request.salesman}</p>
-                                <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
-                                 <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
-                                    <Clock className='h-4 w-4'/>
-                                    Status: {statusText} {pendingWith && `(Pending with: ${pendingWith})`}
-                                </p>
-                            </div>
-                            <div className="text-right flex flex-col items-end">
-                                <div className="flex items-center gap-2">
-                                     {role === 'admin' && (
-                                        <AlertDialog>
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                        <MoreVertical className="h-4 w-4" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                    <AlertDialogTrigger asChild>
-                                                        <DropdownMenuItem 
-                                                            className="text-destructive focus:text-destructive"
-                                                            onClick={() => onDeleteRequest(request)}
-                                                        >
-                                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                                        </DropdownMenuItem>
-                                                    </AlertDialogTrigger>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        </AlertDialog>
-                                    )}
-                                    {request.vendorType !== 'undecided' && (
-                                        <Badge className='mt-2 capitalize' variant="outline">{request.vendorType} vendor</Badge>
-                                    )}
-                                </div>
-                                {request.createdAt && (
-                                    <p className='flex items-center gap-2 text-sm mt-2'><Calendar className='h-4 w-4 text-muted-foreground' /> {format(new Date(request.createdAt), 'dd/MM/yyyy')}</p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    <Separator orientation="vertical" className="h-auto" />
-
-                    <div className="flex-1">
-                         <Tabs defaultValue={defaultTab} className="w-full">
-                            <TabsList className="grid w-full grid-cols-2">
-                                <TabsTrigger value="fabric" disabled={!hasFabric}>Fabric</TabsTrigger>
-                                <TabsTrigger value="furniture" disabled={!hasFurniture}>Furniture</TabsTrigger>
-                            </TabsList>
-                            <TabsContent value="fabric">
-                                <div className="space-y-1 text-sm text-muted-foreground pt-2">
-                                    {request.fabricDetails?.map((item, index) => item.fabricName && (
-                                        <div key={index} className="flex justify-between p-1 rounded-md hover:bg-muted/50">
-                                            <span>{item.fabricName}</span>
-                                            <span className="font-mono">{item.quantity} Mtr</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </TabsContent>
-                            <TabsContent value="furniture">
-                                <div className="space-y-1 text-sm text-muted-foreground pt-2">
-                                    {request.furnitureDetails?.map((item, index) => item.furnitureName && (
-                                        <div key={index} className="flex justify-between p-1 rounded-md hover:bg-muted/50">
-                                            <span>{item.furnitureName}</span>
-                                            <span className="font-mono">{item.quantity}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </TabsContent>
-                        </Tabs>
-                    </div>
-                </div>
-
-
-                <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="w-full !mt-4">
-                        <span className='mr-2'>View Process</span>
-                        <ChevronDown className="h-4 w-4" />
-                    </Button>
-                </CollapsibleTrigger>
-            </div>
-            <CollapsibleContent>
-                <div className="px-4 pb-2 border-t">
-                    <Button variant="link" onClick={() => setShowAllSteps(prev => !prev)} className="text-xs">
-                       {showAllSteps ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
-                       {showAllSteps ? 'Show Pending Steps' : 'Show All Steps'}
-                    </Button>
-                </div>
-                <PurchaseProcessTimeline
-                    request={request}
-                    onQuickStepUpdate={handleQuickStepUpdate}
-                    onVendorTypeSelect={handleVendorTypeSelect}
-                    onRevertStep={onRevertStep}
-                    userRole={role}
-                    userDesignation={designation}
-                    showAllSteps={showAllSteps}
-                />
-            </CollapsibleContent>
-        </Collapsible>
-    )
-}
-
-
-export default function PurchasePage() {
-    const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [deletingRequest, setDeletingRequest] = useState<PurchaseRequest | null>(null);
-    const [revertingStepInfo, setRevertingStepInfo] = useState<{requestId: string, stepId: number, milestone: PurchaseStatus} | null>(null);
-    const { toast } = useToast();
-
-    useEffect(() => {
-        const q = query(collection(db, "purchaseRequests"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-            setPurchaseRequests(requestsData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-            setLoading(false);
-        });
-        return () => unsubscribe();
-    }, []);
 
     const handleOpenRevertDialog = (requestId: string, stepId: number, milestone: PurchaseStatus) => {
         setRevertingStepInfo({ requestId, stepId, milestone });
@@ -527,6 +394,7 @@ export default function PurchasePage() {
 
     const handleRevertStep = async () => {
         if (!revertingStepInfo) return;
+        setIsReverting(true);
         const { requestId, stepId, milestone } = revertingStepInfo;
     
         try {
@@ -553,12 +421,14 @@ export default function PurchasePage() {
             console.error("Error reverting step:", error);
             toast({ variant: "destructive", title: "Revert Failed" });
         } finally {
+            setIsReverting(false);
             setRevertingStepInfo(null);
         }
     };
     
      const handleDelete = async () => {
         if (!deletingRequest) return;
+        setIsDeleting(true);
         try {
             await deleteDoc(doc(db, "purchaseRequests", deletingRequest.id));
             toast({ title: "Purchase Request Deleted" });
@@ -566,10 +436,171 @@ export default function PurchasePage() {
         } catch (error) {
             console.error("Error deleting purchase request:", error);
             toast({ variant: "destructive", title: "Deletion Failed" });
+        } finally {
+            setIsDeleting(false);
         }
     };
     
-    const revertingStepConfig = revertingStepInfo ? ALL_STEPS_MAP[revertingStepInfo.stepId] : null;
+    return (
+        <AlertDialog>
+            <Collapsible key={request.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", isBlocked && 'border-destructive')}>
+                <div className="p-4 space-y-4">
+                    <div className="flex gap-4">
+                        <div className="flex-1 space-y-2">
+                            <div className="flex justify-between items-start">
+                                <div className="space-y-1 text-sm">
+                                    <h3 className="font-semibold text-lg">{request.customerName}</h3>
+                                    <p className="text-sm text-muted-foreground">ID: {request.dealId}</p>
+                                    <p className='flex items-center gap-2 pt-1'><User className='h-4 w-4 text-muted-foreground' /> Salesman: {request.salesman}</p>
+                                    <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
+                                    <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
+                                        <Clock className='h-4 w-4'/>
+                                        Status: {statusText} {pendingWith && `(Pending with: ${pendingWith})`}
+                                    </p>
+                                </div>
+                                <div className="text-right flex flex-col items-end">
+                                    <div className="flex items-center gap-2">
+                                        {role === 'admin' && (
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                        <MoreVertical className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <AlertDialogTrigger asChild>
+                                                        <DropdownMenuItem 
+                                                            className="text-destructive focus:text-destructive"
+                                                            onClick={() => setDeletingRequest(request)}
+                                                        >
+                                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                        </DropdownMenuItem>
+                                                    </AlertDialogTrigger>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        )}
+                                        {request.vendorType !== 'undecided' && (
+                                            <Badge className='mt-2 capitalize' variant="outline">{request.vendorType} vendor</Badge>
+                                        )}
+                                    </div>
+                                    {request.createdAt && (
+                                        <p className='flex items-center gap-2 text-sm mt-2'><Calendar className='h-4 w-4 text-muted-foreground' /> {format(new Date(request.createdAt), 'dd/MM/yyyy')}</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <Separator orientation="vertical" className="h-auto" />
+
+                        <div className="flex-1">
+                            <Tabs defaultValue={defaultTab} className="w-full">
+                                <TabsList className="grid w-full grid-cols-2">
+                                    <TabsTrigger value="fabric" disabled={!hasFabric}>Fabric</TabsTrigger>
+                                    <TabsTrigger value="furniture" disabled={!hasFurniture}>Furniture</TabsTrigger>
+                                </TabsList>
+                                <TabsContent value="fabric">
+                                    <div className="space-y-1 text-sm text-muted-foreground pt-2">
+                                        {request.fabricDetails?.map((item, index) => item.fabricName && (
+                                            <div key={index} className="flex justify-between p-1 rounded-md hover:bg-muted/50">
+                                                <span>{item.fabricName}</span>
+                                                <span className="font-mono">{item.quantity} Mtr</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </TabsContent>
+                                <TabsContent value="furniture">
+                                    <div className="space-y-1 text-sm text-muted-foreground pt-2">
+                                        {request.furnitureDetails?.map((item, index) => item.furnitureName && (
+                                            <div key={index} className="flex justify-between p-1 rounded-md hover:bg-muted/50">
+                                                <span>{item.furnitureName}</span>
+                                                <span className="font-mono">{item.quantity}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </TabsContent>
+                            </Tabs>
+                        </div>
+                    </div>
+
+
+                    <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" className="w-full !mt-4">
+                            <span className='mr-2'>View Process</span>
+                            <ChevronDown className="h-4 w-4" />
+                        </Button>
+                    </CollapsibleTrigger>
+                </div>
+                <CollapsibleContent>
+                    <div className="px-4 pb-2 border-t">
+                        <Button variant="link" onClick={() => setShowAllSteps(prev => !prev)} className="text-xs">
+                        {showAllSteps ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+                        {showAllSteps ? 'Show Pending Steps' : 'Show All Steps'}
+                        </Button>
+                    </div>
+                    <PurchaseProcessTimeline
+                        request={request}
+                        onQuickStepUpdate={handleQuickStepUpdate}
+                        onVendorTypeSelect={handleVendorTypeSelect}
+                        onRevertStep={handleOpenRevertDialog}
+                        userRole={role}
+                        userDesignation={designation}
+                        showAllSteps={showAllSteps}
+                    />
+                </CollapsibleContent>
+            </Collapsible>
+            
+            {!!deletingRequest && (
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete the purchase request for <span className="font-bold">{deletingRequest?.customerName}</span> (ID: {deletingRequest?.dealId}). This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setDeletingRequest(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90">
+                             {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            )}
+            {!!revertingStepInfo && (
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will revert the step: <strong>{ALL_STEPS_MAP[revertingStepInfo.stepId]?.step}</strong>. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setRevertingStepInfo(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleRevertStep} disabled={isReverting}>
+                             {isReverting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Continue
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            )}
+
+        </AlertDialog>
+    )
+}
+
+
+export default function PurchasePage() {
+    const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+    const [loading, setLoading] = useState(true);
+    const { toast } = useToast();
+
+    useEffect(() => {
+        const q = query(collection(db, "purchaseRequests"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            setPurchaseRequests(requestsData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, []);
 
     const isFabricRequest = (req: PurchaseRequest) => req.type === 'fabric';
     const isFurnitureRequest = (req: PurchaseRequest) => req.type === 'furniture';
@@ -602,16 +633,12 @@ export default function PurchasePage() {
                         {loading ? (
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : fabricRequests.length > 0 ? (
-                             <AlertDialog>
-                                {fabricRequests.map(request => (
-                                    <PurchaseRequestCard 
-                                        key={request.id} 
-                                        request={request}
-                                        onRevertStep={handleOpenRevertDialog}
-                                        onDeleteRequest={setDeletingRequest}
-                                    />
-                                ))}
-                            </AlertDialog>
+                            fabricRequests.map(request => (
+                                <PurchaseRequestCard 
+                                    key={request.id} 
+                                    request={request}
+                                />
+                            ))
                         ) : (
                             <Card className="text-center p-12">
                                 <CardTitle>No Fabric Requests</CardTitle>
@@ -627,16 +654,12 @@ export default function PurchasePage() {
                         {loading ? (
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                         ) : furnitureRequests.length > 0 ? (
-                            <AlertDialog>
-                                {furnitureRequests.map(request => (
-                                    <PurchaseRequestCard 
-                                        key={request.id} 
-                                        request={request} 
-                                        onRevertStep={handleOpenRevertDialog}
-                                        onDeleteRequest={setDeletingRequest}
-                                    />
-                                ))}
-                             </AlertDialog>
+                            furnitureRequests.map(request => (
+                                <PurchaseRequestCard 
+                                    key={request.id} 
+                                    request={request} 
+                                />
+                            ))
                         ) : (
                             <Card className="text-center p-12">
                                 <CardTitle>No Furniture Requests</CardTitle>
@@ -648,39 +671,6 @@ export default function PurchasePage() {
                     </div>
                 </TabsContent>
             </Tabs>
-
-            <AlertDialog open={!!deletingRequest || !!revertingStepInfo} onOpenChange={(open) => { if (!open) { setDeletingRequest(null); setRevertingStepInfo(null); } }}>
-                 {!!deletingRequest && (
-                     <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This will permanently delete the purchase request for <span className="font-bold">{deletingRequest?.customerName}</span> (ID: {deletingRequest?.dealId}). This action cannot be undone.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                )}
-                 {!!revertingStepInfo && (
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                 )}
-            </AlertDialog>
         </div>
     );
 }
-
-    
