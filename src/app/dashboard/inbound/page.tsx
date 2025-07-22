@@ -53,21 +53,21 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
                         {items.map((item, index) => {
                             const isComplete = (item.inboundMilestones?.filter(m => m.status === 'completed').length || 0) === TOTAL_INBOUND_STEPS;
                             const name = item.type === 'fabric' ? item.fabricName : item.furnitureName;
-                            const qty = item.type === 'fabric' ? `${item.quantity} Mtr` : item.quantity;
+                            const qty = item.type === 'fabric' ? `${item.quantity} Mtr` : `${item.quantity}`;
 
                             return (
                                 <div 
                                     key={index} 
                                     className={cn(
                                         "grid grid-cols-12 gap-2 items-center p-2 rounded-md text-sm",
-                                        isComplete && "bg-green-50 text-green-800"
+                                        isComplete && "bg-green-100 text-green-900"
                                     )}
                                 >
                                     <div className="col-span-3 font-mono">{item.poNumber || '-'}</div>
                                     <div className="col-span-5 truncate font-medium">{name}</div>
                                     <div className="col-span-4 text-right font-mono flex items-center justify-end gap-2">
                                         <span>{qty}</span>
-                                        {isComplete && <CheckCircle2 className="h-5 w-5 text-green-600" />}
+                                        {isComplete && <CheckCircle2 className="h-5 w-5 text-green-700" />}
                                     </div>
                                 </div>
                             );
