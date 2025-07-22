@@ -2,12 +2,12 @@
 "use client";
 
 import { useState, useEffect, use } from 'react';
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, InboundMilestone, FabricDetail, FurnitureDetail } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2 } from 'lucide-react';
+import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
@@ -17,6 +17,8 @@ import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+
 
 const INBOUND_PROCESS_CONFIG = [
     { id: 1, name: 'QNQ as per PO', time: "30 min", icon: Ruler },
@@ -30,40 +32,59 @@ function ItemProcessTimeline({
     item, 
     itemIndex,
     request,
-    onUpdate
+    onUpdate,
+    onRevert,
+    userRole
 }: { 
     item: FabricDetail | FurnitureDetail,
     itemIndex: number,
     request: PurchaseRequest,
-    onUpdate: (itemIndex: number, stepId: number) => void
+    onUpdate: (itemIndex: number, stepId: number) => void,
+    onRevert: (itemIndex: number, milestone: InboundMilestone) => void,
+    userRole: string | null
 }) {
     return (
         <div className="pl-4 py-2">
             <div className="grid grid-cols-5 gap-4 text-center text-xs text-muted-foreground">
                 {INBOUND_PROCESS_CONFIG.map(step => {
-                    const status = item.inboundMilestones?.find(m => m.stepId === step.id);
-                    const isCompleted = status?.status === 'completed';
+                    const milestone = item.inboundMilestones?.find(m => m.stepId === step.id);
+                    const isCompleted = milestone?.status === 'completed';
                     const Icon = step.icon;
                     return (
-                        <button 
-                            key={step.id} 
-                            className="flex flex-col items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group"
-                            onClick={() => onUpdate(itemIndex, step.id)}
-                            disabled={isCompleted}
-                        >
-                            <div className={cn(
-                                "flex h-10 w-10 items-center justify-center rounded-full border-2 transition-colors",
-                                isCompleted ? "bg-green-100 border-green-500" : "bg-card border-border group-hover:bg-muted"
-                            )}>
-                                <Icon className={cn("h-5 w-5 transition-colors", isCompleted ? "text-green-600" : "text-muted-foreground")} />
+                        <div key={step.id} className="flex flex-col items-center gap-1">
+                            <div className="relative">
+                                <button 
+                                    className="flex flex-col items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group"
+                                    onClick={() => onUpdate(itemIndex, step.id)}
+                                    disabled={isCompleted}
+                                >
+                                    <div className={cn(
+                                        "flex h-10 w-10 items-center justify-center rounded-full border-2 transition-colors",
+                                        isCompleted ? "bg-green-100 border-green-500" : "bg-card border-border group-hover:bg-muted"
+                                    )}>
+                                        <Icon className={cn("h-5 w-5 transition-colors", isCompleted ? "text-green-600" : "text-muted-foreground")} />
+                                    </div>
+                                </button>
+                                {isCompleted && userRole === 'admin' && milestone && (
+                                     <AlertDialogTrigger asChild>
+                                        <Button 
+                                            size="icon" 
+                                            variant="ghost" 
+                                            className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-destructive/10 text-destructive hover:bg-destructive/20"
+                                            onClick={() => onRevert(itemIndex, milestone)}
+                                        >
+                                            <Undo2 className="h-3 w-3" />
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                )}
                             </div>
-                            <p className="font-medium">{step.name}</p>
-                            {isCompleted && status?.completedAt ? (
-                                <p className="text-green-600">{format(new Date(status.completedAt), 'dd/MM HH:mm')}</p>
+                            <p className="font-medium mt-1">{step.name}</p>
+                            {isCompleted && milestone?.completedAt ? (
+                                <p className="text-green-600">{format(new Date(milestone.completedAt), 'dd/MM HH:mm')}</p>
                             ) : (
                                 <p>{step.time}</p>
                             )}
-                        </button>
+                        </div>
                     );
                 })}
             </div>
@@ -76,7 +97,8 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
     const [request, setRequest] = useState<PurchaseRequest | null>(null);
     const [loading, setLoading] = useState(true);
     const [updating, setUpdating] = useState<string | null>(null);
-    const { user } = useAuth();
+    const [revertingMilestone, setRevertingMilestone] = useState<{itemIndex: number, milestone: InboundMilestone} | null>(null);
+    const { user, role } = useAuth();
     const { toast } = useToast();
 
     useEffect(() => {
@@ -84,7 +106,6 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         const unsubscribe = onSnapshot(docRef, (doc) => {
             if (doc.exists()) {
                 const data = { id: doc.id, ...doc.data() } as PurchaseRequest;
-                // Ensure inboundMilestones array exists for each item
                 if (data.type === 'fabric' && data.fabricDetails) {
                     data.fabricDetails = data.fabricDetails.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
                 } else if (data.type === 'furniture' && data.furnitureDetails) {
@@ -141,6 +162,35 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
             setUpdating(null);
         }
     };
+    
+    const handleRevertUpdate = async () => {
+        if (!request || !revertingMilestone) return;
+
+        const { itemIndex, milestone } = revertingMilestone;
+        const key = `${itemIndex}-${milestone.stepId}`;
+        setUpdating(key);
+
+        try {
+            const requestRef = doc(db, "purchaseRequests", request.id);
+            const items = request.type === 'fabric' ? [...(request.fabricDetails || [])] : [...(request.furnitureDetails || [])];
+            const itemToUpdate = items[itemIndex];
+            if (!itemToUpdate) throw new Error("Item not found");
+
+            itemToUpdate.inboundMilestones = itemToUpdate.inboundMilestones?.filter(m => m.stepId !== milestone.stepId);
+            items[itemIndex] = itemToUpdate;
+            
+            const payloadKey = request.type === 'fabric' ? 'fabricDetails' : 'furnitureDetails';
+            await updateDoc(requestRef, { [payloadKey]: items });
+            
+            toast({ title: "Step Reverted", description: "The process step has been successfully reverted." });
+        } catch (error) {
+            console.error("Error reverting inbound status:", error);
+            toast({ variant: "destructive", title: "Revert Failed", description: "Could not revert the item process status." });
+        } finally {
+            setUpdating(null);
+            setRevertingMilestone(null);
+        }
+    };
 
 
     if (loading) {
@@ -167,8 +217,10 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
     }
 
     const items = request.type === 'fabric' ? request.fabricDetails : request.furnitureDetails;
+    const revertingStepConfig = revertingMilestone ? INBOUND_PROCESS_CONFIG.find(c => c.id === revertingMilestone.milestone.stepId) : null;
 
     return (
+        <AlertDialog>
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <div className="flex items-center gap-4 mb-4">
                 <Button asChild variant="outline" size="icon">
@@ -229,6 +281,8 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                                                     itemIndex={index}
                                                     request={request}
                                                     onUpdate={handleStatusUpdate}
+                                                    onRevert={(itemIndex, milestone) => setRevertingMilestone({itemIndex, milestone})}
+                                                    userRole={role}
                                                 />
                                             </CollapsibleContent>
                                         </Card>
@@ -240,5 +294,20 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                 </Card>
             </div>
         </div>
+         {revertingMilestone && (
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will revert the step: <strong>{revertingStepConfig?.name}</strong>. This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setRevertingMilestone(null)}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleRevertUpdate}>Continue</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        )}
+        </AlertDialog>
     );
 }

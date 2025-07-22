@@ -52,8 +52,8 @@ export interface O2DStep {
 export interface InboundMilestone {
     stepId: number;
     status: 'completed' | 'pending';
-    completedAt?: string;
-    completedBy?: string;
+    completedAt: string;
+    completedBy: string;
 }
 
 export interface FabricDetail {
