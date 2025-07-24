@@ -487,6 +487,7 @@ export default function PoTrackingPage() {
             status: 'completed',
             completedAt: new Date().toISOString(),
             completedBy: user.name,
+            teamName: user.role,
         };
 
         try {
@@ -512,48 +513,67 @@ export default function PoTrackingPage() {
             const updatePayload: any = {};
 
             let allExpectedDates: Date[] = [];
+            const newMilestones: PurchaseStatus[] = [];
 
             if (request.type === 'fabric' && values.fabricDetails) {
                 updatePayload.fabricDetails = request.fabricDetails?.map((item, index) => {
-                    const expectedDate = values.fabricDetails?.[index]?.expectedDeliveryDate;
+                    const formDetails = values.fabricDetails?.[index];
+                    const expectedDate = formDetails?.expectedDeliveryDate;
                     if(expectedDate) allExpectedDates.push(expectedDate);
+                    
+                    newMilestones.push({
+                        stepId,
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: user.name,
+                        teamName: user.role,
+                        poNumber: formDetails?.poNumber,
+                        vendorName: formDetails?.vendorName,
+                        quantity: item.quantity,
+                    });
+
                     return {
                         ...item,
-                        poNumber: values.fabricDetails?.[index]?.poNumber || '',
-                        vendorName: values.fabricDetails?.[index]?.vendorName || '',
+                        poNumber: formDetails?.poNumber || '',
+                        vendorName: formDetails?.vendorName || '',
                         expectedDeliveryDate: expectedDate ? expectedDate.toISOString() : undefined,
                     }
                 });
             } else if (request.type === 'furniture' && values.furnitureDetails) {
                 updatePayload.furnitureDetails = request.furnitureDetails?.map((item, index) => {
-                    const expectedDate = values.furnitureDetails?.[index]?.expectedDeliveryDate;
+                    const formDetails = values.furnitureDetails?.[index];
+                    const expectedDate = formDetails?.expectedDeliveryDate;
                     if(expectedDate) allExpectedDates.push(expectedDate);
+
+                     newMilestones.push({
+                        stepId,
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: user.name,
+                        teamName: user.role,
+                        poNumber: formDetails?.poNumber,
+                        vendorName: formDetails?.vendorName,
+                        quantity: item.quantity,
+                    });
+
                     return {
                         ...item,
-                        poNumber: values.furnitureDetails?.[index]?.poNumber || '',
-                        vendorName: values.furnitureDetails?.[index]?.vendorName || '',
+                        poNumber: formDetails?.poNumber || '',
+                        vendorName: formDetails?.vendorName || '',
                         expectedDeliveryDate: expectedDate ? expectedDate.toISOString() : undefined,
                     }
                 });
             }
             
-            // Set main poDeliveryDate to the latest of all item dates
             if (allExpectedDates.length > 0) {
                 updatePayload.poDeliveryDate = new Date(Math.max.apply(null, allExpectedDates.map(d => d.getTime()))).toISOString();
             }
 
             await updateDoc(requestRef, updatePayload);
-
-
-            // Now, complete the step that triggered this
-             const newStatus: PurchaseStatus = {
-                stepId: stepId,
-                status: 'completed',
-                completedAt: new Date().toISOString(),
-                completedBy: user.name,
-            };
-             await updateDoc(requestRef, {
-                poMilestones: arrayUnion(newStatus)
+            
+            // Add all new milestones at once
+            await updateDoc(requestRef, {
+                poMilestones: arrayUnion(...newMilestones)
             });
 
             toast({ title: `PO Confirmed & Step ${stepId} Completed` });

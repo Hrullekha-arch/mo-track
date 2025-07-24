@@ -148,6 +148,10 @@ export interface PurchaseStatus {
   completedAt: string; // ISO Date string
   completedBy: string; // User name
   remarks?: string;
+  poNumber?: string;
+  vendorName?: string;
+  quantity?: string;
+  teamName?: string;
 }
 
 export interface PurchaseStep {
