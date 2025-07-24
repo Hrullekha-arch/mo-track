@@ -376,7 +376,7 @@ export default function PoTrackingPage() {
     const [loading, setLoading] = useState(true);
     const { user, role } = useAuth();
     const { toast } = useToast();
-    const [updatingRequest, setUpdatingRequest] = useState<{requestId: string, stepId: number} | null>(null);
+    const [updatingRequest, setUpdatingRequest] = useState<{request: PurchaseRequest, stepId: number} | null>(null);
     const [requestForConfirmation, setRequestForConfirmation] = useState<{request: PurchaseRequest, stepId: number} | null>(null);
     const [revertingStep, setRevertingStep] = useState<{requestId: string, milestone: PurchaseStatus} | null>(null);
 
@@ -426,7 +426,7 @@ export default function PoTrackingPage() {
         }
 
         // For other steps, set the request to be confirmed via AlertDialog
-        setUpdatingRequest({requestId, stepId});
+        setUpdatingRequest({request, stepId});
     };
     
     const handleRevertStep = async () => {
@@ -475,19 +475,34 @@ export default function PoTrackingPage() {
 
     const confirmStepUpdate = async () => {
         if (!updatingRequest || !user) return;
-        const { requestId, stepId } = updatingRequest;
-        
-        const newStatus: PurchaseStatus = {
-            stepId: stepId,
-            status: 'completed',
-            completedAt: new Date().toISOString(),
-            completedBy: user.name,
-        };
+        const { request, stepId } = updatingRequest;
+
+        const newMilestones: PurchaseStatus[] = [];
+        const items = request.type === 'fabric' ? request.fabricDetails : request.furnitureDetails;
+
+        (items || []).forEach(item => {
+            newMilestones.push({
+                stepId: stepId,
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: user.name,
+                itemName: (item as any).fabricName || (item as any).furnitureName,
+                poNumber: item.poNumber,
+                vendorName: item.vendorName,
+                quantity: item.quantity,
+            });
+        });
+
+        if (newMilestones.length === 0) {
+            toast({ variant: "destructive", title: "No items found in request." });
+            setUpdatingRequest(null);
+            return;
+        }
 
         try {
-            const requestRef = doc(db, "purchaseRequests", requestId);
+            const requestRef = doc(db, "purchaseRequests", request.id);
             await updateDoc(requestRef, {
-                poMilestones: arrayUnion(newStatus)
+                poMilestones: arrayUnion(...newMilestones)
             });
             toast({ title: "PO Step Updated!" });
         } catch (error) {
@@ -620,12 +635,12 @@ export default function PoTrackingPage() {
                                     onRevertStep={(requestId, milestone) => setRevertingStep({requestId, milestone})} 
                                     userRole={role} 
                                 />
-                                {updatingRequest?.requestId === request.id && (
+                                {updatingRequest?.request.id === request.id && (
                                     <AlertDialogContent>
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>Confirm Action</AlertDialogTitle>
                                             <AlertDialogDescription>
-                                                Are you sure you want to mark step "{PO_PROCESS_CONFIG.find(s => s.id === updatingRequest.stepId)?.step}" as complete?
+                                                Are you sure you want to mark step "{PO_PROCESS_CONFIG.find(s => s.id === updatingRequest.stepId)?.step}" as complete for all items in this request?
                                             </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
@@ -674,3 +689,5 @@ export default function PoTrackingPage() {
         </div>
     );
 }
+
+    
