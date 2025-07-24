@@ -43,26 +43,37 @@ const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
         } else {
             const previousStepConfig = PO_PROCESS_CONFIG.find(s => s.id === currentStep.id - 1)!;
             const previousStepStatus = (request.poMilestones || []).find(m => m.stepId === previousStepConfig.id);
-            if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
+            
+            // Check for actual completed milestones to base the next step on
+            const allPreviousMilestones = (request.poMilestones || []).filter(m => m.stepId < currentStep.id);
+            const latestPreviousMilestone = allPreviousMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())[0];
+
+            if (latestPreviousMilestone) {
+                startDate = new Date(latestPreviousMilestone.completedAt);
+            } else if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
                 startDate = new Date(previousStepStatus.completedAt);
             } else {
                 startDate = acc[previousStepConfig.id];
             }
         }
         
-        const firstPoMilestone = request.poMilestones?.find(m => m.stepId === 1);
-
-        if (currentStep.id === 2 && firstPoMilestone) { // Material Delivery Follow up
-             acc[currentStep.id] = subDays(new Date(firstPoMilestone.completedAt), 2);
-        } else if (currentStep.id === 3 && firstPoMilestone) { // Receiving and Handover
-            acc[currentStep.id] = new Date(firstPoMilestone.completedAt);
-        } else {
-            const { days = 0, hours = 0, minutes = 0 } = currentStep.expectedDuration;
-            let completionDate = addDays(startDate, days);
-            completionDate = addHours(completionDate, hours);
-            completionDate = addMinutes(completionDate, minutes);
-            acc[currentStep.id] = completionDate;
+        // Dynamic date calculation based on vendor's promised date
+        if (request.poDeliveryDate) {
+            if (currentStep.id === 2) { // Material Delivery Follow up is 2 days before promised date
+                acc[currentStep.id] = subDays(new Date(request.poDeliveryDate), 2);
+                return acc;
+            } else if (currentStep.id === 3) { // Receiving and Handover is on the promised date
+                acc[currentStep.id] = new Date(request.poDeliveryDate);
+                return acc;
+            }
         }
+        
+        // Fallback to standard duration calculation
+        const { days = 0, hours = 0, minutes = 0 } = currentStep.expectedDuration;
+        let completionDate = addDays(startDate, days);
+        completionDate = addHours(completionDate, hours);
+        completionDate = addMinutes(completionDate, minutes);
+        acc[currentStep.id] = completionDate;
 
         return acc;
     }, {} as Record<number, Date>);
@@ -88,11 +99,11 @@ function PoTrackingTimeline({
                 {PO_PROCESS_CONFIG.map((stepConfig) => {
                     const stepStatus = request.poMilestones?.find(s => s.stepId === stepConfig.id);
                     const prevStepConfig = PO_PROCESS_CONFIG.find(s => s.id === stepConfig.id - 1);
-                    const prevStepStatus = prevStepConfig ? request.poMilestones?.find(s => s.stepId === prevStepConfig.id) : null;
+                    const prevStepStatus = prevStepConfig ? request.poMilestones?.find(s => s.stepId === prevStepConfig.id) : {status: 'completed'};
 
                     const isPending = !stepStatus;
                     const expectedDate = expectedDates[stepConfig.id];
-                    const isOverdue = isPast(expectedDate) && isPending;
+                    const isOverdue = expectedDate ? isPast(expectedDate) && isPending : false;
                     const Icon = stepConfig.icon;
 
                     const isActionable = isPending && (
@@ -119,7 +130,7 @@ function PoTrackingTimeline({
                                 <CardContent>
                                     <div className="flex justify-between items-center flex-wrap gap-4">
                                         <div className="text-xs text-muted-foreground space-y-2 flex-grow">
-                                            <p>Expected by: {formatTimestamp(expectedDate)}</p>
+                                            {expectedDate && <p>Expected by: {formatTimestamp(expectedDate)}</p>}
                                             
                                             {stepStatus?.status === 'completed' && (
                                                 <div className="flex items-center gap-2 text-green-600 font-medium">
@@ -446,11 +457,7 @@ export default function PoTrackingPage() {
             const currentRequest = requestDoc.data() as PurchaseRequest;
             const stepIdToRevert = milestone.stepId;
     
-            const milestonesToKeep = (currentRequest.poMilestones || []).filter(m => {
-                const stepIndex = PO_PROCESS_CONFIG.findIndex(p => p.id === m.stepId);
-                const stepIndexToRevert = PO_PROCESS_CONFIG.findIndex(p => p.id === stepIdToRevert);
-                return stepIndex < stepIndexToRevert;
-            });
+            const milestonesToKeep = (currentRequest.poMilestones || []).filter(m => m.stepId !== stepIdToRevert);
     
             const updatePayload: any = {
                 poMilestones: milestonesToKeep
@@ -463,6 +470,7 @@ export default function PoTrackingPage() {
                 if (currentRequest.type === 'furniture' && currentRequest.furnitureDetails) {
                     updatePayload.furnitureDetails = currentRequest.furnitureDetails.map(d => ({ ...d, poNumber: '', vendorName: '', expectedDeliveryDate: null }));
                 }
+                 updatePayload.poDeliveryDate = null;
             }
     
             await updateDoc(requestRef, updatePayload);
@@ -525,55 +533,44 @@ export default function PoTrackingPage() {
             const updatePayload: any = {};
 
             const newMilestones: PurchaseStatus[] = [];
+            const allDeliveryDates: Date[] = [];
 
             if (request.type === 'fabric' && values.fabricDetails) {
                 updatePayload.fabricDetails = request.fabricDetails?.map((item, index) => {
                     const formDetails = values.fabricDetails?.[index];
                     const expectedDate = formDetails?.expectedDeliveryDate;
+                    if(expectedDate) allDeliveryDates.push(expectedDate);
                     
                     newMilestones.push({
-                        stepId,
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: user.name || 'System',
+                        stepId, status: 'completed', completedAt: new Date().toISOString(), completedBy: user.name || 'System',
                         itemName: item.fabricName,
-                        poNumber: formDetails?.poNumber,
-                        vendorName: formDetails?.vendorName,
-                        quantity: item.quantity,
+                        poNumber: formDetails?.poNumber, vendorName: formDetails?.vendorName, quantity: item.quantity,
                     });
 
-                    return {
-                        ...item,
-                        poNumber: formDetails?.poNumber || '',
-                        vendorName: formDetails?.vendorName || '',
-                        ...(expectedDate && { expectedDeliveryDate: expectedDate.toISOString() }),
-                    }
+                    return { ...item, poNumber: formDetails?.poNumber || '', vendorName: formDetails?.vendorName || '', ...(expectedDate && { expectedDeliveryDate: expectedDate.toISOString() }) };
                 });
             } else if (request.type === 'furniture' && values.furnitureDetails) {
                 updatePayload.furnitureDetails = request.furnitureDetails?.map((item, index) => {
                     const formDetails = values.furnitureDetails?.[index];
                     const expectedDate = formDetails?.expectedDeliveryDate;
+                    if(expectedDate) allDeliveryDates.push(expectedDate);
 
                      newMilestones.push({
-                        stepId,
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: user.name || 'System',
+                        stepId, status: 'completed', completedAt: new Date().toISOString(), completedBy: user.name || 'System',
                         itemName: item.furnitureName,
-                        poNumber: formDetails?.poNumber,
-                        vendorName: formDetails?.vendorName,
-                        quantity: item.quantity,
+                        poNumber: formDetails?.poNumber, vendorName: formDetails?.vendorName, quantity: item.quantity,
                     });
 
-                    return {
-                        ...item,
-                        poNumber: formDetails?.poNumber || '',
-                        vendorName: formDetails?.vendorName || '',
-                        ...(expectedDate && { expectedDeliveryDate: expectedDate.toISOString() }),
-                    }
+                    return { ...item, poNumber: formDetails?.poNumber || '', vendorName: formDetails?.vendorName || '', ...(expectedDate && { expectedDeliveryDate: expectedDate.toISOString() }) };
                 });
             }
             
+            // Set the overall poDeliveryDate to the latest date from all items
+            if (allDeliveryDates.length > 0) {
+                const latestDate = new Date(Math.max.apply(null, allDeliveryDates.map(d => d.getTime())));
+                updatePayload.poDeliveryDate = latestDate.toISOString();
+            }
+
             updatePayload.poMilestones = arrayUnion(...newMilestones);
             await updateDoc(requestRef, updatePayload);
 
@@ -595,21 +592,18 @@ export default function PoTrackingPage() {
             const updatePayload: any = {};
 
             const newMilestones: PurchaseStatus[] = [];
+            const allDeliveryDates: Date[] = [];
 
             if (request.type === 'fabric' && values.fabricDetails) {
                 updatePayload.fabricDetails = request.fabricDetails?.map((item, index) => {
                     const formDetails = values.fabricDetails?.[index];
                     const expectedDate = formDetails?.expectedDeliveryDate;
+                    if(expectedDate) allDeliveryDates.push(expectedDate);
                     
                     newMilestones.push({
-                        stepId,
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: user.name || 'System',
+                        stepId, status: 'completed', completedAt: new Date().toISOString(), completedBy: user.name || 'System',
                         itemName: item.fabricName,
-                        poNumber: formDetails?.poNumber,
-                        vendorName: formDetails?.vendorName,
-                        quantity: item.quantity,
+                        poNumber: formDetails?.poNumber, vendorName: formDetails?.vendorName, quantity: item.quantity,
                     });
 
                     return { ...item, ...(expectedDate && { expectedDeliveryDate: expectedDate.toISOString() }) };
@@ -618,22 +612,24 @@ export default function PoTrackingPage() {
                 updatePayload.furnitureDetails = request.furnitureDetails?.map((item, index) => {
                     const formDetails = values.furnitureDetails?.[index];
                     const expectedDate = formDetails?.expectedDeliveryDate;
+                    if(expectedDate) allDeliveryDates.push(expectedDate);
 
                      newMilestones.push({
-                        stepId,
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: user.name || 'System',
+                        stepId, status: 'completed', completedAt: new Date().toISOString(), completedBy: user.name || 'System',
                         itemName: item.furnitureName,
-                        poNumber: formDetails?.poNumber,
-                        vendorName: formDetails?.vendorName,
-                        quantity: item.quantity,
+                        poNumber: formDetails?.poNumber, vendorName: formDetails?.vendorName, quantity: item.quantity,
                     });
 
                     return { ...item, ...(expectedDate && { expectedDeliveryDate: expectedDate.toISOString() }) };
                 });
             }
             
+             // Set the overall poDeliveryDate to the latest date from all items
+            if (allDeliveryDates.length > 0) {
+                const latestDate = new Date(Math.max.apply(null, allDeliveryDates.map(d => d.getTime())));
+                updatePayload.poDeliveryDate = latestDate.toISOString();
+            }
+
             updatePayload.poMilestones = arrayUnion(...newMilestones);
             await updateDoc(requestRef, updatePayload);
 
