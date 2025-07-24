@@ -439,12 +439,10 @@ export default function PoTrackingPage() {
             if (!requestDoc.exists()) throw new Error("Request not found");
     
             const currentRequest = requestDoc.data() as PurchaseRequest;
-            const currentMilestones = currentRequest.poMilestones || [];
-            
             const stepIdToRevert = milestone.stepId;
     
             // Filter out all milestones with the stepId to revert, and any subsequent steps.
-            const milestonesToKeep = currentMilestones.filter(m => {
+            const milestonesToKeep = (currentRequest.poMilestones || []).filter(m => {
                 const stepIndex = PO_PROCESS_CONFIG.findIndex(p => p.id === m.stepId);
                 const stepIndexToRevert = PO_PROCESS_CONFIG.findIndex(p => p.id === stepIdToRevert);
                 return stepIndex < stepIndexToRevert;
@@ -484,7 +482,6 @@ export default function PoTrackingPage() {
             status: 'completed',
             completedAt: new Date().toISOString(),
             completedBy: user.name,
-            teamName: user.role,
         };
 
         try {
@@ -521,7 +518,7 @@ export default function PoTrackingPage() {
                         status: 'completed',
                         completedAt: new Date().toISOString(),
                         completedBy: user.name || 'System',
-                        teamName: user.role || 'Unknown',
+                        itemName: item.fabricName,
                         poNumber: formDetails?.poNumber,
                         vendorName: formDetails?.vendorName,
                         quantity: item.quantity,
@@ -544,7 +541,7 @@ export default function PoTrackingPage() {
                         status: 'completed',
                         completedAt: new Date().toISOString(),
                         completedBy: user.name || 'System',
-                        teamName: user.role || 'Unknown',
+                        itemName: item.furnitureName,
                         poNumber: formDetails?.poNumber,
                         vendorName: formDetails?.vendorName,
                         quantity: item.quantity,

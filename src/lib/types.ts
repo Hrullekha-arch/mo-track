@@ -151,7 +151,7 @@ export interface PurchaseStatus {
   poNumber?: string;
   vendorName?: string;
   quantity?: string;
-  teamName?: string;
+  itemName?: string;
 }
 
 export interface PurchaseStep {
