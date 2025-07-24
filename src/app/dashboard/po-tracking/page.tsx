@@ -49,11 +49,13 @@ const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
                 startDate = acc[previousStepConfig.id];
             }
         }
+        
+        const firstPoMilestone = request.poMilestones?.find(m => m.stepId === 1);
 
-        if (currentStep.id === 2 && request.poDeliveryDate) { // Material Delivery Follow up
-             acc[currentStep.id] = subDays(new Date(request.poDeliveryDate), 2);
-        } else if (currentStep.id === 3 && request.poDeliveryDate) { // Receiving and Handover
-            acc[currentStep.id] = new Date(request.poDeliveryDate);
+        if (currentStep.id === 2 && firstPoMilestone) { // Material Delivery Follow up
+             acc[currentStep.id] = subDays(new Date(firstPoMilestone.completedAt), 2);
+        } else if (currentStep.id === 3 && firstPoMilestone) { // Receiving and Handover
+            acc[currentStep.id] = new Date(firstPoMilestone.completedAt);
         } else {
             const { days = 0, hours = 0, minutes = 0 } = currentStep.expectedDuration;
             let completionDate = addDays(startDate, days);
@@ -117,11 +119,7 @@ function PoTrackingTimeline({
                                 <CardContent>
                                     <div className="flex justify-between items-center flex-wrap gap-4">
                                         <div className="text-xs text-muted-foreground space-y-2 flex-grow">
-                                            {request.poDeliveryDate || ![2,3].includes(stepConfig.id) ? (
-                                                <p>Expected by: {formatTimestamp(expectedDate)}</p>
-                                            ) : (
-                                                <p>Set PO Confirmation to see dates.</p>
-                                            )}
+                                            <p>Expected by: {formatTimestamp(expectedDate)}</p>
                                             
                                             {stepStatus?.status === 'completed' && (
                                                 <div className="flex items-center gap-2 text-green-600 font-medium">
@@ -443,12 +441,12 @@ export default function PoTrackingPage() {
             const currentRequest = requestDoc.data() as PurchaseRequest;
             const currentMilestones = currentRequest.poMilestones || [];
             
-            // Find the index of the step to revert
-            const stepIndexToRevert = PO_PROCESS_CONFIG.findIndex(p => p.id === milestone.stepId);
-            
-            // Filter out the milestone being reverted and all subsequent milestones
+            const stepIdToRevert = milestone.stepId;
+    
+            // Filter out all milestones with the stepId to revert, and any subsequent steps.
             const milestonesToKeep = currentMilestones.filter(m => {
                 const stepIndex = PO_PROCESS_CONFIG.findIndex(p => p.id === m.stepId);
+                const stepIndexToRevert = PO_PROCESS_CONFIG.findIndex(p => p.id === stepIdToRevert);
                 return stepIndex < stepIndexToRevert;
             });
     
@@ -456,14 +454,13 @@ export default function PoTrackingPage() {
                 poMilestones: milestonesToKeep
             };
     
-            // If reverting step 1, also clear the overall PO delivery date and item-specific dates
-            if (milestone.stepId === 1) {
-                updatePayload.poDeliveryDate = null;
+            // If reverting step 1, also clear the item-specific dates and details
+            if (stepIdToRevert === 1) {
                 if (currentRequest.type === 'fabric' && currentRequest.fabricDetails) {
-                    updatePayload.fabricDetails = currentRequest.fabricDetails.map(d => ({ ...d, poNumber: '', vendorName: '', expectedDeliveryDate: undefined }));
+                    updatePayload.fabricDetails = currentRequest.fabricDetails.map(d => ({ ...d, poNumber: '', vendorName: '', expectedDeliveryDate: null }));
                 }
                 if (currentRequest.type === 'furniture' && currentRequest.furnitureDetails) {
-                    updatePayload.furnitureDetails = currentRequest.furnitureDetails.map(d => ({ ...d, poNumber: '', vendorName: '', expectedDeliveryDate: undefined }));
+                    updatePayload.furnitureDetails = currentRequest.furnitureDetails.map(d => ({ ...d, poNumber: '', vendorName: '', expectedDeliveryDate: null }));
                 }
             }
     
@@ -512,21 +509,19 @@ export default function PoTrackingPage() {
             const requestRef = doc(db, "purchaseRequests", request.id);
             const updatePayload: any = {};
 
-            let allExpectedDates: Date[] = [];
             const newMilestones: PurchaseStatus[] = [];
 
             if (request.type === 'fabric' && values.fabricDetails) {
                 updatePayload.fabricDetails = request.fabricDetails?.map((item, index) => {
                     const formDetails = values.fabricDetails?.[index];
                     const expectedDate = formDetails?.expectedDeliveryDate;
-                    if(expectedDate) allExpectedDates.push(expectedDate);
                     
                     newMilestones.push({
                         stepId,
                         status: 'completed',
                         completedAt: new Date().toISOString(),
-                        completedBy: user.name,
-                        teamName: user.role,
+                        completedBy: user.name || 'System',
+                        teamName: user.role || 'Unknown',
                         poNumber: formDetails?.poNumber,
                         vendorName: formDetails?.vendorName,
                         quantity: item.quantity,
@@ -536,21 +531,20 @@ export default function PoTrackingPage() {
                         ...item,
                         poNumber: formDetails?.poNumber || '',
                         vendorName: formDetails?.vendorName || '',
-                        expectedDeliveryDate: expectedDate ? expectedDate.toISOString() : undefined,
+                        ...(expectedDate && { expectedDeliveryDate: expectedDate.toISOString() }),
                     }
                 });
             } else if (request.type === 'furniture' && values.furnitureDetails) {
                 updatePayload.furnitureDetails = request.furnitureDetails?.map((item, index) => {
                     const formDetails = values.furnitureDetails?.[index];
                     const expectedDate = formDetails?.expectedDeliveryDate;
-                    if(expectedDate) allExpectedDates.push(expectedDate);
 
                      newMilestones.push({
                         stepId,
                         status: 'completed',
                         completedAt: new Date().toISOString(),
-                        completedBy: user.name,
-                        teamName: user.role,
+                        completedBy: user.name || 'System',
+                        teamName: user.role || 'Unknown',
                         poNumber: formDetails?.poNumber,
                         vendorName: formDetails?.vendorName,
                         quantity: item.quantity,
@@ -560,21 +554,13 @@ export default function PoTrackingPage() {
                         ...item,
                         poNumber: formDetails?.poNumber || '',
                         vendorName: formDetails?.vendorName || '',
-                        expectedDeliveryDate: expectedDate ? expectedDate.toISOString() : undefined,
+                        ...(expectedDate && { expectedDeliveryDate: expectedDate.toISOString() }),
                     }
                 });
             }
             
-            if (allExpectedDates.length > 0) {
-                updatePayload.poDeliveryDate = new Date(Math.max.apply(null, allExpectedDates.map(d => d.getTime()))).toISOString();
-            }
-
+            updatePayload.poMilestones = arrayUnion(...newMilestones);
             await updateDoc(requestRef, updatePayload);
-            
-            // Add all new milestones at once
-            await updateDoc(requestRef, {
-                poMilestones: arrayUnion(...newMilestones)
-            });
 
             toast({ title: `PO Confirmed & Step ${stepId} Completed` });
         } catch (error) {
