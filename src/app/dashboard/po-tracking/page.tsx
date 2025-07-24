@@ -180,12 +180,14 @@ function PoConfirmationDialog({
     isOpen, 
     onClose, 
     onConfirm, 
-    request 
+    request,
+    mode = 'confirmation'
 }: { 
     isOpen: boolean; 
     onClose: () => void; 
     onConfirm: (values: PoConfirmationFormValues) => void; 
-    request: PurchaseRequest | null 
+    request: PurchaseRequest | null;
+    mode?: 'confirmation' | 'follow-up';
 }) {
     const form = useForm<PoConfirmationFormValues>({
         resolver: zodResolver(poConfirmationSchema),
@@ -229,14 +231,18 @@ function PoConfirmationDialog({
 
     if (!request) return null;
 
+    const isFollowUpMode = mode === 'follow-up';
+    const dialogTitle = isFollowUpMode ? 'Material Delivery Follow Up' : 'PO Confirmation';
+    const dialogDescription = isFollowUpMode 
+        ? "View PO and vendor details, and update the expected delivery date if necessary."
+        : "Set the vendor's promised delivery date and enter PO numbers for each item.";
+
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="max-w-4xl">
                 <DialogHeader>
-                    <DialogTitle>PO Confirmation</DialogTitle>
-                    <DialogDescription>
-                        Set the vendor's promised delivery date and enter PO numbers for each item.
-                    </DialogDescription>
+                    <DialogTitle>{dialogTitle}</DialogTitle>
+                    <DialogDescription>{dialogDescription}</DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
@@ -257,7 +263,7 @@ function PoConfirmationDialog({
                                                 render={({ field }) => (
                                                     <FormItem className="md:col-span-1">
                                                         <FormLabel>PO Number</FormLabel>
-                                                        <FormControl><Input placeholder="PO..." {...field} /></FormControl>
+                                                        <FormControl><Input placeholder="PO..." {...field} readOnly={isFollowUpMode} /></FormControl>
                                                     </FormItem>
                                                 )}
                                             />
@@ -267,7 +273,7 @@ function PoConfirmationDialog({
                                                 render={({ field }) => (
                                                     <FormItem className="md:col-span-3">
                                                         <FormLabel>Vendor Name</FormLabel>
-                                                        <FormControl><Input placeholder="Enter Vendor Name" {...field} /></FormControl>
+                                                        <FormControl><Input placeholder="Enter Vendor Name" {...field} readOnly={isFollowUpMode} /></FormControl>
                                                     </FormItem>
                                                 )}
                                             />
@@ -315,7 +321,7 @@ function PoConfirmationDialog({
                                                 render={({ field }) => (
                                                     <FormItem className="md:col-span-1">
                                                         <FormLabel>PO Number</FormLabel>
-                                                        <FormControl><Input placeholder="PO..." {...field} /></FormControl>
+                                                        <FormControl><Input placeholder="PO..." {...field} readOnly={isFollowUpMode} /></FormControl>
                                                     </FormItem>
                                                 )}
                                             />
@@ -325,7 +331,7 @@ function PoConfirmationDialog({
                                                 render={({ field }) => (
                                                     <FormItem className="md:col-span-3">
                                                         <FormLabel>Vendor Name</FormLabel>
-                                                        <FormControl><Input placeholder="Enter Vendor Name" {...field} /></FormControl>
+                                                        <FormControl><Input placeholder="Enter Vendor Name" {...field} readOnly={isFollowUpMode} /></FormControl>
                                                     </FormItem>
                                                 )}
                                             />
@@ -378,6 +384,7 @@ export default function PoTrackingPage() {
     const { toast } = useToast();
     const [updatingRequest, setUpdatingRequest] = useState<{request: PurchaseRequest, stepId: number} | null>(null);
     const [requestForConfirmation, setRequestForConfirmation] = useState<{request: PurchaseRequest, stepId: number} | null>(null);
+    const [requestForFollowUp, setRequestForFollowUp] = useState<{request: PurchaseRequest, stepId: number} | null>(null);
     const [revertingStep, setRevertingStep] = useState<{requestId: string, milestone: PurchaseStatus} | null>(null);
 
 
@@ -411,7 +418,6 @@ export default function PoTrackingPage() {
         const request = requests.find(r => r.id === requestId);
         if (!request) return;
 
-        // Guard against invalid progression
         const previousStep = PO_PROCESS_CONFIG.find(s => s.id === stepId - 1);
         const isPreviousDone = request.poMilestones?.some(m => m.stepId === previousStep?.id && m.status === 'completed');
         if (stepId !== 1 && !isPreviousDone) {
@@ -419,14 +425,13 @@ export default function PoTrackingPage() {
             return;
         }
 
-        // For step 1, we need the delivery date dialog
         if (stepId === 1) {
             setRequestForConfirmation({request, stepId});
-            return;
+        } else if (stepId === 2) {
+            setRequestForFollowUp({request, stepId});
+        } else {
+            setUpdatingRequest({request, stepId});
         }
-
-        // For other steps, set the request to be confirmed via AlertDialog
-        setUpdatingRequest({request, stepId});
     };
     
     const handleRevertStep = async () => {
@@ -441,7 +446,6 @@ export default function PoTrackingPage() {
             const currentRequest = requestDoc.data() as PurchaseRequest;
             const stepIdToRevert = milestone.stepId;
     
-            // Filter out all milestones with the stepId to revert, and any subsequent steps.
             const milestonesToKeep = (currentRequest.poMilestones || []).filter(m => {
                 const stepIndex = PO_PROCESS_CONFIG.findIndex(p => p.id === m.stepId);
                 const stepIndexToRevert = PO_PROCESS_CONFIG.findIndex(p => p.id === stepIdToRevert);
@@ -452,7 +456,6 @@ export default function PoTrackingPage() {
                 poMilestones: milestonesToKeep
             };
     
-            // If reverting step 1, also clear the item-specific dates and details
             if (stepIdToRevert === 1) {
                 if (currentRequest.type === 'fabric' && currentRequest.fabricDetails) {
                     updatePayload.fabricDetails = currentRequest.fabricDetails.map(d => ({ ...d, poNumber: '', vendorName: '', expectedDeliveryDate: null }));
@@ -583,6 +586,67 @@ export default function PoTrackingPage() {
         }
     };
 
+    const handleFollowUpConfirmation = async (values: PoConfirmationFormValues) => {
+        if (!requestForFollowUp || !user) return;
+        const { request, stepId } = requestForFollowUp;
+
+        try {
+            const requestRef = doc(db, "purchaseRequests", request.id);
+            const updatePayload: any = {};
+
+            const newMilestones: PurchaseStatus[] = [];
+
+            if (request.type === 'fabric' && values.fabricDetails) {
+                updatePayload.fabricDetails = request.fabricDetails?.map((item, index) => {
+                    const formDetails = values.fabricDetails?.[index];
+                    const expectedDate = formDetails?.expectedDeliveryDate;
+                    
+                    newMilestones.push({
+                        stepId,
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: user.name || 'System',
+                        itemName: item.fabricName,
+                        poNumber: formDetails?.poNumber,
+                        vendorName: formDetails?.vendorName,
+                        quantity: item.quantity,
+                    });
+
+                    return { ...item, ...(expectedDate && { expectedDeliveryDate: expectedDate.toISOString() }) };
+                });
+            } else if (request.type === 'furniture' && values.furnitureDetails) {
+                updatePayload.furnitureDetails = request.furnitureDetails?.map((item, index) => {
+                    const formDetails = values.furnitureDetails?.[index];
+                    const expectedDate = formDetails?.expectedDeliveryDate;
+
+                     newMilestones.push({
+                        stepId,
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: user.name || 'System',
+                        itemName: item.furnitureName,
+                        poNumber: formDetails?.poNumber,
+                        vendorName: formDetails?.vendorName,
+                        quantity: item.quantity,
+                    });
+
+                    return { ...item, ...(expectedDate && { expectedDeliveryDate: expectedDate.toISOString() }) };
+                });
+            }
+            
+            updatePayload.poMilestones = arrayUnion(...newMilestones);
+            await updateDoc(requestRef, updatePayload);
+
+            toast({ title: `Follow-up complete for Step ${stepId}` });
+        } catch (error) {
+            console.error("Error confirming follow up:", error);
+            toast({ variant: "destructive", title: "Update Failed" });
+        } finally {
+            setRequestForFollowUp(null);
+        }
+    };
+
+
     const revertingStepConfig = revertingStep ? PO_PROCESS_CONFIG.find(s => s.id === revertingStep.milestone.stepId) : null;
 
 
@@ -685,6 +749,14 @@ export default function PoTrackingPage() {
                 onClose={() => setRequestForConfirmation(null)}
                 onConfirm={handlePoConfirmation}
                 request={requestForConfirmation?.request || null}
+                mode="confirmation"
+            />
+             <PoConfirmationDialog
+                isOpen={!!requestForFollowUp}
+                onClose={() => setRequestForFollowUp(null)}
+                onConfirm={handleFollowUpConfirmation}
+                request={requestForFollowUp?.request || null}
+                mode="follow-up"
             />
         </div>
     );
