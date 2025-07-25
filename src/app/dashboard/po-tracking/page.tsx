@@ -533,6 +533,39 @@ export default function PoTrackingPage() {
             await updateDoc(requestRef, {
                 poMilestones: arrayUnion(...allNewMilestones)
             });
+
+            // If step 4 (Data Entry) is being completed, try to update O2D
+            if (allNewMilestones.some(m => m.stepId === 4)) {
+                 const ordersRef = collection(db, "orders");
+                const q = query(ordersRef, where("crmOrderNo", "==", request.dealId));
+                const orderSnapshot = await getDocs(q);
+                
+                if (!orderSnapshot.empty) {
+                    const orderDoc = orderSnapshot.docs[0];
+                    const orderData = orderDoc.data() as Order;
+                    const o2dStep9 = orderData.o2dMilestones?.find(m => m.stepId === 9);
+
+                    if (!o2dStep9) {
+                        const o2dMilestoneStep9: O2DStatus = {
+                            stepId: 9,
+                            status: 'completed',
+                            completedAt: new Date().toISOString(),
+                            completedBy: "System (PO Complete)",
+                            remarks: "Automatically completed after PO data entry.",
+                            selection: 'Done'
+                        };
+                        await updateDoc(orderDoc.ref, {
+                            o2dMilestones: arrayUnion(o2dMilestoneStep9)
+                        });
+                        toast({
+                            title: "O2D Process Updated!",
+                            description: `Step "Purchase Material Receiving" was automatically marked as done for order ${orderData.id}.`,
+                            duration: 5000,
+                        });
+                    }
+                }
+            }
+            
             toast({ title: `PO Step Updated!` });
 
         } catch (error) {
