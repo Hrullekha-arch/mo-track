@@ -21,7 +21,7 @@ import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { PurchaseRequest } from "@/lib/types";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 
@@ -220,7 +220,7 @@ const PurchaseRequestPreviewDialog = ({
                             <div className="grid grid-cols-2 gap-4">
                                 <div><p className="text-muted-foreground">Customer Name</p><p className="font-medium">{data.customerName}</p></div>
                                 <div><p className="text-muted-foreground">Deal ID</p><p className="font-medium">{data.dealId}</p></div>
-                                <div><p className="text-muted-foreground">Email</p><p className="font-medium">{data.email || 'N/A'}</p></div>
+                                <div><p className="text-muted-foreground">Requester Email</p><p className="font-medium">{data.email || 'N/A'}</p></div>
                                 <div><p className="text-muted-foreground">Salesman</p><p className="font-medium">{data.salesman}</p></div>
                                 <div><p className="text-muted-foreground">Work Type</p><p className="font-medium">{data.workType}</p></div>
                                 <div><p className="text-muted-foreground">Promise Delivery</p><p className="font-medium">{format(data.promiseDeliveryDate, "PPP")}</p></div>
@@ -279,6 +279,12 @@ export default function NewPurchaseRequestPage() {
     });
 
     const formType = form.watch("type");
+
+    useEffect(() => {
+        if (user?.email) {
+            form.setValue('email', user.email);
+        }
+    }, [user, form]);
 
     const handlePreview = (data: PurchaseFormValues) => {
         setPreviewData(data);
@@ -380,9 +386,9 @@ export default function NewPurchaseRequestPage() {
                                         name="email"
                                         render={({ field }) => (
                                             <FormItem>
-                                                <FormLabel>Email</FormLabel>
+                                                <FormLabel>Requester Email</FormLabel>
                                                 <FormControl>
-                                                    <Input placeholder="Enter email" {...field} />
+                                                    <Input placeholder="email@example.com" {...field} disabled />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -513,3 +519,5 @@ export default function NewPurchaseRequestPage() {
         </div>
     );
 }
+
+    
