@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MoTrack Application Flowchart</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -13,7 +15,7 @@
             color: #212529;
             display: flex;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
             min-height: 100vh;
             margin: 0;
             padding: 20px;
@@ -31,18 +33,40 @@
         h1 {
             text-align: center;
             color: #0d6efd;
-            margin-bottom: 2rem;
+            margin-bottom: 1rem;
             border-bottom: 2px solid #dee2e6;
             padding-bottom: 1rem;
         }
+        .controls {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 2rem;
+        }
+        #save-pdf {
+            background-color: #0d6efd;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #save-pdf:hover {
+            background-color: #0b5ed7;
+        }
         .mermaid {
             text-align: center;
+            background-color: #fff;
         }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container" id="flowchart-container">
         <h1>MoTrack Application Flowchart</h1>
+        <div class="controls">
+            <button id="save-pdf">Save as PDF</button>
+        </div>
         <div class="mermaid">
             graph TD
                 subgraph Legend
@@ -149,6 +173,37 @@
                 secondaryColor: '#f8f9fa',
                 tertiaryColor: '#ffffff'
             }
+        });
+    </script>
+    <script>
+        document.getElementById('save-pdf').addEventListener('click', function () {
+            const { jsPDF } = window.jspdf;
+            const flowchartElement = document.getElementById('flowchart-container');
+            const button = document.getElementById('save-pdf');
+            
+            // Hide the button so it's not in the screenshot
+            button.style.display = 'none';
+
+            html2canvas(flowchartElement, {
+                scale: 2, // Increase scale for better resolution
+                useCORS: true,
+                backgroundColor: '#f8f9fa',
+            }).then(canvas => {
+                // Show the button again
+                button.style.display = 'block';
+
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jsPDF({
+                    orientation: 'landscape',
+                    unit: 'px',
+                    format: [canvas.width, canvas.height]
+                });
+                pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+                pdf.save('motrack_flowchart.pdf');
+            }).catch(err => {
+                console.error("Error generating PDF: ", err);
+                button.style.display = 'block';
+            });
         });
     </script>
 </body>
