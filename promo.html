@@ -4,402 +4,379 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MoTrack - App Promotion</title>
+    <title>MoTrack - Application Walkthrough</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
         :root {
-            --primary-color: #4285F4; /* As per spec */
-            --accent-color: #34A853; /* As per spec */
-            --background-color: #F5F5FA; /* As per spec */
-            --card-background: #ffffff;
-            --text-dark: #1e293b;
-            --text-light: #64748b;
-            --card-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --primary-color: hsl(217.2, 91.2%, 59.8%);
+            --accent-color: hsl(145.1, 63.2%, 49%);
+            --background: hsl(240, 20%, 97.1%);
+            --card: hsl(0, 0%, 100%);
+            --card-foreground: hsl(224, 71.4%, 4.1%);
+            --muted: hsl(220, 13%, 91%);
+            --muted-foreground: hsl(220, 8.9%, 43.1%);
+            --primary-foreground: hsl(210, 20%, 98%);
+            --border: hsl(220, 13%, 91%);
+            --destructive: hsl(0, 84.2%, 60.2%);
         }
 
-        * {
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         body {
             font-family: 'Inter', sans-serif;
-            background-color: var(--background-color);
+            background-color: var(--background);
             margin: 0;
-            padding: 0;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             overflow: hidden;
+            color: var(--card-foreground);
         }
 
-        .phone-container {
-            width: 420px;
-            height: 800px;
-            background-color: var(--card-background);
-            border-radius: 40px;
-            box-shadow: 0 0 0 10px #0f172a, var(--card-shadow);
+        .presentation-container {
+            width: 1200px;
+            height: 750px;
+            background-color: var(--card);
+            border-radius: 12px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
             position: relative;
         }
-
+        
         .scene {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            padding: 30px 20px;
             display: flex;
-            flex-direction: column;
             justify-content: center;
             align-items: center;
-            text-align: center;
-            background-color: var(--card-background);
-            animation: fadeOut 1s forwards;
             opacity: 0;
+            transition: opacity 1s ease-in-out;
             z-index: 1;
         }
 
         .scene.active {
-            animation: fadeIn 1s forwards;
+            opacity: 1;
             z-index: 2;
         }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px) scale(0.98); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-
-        @keyframes fadeOut {
-            from { opacity: 1; transform: translateY(0) scale(1); }
-            to { opacity: 0; transform: translateY(-10px) scale(1.02); }
-        }
-
-        .logo {
-            width: 150px;
-            margin-bottom: 20px;
-            animation: popIn 0.5s 0.5s ease-out forwards;
-            opacity: 0;
-            transform: scale(0.8);
-        }
-
-        h1 {
-            font-size: 2.5rem;
-            color: var(--text-dark);
-            margin: 0;
-            animation: slideUp 0.6s 0.8s ease forwards;
-            opacity: 0;
-        }
-
-        h2 {
-            font-size: 1.8rem;
-            color: var(--text-dark);
-            margin-bottom: 20px;
-        }
         
-        p.subtitle {
-            font-size: 1.1rem;
-            color: var(--text-light);
-            animation: slideUp 0.6s 1s ease forwards;
-            opacity: 0;
+        /* Intro & Outro Styles */
+        .intro-outro-content {
+            text-align: center;
         }
-
-        .feature-card {
-            background-color: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 15px;
+        .intro-outro-content img {
+            width: 200px;
+            animation: pop-in 1s ease-out forwards;
+        }
+        .intro-outro-content h1 {
+            font-size: 4rem;
             margin: 10px 0;
-            width: 90%;
-            text-align: left;
+            animation: slide-up 1s .5s ease-out forwards;
             opacity: 0;
-            transform: translateY(20px);
-            animation: slideAndFadeUp 0.6s forwards;
+        }
+        .intro-outro-content p {
+            font-size: 1.5rem;
+            color: var(--muted-foreground);
+            animation: slide-up 1s 1s ease-out forwards;
+            opacity: 0;
+        }
+
+        /* Main Content Layout */
+        .scene-content {
             display: flex;
-            align-items: center;
+            width: 100%;
+            height: 100%;
         }
 
-        .feature-card h3 {
-            margin: 0 0 5px 0;
-            color: var(--text-dark);
-        }
-
-        .feature-card p {
-            margin: 0;
-            color: var(--text-light);
-            font-size: 0.9rem;
-        }
-
-        .feature-icon {
-            font-size: 2rem;
-            margin-right: 15px;
-            background-color: var(--primary-color);
-            color: white;
-            height: 50px;
-            width: 50px;
-            border-radius: 50%;
+        .explanation-panel {
+            width: 35%;
+            padding: 40px;
             display: flex;
-            align-items: center;
+            flex-direction: column;
             justify-content: center;
+            background-color: #f8fafc;
         }
 
-        .scene#scene2 .feature-card:nth-child(2) { animation-delay: 0.5s; }
-        .scene#scene2 .feature-card:nth-child(3) { animation-delay: 0.7s; }
-        .scene#scene2 .feature-card:nth-child(4) { animation-delay: 0.9s; }
+        .explanation-panel h2 {
+            font-size: 2.2rem;
+            margin-top: 0;
+            animation: slide-up .8s ease-out forwards;
+            opacity: 0;
+        }
+        .explanation-panel p {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            color: var(--muted-foreground);
+            animation: slide-up .8s .3s ease-out forwards;
+            opacity: 0;
+        }
+
+        .app-viewport {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 40px;
+            perspective: 1000px;
+        }
+
+        /* Desktop View */
+        .desktop-view {
+            width: 100%;
+            height: 100%;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            transform: rotateY(-15deg) rotateX(5deg);
+            display: flex;
+            flex-direction: column;
+            animation: swing-in 1.5s ease-out forwards;
+        }
+
+        .desktop-header {
+            height: 36px;
+            background: #e2e8f0;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+        }
+        .desktop-header span {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #cbd5e1;
+            margin-right: 6px;
+        }
+
+        .desktop-body {
+            flex-grow: 1;
+            padding: 20px;
+            background: var(--background);
+            overflow: hidden;
+        }
         
         .dashboard-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            width: 100%;
-            padding: 20px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
         }
 
-        .dashboard-item {
-            background-color: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
+        .dashboard-card {
+            background: var(--card);
+            border-radius: 8px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            opacity: 0;
+            animation: pop-in .6s ease-out forwards;
+        }
+        .dashboard-card h3 {
+            font-size: .9rem;
+            margin: 0;
+        }
+        .dashboard-card p {
+            font-size: .8rem;
+            color: var(--muted-foreground);
+            margin: 4px 0 0 0;
+        }
+
+        /* Mobile View */
+        .mobile-view {
+            width: 320px;
+            height: 600px;
+            background: var(--card);
+            border-radius: 30px;
+            box-shadow: 0 0 0 8px #1e293b, 0 10px 15px -3px rgba(0,0,0,0.1);
             padding: 15px;
-            font-size: 0.9rem;
-            font-weight: 600;
-            color: var(--text-dark);
-            opacity: 0;
-            transform: scale(0.8);
-            animation: popIn 0.5s forwards;
+            display: flex;
+            flex-direction: column;
+            animation: swing-in 1.5s ease-out forwards;
         }
 
-        .scene#scene3 .dashboard-item:nth-child(2) { animation-delay: 0.5s; }
-        .scene#scene3 .dashboard-item:nth-child(3) { animation-delay: 0.6s; }
-        .scene#scene3 .dashboard-item:nth-child(4) { animation-delay: 0.7s; }
-        .scene#scene3 .dashboard-item:nth-child(5) { animation-delay: 0.8s; }
-        .scene#scene3 .dashboard-item:nth-child(6) { animation-delay: 0.9s; }
-        .scene#scene3 .dashboard-item:nth-child(7) { animation-delay: 1.0s; }
-
-        .timeline {
-            width: 95%;
-            position: relative;
-            padding: 20px 0;
-        }
-        
-        .timeline-item {
-            position: relative;
-            padding-left: 30px;
-            margin-bottom: 15px;
-            opacity: 0;
-            animation: slideAndFadeUp 0.6s forwards;
-            text-align: left;
-        }
-
-        .timeline-item::before {
-            content: '';
-            position: absolute;
-            left: 5px;
-            top: 5px;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background-color: var(--primary-color);
-            border: 2px solid var(--card-background);
-        }
-        
-        .timeline-item::after {
-            content: '';
-            position: absolute;
-            left: 9px;
-            top: 15px;
-            width: 2px;
-            height: calc(100% + 5px);
-            background-color: #cbd5e1;
-        }
-
-        .timeline-item:last-child::after {
-            display: none;
-        }
-
-        .timeline-item h4 { margin: 0; font-size: 1rem; color: var(--text-dark); }
-        .timeline-item p { margin: 0; font-size: 0.85rem; color: var(--text-light); }
-
-        .scene#scene4 .timeline-item:nth-child(2) { animation-delay: 0.5s; }
-        .scene#scene4 .timeline-item:nth-child(3) { animation-delay: 0.8s; }
-        .scene#scene4 .timeline-item:nth-child(4) { animation-delay: 1.1s; }
-        .scene#scene4 .timeline-item:nth-child(5) { animation-delay: 1.4s; }
-
-
-        .progress-bar {
-            width: 80%;
-            height: 15px;
-            background-color: #e2e8f0;
-            border-radius: 10px;
-            margin-top: 20px;
+        .mobile-body {
+            flex-grow: 1;
+            background: var(--background);
+            border-radius: 20px;
+            padding: 15px;
             overflow: hidden;
         }
-
-        .progress {
-            width: 0;
-            height: 100%;
-            background-color: var(--accent-color);
-            border-radius: 10px;
-            animation: fillProgress 2s 1s forwards;
+        
+        .mobile-body h4 {
+            text-align: center;
+            margin: 0 0 15px 0;
+        }
+        .installer-card {
+             background: var(--card);
+            border-radius: 8px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            text-align: left;
+            opacity: 0;
+            animation: slide-up .6s .5s ease-out forwards;
+        }
+         .installer-card h5 { font-size: 1rem; margin: 0; }
+         .installer-card p { font-size: .8rem; margin: 2px 0 0 0; color: var(--muted-foreground); }
+         
+        .installer-button {
+            width: 100%;
+            background: var(--accent-color);
+            color: var(--primary-foreground);
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            margin-top: 15px;
+            font-weight: 500;
+            opacity: 0;
+            animation: slide-up .6s 1s ease-out forwards;
         }
 
-        @keyframes fillProgress {
-            from { width: 0; }
-            to { width: 85%; }
-        }
 
-        @keyframes popIn {
+        /* Animations */
+        @keyframes pop-in {
             from { opacity: 0; transform: scale(0.8); }
             to { opacity: 1; transform: scale(1); }
         }
-
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes slideAndFadeUp {
+        @keyframes slide-up {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
+        @keyframes swing-in {
+            from { opacity: 0; transform: rotateY(-30deg) rotateX(10deg) translateX(-50px); }
+            to { opacity: 1; transform: rotateY(-15deg) rotateX(5deg) translateX(0); }
+        }
+        
+        /* Scene-specific animation delays */
+        #scene3 .dashboard-card:nth-child(2) { animation-delay: .2s; }
+        #scene3 .dashboard-card:nth-child(3) { animation-delay: .4s; }
+        #scene3 .dashboard-card:nth-child(4) { animation-delay: .6s; }
+        #scene3 .dashboard-card:nth-child(5) { animation-delay: .8s; }
+        #scene3 .dashboard-card:nth-child(6) { animation-delay: 1s; }
+        #scene3 .dashboard-card:nth-child(7) { animation-delay: 1.2s; }
 
     </style>
 </head>
 <body>
 
-    <div class="phone-container">
+    <div class="presentation-container">
+
         <!-- Scene 1: Intro -->
         <div id="scene1" class="scene active">
-            <img src="https://firebasestorage.googleapis.com/v0/b/project-id.appspot.com/o/1718042571221-logo.png?alt=media&token=42581a25-9689-4b13-9541-5552392750e3" alt="MoTrack Logo" class="logo">
-            <h1>MoTrack</h1>
-            <p class="subtitle">Streamline Your Operations, End-to-End.</p>
-        </div>
-
-        <!-- Scene 2: Role-Based Access -->
-        <div id="scene2" class="scene">
-            <h2>One App, Every Role</h2>
-            <div class="feature-card">
-                <div class="feature-icon">👑</div>
-                <div>
-                    <h3>Admin & Employee</h3>
-                    <p>Full control from the main dashboard.</p>
-                </div>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">🔧</div>
-                 <div>
-                    <h3>Installer</h3>
-                    <p>Simplified mobile view for field tasks.</p>
-                </div>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">👤</div>
-                 <div>
-                    <h3>Customer</h3>
-                    <p>Easy, real-time order tracking.</p>
-                </div>
+            <div class="intro-outro-content">
+                <img src="https://firebasestorage.googleapis.com/v0/b/project-id.appspot.com/o/1718042571221-logo.png?alt=media&token=42581a25-9689-4b13-9541-5552392750e3" alt="MoTrack Logo">
+                <h1>MoTrack</h1>
+                <p>Clarity. Efficiency. Accountability.</p>
             </div>
         </div>
 
-        <!-- Scene 3: The Dashboard -->
-        <div id="scene3" class="scene">
-            <h2>Your Mission Control</h2>
-            <div class="dashboard-grid">
-                <div class="dashboard-item">O2D Process</div>
-                <div class="dashboard-item">To Be Received</div>
-                <div class="dashboard-item">Orders Dashboard</div>
-                <div class="dashboard-item">Purchase</div>
-                <div class="dashboard-item">Inbound</div>
-                <div class="dashboard-item">Detailed Reports</div>
-                <div class="dashboard-item">User Management</div>
-            </div>
-             <p class="subtitle" style="font-size: 0.9rem; margin-top: 20px; animation-delay: 1.2s;">Every module, connected for a seamless workflow.</p>
-        </div>
-
-        <!-- Scene 4: O2D Workflow -->
-        <div id="scene4" class="scene">
-            <h2>Guided O2D Workflow</h2>
-            <div class="timeline">
-                <div class="timeline-item">
-                    <h4>New Order Created</h4>
-                    <p>Details are captured and auto-assigned to CRM.</p>
+        <!-- Scene 2: Role-based Login -->
+         <div id="scene2" class="scene">
+            <div class="scene-content">
+                <div class="explanation-panel">
+                    <h2>One App, Every Role</h2>
+                    <p>MoTrack provides a tailored experience for every member of your team, ensuring everyone has the right tools to do their job efficiently, from management in the office to installers in the field.</p>
                 </div>
-                <div class="timeline-item">
-                    <h4>Material & Measurement</h4>
-                    <p>Sales and CRM coordinate all selections.</p>
-                </div>
-                <div class="timeline-item">
-                    <h4>Purchase & Inbound</h4>
-                    <p>Material receipt auto-updates O2D progress.</p>
-                </div>
-                 <div class="timeline-item">
-                    <h4>Final Confirmation</h4>
-                    <p>User confirms final order type for production.</p>
-                </div>
-                <div class="timeline-item">
-                    <h4>Ready for Production</h4>
-                    <p>Order moves to the main dashboard.</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Scene 5: Installer View -->
-        <div id="scene5" class="scene">
-            <h2>Empower Your Field Team</h2>
-             <div class="feature-card" style="animation-delay: 0.5s;">
-                <div class="feature-icon" style="background-color: var(--accent-color);">✅</div>
-                <div>
-                    <h3>Update On-the-Go</h3>
-                    <p>Mark milestones complete with a tap & geolocation.</p>
-                </div>
-            </div>
-             <div class="feature-card" style="animation-delay: 0.8s;">
-                <div class="feature-icon" style="background-color: var(--accent-color);">⭐</div>
-                <div>
-                    <h3>Collect Feedback</h3>
-                    <p>Capture customer satisfaction with a secure OTP.</p>
-                </div>
-            </div>
-             <p class="subtitle" style="font-size: 0.9rem; margin-top: 20px; animation-delay: 1.1s;">Simple, fast, and accountable.</p>
-        </div>
-
-        <!-- Scene 6: Customer Tracking -->
-        <div id="scene6" class="scene">
-            <h2>Keep Customers Informed</h2>
-            <p style="color: var(--text-light); margin-bottom: 20px;">Enter tracking code to see live progress.</p>
-            <div class="feature-card" style="width: 100%; text-align: center; display: block;">
-                <h3 style="margin-bottom: 10px; font-size: 1.2rem;">MOTRACK-1234</h3>
-                <p>Status: <span style="color: var(--primary-color); font-weight: 600;">Out for Delivery</span></p>
-                <div class="progress-bar">
-                    <div class="progress"></div>
+                <div class="app-viewport">
+                    <div class="desktop-view">
+                         <div class="desktop-header"><span></span><span></span><span></span></div>
+                         <div class="desktop-body" style="display: flex; justify-content: center; align-items: center;">
+                             <div style="width: 300px; padding: 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); text-align: center; animation: pop-in 1s .5s ease-out forwards; opacity: 0;">
+                                 <img src="https://firebasestorage.googleapis.com/v0/b/project-id.appspot.com/o/1718042571221-logo.png?alt=media&token=42581a25-9689-4b13-9541-5552392750e3" alt="MoTrack Logo" style="width: 100px; margin-bottom: 10px;">
+                                 <p style="color: var(--muted-foreground); margin: 0 0 15px 0;">Enter your credentials</p>
+                                 <div style="background: var(--muted); height: 36px; border-radius: 6px; margin-bottom: 10px;"></div>
+                                 <div style="background: var(--muted); height: 36px; border-radius: 6px; margin-bottom: 15px;"></div>
+                                 <div style="background: var(--primary-color); color: var(--primary-foreground); padding: 10px; border-radius: 6px; font-weight: 500;">Sign In</div>
+                             </div>
+                         </div>
+                    </div>
                 </div>
             </div>
         </div>
         
-        <!-- Scene 7: Outro -->
-        <div id="scene7" class="scene">
-             <img src="https://firebasestorage.googleapis.com/v0/b/project-id.appspot.com/o/1718042571221-logo.png?alt=media&token=42581a25-9689-4b13-9541-5552392750e3" alt="MoTrack Logo" class="logo">
-            <h2 style="font-size: 2rem;">MoTrack</h2>
-            <p class="subtitle" style="font-size: 1rem;">Clarity. Efficiency. Accountability.</p>
+        <!-- Scene 3: The Dashboard -->
+        <div id="scene3" class="scene">
+            <div class="scene-content">
+                <div class="explanation-panel">
+                    <h2>Your Mission Control</h2>
+                    <p>The main dashboard provides a complete overview of your operations. Each module is designed to handle a specific part of the workflow, from creating new orders to managing users and viewing detailed reports.</p>
+                </div>
+                <div class="app-viewport">
+                    <div class="desktop-view">
+                        <div class="desktop-header"><span></span><span></span><span></span></div>
+                        <div class="desktop-body">
+                             <h2 style="margin: 0 0 15px 0; font-size: 1.5rem; opacity: 0; animation: slide-up .6s ease-out forwards;">Home Dashboard</h2>
+                             <div class="dashboard-grid">
+                                 <div class="dashboard-card"><h3>Orders</h3><p>Track all customer orders.</p></div>
+                                 <div class="dashboard-card"><h3>Purchase</h3><p>Manage procurement.</p></div>
+                                 <div class="dashboard-card"><h3>PO to Order Receive</h3><p>Track items from PO.</p></div>
+                                 <div class="dashboard-card"><h3>Inbound</h3><p>Manage incoming materials.</p></div>
+                                 <div class="dashboard-card"><h3>Users & Accounts</h3><p>Manage user permissions.</p></div>
+                                 <div class="dashboard-card"><h3>O2D (Order 2 Delivery)</h3><p>End-to-end order process.</p></div>
+                                 <div class="dashboard-card"><h3>Details</h3><p>View detailed tables of all items.</p></div>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scene 4: Installer View -->
+        <div id="scene4" class="scene">
+             <div class="scene-content">
+                <div class="explanation-panel">
+                    <h2>Empower Your Field Team</h2>
+                    <p>The mobile view gives installers exactly what they need. They can see their assigned tasks, update milestones on the go with geolocation, and collect customer feedback with a secure OTP to confirm job completion.</p>
+                </div>
+                <div class="app-viewport">
+                    <div class="mobile-view">
+                        <div class="mobile-body">
+                            <h4>Your Tasks</h4>
+                            <div class="installer-card">
+                                <h5>Ravi Sharma</h5>
+                                <p>ID: MOTRACK-1234</p>
+                                <p>Address: 123 Main St, Anytown</p>
+                            </div>
+                            <div class="installer-button">
+                                Mark "Out for Delivery"
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scene 5: Outro -->
+        <div id="scene5" class="scene">
+            <div class="intro-outro-content">
+                <img src="https://firebasestorage.googleapis.com/v0/b/project-id.appspot.com/o/1718042571221-logo.png?alt=media&token=42581a25-9689-4b13-9541-5552392750e3" alt="MoTrack Logo">
+                <h1>Get Started</h1>
+                <p>Streamline your operations today.</p>
+            </div>
         </div>
     </div>
 
     <script>
-        const scenes = document.querySelectorAll('.scene');
-        let currentScene = 0;
-        const sceneDuration = 6000; // 6 seconds per scene
+        document.addEventListener('DOMContentLoaded', () => {
+            const scenes = document.querySelectorAll('.scene');
+            let currentScene = 0;
+            const sceneDuration = 8000; // 8 seconds per scene
 
-        function showNextScene() {
-            scenes[currentScene].classList.remove('active');
-            currentScene = (currentScene + 1) % scenes.length;
-            scenes[currentScene].classList.add('active');
-        }
+            function showNextScene() {
+                scenes[currentScene].classList.remove('active');
+                currentScene = (currentScene + 1) % scenes.length;
+                scenes[currentScene].classList.add('active');
+            }
 
-        setInterval(showNextScene, sceneDuration);
+            setInterval(showNextScene, sceneDuration);
+        });
     </script>
 
 </body>
 </html>
-
-    
