@@ -457,10 +457,16 @@ export default function PoTrackingPage() {
             const currentRequest = requestDoc.data() as PurchaseRequest;
             const stepIdToRevert = milestone.stepId;
     
-            const milestonesToKeep = (currentRequest.poMilestones || []).filter(m => m.stepId !== stepIdToRevert);
-    
+            // Remove all milestones with the stepId to revert, as there can be multiple per item
+            const milestonesToRevert = (currentRequest.poMilestones || []).filter(m => m.stepId === stepIdToRevert);
+            if (milestonesToRevert.length === 0) {
+                 setRevertingStep(null);
+                 toast({ variant: "destructive", title: "Revert Failed", description: "Milestone to revert not found."});
+                 return;
+            }
+
             const updatePayload: any = {
-                poMilestones: milestonesToKeep
+                poMilestones: arrayRemove(...milestonesToRevert)
             };
     
             if (stepIdToRevert === 1) {
@@ -488,23 +494,39 @@ export default function PoTrackingPage() {
         if (!updatingRequest || !user) return;
         const { request, stepId } = updatingRequest;
 
-        const newMilestones: PurchaseStatus[] = [];
+        const allNewMilestones: PurchaseStatus[] = [];
         const items = request.type === 'fabric' ? request.fabricDetails : request.furnitureDetails;
+        const completedAt = new Date().toISOString();
 
         (items || []).forEach(item => {
-            newMilestones.push({
+            allNewMilestones.push({
                 stepId: stepId,
                 status: 'completed',
-                completedAt: new Date().toISOString(),
+                completedAt: completedAt,
                 completedBy: user.name,
                 itemName: (item as any).fabricName || (item as any).furnitureName,
                 poNumber: item.poNumber,
                 vendorName: item.vendorName,
                 quantity: item.quantity,
             });
+
+            // If step 3 is being completed, also complete step 4
+            if (stepId === 3) {
+                allNewMilestones.push({
+                    stepId: 4, // Data Entry step
+                    status: 'completed',
+                    completedAt: completedAt,
+                    completedBy: 'System (Auto)',
+                    itemName: (item as any).fabricName || (item as any).furnitureName,
+                    poNumber: item.poNumber,
+                    vendorName: item.vendorName,
+                    quantity: item.quantity,
+                    remarks: 'Automatically completed with Receiving and Handover.',
+                });
+            }
         });
 
-        if (newMilestones.length === 0) {
+        if (allNewMilestones.length === 0) {
             toast({ variant: "destructive", title: "No items found in request." });
             setUpdatingRequest(null);
             return;
@@ -513,9 +535,9 @@ export default function PoTrackingPage() {
         try {
             const requestRef = doc(db, "purchaseRequests", request.id);
             await updateDoc(requestRef, {
-                poMilestones: arrayUnion(...newMilestones)
+                poMilestones: arrayUnion(...allNewMilestones)
             });
-            toast({ title: "PO Step Updated!" });
+            toast({ title: `PO Step${stepId === 3 ? 's' : ''} Updated!` });
         } catch (error) {
             console.error("Error updating PO step:", error);
             toast({ variant: "destructive", title: "Update Failed" });
@@ -757,5 +779,3 @@ export default function PoTrackingPage() {
         </div>
     );
 }
-
-    
