@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X, Eye, EyeOff } from 'lucide-react';
+import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X, Eye, EyeOff, Sparkles } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, getDoc, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, O2DStep, O2DStatus, OrderType } from "@/lib/types";
@@ -545,9 +545,15 @@ export default function O2DPage() {
         const nextStepIndex = O2D_PROCESS_CONFIG.findIndex(s => !completedSteps.some(cs => cs.stepId === s.id));
         const currentStep = nextStepIndex !== -1 ? O2D_PROCESS_CONFIG[nextStepIndex] : null;
 
+        // Check if the order is ready for final acknowledgement
+        const isReadyForAcknowledgement = currentStep?.id === 10;
+        
         let cardBorderColor = "border-border";
         let statusTextColor = "text-primary";
-        if (currentStep) {
+        if (isReadyForAcknowledgement) {
+            cardBorderColor = "border-green-500";
+            statusTextColor = "text-green-500";
+        } else if (currentStep) {
             const expectedDate = expectedDates[currentStep.id];
             if (isPast(expectedDate)) {
                 cardBorderColor = "border-red-500";
@@ -559,9 +565,9 @@ export default function O2DPage() {
         }
 
         return (
-             <Collapsible key={order.id} className={cn("border-2 rounded-lg bg-card overflow-hidden", cardBorderColor)}>
+             <Collapsible key={order.id} className={cn("border-2 rounded-lg bg-card overflow-hidden transition-all", cardBorderColor)}>
                 <div className="p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                     <div className="flex justify-between items-start">
                         {/* Column 1: Customer Details */}
                         <div className="space-y-2 text-sm">
                             <h3 className="font-semibold text-lg">{order.customerName}</h3>
@@ -570,20 +576,26 @@ export default function O2DPage() {
                             <p className='flex items-center gap-2'><MapPin className='h-4 w-4 text-muted-foreground' /> {order.customerAddress}</p>
                         </div>
                         {/* Column 2: Order Status */}
-                        <div className="space-y-2 text-sm">
-                                {order.createdAt && (
-                                <p className='flex items-center gap-2'><Calendar className='h-4 w-4 text-muted-foreground' /> Order Date: {format(new Date(order.createdAt), 'dd/MM/yyyy')}</p>
+                        <div className="space-y-2 text-sm text-right">
+                             {isReadyForAcknowledgement && (
+                                <Badge variant="default" className="bg-green-100 text-green-700 border-green-300 animate-pulse">
+                                    <Sparkles className="mr-2 h-4 w-4" />
+                                    Ready to Acknowledge
+                                </Badge>
+                             )}
+                            {order.createdAt && (
+                                <p className='flex items-center justify-end gap-2'><Calendar className='h-4 w-4 text-muted-foreground' /> Order Date: {format(new Date(order.createdAt), 'dd/MM/yyyy')}</p>
                             )}
                             {currentStep && (
-                                <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
+                                <p className={cn('flex items-center justify-end gap-2 font-medium', statusTextColor)}>
                                     <Clock className='h-4 w-4'/>
-                                    Status: {currentStep.step} - Due by {formatTimestamp(expectedDates[currentStep.id])}
+                                    Status: {currentStep.step}
                                 </p>
                             )}
                             {order.remarks && (
-                                <p className='flex items-start gap-2 text-muted-foreground'>
+                                <p className='flex items-start justify-end gap-2 text-muted-foreground'>
+                                    <span className='italic text-right'>"{order.remarks}"</span>
                                     <MessageCircle className='h-4 w-4 mt-0.5 shrink-0' /> 
-                                    <span className='italic'>"{order.remarks}"</span>
                                 </p>
                             )}
                         </div>
