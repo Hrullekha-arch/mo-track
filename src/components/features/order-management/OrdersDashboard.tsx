@@ -90,22 +90,22 @@ export function OrdersDashboard() {
                 break;
             case 'scheduledToday':
                 const schedDate = scheduledDate(order);
-                if (!schedDate) return false;
+                if (!schedDate || isFullyCompleted(order)) return false;
                 const today = new Date();
                 const d = new Date(schedDate);
                 if (!(d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear())) return false;
                 break;
             case 'scheduled':
-                if (!scheduledDate(order)) return false;
+                if (!scheduledDate(order) || isFullyCompleted(order)) return false;
                 break;
             case 'assigned':
-                if (!order.assignedTo) return false;
+                if (!order.assignedTo || isFullyCompleted(order)) return false;
                 break;
             case 'readyForDelivery':
-                if (!Array.isArray(order.milestones) || !order.milestones?.find(m => m.id === 5)?.completed) return false;
+                if (!Array.isArray(order.milestones) || !order.milestones?.find(m => m.id === 5)?.completed || isFullyCompleted(order)) return false;
                 break;
             case 'stitched':
-                 if (!Array.isArray(order.milestones) || !(order.milestones?.find(m => m.id === 4)?.completed && !order.milestones?.find(m => m.id === 5)?.completed)) return false;
+                 if (!Array.isArray(order.milestones) || !(order.milestones?.find(m => m.id === 4)?.completed && !order.milestones?.find(m => m.id === 5)?.completed) || isFullyCompleted(order)) return false;
                 break;
             case 'completed':
                 if (!isFullyCompleted(order)) return false;
