@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, differenceInHours } from 'date-fns';
+import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, differenceInHours, subHours } from 'date-fns';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -512,11 +512,41 @@ export default function PurchasePage() {
         const q = query(collection(db, "purchaseRequests"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-            setPurchaseRequests(requestsData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+            
+            const twentyFourHoursAgo = subHours(new Date(), 24);
+            const requestsToDelete: string[] = [];
+
+            requestsData.forEach(req => {
+                const blockedStep = req.milestones.find(m => m.stepId <= 3 && m.status === 'skipped');
+                if (blockedStep) {
+                    const blockedAt = new Date(blockedStep.completedAt);
+                    if (blockedAt < twentyFourHoursAgo) {
+                        requestsToDelete.push(req.id);
+                    }
+                }
+            });
+
+            if (requestsToDelete.length > 0) {
+                Promise.all(requestsToDelete.map(id => deleteDoc(doc(db, "purchaseRequests", id))))
+                    .then(() => {
+                        toast({
+                            title: "Auto-Clean Up",
+                            description: `${requestsToDelete.length} blocked purchase request(s) older than 24 hours have been deleted.`
+                        });
+                    })
+                    .catch(err => {
+                        console.error("Error auto-deleting requests:", err);
+                        toast({ variant: "destructive", title: "Auto-delete failed." });
+                    });
+            }
+
+            // Filter out the deleted requests from the state immediately
+            const activeRequests = requestsData.filter(req => !requestsToDelete.includes(req.id));
+            setPurchaseRequests(activeRequests.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
             setLoading(false);
         });
         return () => unsubscribe();
-    }, []);
+    }, [toast]);
 
     const isFabricRequest = (req: PurchaseRequest) => req.type === 'fabric';
     const isFurnitureRequest = (req: PurchaseRequest) => req.type === 'furniture';
@@ -671,3 +701,5 @@ export default function PurchasePage() {
     );
 }
 
+
+    
