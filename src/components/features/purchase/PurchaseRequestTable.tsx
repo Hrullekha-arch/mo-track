@@ -46,6 +46,20 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+
+const getStatus = (request: PurchaseRequest) => {
+    const isBlocked = request.milestones.some(m => m.stepId <= 3 && m.status === 'skipped');
+    if (isBlocked) return "Blocked";
+
+    const lastStepInExisting = 6;
+    const lastStepInNew = 11;
+    const isCompleted = request.milestones.some(cs => (cs.stepId === lastStepInExisting || cs.stepId === lastStepInNew) && cs.status === 'completed');
+    if (isCompleted) return "Order Placed";
+    
+    return "In Progress";
+}
 
 export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-tracking' }) {
   const [requests, setRequests] = React.useState<PurchaseRequest[]>([]);
@@ -93,17 +107,6 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
     }
   };
 
-  const getStatus = (request: PurchaseRequest) => {
-    const isBlocked = request.milestones.some(m => m.stepId <= 3 && m.status === 'skipped');
-    if (isBlocked) return "Blocked";
-
-    const lastStepInExisting = 6;
-    const lastStepInNew = 11;
-    const isCompleted = request.milestones.some(cs => (cs.stepId === lastStepInExisting || cs.stepId === lastStepInNew) && cs.status === 'completed');
-    if (isCompleted) return "Order Placed";
-    
-    return "In Progress";
-  }
 
   const columns: ColumnDef<PurchaseRequest>[] = [
     {
@@ -149,7 +152,10 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
     {
         accessorKey: "type",
         header: "Type",
-        cell: ({ row }) => <Badge variant="outline" className="capitalize">{row.getValue("type")}</Badge>
+        cell: ({ row }) => <Badge variant="outline" className="capitalize">{row.getValue("type")}</Badge>,
+        filterFn: (row, id, value) => {
+            return value.includes(row.getValue(id))
+        }
     },
     {
         accessorKey: "salesman",
@@ -158,6 +164,7 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
     },
     {
         id: "status",
+        accessorKey: "status",
         header: "Status",
         cell: ({ row }) => {
             const status = getStatus(row.original);
@@ -165,6 +172,9 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
             if (status === "Order Placed") variant = "default";
             if (status === "Blocked") variant = "destructive";
             return <Badge variant={variant}>{status}</Badge>;
+        },
+        filterFn: (row, id, value) => {
+            return value.includes(getStatus(row.original))
         }
     },
     {
@@ -298,18 +308,52 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
         </header>
         <Card>
             <CardContent className="p-4">
-                <div className="flex items-center py-4 gap-4">
+                <div className="flex flex-wrap items-center py-4 gap-4">
                     <Input
-                    placeholder="Filter by customer or Deal ID..."
-                    value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
-                    onChange={(event) =>
-                        table.getColumn("customerName")?.setFilterValue(event.target.value)
-                    }
-                    className="max-w-sm"
+                        placeholder="Filter by customer or Deal ID..."
+                        value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
+                        onChange={(event) =>
+                            table.getColumn("customerName")?.setFilterValue(event.target.value)
+                        }
+                        className="max-w-sm"
                     />
+                     <Select
+                        value={(table.getColumn("type")?.getFilterValue() as string) ?? "all"}
+                        onValueChange={(value) =>
+                            table.getColumn("type")?.setFilterValue(value === "all" ? null : value)
+                        }
+                    >
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Filter by Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Types</SelectItem>
+                            <SelectItem value="fabric">Fabric</SelectItem>
+                            <SelectItem value="furniture">Furniture</SelectItem>
+                        </SelectContent>
+                    </Select>
+                     <Select
+                        value={(table.getColumn("status")?.getFilterValue() as string) ?? "all"}
+                        onValueChange={(value) =>
+                            table.getColumn("status")?.setFilterValue(value === "all" ? null : value)
+                        }
+                    >
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Filter by Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Statuses</SelectItem>
+                            <SelectItem value="In Progress">In Progress</SelectItem>
+                            <SelectItem value="Order Placed">Order Placed</SelectItem>
+                            <SelectItem value="Blocked">Blocked</SelectItem>
+                        </SelectContent>
+                    </Select>
+
+                    <div className="flex-grow" />
+
                     <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="ml-auto">
+                        <Button variant="outline">
                         Columns <ChevronDown className="ml-2 h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>
