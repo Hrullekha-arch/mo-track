@@ -533,39 +533,8 @@ export default function PoTrackingPage() {
             await updateDoc(requestRef, {
                 poMilestones: arrayUnion(...allNewMilestones)
             });
-    
-            // Check if step 3 was completed, which means step 4 was also completed.
-            if (stepId === 3) {
-                const ordersRef = collection(db, "orders");
-                const q = query(ordersRef, where("crmOrderNo", "==", request.dealId));
-                const orderSnapshot = await getDocs(q);
-    
-                if (!orderSnapshot.empty) {
-                    const orderDoc = orderSnapshot.docs[0];
-                    const orderData = orderDoc.data() as Order;
-    
-                    const o2dStep9: O2DStatus = {
-                        stepId: 9, // Purchase Material Receiving
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: "System (PO Complete)",
-                        remarks: `Material received via PO tracking for Deal ID ${request.dealId}`,
-                        selection: 'Done'
-                    };
-    
-                    await updateDoc(orderDoc.ref, {
-                        o2dMilestones: arrayUnion(o2dStep9)
-                    });
-    
-                    toast({
-                        title: `O2D Step Updated!`,
-                        description: `Step "Purchase Material Receiving" completed for order ${orderData.id}.`,
-                        duration: 5000,
-                    });
-                }
-            } else {
-                 toast({ title: `PO Step Updated!` });
-            }
+            toast({ title: `PO Step Updated!` });
+
         } catch (error) {
             console.error("Error updating PO step:", error);
             toast({ variant: "destructive", title: "Update Failed" });

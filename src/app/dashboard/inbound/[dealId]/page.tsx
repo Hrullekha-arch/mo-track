@@ -2,9 +2,9 @@
 "use client";
 
 import { useState, useEffect, use } from 'react';
-import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest, InboundMilestone, FabricDetail, FurnitureDetail, PurchaseStatus } from "@/lib/types";
+import { PurchaseRequest, InboundMilestone, FabricDetail, FurnitureDetail, PurchaseStatus, Order, O2DStatus } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2 } from 'lucide-react';
@@ -161,27 +161,34 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
             const allItemsCompleted = allItems.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
             if (allItemsCompleted) {
-                // Fetch the latest doc to check poMilestones
-                const latestDoc = await getDoc(requestRef);
-                const latestRequestData = latestDoc.data() as PurchaseRequest;
-                const poStep3 = latestRequestData.poMilestones?.find(m => m.stepId === 3);
+                // All items have completed all inbound steps. Now update O2D.
+                const ordersRef = collection(db, "orders");
+                const q = query(ordersRef, where("crmOrderNo", "==", request.dealId));
+                const orderSnapshot = await getDocs(q);
+                
+                if (!orderSnapshot.empty) {
+                    const orderDoc = orderSnapshot.docs[0];
+                    const orderData = orderDoc.data() as Order;
+                    const o2dStep9 = orderData.o2dMilestones?.find(m => m.stepId === 9);
 
-                if (!poStep3) {
-                    const poMilestoneStep3: PurchaseStatus = {
-                        stepId: 3,
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: "System (Auto)",
-                        remarks: "Automatically completed after all items were received in Inbound.",
-                    };
-                    await updateDoc(requestRef, {
-                        poMilestones: arrayUnion(poMilestoneStep3)
-                    });
-                    toast({
-                        title: "PO Process Updated!",
-                        description: `Step "${PO_PROCESS_CONFIG.find(p=>p.id===3)?.step}" was automatically marked as done.`,
-                        duration: 5000,
-                    });
+                    if (!o2dStep9) {
+                        const o2dMilestoneStep9: O2DStatus = {
+                            stepId: 9,
+                            status: 'completed',
+                            completedAt: new Date().toISOString(),
+                            completedBy: "System (Inbound Complete)",
+                            remarks: "Automatically completed after all items were received in Inbound.",
+                            selection: 'Done'
+                        };
+                        await updateDoc(orderDoc.ref, {
+                            o2dMilestones: arrayUnion(o2dMilestoneStep9)
+                        });
+                        toast({
+                            title: "O2D Process Updated!",
+                            description: `Step "Purchase Material Receiving" was automatically marked as done for order ${orderData.id}.`,
+                            duration: 5000,
+                        });
+                    }
                 }
             }
             // --- End of new logic ---
