@@ -5,9 +5,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Check, Clock, FileCheck, Loader2, Send, ThumbsUp, Truck, Undo2 } from 'lucide-react';
-import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, where, arrayRemove, getDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, where, arrayRemove, getDoc, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest, PurchaseStep, PurchaseStatus, FabricDetail, FurnitureDetail } from "@/lib/types"; // Re-using some types
+import { PurchaseRequest, PurchaseStep, PurchaseStatus, FabricDetail, FurnitureDetail, Order, O2DStatus } from "@/lib/types"; // Re-using some types
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
@@ -46,7 +46,7 @@ const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
             
             // Check for actual completed milestones to base the next step on
             const allPreviousMilestones = (request.poMilestones || []).filter(m => m.stepId < currentStep.id);
-            const latestPreviousMilestone = allPreviousMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())[0];
+            const latestPreviousMilestone = allPreviousMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.createdAt).getTime())[0];
 
             if (latestPreviousMilestone) {
                 startDate = new Date(latestPreviousMilestone.completedAt);
@@ -493,13 +493,13 @@ export default function PoTrackingPage() {
     const confirmStepUpdate = async () => {
         if (!updatingRequest || !user) return;
         const { request, stepId } = updatingRequest;
-
+    
         const allNewMilestones: PurchaseStatus[] = [];
         const items = request.type === 'fabric' ? request.fabricDetails : request.furnitureDetails;
         const completedAt = new Date().toISOString();
-
+    
         (items || []).forEach(item => {
-            allNewMilestones.push({
+            const baseMilestone: PurchaseStatus = {
                 stepId: stepId,
                 status: 'completed',
                 completedAt: completedAt,
@@ -508,36 +508,64 @@ export default function PoTrackingPage() {
                 poNumber: item.poNumber,
                 vendorName: item.vendorName,
                 quantity: item.quantity,
-            });
-
+            };
+            allNewMilestones.push(baseMilestone);
+    
             // If step 3 is being completed, also complete step 4
             if (stepId === 3) {
                 allNewMilestones.push({
+                    ...baseMilestone,
                     stepId: 4, // Data Entry step
-                    status: 'completed',
-                    completedAt: completedAt,
                     completedBy: 'System (Auto)',
-                    itemName: (item as any).fabricName || (item as any).furnitureName,
-                    poNumber: item.poNumber,
-                    vendorName: item.vendorName,
-                    quantity: item.quantity,
                     remarks: 'Automatically completed with Receiving and Handover.',
                 });
             }
         });
-
+    
         if (allNewMilestones.length === 0) {
             toast({ variant: "destructive", title: "No items found in request." });
             setUpdatingRequest(null);
             return;
         }
-
+    
         try {
             const requestRef = doc(db, "purchaseRequests", request.id);
             await updateDoc(requestRef, {
                 poMilestones: arrayUnion(...allNewMilestones)
             });
-            toast({ title: `PO Step${stepId === 3 ? 's' : ''} Updated!` });
+    
+            // Check if step 3 was completed, which means step 4 was also completed.
+            if (stepId === 3) {
+                const ordersRef = collection(db, "orders");
+                const q = query(ordersRef, where("crmOrderNo", "==", request.dealId));
+                const orderSnapshot = await getDocs(q);
+    
+                if (!orderSnapshot.empty) {
+                    const orderDoc = orderSnapshot.docs[0];
+                    const orderData = orderDoc.data() as Order;
+    
+                    const o2dStep9: O2DStatus = {
+                        stepId: 9, // Purchase Material Receiving
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: "System (PO Complete)",
+                        remarks: `Material received via PO tracking for Deal ID ${request.dealId}`,
+                        selection: 'Done'
+                    };
+    
+                    await updateDoc(orderDoc.ref, {
+                        o2dMilestones: arrayUnion(o2dStep9)
+                    });
+    
+                    toast({
+                        title: `O2D Step Updated!`,
+                        description: `Step "Purchase Material Receiving" completed for order ${orderData.id}.`,
+                        duration: 5000,
+                    });
+                }
+            } else {
+                 toast({ title: `PO Step Updated!` });
+            }
         } catch (error) {
             console.error("Error updating PO step:", error);
             toast({ variant: "destructive", title: "Update Failed" });
