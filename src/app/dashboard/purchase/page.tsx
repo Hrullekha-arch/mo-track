@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PurchaseRequestTable } from '@/components/features/purchase/PurchaseRequestTable';
 
 
 const PURCHASE_PROCESS_CONFIG: PurchaseStep[] = [
@@ -547,12 +548,15 @@ export default function PurchasePage() {
         });
         return () => unsubscribe();
     }, [toast]);
+    
+    const isCompleted = (request: PurchaseRequest) => {
+        const lastStepInExisting = 6;
+        const lastStepInNew = 11;
+        return request.milestones.some(cs => (cs.stepId === lastStepInExisting || cs.stepId === lastStepInNew) && cs.status === 'completed');
+    };
 
-    const isFabricRequest = (req: PurchaseRequest) => req.type === 'fabric';
-    const isFurnitureRequest = (req: PurchaseRequest) => req.type === 'furniture';
-
-    const fabricRequests = purchaseRequests.filter(isFabricRequest);
-    const furnitureRequests = purchaseRequests.filter(isFurnitureRequest);
+    const activeFabricRequests = useMemo(() => purchaseRequests.filter(req => req.type === 'fabric' && !isCompleted(req)), [purchaseRequests]);
+    const activeFurnitureRequests = useMemo(() => purchaseRequests.filter(req => req.type === 'furniture' && !isCompleted(req)), [purchaseRequests]);
 
     const handleOpenRevertDialog = (requestId: string, stepId: number, milestone: PurchaseStatus) => {
         setRevertingStepInfo({ requestId, stepId, milestone });
@@ -614,9 +618,9 @@ export default function PurchasePage() {
         if (requests.length === 0) {
             return (
                 <Card className="text-center p-12">
-                    <CardTitle>No Requests Found</CardTitle>
+                    <CardTitle>No Active Requests Found</CardTitle>
                     <CardDescription>
-                        Create a new purchase request to see it here.
+                        Create a new purchase request or check the "All" tab for completed ones.
                     </CardDescription>
                 </Card>
             );
@@ -648,19 +652,23 @@ export default function PurchasePage() {
                 </header>
                 
                 <Tabs defaultValue="fabric" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="fabric">Fabric Requests</TabsTrigger>
-                        <TabsTrigger value="furniture">Furniture Requests</TabsTrigger>
+                    <TabsList className="grid w-full grid-cols-3">
+                        <TabsTrigger value="fabric">Active Fabric</TabsTrigger>
+                        <TabsTrigger value="furniture">Active Furniture</TabsTrigger>
+                        <TabsTrigger value="all">All Purchases</TabsTrigger>
                     </TabsList>
                     <TabsContent value="fabric">
                         <div className="space-y-4 pt-4">
-                            {renderRequests(fabricRequests)}
+                            {renderRequests(activeFabricRequests)}
                         </div>
                     </TabsContent>
                     <TabsContent value="furniture">
                         <div className="space-y-4 pt-4">
-                           {renderRequests(furnitureRequests)}
+                           {renderRequests(activeFurnitureRequests)}
                         </div>
+                    </TabsContent>
+                    <TabsContent value="all" className="pt-4">
+                        <PurchaseRequestTable />
                     </TabsContent>
                 </Tabs>
             </div>
@@ -700,6 +708,3 @@ export default function PurchasePage() {
         </AlertDialog>
     );
 }
-
-
-    

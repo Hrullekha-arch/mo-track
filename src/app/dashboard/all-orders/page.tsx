@@ -48,7 +48,7 @@ export default function AllOrdersPage() {
                 </TabsContent>
                  <TabsContent value="purchase">
                     <Suspense fallback={<AllOrdersSkeleton />}>
-                        <PurchaseRequestTable view="all" />
+                        <PurchaseRequestTable />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="po-tracking">
