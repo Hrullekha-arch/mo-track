@@ -1,4 +1,3 @@
-
 # MoTrack Application Flowchart
 
 This document outlines the main user and data workflows within the MoTrack application using a Mermaid.js flowchart.
@@ -20,7 +19,7 @@ graph TD
     C -->|Installer| E[[Mobile View /mobile]];
     C -->|Customer| F[[Tracking Page /track]];
 
-    subgraph Admin/Employee Journey
+    subgraph "Admin/Employee Journey"
         D --> D1[Select Module];
         D1 --> G[New Order]
         D1 --> H[New Purchase Request]
