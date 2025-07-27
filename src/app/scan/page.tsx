@@ -3,9 +3,6 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { Order, PmsStatus } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,18 +13,15 @@ import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { completePmsProcess } from '@/ai/flows/complete-pms-process';
 import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
+import { Order } from '@/lib/types';
 
 function PmsScanner() {
-    const router = useRouter();
     const { toast } = useToast();
     const videoRef = useRef<HTMLVideoElement>(null);
-    
-    // Initialize the code reader with hints in the constructor
     const codeReader = useRef(new BrowserMultiFormatReader(new Map([
         [DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128]]
     ])));
-
-    const [scannedId, setScannedId] = useState('');
+    
     const [manualId, setManualId] = useState('');
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(false);
@@ -37,21 +31,19 @@ function PmsScanner() {
     const processScan = async (id: string) => {
         if (!id || loading || isScanningRef.current) return;
 
-        isScanningRef.current = true; // Stop further scanning
+        isScanningRef.current = true;
         setLoading(true);
         setOrder(null);
         
         try {
             const result = await completePmsProcess({ orderId: id });
 
-            if (!result.success) {
+            if (!result.success || !result.order) {
                 toast({ variant: 'destructive', title: 'Scan Failed', description: result.message, duration: 5000 });
                 setOrder(null);
             } else {
                  toast({ title: 'Success!', description: result.message });
-                 if (result.order) {
-                     setOrder(result.order as Order);
-                 }
+                 setOrder(result.order as Order);
             }
         } catch (error) {
              toast({
@@ -63,7 +55,7 @@ function PmsScanner() {
         } finally {
             setLoading(false);
             setTimeout(() => {
-                isScanningRef.current = false; // Allow scanning again after a cooldown
+                isScanningRef.current = false;
             }, 3000);
         }
     };
@@ -91,7 +83,6 @@ function PmsScanner() {
                             if (result) {
                                 const scannedText = result.getText();
                                 if (!isScanningRef.current) {
-                                    setScannedId(scannedText);
                                     setManualId(scannedText);
                                     processScan(scannedText);
                                 }
@@ -124,7 +115,7 @@ function PmsScanner() {
             codeReader.current.reset();
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [toast]);
+    }, []);
     
     const handleManualSubmit = (e: React.FormEvent) => {
         e.preventDefault();
