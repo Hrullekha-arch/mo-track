@@ -1,13 +1,20 @@
 
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Milestone, Scissors, Package, Users, Wind, Check, Scan, Ruler, Box, Tag, Award, Waves, Layers, Printer, X } from 'lucide-react';
+import { Milestone, Scissors, Package, Users, Wind, Check, Scan, Ruler, Box, Tag, Award, Waves, Layers, Printer, X, GanttChartSquare, ChevronDown, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { BarcodeSticker } from '@/components/features/pms/BarcodeSticker';
+import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { Order } from '@/lib/types';
+import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const PMS_PROCESS_CONFIG = [
     { id: 1, step: "Roll & Fabric Allocation", time: "15 min", icon: Milestone },
@@ -25,26 +32,47 @@ const PMS_PROCESS_CONFIG = [
     { id: 13, step: "Packing & Labelling", time: "8 min", icon: Tag },
 ];
 
-// Mock data for a single order being processed
-const MOCK_ORDER_DATA = {
-    dealId: "MOTRACK-1234",
-    customerName: "Ravi Kumar",
-    orderType: "Stitching + Installation"
-};
-
-function PmsTimeline({ processConfig, onFirstStepComplete }: { processConfig: typeof PMS_PROCESS_CONFIG; onFirstStepComplete: () => void; }) {
+function PmsTimeline({ 
+    processConfig, 
+    onFirstStepComplete, 
+    onLastStepComplete, 
+    orderId 
+}: { 
+    processConfig: typeof PMS_PROCESS_CONFIG; 
+    onFirstStepComplete: () => void;
+    onLastStepComplete: () => void;
+    orderId: string;
+}) {
     const [completedSteps, setCompletedSteps] = useState<number[]>([]);
 
     const toggleStep = (stepId: number) => {
         const isCompleting = !completedSteps.includes(stepId);
-        const newCompletedSteps = isCompleting
-            ? [...completedSteps, stepId]
-            : completedSteps.filter(id => id !== stepId);
+        let newCompletedSteps: number[];
+
+        if (isCompleting) {
+            // To complete a step, all previous steps must be complete
+            const requiredSteps = Array.from({ length: stepId - 1 }, (_, i) => i + 1);
+            const allPreviousCompleted = requiredSteps.every(id => completedSteps.includes(id));
+
+            if (!allPreviousCompleted) {
+                // Automatically complete all previous steps
+                newCompletedSteps = [...new Set([...completedSteps, ...requiredSteps, stepId])];
+            } else {
+                newCompletedSteps = [...completedSteps, stepId];
+            }
+        } else {
+            // To mark a step as incomplete, all subsequent steps must also be marked incomplete
+            newCompletedSteps = completedSteps.filter(id => id < stepId);
+        }
         
         setCompletedSteps(newCompletedSteps);
 
         if (stepId === 1 && isCompleting) {
             onFirstStepComplete();
+        }
+        
+        if (stepId === processConfig.length && isCompleting) {
+            onLastStepComplete();
         }
     };
 
@@ -57,7 +85,7 @@ function PmsTimeline({ processConfig, onFirstStepComplete }: { processConfig: ty
                     const Icon = stepConfig.icon;
 
                     return (
-                        <div key={stepConfig.id} className="relative flex items-start gap-4">
+                        <div key={`${orderId}-${stepConfig.id}`} className="relative flex items-start gap-4">
                             <div className="flex h-14 w-14 items-center justify-center shrink-0">
                                 <div className={cn(
                                     "flex h-16 w-16 items-center justify-center rounded-full border-2 border-border shadow-sm text-lg font-bold",
@@ -95,14 +123,75 @@ function PmsTimeline({ processConfig, onFirstStepComplete }: { processConfig: ty
 }
 
 export default function PmsPage() {
+    const [orders, setOrders] = useState<Order[]>([]);
+    const [loading, setLoading] = useState(true);
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
+    const [orderForPrint, setOrderForPrint] = useState<Order | null>(null);
+    const { user } = useAuth();
+    const { toast } = useToast();
+
+    useEffect(() => {
+        const q = query(collection(db, "orders"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const allOrdersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+            
+            // Filter orders for PMS: "Sent to Stitching" is done, but "Stitching Done" is not.
+            const pmsOrders = allOrdersData.filter(order => {
+                const sentToStitching = order.milestones.find(m => m.id === 3);
+                const stitchingDone = order.milestones.find(m => m.id === 4);
+                return sentToStitching?.completed && !stitchingDone?.completed;
+            });
+
+            setOrders(pmsOrders);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    const handleFirstStepComplete = (order: Order) => {
+        setOrderForPrint(order);
+        setIsPrintDialogOpen(true);
+    };
+
+    const handleLastStepComplete = async (orderId: string) => {
+        if (!user) {
+            toast({ variant: "destructive", title: "Error", description: "You are not logged in." });
+            return;
+        }
+
+        try {
+            const orderRef = doc(db, "orders", orderId);
+            const orderToUpdate = orders.find(o => o.id === orderId);
+            if (!orderToUpdate) return;
+            
+            const updatedMilestones = orderToUpdate.milestones.map(m => 
+                m.id === 4 // "Stitching Done" milestone
+                ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: "System (PMS)" }
+                : m
+            );
+
+            await updateDoc(orderRef, { milestones: updatedMilestones });
+
+            toast({
+                title: "Production Complete!",
+                description: `Order ${orderId} has been marked as 'Stitching Done' on the main dashboard.`,
+            });
+        } catch (error) {
+             toast({
+                variant: "destructive",
+                title: "Update Failed",
+                description: "Could not update the order's main milestone.",
+            });
+            console.error("Error updating main milestone:", error);
+        }
+    };
 
     const handlePrint = () => {
         const printContent = document.getElementById('barcode-sticker-print');
         if (printContent) {
             const newWindow = window.open('', '_blank', 'width=800,height=600');
             newWindow?.document.write('<html><head><title>Print Sticker</title>');
-            // Add styles to ensure proper printing
             newWindow?.document.write(`
                 <style>
                     @page { size: 72.1mm 48.9mm; margin: 0; }
@@ -127,29 +216,63 @@ export default function PmsPage() {
         }
     };
 
+    if (loading) {
+        return (
+            <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-4">
+                <Skeleton className="h-8 w-1/2" />
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-48 w-full mt-4" />
+                <Skeleton className="h-48 w-full" />
+            </div>
+        );
+    }
+
     return (
         <>
             <div className="container mx-auto p-4 md:p-6 lg:p-8">
                 <header className="mb-8">
                     <h1 className="text-3xl font-bold tracking-tight">Project Management System (PMS)</h1>
                     <p className="text-muted-foreground">
-                        This is a visualization of the production and stitching workflow for order: <span className="font-semibold text-primary">{MOCK_ORDER_DATA.dealId}</span>
+                        Manage all orders currently in the production and stitching workflow.
                     </p>
                 </header>
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Production Timeline</CardTitle>
-                        <CardDescription>
-                            Each step of the fabric production process from allocation to final packing.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <PmsTimeline 
-                            processConfig={PMS_PROCESS_CONFIG} 
-                            onFirstStepComplete={() => setIsPrintDialogOpen(true)}
-                        />
-                    </CardContent>
-                </Card>
+
+                <div className="space-y-4">
+                    {orders.length > 0 ? (
+                        orders.map(order => (
+                            <Collapsible key={order.id} className="border rounded-lg overflow-hidden">
+                                <CollapsibleTrigger className="w-full p-4 bg-muted/50 hover:bg-muted/80 transition-colors flex justify-between items-center">
+                                    <div>
+                                        <p className="font-semibold text-lg">{order.customerName}</p>
+                                        <p className="text-sm text-muted-foreground">{order.id}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-sm">
+                                        View Process
+                                        <ChevronDown className="h-5 w-5" />
+                                    </div>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent>
+                                    <PmsTimeline 
+                                        orderId={order.id}
+                                        processConfig={PMS_PROCESS_CONFIG} 
+                                        onFirstStepComplete={() => handleFirstStepComplete(order)}
+                                        onLastStepComplete={() => handleLastStepComplete(order.id)}
+                                    />
+                                </CollapsibleContent>
+                            </Collapsible>
+                        ))
+                    ) : (
+                        <Card className="text-center p-12">
+                            <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
+                                <GanttChartSquare className="h-8 w-8" />
+                            </div>
+                            <CardTitle>No Active Production Orders</CardTitle>
+                            <CardDescription>
+                                When an order is marked as "Sent to Stitching" on the dashboard, it will appear here.
+                            </CardDescription>
+                        </Card>
+                    )}
+                </div>
             </div>
             
             <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
@@ -160,13 +283,15 @@ export default function PmsPage() {
                             The first step is complete. Print the barcode sticker to attach to the materials.
                         </DialogDescription>
                     </DialogHeader>
-                    <div id="barcode-sticker-print" className="py-4">
-                        <BarcodeSticker
-                            dealId={MOCK_ORDER_DATA.dealId}
-                            customerName={MOCK_ORDER_DATA.customerName}
-                            orderType={MOCK_ORDER_DATA.orderType}
-                        />
-                    </div>
+                    {orderForPrint && (
+                        <div id="barcode-sticker-print" className="py-4">
+                            <BarcodeSticker
+                                dealId={orderForPrint.id}
+                                customerName={orderForPrint.customerName}
+                                orderType={orderForPrint.orderType}
+                            />
+                        </div>
+                    )}
                     <div className="flex justify-end gap-2">
                          <Button variant="ghost" onClick={() => setIsPrintDialogOpen(false)}><X className="mr-2"/>Close</Button>
                          <Button onClick={handlePrint}><Printer className="mr-2"/>Print Sticker</Button>
