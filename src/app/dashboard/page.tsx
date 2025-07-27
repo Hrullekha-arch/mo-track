@@ -1,8 +1,7 @@
 
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle } from "lucide-react";
 import Link from "next/link";
-import { getFirestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -86,13 +85,13 @@ async function getCounts() {
 
         return { o2dCount: pendingO2dOrders.length, connectionError: null };
     } catch (error: any) {
-        console.error("Error fetching O2D count:", error);
-        // Return a specific error message to display on the dashboard
+        console.error("Error fetching counts from Firestore:", error.message);
+        // This provides a more user-friendly error message.
         let errorMessage = "Connection Failed. ";
-        if (error.code === 'INVALID_CREDENTIAL') {
-            errorMessage += "The service account credentials are not valid. Please check your .env file.";
+        if (error.code === 'INVALID_CREDENTIAL' || (error.message && error.message.includes('permission-denied'))) {
+            errorMessage += "The service account credentials in your .env file are not valid or missing. Please check them.";
         } else {
-            errorMessage += error.message;
+            errorMessage += "Could not connect to the database. Please check server logs.";
         }
         return { o2dCount: 0, connectionError: errorMessage };
     }
@@ -109,7 +108,7 @@ export default async function DashboardPage() {
                 <h1 className="text-3xl font-bold tracking-tight">Home Dashboard</h1>
                 <p className="text-muted-foreground">Welcome! Select a module to get started.</p>
             </header>
-
+            
             <Card className="mb-6">
                 <CardHeader>
                     <CardTitle>System Status</CardTitle>
