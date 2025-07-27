@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Milestone, Scissors, Package, Users, Wind, Check, Scan, Ruler, Box, Tag, Award, Waves, Layers, Printer, X, GanttChartSquare, ChevronDown, CheckCircle } from 'lucide-react';
+import { Milestone, Scissors, Package, Users, Wind, Check, Scan, Ruler, Box, Tag, Award, Waves, Layers, Printer, X, GanttChartSquare, ChevronDown, CheckCircle, Barcode } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -108,10 +108,16 @@ function PmsTimeline({
                                         </div>
                                     </div>
                                 </CardHeader>
-                                <CardContent>
+                                <CardContent className="flex items-center gap-2">
                                     <Button size="sm" variant={isCompleted ? "destructive" : "default"} onClick={() => toggleStep(stepConfig.id)}>
                                         {isCompleted ? "Mark as Incomplete" : "Mark as Complete"}
                                     </Button>
+                                    {stepConfig.id === 1 && (
+                                         <Button size="sm" variant="outline" onClick={onFirstStepComplete}>
+                                            <Barcode className="mr-2 h-4 w-4" />
+                                            View Barcode
+                                        </Button>
+                                    )}
                                 </CardContent>
                             </Card>
                         </div>
@@ -280,7 +286,7 @@ export default function PmsPage() {
                      <DialogHeader>
                         <DialogTitle>Generate Barcode Sticker</DialogTitle>
                         <DialogDescription>
-                            The first step is complete. Print the barcode sticker to attach to the materials.
+                            Print the barcode sticker to attach to the materials.
                         </DialogDescription>
                     </DialogHeader>
                     {orderForPrint && (
