@@ -291,6 +291,16 @@ export default function PmsPage() {
         );
     }
 
+    const getItemsForOrder = (order: Order) => {
+        const fabricItems = (order.fabricDetails || [])
+            .filter(f => f.fabricName)
+            .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
+        const furnitureItems = (order.furnitureDetails || [])
+            .filter(f => f.furnitureName)
+            .map(f => ({ name: f.furnitureName, quantity: f.quantity, unit: 'Qty' }));
+        return [...fabricItems, ...furnitureItems];
+    }
+
     return (
         <>
             <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -324,11 +334,13 @@ export default function PmsPage() {
                         </DialogDescription>
                     </DialogHeader>
                     {orderForPrint && (
-                        <div id="barcode-sticker-print" className="py-4">
+                        <div id="barcode-sticker-print" className="py-4 flex justify-center">
                             <BarcodeSticker
                                 dealId={orderForPrint.crmOrderNo}
                                 customerName={orderForPrint.customerName}
+                                salesman={orderForPrint.salesPerson}
                                 orderType={orderForPrint.orderType}
+                                items={getItemsForOrder(orderForPrint)}
                             />
                         </div>
                     )}
