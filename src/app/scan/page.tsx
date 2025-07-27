@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Order } from '@/lib/types';
+import { Order, PmsStatus } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -14,6 +14,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Camera, CheckCircle, Loader2, ScanLine, Home } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
+import { PMS_PROCESS_CONFIG } from '@/components/features/pms/pms-constants';
+
 
 function PmsScanner() {
     const router = useRouter();
@@ -89,20 +91,37 @@ function PmsScanner() {
                 return;
             }
 
-            // If everything is fine, update the milestone
-            const updatedMilestones = fetchedOrder.milestones.map(m => 
+            // If everything is fine, update all milestones
+            const completedAt = new Date().toISOString();
+            const completedBy = "PMS Scanner";
+
+            // 1. Complete all PMS steps
+            const allPmsSteps: PmsStatus[] = PMS_PROCESS_CONFIG.map(step => ({
+                stepId: step.id,
+                status: 'completed',
+                completedAt,
+                completedBy,
+            }));
+
+            // 2. Complete the main "Stitching Done" milestone
+            const updatedMainMilestones = fetchedOrder.milestones.map(m => 
                 m.id === 4 // "Stitching Done" milestone
-                ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: "PMS Scanner" }
+                ? { ...m, completed: true, completedAt, completedBy }
                 : m
             );
+            
+            const updatePayload = {
+                milestones: updatedMainMilestones,
+                pmsMilestones: allPmsSteps
+            };
 
-            await updateDoc(orderRef, { milestones: updatedMilestones });
+            await updateDoc(orderRef, updatePayload);
 
             toast({
                 title: "Production Complete!",
                 description: `Order ${fetchedOrder.id} has been marked as 'Stitching Done'.`,
             });
-            setOrder(prev => fetchedOrder ? {...fetchedOrder, milestones: updatedMilestones} : null);
+            setOrder(prev => fetchedOrder ? {...fetchedOrder, ...updatePayload} : null);
 
         } catch (error) {
              toast({
@@ -155,7 +174,7 @@ function PmsScanner() {
                             <Input 
                                 placeholder="Type Deal ID here..."
                                 value={scannedId}
-                                onChange={(e) => setScannedId(e.target.value)}
+                                onChange={(e) => setScannedId(e.target.value.toUpperCase())}
                                 onKeyDown={(e) => e.key === 'Enter' && handleScan()}
                             />
                             <Button onClick={handleScan} disabled={loading || !scannedId}>
