@@ -22,9 +22,10 @@ function PmsScanner() {
     const router = useRouter();
     const { toast } = useToast();
     const videoRef = useRef<HTMLVideoElement>(null);
-    const codeReader = new BrowserMultiFormatReader();
+    const codeReader = useRef(new BrowserMultiFormatReader());
 
     const [scannedId, setScannedId] = useState('');
+    const [manualId, setManualId] = useState('');
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
@@ -65,30 +66,36 @@ function PmsScanner() {
             console.error("Error during scan process:", error);
         } finally {
             setLoading(false);
-            // After a scan, wait a bit before allowing another scan to avoid duplicates
-            setTimeout(() => {
-                if (videoRef.current) {
-                    startDecoding(videoRef.current);
-                }
-            }, 3000);
         }
     };
     
-    const startDecoding = (videoEl: HTMLVideoElement) => {
-         codeReader.decodeFromVideoElement(videoEl, (result, err) => {
-            if (result) {
+    useEffect(() => {
+        const startDecoding = async (videoEl: HTMLVideoElement) => {
+            try {
+                const result = await codeReader.current.decodeFromVideoElement(videoEl);
                 const scannedText = result.getText();
                 if (scannedText !== scannedId) {
                     setScannedId(scannedText);
-                    processScan(scannedText);
-                    codeReader.reset(); // Stop decoding after a successful scan
+                    setManualId(scannedText);
+                    await processScan(scannedText);
+                    // No need to loop, user can re-scan if needed.
+                }
+            } catch (err) {
+                if (!(err instanceof NotFoundException)) {
+                    console.error('Barcode decoding error:', err);
                 }
             }
-            if (err && !(err instanceof NotFoundException)) {
-                console.error('Barcode decoding error:', err);
-            }
-        }).catch(err => console.error("Decode init error:", err));
-    }
+        };
+        
+        if (videoRef.current) {
+            videoRef.current.onloadeddata = () => {
+                if (hasCameraPermission) {
+                    startDecoding(videoRef.current!);
+                }
+            };
+        }
+    }, [hasCameraPermission, scannedId]);
+
 
     useEffect(() => {
         const getCameraPermission = async () => {
@@ -97,7 +104,6 @@ function PmsScanner() {
                 setHasCameraPermission(true);
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
-                    startDecoding(videoRef.current);
                 }
             } catch (error) {
                 console.error('Error accessing camera:', error);
@@ -113,11 +119,18 @@ function PmsScanner() {
         getCameraPermission();
         
         return () => {
-            codeReader.reset();
+             if (videoRef.current && videoRef.current.srcObject) {
+                const stream = videoRef.current.srcObject as MediaStream;
+                stream.getTracks().forEach(track => track.stop());
+            }
+            codeReader.current.reset();
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [toast]);
-
+    
+    const handleManualSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        processScan(manualId);
+    };
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8 max-w-4xl">
@@ -137,11 +150,11 @@ function PmsScanner() {
                 <Card>
                     <CardHeader>
                         <CardTitle>Scanner</CardTitle>
-                        <CardDescription>Point the camera at a barcode to automatically scan.</CardDescription>
+                        <CardDescription>Point the camera at a barcode to automatically scan, or enter manually.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center mb-4">
-                            <video ref={videoRef} className="w-full h-full object-cover" />
+                            <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline />
                             {hasCameraPermission === null && (
                                  <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
                                     <Loader2 className="h-12 w-12 text-muted-foreground mb-4 animate-spin"/>
@@ -159,14 +172,20 @@ function PmsScanner() {
                                 <div className="w-4/5 h-2/5 border-4 border-red-500/70 rounded-lg bg-black/20" />
                              </div>
                         </div>
-                         <div className="space-y-2">
-                             <p className="text-sm text-muted-foreground">Last Scanned ID:</p>
-                             <Input 
-                                placeholder="Waiting for scan..."
-                                value={scannedId}
-                                readOnly
-                            />
-                        </div>
+                         <form onSubmit={handleManualSubmit} className="space-y-2">
+                             <p className="text-sm text-muted-foreground">Or enter ID manually:</p>
+                             <div className="flex gap-2">
+                                <Input 
+                                    placeholder="Enter CRM Order No..."
+                                    value={manualId}
+                                    onChange={(e) => setManualId(e.target.value)}
+                                />
+                                <Button type="submit" disabled={loading || !manualId}>
+                                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+                                    Submit
+                                </Button>
+                             </div>
+                        </form>
                     </CardContent>
                 </Card>
                  <Card>
