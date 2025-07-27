@@ -1,18 +1,16 @@
-# Firebase Studio
+# Firebase Studio - MoTrack
 
-This is a NextJS starter in Firebase Studio.
-
-To get started, take a look at src/app/page.tsx.
+This is a Next.js starter application for MoTrack, a comprehensive operations management tool.
 
 ---
 
-## **Required Setup**: Add Service Account Key
+## **Required Setup**: Add Service Account Key for `mo-panel`
 
-For the application's server-side functions to connect to your Firebase project (like checking the database connection or creating users), you must provide it with a "Service Account Key".
+For the application's server-side functions to connect to your Firebase project (like checking the database connection), you must provide it with a **Service Account Key** for the `mo-panel` project.
 
-### 1. Get Your Service Account Key
+### 1. Get Your Service Account Key for `mo-panel`
 
-1.  Go to the [Firebase Console](https://console.cloud.google.com/) and select your `mo-panel` project.
+1.  Go to the [Firebase Console](https://console.firebase.google.com/) and select your **`mo-panel`** project.
 2.  Click the gear icon next to **Project Overview** in the top-left, then select **Project settings**.
 3.  Go to the **Service accounts** tab.
 4.  Click the **Generate new private key** button. A JSON file will be downloaded.

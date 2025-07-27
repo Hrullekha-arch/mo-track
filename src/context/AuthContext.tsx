@@ -63,6 +63,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (userDoc.exists()) {
         const userData = { id: userDoc.id, ...userDoc.data() } as User;
         setUser(userData);
+        // Clear any previous session storage to ensure welcome message shows
+        sessionStorage.removeItem('hasSeenWelcome');
         if (userData.role === 'installer') {
           router.push('/mobile');
         } else {
@@ -71,11 +73,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return true;
       } else {
         await signOut(auth);
-        toast({ variant: "destructive", title: "Login Failed", description: "No user data found."});
+        toast({ variant: "destructive", title: "Login Failed", description: "No user data found in the database."});
         return false;
       }
     } catch (error: any) {
-        toast({ variant: "destructive", title: "Login Failed", description: "Invalid credentials." });
+        toast({ variant: "destructive", title: "Login Failed", description: "Invalid credentials. Please check your email and password." });
         return false;
     } finally {
         setLoading(false);
@@ -87,6 +89,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await signOut(auth);
     setUser(null);
     setFirebaseUser(null);
+    // Also clear session storage on logout
+    sessionStorage.removeItem('hasSeenWelcome');
     router.push('/');
     setLoading(false);
   };
