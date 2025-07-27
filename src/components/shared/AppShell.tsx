@@ -30,6 +30,7 @@ import {
   ShoppingCart,
   Truck,
   Archive,
+  GanttChartSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -41,6 +42,7 @@ const allNavItems = [
   { href: "/dashboard/orders", icon: ClipboardList, label: "Orders Dashboard", roles: ['admin', 'employee'] },
   { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
   { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
+  { href: "/dashboard/pms", icon: GanttChartSquare, label: "PMS", roles: ['admin', 'employee'] },
   { href: "/dashboard/all-orders", icon: Table, label: "All Orders (Admin)", roles: ['admin'] },
   { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin', 'employee'] },
   { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },

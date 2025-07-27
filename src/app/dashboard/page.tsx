@@ -1,6 +1,6 @@
 
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table } from "lucide-react";
+import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare } from "lucide-react";
 import Link from "next/link";
 import { getFirestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
@@ -38,6 +38,14 @@ const dashboardItems = [
         icon: Archive,
         color: "bg-rose-500",
         id: "inbound"
+    },
+     {
+        href: "/dashboard/pms",
+        title: "PMS",
+        description: "Project management and timeline tracking.",
+        icon: GanttChartSquare,
+        color: "bg-cyan-500",
+        id: "pms"
     },
     {
         href: "/dashboard/users",
@@ -93,7 +101,7 @@ export default async function DashboardPage() {
                 <h1 className="text-3xl font-bold tracking-tight">Home Dashboard</h1>
                 <p className="text-muted-foreground">Welcome! Select a module to get started.</p>
             </header>
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {dashboardItems.map((item) => (
                     <Link href={item.href} key={item.title}>
                         <Card className="group hover:shadow-lg transition-shadow duration-300 transform hover:-translate-y-1">
