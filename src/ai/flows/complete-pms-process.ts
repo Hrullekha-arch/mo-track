@@ -51,13 +51,18 @@ const completePmsProcessFlow = ai.defineFlow(
       const orderRef = orderDoc.ref;
       const orderData = orderDoc.data() as Omit<Order, 'id'>;
       
-      // Ensure pmsMilestones exists to prevent errors
-      if (!orderData.pmsMilestones) {
-          orderData.pmsMilestones = [];
-      }
-
       const order = { id: orderDoc.id, ...orderData } as Order;
       
+      // Stop if stitching is already done
+      const stitchingDoneMilestone = order.milestones.find(m => m.id === 4);
+      if (stitchingDoneMilestone?.completed) {
+        return { 
+          success: true, 
+          message: `Order ${orderId} production is already complete.`,
+          order,
+        };
+      }
+
       const completedAt = new Date().toISOString();
       const completedBy = "PMS Scanner";
 

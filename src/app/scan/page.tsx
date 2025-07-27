@@ -2,7 +2,6 @@
 "use client";
 
 import { useState, useEffect, useRef, Suspense } from 'react';
-import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -56,7 +55,7 @@ function PmsScanner() {
             setLoading(false);
             setTimeout(() => {
                 isScanningRef.current = false;
-            }, 3000);
+            }, 3000); // 3-second cooldown
         }
     };
     
