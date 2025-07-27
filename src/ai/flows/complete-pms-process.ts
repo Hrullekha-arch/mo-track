@@ -23,7 +23,7 @@ export type CompletePmsInput = z.infer<typeof CompletePmsInputSchema>;
 const CompletePmsOutputSchema = z.object({
   success: z.boolean().describe('Whether the update was successful.'),
   message: z.string().describe('A message indicating the result of the operation.'),
-  orderStatus: z.string().optional().describe('The new status of the order.'),
+  order: z.any().optional().describe('The updated order object.'),
 });
 export type CompletePmsOutput = z.infer<typeof CompletePmsOutputSchema>;
 
@@ -79,10 +79,15 @@ const completePmsProcessFlow = ai.defineFlow(
       
       await updateDoc(orderRef, updatePayload);
 
+      const updatedOrder = {
+        ...order,
+        ...updatePayload
+      };
+
       return {
         success: true,
         message: `Order ${orderId} has been marked as 'Stitching Done'.`,
-        orderStatus: 'Stitching Done',
+        order: updatedOrder,
       };
     } catch (error: any) {
       console.error('Error in completePmsProcessFlow:', error);

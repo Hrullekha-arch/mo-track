@@ -46,21 +46,13 @@ function PmsScanner() {
 
             if (!result.success) {
                 toast({ variant: 'destructive', title: 'Scan Failed', description: result.message, duration: 5000 });
+                setOrder(null);
             } else {
                  toast({ title: 'Success!', description: result.message });
+                 if (result.order) {
+                     setOrder(result.order as Order);
+                 }
             }
-
-            const ordersRef = collection(db, 'orders');
-            const q = query(ordersRef, where('crmOrderNo', '==', id));
-            const querySnapshot = await getDocs(q);
-
-            if (!querySnapshot.empty) {
-                const orderDoc = querySnapshot.docs[0];
-                setOrder({ id: orderDoc.id, ...orderDoc.data() } as Order);
-            } else {
-                 setOrder(null);
-            }
-
         } catch (error) {
              toast({
                 variant: "destructive",
@@ -71,7 +63,7 @@ function PmsScanner() {
         } finally {
             setLoading(false);
             setTimeout(() => {
-                isScanningRef.current = false;
+                isScanningRef.current = false; // Allow scanning again after a cooldown
             }, 3000);
         }
     };
