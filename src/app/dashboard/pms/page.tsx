@@ -8,9 +8,9 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { BarcodeSticker } from '@/components/features/pms/BarcodeSticker';
-import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, updateDoc, where, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Order } from '@/lib/types';
+import { Order, PmsStatus } from '@/lib/types';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
@@ -33,59 +33,94 @@ const PMS_PROCESS_CONFIG = [
 ];
 
 function PmsTimeline({ 
-    processConfig, 
-    onFirstStepComplete, 
-    onLastStepComplete, 
-    orderId 
+    order,
+    onBarcodeView
 }: { 
-    processConfig: typeof PMS_PROCESS_CONFIG; 
-    onFirstStepComplete: () => void;
-    onLastStepComplete: () => void;
-    orderId: string;
+    order: Order;
+    onBarcodeView: () => void;
 }) {
-    const [completedSteps, setCompletedSteps] = useState<number[]>([]);
+    const { user } = useAuth();
+    const { toast } = useToast();
+    const [updatingStepId, setUpdatingStepId] = useState<number | null>(null);
 
-    const toggleStep = (stepId: number) => {
+    const completedSteps = (order.pmsMilestones || []).map(m => m.stepId);
+
+    const toggleStep = async (stepId: number) => {
+        if (!user) return toast({ variant: "destructive", title: "Not authenticated" });
+        setUpdatingStepId(stepId);
+
+        const orderRef = doc(db, "orders", order.id);
         const isCompleting = !completedSteps.includes(stepId);
-        let newCompletedSteps: number[];
 
-        if (isCompleting) {
-            // To complete a step, all previous steps must be complete
-            const requiredSteps = Array.from({ length: stepId - 1 }, (_, i) => i + 1);
-            const allPreviousCompleted = requiredSteps.every(id => completedSteps.includes(id));
-
-            if (!allPreviousCompleted) {
+        try {
+            if (isCompleting) {
+                const stepsToComplete: PmsStatus[] = [];
                 // Automatically complete all previous steps
-                newCompletedSteps = [...new Set([...completedSteps, ...requiredSteps, stepId])];
-            } else {
-                newCompletedSteps = [...completedSteps, stepId];
-            }
-        } else {
-            // To mark a step as incomplete, all subsequent steps must also be marked incomplete
-            newCompletedSteps = completedSteps.filter(id => id < stepId);
-        }
-        
-        setCompletedSteps(newCompletedSteps);
+                for (let i = 1; i <= stepId; i++) {
+                    if (!completedSteps.includes(i)) {
+                        stepsToComplete.push({
+                            stepId: i,
+                            status: 'completed',
+                            completedAt: new Date().toISOString(),
+                            completedBy: user.name,
+                        });
+                    }
+                }
+                await updateDoc(orderRef, { pmsMilestones: arrayUnion(...stepsToComplete) });
+                toast({ title: `Step ${stepId} and all previous steps marked as complete.`});
 
-        if (stepId === 1 && isCompleting) {
-            onFirstStepComplete();
-        }
-        
-        if (stepId === processConfig.length && isCompleting) {
-            onLastStepComplete();
+                if (stepId === PMS_PROCESS_CONFIG.length) {
+                    await handleLastStepComplete(order.id);
+                }
+            } else {
+                // To mark a step as incomplete, all subsequent steps must also be marked incomplete
+                const milestonesToRemove = (order.pmsMilestones || []).filter(m => m.stepId >= stepId);
+                await updateDoc(orderRef, { pmsMilestones: arrayRemove(...milestonesToRemove) });
+                toast({ title: `Step ${stepId} and all subsequent steps reverted.`});
+            }
+        } catch (error) {
+            console.error("Error updating PMS status:", error);
+            toast({ variant: "destructive", title: "Update Failed", description: "Could not update PMS status."});
+        } finally {
+            setUpdatingStepId(null);
         }
     };
+
+    const handleLastStepComplete = async (orderId: string) => {
+        if (!user) return;
+        try {
+            const orderRef = doc(db, "orders", orderId);
+            const updatedMilestones = order.milestones.map(m => 
+                m.id === 4 // "Stitching Done" milestone
+                ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: "System (PMS)" }
+                : m
+            );
+            await updateDoc(orderRef, { milestones: updatedMilestones });
+            toast({
+                title: "Production Complete!",
+                description: `Order ${orderId} has been marked as 'Stitching Done' on the main dashboard.`,
+            });
+        } catch (error) {
+             toast({
+                variant: "destructive",
+                title: "Update Failed",
+                description: "Could not update the order's main milestone.",
+            });
+            console.error("Error updating main milestone:", error);
+        }
+    };
+
 
     return (
         <div className="relative pl-6 pr-4 py-4">
             <div className="absolute left-11 top-0 h-full w-0.5 bg-border -translate-x-1/2" aria-hidden="true"></div>
             <div className="space-y-4">
-                {processConfig.map((stepConfig) => {
+                {PMS_PROCESS_CONFIG.map((stepConfig) => {
                     const isCompleted = completedSteps.includes(stepConfig.id);
                     const Icon = stepConfig.icon;
 
                     return (
-                        <div key={`${orderId}-${stepConfig.id}`} className="relative flex items-start gap-4">
+                        <div key={`${order.id}-${stepConfig.id}`} className="relative flex items-start gap-4">
                             <div className="flex h-14 w-14 items-center justify-center shrink-0">
                                 <div className={cn(
                                     "flex h-16 w-16 items-center justify-center rounded-full border-2 border-border shadow-sm text-lg font-bold",
@@ -109,11 +144,11 @@ function PmsTimeline({
                                     </div>
                                 </CardHeader>
                                 <CardContent className="flex items-center gap-2">
-                                    <Button size="sm" variant={isCompleted ? "destructive" : "default"} onClick={() => toggleStep(stepConfig.id)}>
+                                    <Button size="sm" variant={isCompleted ? "destructive" : "default"} onClick={() => toggleStep(stepConfig.id)} disabled={updatingStepId === stepConfig.id}>
                                         {isCompleted ? "Mark as Incomplete" : "Mark as Complete"}
                                     </Button>
                                     {stepConfig.id === 1 && (
-                                         <Button size="sm" variant="outline" onClick={onFirstStepComplete}>
+                                         <Button size="sm" variant="outline" onClick={onBarcodeView}>
                                             <Barcode className="mr-2 h-4 w-4" />
                                             View Barcode
                                         </Button>
@@ -133,13 +168,14 @@ export default function PmsPage() {
     const [loading, setLoading] = useState(true);
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
     const [orderForPrint, setOrderForPrint] = useState<Order | null>(null);
-    const { user } = useAuth();
-    const { toast } = useToast();
 
     useEffect(() => {
         const q = query(collection(db, "orders"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const allOrdersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+            const allOrdersData = snapshot.docs.map(doc => {
+                const data = doc.data() as Omit<Order, 'id'>;
+                return { id: doc.id, ...data, pmsMilestones: data.pmsMilestones || [] } as Order;
+            });
             
             // Filter orders for PMS: "Sent to Stitching" is done, but "Stitching Done" is not.
             const pmsOrders = allOrdersData.filter(order => {
@@ -155,42 +191,9 @@ export default function PmsPage() {
         return () => unsubscribe();
     }, []);
 
-    const handleFirstStepComplete = (order: Order) => {
+    const handleBarcodeView = (order: Order) => {
         setOrderForPrint(order);
         setIsPrintDialogOpen(true);
-    };
-
-    const handleLastStepComplete = async (orderId: string) => {
-        if (!user) {
-            toast({ variant: "destructive", title: "Error", description: "You are not logged in." });
-            return;
-        }
-
-        try {
-            const orderRef = doc(db, "orders", orderId);
-            const orderToUpdate = orders.find(o => o.id === orderId);
-            if (!orderToUpdate) return;
-            
-            const updatedMilestones = orderToUpdate.milestones.map(m => 
-                m.id === 4 // "Stitching Done" milestone
-                ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: "System (PMS)" }
-                : m
-            );
-
-            await updateDoc(orderRef, { milestones: updatedMilestones });
-
-            toast({
-                title: "Production Complete!",
-                description: `Order ${orderId} has been marked as 'Stitching Done' on the main dashboard.`,
-            });
-        } catch (error) {
-             toast({
-                variant: "destructive",
-                title: "Update Failed",
-                description: "Could not update the order's main milestone.",
-            });
-            console.error("Error updating main milestone:", error);
-        }
     };
 
     const handlePrint = () => {
@@ -259,10 +262,8 @@ export default function PmsPage() {
                                 </CollapsibleTrigger>
                                 <CollapsibleContent>
                                     <PmsTimeline 
-                                        orderId={order.id}
-                                        processConfig={PMS_PROCESS_CONFIG} 
-                                        onFirstStepComplete={() => handleFirstStepComplete(order)}
-                                        onLastStepComplete={() => handleLastStepComplete(order.id)}
+                                        order={order}
+                                        onBarcodeView={() => handleBarcodeView(order)}
                                     />
                                 </CollapsibleContent>
                             </Collapsible>

@@ -1,6 +1,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -25,6 +26,13 @@ export interface Milestone {
     latitude: number;
     longitude: number;
   } | null;
+}
+
+export interface PmsStatus {
+    stepId: number;
+    status: 'completed';
+    completedAt: string; // ISO Date string
+    completedBy: string; // User name
 }
 
 export interface O2DStatus {
@@ -86,6 +94,7 @@ export interface Order {
   orderType: OrderType;
   milestones: Milestone[];
   o2dMilestones?: O2DStatus[];
+  pmsMilestones?: PmsStatus[];
   remarks?: string;
   assignedTo?: string; // Installer User ID
   handledByCrm?: string; // CRM User ID
