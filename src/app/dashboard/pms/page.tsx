@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Layers, Check, Scan, Ruler, Box, Tag, Award, Waves, Printer, X, GanttChartSquare, ChevronDown, Barcode, Package, Wind, Users, Scissors, Milestone } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -16,6 +16,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PMS_PROCESS_CONFIG } from '@/components/features/pms/pms-constants';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
 
 function PmsTimeline({ 
     order,
@@ -151,8 +153,49 @@ function PmsTimeline({
     );
 }
 
+const OrderList = ({ orders, onBarcodeView }: { orders: Order[], onBarcodeView: (order: Order) => void }) => {
+    if (orders.length === 0) {
+        return (
+            <Card className="text-center p-12">
+                <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
+                    <GanttChartSquare className="h-8 w-8" />
+                </div>
+                <CardTitle>No Orders Found</CardTitle>
+                <CardDescription>
+                    There are no orders in this category.
+                </CardDescription>
+            </Card>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            {orders.map(order => (
+                <Collapsible key={order.id} className="border rounded-lg overflow-hidden">
+                    <CollapsibleTrigger className="w-full p-4 bg-muted/50 hover:bg-muted/80 transition-colors flex justify-between items-center">
+                        <div>
+                            <p className="font-semibold text-lg">{order.customerName}</p>
+                            <p className="text-sm text-muted-foreground">{order.id}</p>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                            View Process
+                            <ChevronDown className="h-5 w-5" />
+                        </div>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                        <PmsTimeline 
+                            order={order}
+                            onBarcodeView={() => onBarcodeView(order)}
+                        />
+                    </CollapsibleContent>
+                </Collapsible>
+            ))}
+        </div>
+    );
+};
+
 export default function PmsPage() {
-    const [orders, setOrders] = useState<Order[]>([]);
+    const [allPmsOrders, setAllPmsOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
     const [orderForPrint, setOrderForPrint] = useState<Order | null>(null);
@@ -165,19 +208,25 @@ export default function PmsPage() {
                 return { id: doc.id, ...data, pmsMilestones: data.pmsMilestones || [] } as Order;
             });
             
-            // Filter orders for PMS: "Sent to Stitching" is done, but "Stitching Done" is not.
+            // Filter orders for PMS: "Sent to Stitching" is done.
             const pmsOrders = allOrdersData.filter(order => {
                 const sentToStitching = order.milestones.find(m => m.id === 3);
-                const stitchingDone = order.milestones.find(m => m.id === 4);
-                return sentToStitching?.completed && !stitchingDone?.completed;
+                return sentToStitching?.completed;
             });
 
-            setOrders(pmsOrders);
+            setAllPmsOrders(pmsOrders);
             setLoading(false);
         });
 
         return () => unsubscribe();
     }, []);
+
+    const activeStitchingOrders = useMemo(() => {
+        return allPmsOrders.filter(order => {
+            const stitchingDone = order.milestones.find(m => m.id === 4);
+            return !stitchingDone?.completed;
+        });
+    }, [allPmsOrders]);
 
     const handleBarcodeView = (order: Order) => {
         setOrderForPrint(order);
@@ -218,7 +267,8 @@ export default function PmsPage() {
             <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-4">
                 <Skeleton className="h-8 w-1/2" />
                 <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-48 w-full mt-4" />
+                <Skeleton className="h-10 w-full mt-4" />
+                <Skeleton className="h-48 w-full" />
                 <Skeleton className="h-48 w-full" />
             </div>
         );
@@ -234,40 +284,18 @@ export default function PmsPage() {
                     </p>
                 </header>
 
-                <div className="space-y-4">
-                    {orders.length > 0 ? (
-                        orders.map(order => (
-                            <Collapsible key={order.id} className="border rounded-lg overflow-hidden">
-                                <CollapsibleTrigger className="w-full p-4 bg-muted/50 hover:bg-muted/80 transition-colors flex justify-between items-center">
-                                    <div>
-                                        <p className="font-semibold text-lg">{order.customerName}</p>
-                                        <p className="text-sm text-muted-foreground">{order.id}</p>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-sm">
-                                        View Process
-                                        <ChevronDown className="h-5 w-5" />
-                                    </div>
-                                </CollapsibleTrigger>
-                                <CollapsibleContent>
-                                    <PmsTimeline 
-                                        order={order}
-                                        onBarcodeView={() => handleBarcodeView(order)}
-                                    />
-                                </CollapsibleContent>
-                            </Collapsible>
-                        ))
-                    ) : (
-                        <Card className="text-center p-12">
-                            <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
-                                <GanttChartSquare className="h-8 w-8" />
-                            </div>
-                            <CardTitle>No Active Production Orders</CardTitle>
-                            <CardDescription>
-                                When an order is marked as "Sent to Stitching" on the dashboard, it will appear here.
-                            </CardDescription>
-                        </Card>
-                    )}
-                </div>
+                <Tabs defaultValue="active" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="active">Active Stitching</TabsTrigger>
+                        <TabsTrigger value="all">All Stitching</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="active" className="pt-6">
+                       <OrderList orders={activeStitchingOrders} onBarcodeView={handleBarcodeView} />
+                    </TabsContent>
+                    <TabsContent value="all" className="pt-6">
+                        <OrderList orders={allPmsOrders} onBarcodeView={handleBarcodeView} />
+                    </TabsContent>
+                </Tabs>
             </div>
             
             <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
