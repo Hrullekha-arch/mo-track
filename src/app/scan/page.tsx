@@ -15,7 +15,7 @@ import { Camera, CheckCircle, Loader2, ScanLine, Home } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { completePmsProcess } from '@/ai/flows/complete-pms-process';
-import { BrowserMultiFormatReader, NotFoundException, DecodeHintType } from '@zxing/library';
+import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
 
 function PmsScanner() {
     const router = useRouter();
@@ -31,7 +31,7 @@ function PmsScanner() {
     const isScanningRef = useRef(false);
 
     const processScan = async (id: string) => {
-        if (!id || loading) return;
+        if (!id || loading || isScanningRef.current) return;
 
         isScanningRef.current = true; // Stop further scanning
         setLoading(true);
@@ -46,7 +46,6 @@ function PmsScanner() {
                  toast({ title: 'Success!', description: result.message });
             }
 
-            // Fetch the updated order to show details
             const ordersRef = collection(db, 'orders');
             const q = query(ordersRef, where('crmOrderNo', '==', id));
             const querySnapshot = await getDocs(q);
@@ -67,7 +66,6 @@ function PmsScanner() {
             console.error("Error during scan process:", error);
         } finally {
             setLoading(false);
-            // Cooldown before allowing another scan
             setTimeout(() => {
                 isScanningRef.current = false;
             }, 3000);
@@ -77,42 +75,48 @@ function PmsScanner() {
     useEffect(() => {
         const startCamera = async () => {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                    },
+                });
+
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
                     await videoRef.current.play();
                     setHasCameraPermission(true);
 
-                    // Start continuous scanning
-                    const decodeContinuously = async () => {
-                        if (isScanningRef.current || !videoRef.current || !videoRef.current.srcObject) {
-                            requestAnimationFrame(decodeContinuously);
-                            return;
-                        }
-                        try {
-                            const result = await codeReader.current.decodeFromVideoElement(videoRef.current);
+                    const hints = new Map();
+                    hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128]);
+                    codeReader.current.setHints(hints);
+
+                    codeReader.current.decodeFromVideoDevice(
+                        undefined,
+                        videoRef.current,
+                        (result, err) => {
                             if (result) {
                                 const scannedText = result.getText();
-                                setScannedId(scannedText);
-                                setManualId(scannedText);
-                                processScan(scannedText);
+                                if (!isScanningRef.current) {
+                                    setScannedId(scannedText);
+                                    setManualId(scannedText);
+                                    processScan(scannedText);
+                                }
                             }
-                        } catch (err) {
-                            if (!(err instanceof NotFoundException)) {
-                                console.error('Barcode decoding error:', err);
+                            if (err && !(err instanceof NotFoundException)) {
+                                console.error("Decode error:", err);
                             }
                         }
-                        requestAnimationFrame(decodeContinuously);
-                    };
-                    decodeContinuously();
+                    );
                 }
             } catch (error) {
-                console.error('Error accessing camera:', error);
+                console.error("Error accessing camera:", error);
                 setHasCameraPermission(false);
                 toast({
-                    variant: 'destructive',
-                    title: 'Camera Access Denied',
-                    description: 'Please enable camera permissions in your browser settings to use the scanner.',
+                    variant: "destructive",
+                    title: "Camera Access Denied",
+                    description: "Please enable camera permissions in your browser settings.",
                     duration: 5000,
                 });
             }
@@ -127,6 +131,7 @@ function PmsScanner() {
             }
             codeReader.current.reset();
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [toast]);
     
     const handleManualSubmit = (e: React.FormEvent) => {
