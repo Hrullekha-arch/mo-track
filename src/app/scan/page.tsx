@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Order, PmsStatus } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { Camera, CheckCircle, Loader2, ScanLine, Home } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { PMS_PROCESS_CONFIG } from '@/components/features/pms/pms-constants';
+import { completePmsProcess } from '@/ai/flows/complete-pms-process';
 
 
 function PmsScanner() {
@@ -64,72 +65,33 @@ function PmsScanner() {
         setOrder(null);
         
         try {
-            const orderRef = doc(db, 'orders', scannedId);
-            const docSnap = await getDoc(orderRef);
+            const result = await completePmsProcess({ orderId: scannedId });
 
-            if (!docSnap.exists()) {
-                toast({ variant: 'destructive', title: 'Not Found', description: `Order with ID ${scannedId} could not be found.` });
-                setLoading(false);
-                return;
-            }
-            
-            const fetchedOrder = { id: docSnap.id, ...docSnap.data() } as Order;
-
-            const sentToStitching = fetchedOrder.milestones.find(m => m.id === 3);
-            const stitchingDone = fetchedOrder.milestones.find(m => m.id === 4);
-
-            if (!sentToStitching?.completed) {
-                toast({ variant: "destructive", title: "Not in Production", description: "This order has not been sent to stitching yet." });
-                setOrder(fetchedOrder);
-                setLoading(false);
-                return;
-            }
-            if (stitchingDone?.completed) {
-                toast({ title: "Already Complete", description: "This order's production is already marked as complete." });
-                setOrder(fetchedOrder);
-                setLoading(false);
-                return;
+            if (!result.success) {
+                toast({ variant: 'destructive', title: 'Scan Failed', description: result.message });
+            } else {
+                 toast({ title: 'Success!', description: result.message });
             }
 
-            // If everything is fine, update all milestones
-            const completedAt = new Date().toISOString();
-            const completedBy = "PMS Scanner";
+            // Fetch the latest order data to display details regardless of success/failure
+            const ordersRef = collection(db, 'orders');
+            const q = query(ordersRef, where('crmOrderNo', '==', scannedId));
+            const querySnapshot = await getDocs(q);
 
-            // 1. Complete all PMS steps
-            const allPmsSteps: PmsStatus[] = PMS_PROCESS_CONFIG.map(step => ({
-                stepId: step.id,
-                status: 'completed',
-                completedAt,
-                completedBy,
-            }));
-
-            // 2. Complete the main "Stitching Done" milestone
-            const updatedMainMilestones = fetchedOrder.milestones.map(m => 
-                m.id === 4 // "Stitching Done" milestone
-                ? { ...m, completed: true, completedAt, completedBy }
-                : m
-            );
-            
-            const updatePayload = {
-                milestones: updatedMainMilestones,
-                pmsMilestones: allPmsSteps
-            };
-
-            await updateDoc(orderRef, updatePayload);
-
-            toast({
-                title: "Production Complete!",
-                description: `Order ${fetchedOrder.id} has been marked as 'Stitching Done'.`,
-            });
-            setOrder(prev => fetchedOrder ? {...fetchedOrder, ...updatePayload} : null);
+            if (!querySnapshot.empty) {
+                const orderDoc = querySnapshot.docs[0];
+                setOrder({ id: orderDoc.id, ...orderDoc.data() } as Order);
+            } else {
+                 setOrder(null);
+            }
 
         } catch (error) {
              toast({
                 variant: "destructive",
-                title: "Update Failed",
-                description: "Could not update the order's milestone.",
+                title: "Scan Error",
+                description: "An unexpected error occurred during the scan.",
             });
-            console.error("Error updating milestone on scan:", error);
+            console.error("Error during scan process:", error);
         } finally {
             setLoading(false);
         }
@@ -174,7 +136,7 @@ function PmsScanner() {
                             <Input 
                                 placeholder="Type Deal ID here..."
                                 value={scannedId}
-                                onChange={(e) => setScannedId(e.target.value.toUpperCase())}
+                                onChange={(e) => setScannedId(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleScan()}
                             />
                             <Button onClick={handleScan} disabled={loading || !scannedId}>

@@ -9,12 +9,14 @@
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDocs, updateDoc, collection, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Order } from '@/lib/types';
+import { Order, PmsStatus } from '@/lib/types';
+import { PMS_PROCESS_CONFIG } from '@/components/features/pms/pms-constants';
+
 
 const CompletePmsInputSchema = z.object({
-  orderId: z.string().describe('The unique identifier of the order to update.'),
+  orderId: z.string().describe('The CRM Order No of the order to update (e.g., MOTRACK-1234).'),
 });
 export type CompletePmsInput = z.infer<typeof CompletePmsInputSchema>;
 
@@ -37,14 +39,17 @@ const completePmsProcessFlow = ai.defineFlow(
   },
   async ({ orderId }) => {
     try {
-      const orderRef = doc(db, 'orders', orderId);
-      const docSnap = await getDoc(orderRef);
+      const ordersRef = collection(db, "orders");
+      const q = query(ordersRef, where("crmOrderNo", "==", orderId));
+      const querySnapshot = await getDocs(q);
 
-      if (!docSnap.exists()) {
-        return { success: false, message: `Order with ID ${orderId} not found.` };
+      if (querySnapshot.empty) {
+        return { success: false, message: `Order with CRM Order No ${orderId} not found.` };
       }
-
-      const order = { id: docSnap.id, ...docSnap.data() } as Order;
+      
+      const orderDoc = querySnapshot.docs[0];
+      const orderRef = orderDoc.ref;
+      const order = { id: orderDoc.id, ...orderDoc.data() } as Order;
       
       const sentToStitching = order.milestones.find(m => m.id === 3);
       if (!sentToStitching?.completed) {
@@ -56,19 +61,30 @@ const completePmsProcessFlow = ai.defineFlow(
         return { success: true, message: 'This order\'s production is already marked as complete.', orderStatus: 'Stitching Done' };
       }
 
-      // Update the 'Stitching Done' milestone
-      const updatedMilestones = order.milestones.map(m =>
-        m.id === 4
-          ? {
-              ...m,
-              completed: true,
-              completedAt: new Date().toISOString(),
-              completedBy: 'PMS Scanner',
-            }
+      const completedAt = new Date().toISOString();
+      const completedBy = "PMS Scanner";
+
+      // 1. Complete all PMS steps
+      const allPmsSteps: PmsStatus[] = PMS_PROCESS_CONFIG.map(step => ({
+          stepId: step.id,
+          status: 'completed',
+          completedAt,
+          completedBy,
+      }));
+
+      // 2. Complete the main "Stitching Done" milestone
+      const updatedMainMilestones = order.milestones.map(m => 
+          m.id === 4 // "Stitching Done" milestone
+          ? { ...m, completed: true, completedAt, completedBy }
           : m
       );
 
-      await updateDoc(orderRef, { milestones: updatedMilestones });
+      const updatePayload = {
+          milestones: updatedMainMilestones,
+          pmsMilestones: allPmsSteps
+      };
+      
+      await updateDoc(orderRef, updatePayload);
 
       return {
         success: true,
