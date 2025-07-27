@@ -2,8 +2,18 @@ import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
-// Your web app's Firebase configuration for mo-panel
-export const firebaseConfig = {
+// Config for mo-track (Authentication)
+const authFirebaseConfig = {
+  apiKey: "YOUR_MO_TRACK_API_KEY", // Replace with your actual mo-track API key
+  authDomain: "mo-track-project-id.firebaseapp.com", // Replace with your mo-track authDomain
+  projectId: "mo-track-project-id", // Replace with your mo-track projectId
+  storageBucket: "mo-track-project-id.appspot.com",
+  messagingSenderId: "YOUR_MO_TRACK_MESSAGING_SENDER_ID",
+  appId: "YOUR_MO_TRACK_APP_ID"
+};
+
+// Config for mo-panel (Database)
+const dbFirebaseConfig = {
   apiKey: "AIzaSyA1HAseuKX45_j6pUUJhEwGxbtCUW_OnLw",
   authDomain: "mo-panel.firebaseapp.com",
   projectId: "mo-panel",
@@ -14,16 +24,21 @@ export const firebaseConfig = {
 };
 
 
-// Initialize Firebase
-let app: FirebaseApp;
+// Initialize Firebase apps
+let authApp: FirebaseApp;
+let dbApp: FirebaseApp;
 
 if (!getApps().length) {
-  app = initializeApp(firebaseConfig);
+  // Initialize the auth app as the default app
+  authApp = initializeApp(authFirebaseConfig);
+  // Initialize the db app with a unique name
+  dbApp = initializeApp(dbFirebaseConfig, "dbApp");
 } else {
-  app = getApp();
+  authApp = getApp();
+  dbApp = getApp("dbApp");
 }
 
-const db = getFirestore(app);
-const auth = getAuth(app);
+const auth = getAuth(authApp);
+const db = getFirestore(dbApp);
 
-export { app, db, auth };
+export { auth, db };
