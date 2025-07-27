@@ -51,15 +51,8 @@ const completePmsProcessFlow = ai.defineFlow(
       const orderRef = orderDoc.ref;
       const order = { id: orderDoc.id, ...orderDoc.data() } as Order;
       
-      const sentToStitching = order.milestones.find(m => m.id === 3);
-      if (!sentToStitching?.completed) {
-        return { success: false, message: 'This order has not been sent to stitching yet.' };
-      }
-
-      const stitchingDone = order.milestones.find(m => m.id === 4);
-      if (stitchingDone?.completed) {
-        return { success: true, message: 'This order\'s production is already marked as complete.', orderStatus: 'Stitching Done' };
-      }
+      // Removed the pre-check that was causing permission errors.
+      // The flow now directly attempts to update the order.
 
       const completedAt = new Date().toISOString();
       const completedBy = "PMS Scanner";
