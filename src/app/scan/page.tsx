@@ -14,68 +14,39 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Camera, CheckCircle, Loader2, ScanLine, Home } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
-import { PMS_PROCESS_CONFIG } from '@/components/features/pms/pms-constants';
 import { completePmsProcess } from '@/ai/flows/complete-pms-process';
+import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
 
 
 function PmsScanner() {
     const router = useRouter();
     const { toast } = useToast();
     const videoRef = useRef<HTMLVideoElement>(null);
+    const codeReader = new BrowserMultiFormatReader();
 
     const [scannedId, setScannedId] = useState('');
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
-    useEffect(() => {
-        const getCameraPermission = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                setHasCameraPermission(true);
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                }
-            } catch (error) {
-                console.error('Error accessing camera:', error);
-                setHasCameraPermission(false);
-                toast({
-                    variant: 'destructive',
-                    title: 'Camera Access Denied',
-                    description: 'Please enable camera permissions in your browser settings to use the scanner.',
-                    duration: 5000,
-                });
-            }
-        };
-        getCameraPermission();
-         return () => {
-            if (videoRef.current && videoRef.current.srcObject) {
-                const stream = videoRef.current.srcObject as MediaStream;
-                stream.getTracks().forEach(track => track.stop());
-            }
-        };
-    }, [toast]);
+    const processScan = async (id: string) => {
+        if (!id || loading) return;
 
-    const handleScan = async () => {
-        if (!scannedId) {
-            toast({ variant: 'destructive', title: 'No ID entered', description: 'Please enter a Deal ID to scan.' });
-            return;
-        }
         setLoading(true);
         setOrder(null);
         
         try {
-            const result = await completePmsProcess({ orderId: scannedId });
+            const result = await completePmsProcess({ orderId: id });
 
             if (!result.success) {
-                toast({ variant: 'destructive', title: 'Scan Failed', description: result.message });
+                toast({ variant: 'destructive', title: 'Scan Failed', description: result.message, duration: 5000 });
             } else {
                  toast({ title: 'Success!', description: result.message });
             }
 
             // Fetch the latest order data to display details regardless of success/failure
             const ordersRef = collection(db, 'orders');
-            const q = query(ordersRef, where('crmOrderNo', '==', scannedId));
+            const q = query(ordersRef, where('crmOrderNo', '==', id));
             const querySnapshot = await getDocs(q);
 
             if (!querySnapshot.empty) {
@@ -94,8 +65,58 @@ function PmsScanner() {
             console.error("Error during scan process:", error);
         } finally {
             setLoading(false);
+            // After a scan, wait a bit before allowing another scan to avoid duplicates
+            setTimeout(() => {
+                if (videoRef.current) {
+                    startDecoding(videoRef.current);
+                }
+            }, 3000);
         }
     };
+    
+    const startDecoding = (videoEl: HTMLVideoElement) => {
+         codeReader.decodeFromVideoElement(videoEl, (result, err) => {
+            if (result) {
+                const scannedText = result.getText();
+                if (scannedText !== scannedId) {
+                    setScannedId(scannedText);
+                    processScan(scannedText);
+                    codeReader.reset(); // Stop decoding after a successful scan
+                }
+            }
+            if (err && !(err instanceof NotFoundException)) {
+                console.error('Barcode decoding error:', err);
+            }
+        }).catch(err => console.error("Decode init error:", err));
+    }
+
+    useEffect(() => {
+        const getCameraPermission = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                setHasCameraPermission(true);
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    startDecoding(videoRef.current);
+                }
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                setHasCameraPermission(false);
+                toast({
+                    variant: 'destructive',
+                    title: 'Camera Access Denied',
+                    description: 'Please enable camera permissions in your browser settings to use the scanner.',
+                    duration: 5000,
+                });
+            }
+        };
+        getCameraPermission();
+        
+        return () => {
+            codeReader.reset();
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [toast]);
 
 
     return (
@@ -116,33 +137,35 @@ function PmsScanner() {
                 <Card>
                     <CardHeader>
                         <CardTitle>Scanner</CardTitle>
-                        <CardDescription>Enter the Deal ID from the barcode sticker and scan.</CardDescription>
+                        <CardDescription>Point the camera at a barcode to automatically scan.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center mb-4">
-                            <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                            <video ref={videoRef} className="w-full h-full object-cover" />
+                            {hasCameraPermission === null && (
+                                 <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
+                                    <Loader2 className="h-12 w-12 text-muted-foreground mb-4 animate-spin"/>
+                                    <p className="font-semibold">Initializing Camera...</p>
+                                 </div>
+                            )}
                             {hasCameraPermission === false && (
                                  <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
                                     <Camera className="h-12 w-12 text-muted-foreground mb-4"/>
                                     <p className="font-semibold">Camera Access Required</p>
-                                    <p className="text-sm text-muted-foreground">Please allow camera access to use this feature.</p>
+                                    <p className="text-sm text-muted-foreground">Please allow camera access in your browser.</p>
                                  </div>
                             )}
                              <div className="absolute inset-0 flex items-center justify-center">
-                                <div className="w-4/5 h-2/5 border-4 border-red-500 rounded-lg bg-black/20" />
+                                <div className="w-4/5 h-2/5 border-4 border-red-500/70 rounded-lg bg-black/20" />
                              </div>
                         </div>
-                         <div className="flex flex-col sm:flex-row gap-4">
-                            <Input 
-                                placeholder="Type Deal ID here..."
+                         <div className="space-y-2">
+                             <p className="text-sm text-muted-foreground">Last Scanned ID:</p>
+                             <Input 
+                                placeholder="Waiting for scan..."
                                 value={scannedId}
-                                onChange={(e) => setScannedId(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleScan()}
+                                readOnly
                             />
-                            <Button onClick={handleScan} disabled={loading || !scannedId}>
-                                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ScanLine className="mr-2 h-4 w-4" />}
-                                Simulate Scan
-                            </Button>
                         </div>
                     </CardContent>
                 </Card>
@@ -154,7 +177,7 @@ function PmsScanner() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                       {loading && !order && <Skeleton className="h-40 w-full" />}
+                       {loading && <Skeleton className="h-40 w-full" />}
                        {!loading && order && (
                            <div className="space-y-3">
                                <div>
