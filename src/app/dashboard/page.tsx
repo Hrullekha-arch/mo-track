@@ -1,10 +1,11 @@
 
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare } from "lucide-react";
+import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { getFirestore } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 const dashboardItems = [
     {
@@ -73,7 +74,7 @@ const dashboardItems = [
     },
 ];
 
-async function getO2dCount() {
+async function getCounts() {
     try {
         const ordersSnapshot = await adminDb.collection('orders').get();
         const orders = ordersSnapshot.docs.map(doc => doc.data());
@@ -83,17 +84,24 @@ async function getO2dCount() {
              return !finalStep;
         });
 
-        return pendingO2dOrders.length;
-    } catch (error) {
+        return { o2dCount: pendingO2dOrders.length, connectionError: null };
+    } catch (error: any) {
         console.error("Error fetching O2D count:", error);
-        return 0;
+        // Return a specific error message to display on the dashboard
+        let errorMessage = "Connection Failed. ";
+        if (error.code === 'INVALID_CREDENTIAL') {
+            errorMessage += "The service account credentials are not valid. Please check your .env file.";
+        } else {
+            errorMessage += error.message;
+        }
+        return { o2dCount: 0, connectionError: errorMessage };
     }
 }
 
 
 export default async function DashboardPage() {
 
-    const o2dCount = await getO2dCount();
+    const { o2dCount, connectionError } = await getCounts();
 
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -101,6 +109,27 @@ export default async function DashboardPage() {
                 <h1 className="text-3xl font-bold tracking-tight">Home Dashboard</h1>
                 <p className="text-muted-foreground">Welcome! Select a module to get started.</p>
             </header>
+
+            <Card className="mb-6">
+                <CardHeader>
+                    <CardTitle>System Status</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className={cn(
+                        "flex items-center gap-2 p-3 rounded-md text-sm font-medium",
+                        connectionError ? "bg-destructive/10 text-destructive" : "bg-green-100/60 text-green-700"
+                    )}>
+                        {connectionError ? <AlertTriangle className="h-5 w-5"/> : <CheckCircle className="h-5 w-5"/>}
+                        <p>
+                           <span className="font-semibold">Database Connection:</span> {connectionError ? "Connection Failed" : "Connected"}
+                        </p>
+                    </div>
+                    {connectionError && (
+                        <p className="text-xs text-destructive mt-2 pl-4">{connectionError}</p>
+                    )}
+                </CardContent>
+            </Card>
+
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {dashboardItems.map((item) => (
                     <Link href={item.href} key={item.title}>

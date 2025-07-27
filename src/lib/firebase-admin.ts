@@ -3,12 +3,20 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-    throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set.');
+    throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set. Please create a .env file and add it.');
 }
 
-const serviceAccount = JSON.parse(
-  process.env.FIREBASE_SERVICE_ACCOUNT_KEY as string
-);
+const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+
+let serviceAccount;
+try {
+  // The key is often stored with escaped newlines, so we need to parse it carefully
+  serviceAccount = JSON.parse(serviceAccountString);
+} catch (e) {
+  console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY. Make sure it's a valid JSON string in your .env file.");
+  throw new Error("Invalid FIREBASE_SERVICE_ACCOUNT_KEY format.");
+}
+
 
 let adminApp: App;
 
