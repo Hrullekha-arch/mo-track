@@ -7,12 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Camera, CheckCircle, Loader2, ScanLine, Home } from 'lucide-react';
+import { Camera, CheckCircle, Loader2, ScanLine, Home, User, ShoppingBag } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { completePmsProcess } from './actions';
 import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
 import { Order } from '@/lib/types';
+import { Separator } from '@/components/ui/separator';
 
 function PmsScanner() {
     const { toast } = useToast();
@@ -42,7 +43,6 @@ function PmsScanner() {
                 setOrder(null);
             } else {
                  toast({ title: 'Success!', description: result.message });
-                 // The result from a server action is a plain object, we need to cast it
                  setOrder(result.order as Order);
             }
         } catch (error) {
@@ -122,6 +122,18 @@ function PmsScanner() {
         processScan(manualId);
     };
 
+    const getItemsForOrder = (order: Order | null) => {
+        if (!order) return [];
+        const fabricItems = (order.fabricDetails || [])
+            .filter(f => f.fabricName)
+            .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
+        const furnitureItems = (order.furnitureDetails || [])
+            .filter(f => f.furnitureName)
+            .map(f => ({ name: f.furnitureName, quantity: f.quantity, unit: 'Qty' }));
+        return [...fabricItems, ...furnitureItems];
+    }
+    const items = getItemsForOrder(order);
+
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8 max-w-4xl">
              <div className="flex items-center justify-between mb-4">
@@ -188,15 +200,24 @@ function PmsScanner() {
                     <CardContent>
                        {loading && <Skeleton className="h-40 w-full" />}
                        {!loading && order && (
-                           <div className="space-y-3">
-                               <div>
-                                   <p className="text-sm text-muted-foreground">Customer</p>
-                                   <p className="font-medium">{order.customerName}</p>
+                           <div className="space-y-4">
+                               <div className="space-y-2 text-sm">
+                                   <div className="flex items-center gap-2"><User className="h-4 w-4 text-muted-foreground"/>Customer: <span className="font-medium">{order.customerName}</span></div>
+                                   <div className="flex items-center gap-2"><User className="h-4 w-4 text-muted-foreground"/>Salesman: <span className="font-medium">{order.salesPerson}</span></div>
                                </div>
-                               <div>
-                                   <p className="text-sm text-muted-foreground">Status</p>
-                                   <p className="font-medium">{order.milestones.find(m=>m.id === 4)?.completed ? 'Stitching Done' : 'Pending Completion'}</p>
-                               </div>
+                                <Separator />
+                                <div className="space-y-2">
+                                     <h4 className="font-semibold flex items-center gap-2"><ShoppingBag className="h-4 w-4"/> Items</h4>
+                                     <div className="space-y-1 text-sm text-muted-foreground max-h-24 overflow-y-auto">
+                                        {items.map((item, index) => (
+                                            <div key={index} className="flex justify-between p-1 rounded-md">
+                                                <span>{item.name}</span>
+                                                <span className="font-mono">{item.quantity} {item.unit}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <Separator />
                                 {order.milestones.find(m=>m.id === 4)?.completed && (
                                      <Alert className="mt-4" variant="default">
                                         <CheckCircle className="h-4 w-4" />
