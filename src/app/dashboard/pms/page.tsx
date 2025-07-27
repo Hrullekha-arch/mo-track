@@ -3,9 +3,11 @@
 
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Milestone, Scissors, Package, Users, Wind, Check, Scan, Ruler, Box, Tag, Award, Waves, Layers } from 'lucide-react';
+import { Milestone, Scissors, Package, Users, Wind, Check, Scan, Ruler, Box, Tag, Award, Waves, Layers, Printer, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { BarcodeSticker } from '@/components/features/pms/BarcodeSticker';
 
 const PMS_PROCESS_CONFIG = [
     { id: 1, step: "Roll & Fabric Allocation", time: "15 min", icon: Milestone },
@@ -23,13 +25,27 @@ const PMS_PROCESS_CONFIG = [
     { id: 13, step: "Packing & Labelling", time: "8 min", icon: Tag },
 ];
 
-function PmsTimeline({ processConfig }: { processConfig: typeof PMS_PROCESS_CONFIG }) {
+// Mock data for a single order being processed
+const MOCK_ORDER_DATA = {
+    dealId: "MOTRACK-1234",
+    customerName: "Ravi Kumar",
+    orderType: "Stitching + Installation"
+};
+
+function PmsTimeline({ processConfig, onFirstStepComplete }: { processConfig: typeof PMS_PROCESS_CONFIG; onFirstStepComplete: () => void; }) {
     const [completedSteps, setCompletedSteps] = useState<number[]>([]);
 
     const toggleStep = (stepId: number) => {
-        setCompletedSteps(prev => 
-            prev.includes(stepId) ? prev.filter(id => id !== stepId) : [...prev, stepId]
-        );
+        const isCompleting = !completedSteps.includes(stepId);
+        const newCompletedSteps = isCompleting
+            ? [...completedSteps, stepId]
+            : completedSteps.filter(id => id !== stepId);
+        
+        setCompletedSteps(newCompletedSteps);
+
+        if (stepId === 1 && isCompleting) {
+            onFirstStepComplete();
+        }
     };
 
     return (
@@ -79,25 +95,84 @@ function PmsTimeline({ processConfig }: { processConfig: typeof PMS_PROCESS_CONF
 }
 
 export default function PmsPage() {
+    const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
+
+    const handlePrint = () => {
+        const printContent = document.getElementById('barcode-sticker-print');
+        if (printContent) {
+            const newWindow = window.open('', '_blank', 'width=800,height=600');
+            newWindow?.document.write('<html><head><title>Print Sticker</title>');
+            // Add styles to ensure proper printing
+            newWindow?.document.write(`
+                <style>
+                    @page { size: 72.1mm 48.9mm; margin: 0; }
+                    body { margin: 0; font-family: sans-serif; }
+                    .sticker-container {
+                        width: 72.1mm;
+                        height: 48.9mm;
+                        box-sizing: border-box;
+                        page-break-after: always;
+                    }
+                </style>
+            `);
+            newWindow?.document.write('</head><body>');
+            newWindow?.document.write(printContent.innerHTML);
+            newWindow?.document.write('</body></html>');
+            newWindow?.document.close();
+            newWindow?.focus();
+            setTimeout(() => {
+                newWindow?.print();
+                newWindow?.close();
+            }, 250);
+        }
+    };
+
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <header className="mb-8">
-                <h1 className="text-3xl font-bold tracking-tight">Project Management System (PMS)</h1>
-                <p className="text-muted-foreground">
-                    This is a visualization of the production and stitching workflow.
-                </p>
-            </header>
-            <Card>
-                <CardHeader>
-                    <CardTitle>Production Timeline</CardTitle>
-                    <CardDescription>
-                        Each step of the fabric production process from allocation to final packing.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <PmsTimeline processConfig={PMS_PROCESS_CONFIG} />
-                </CardContent>
-            </Card>
-        </div>
+        <>
+            <div className="container mx-auto p-4 md:p-6 lg:p-8">
+                <header className="mb-8">
+                    <h1 className="text-3xl font-bold tracking-tight">Project Management System (PMS)</h1>
+                    <p className="text-muted-foreground">
+                        This is a visualization of the production and stitching workflow for order: <span className="font-semibold text-primary">{MOCK_ORDER_DATA.dealId}</span>
+                    </p>
+                </header>
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Production Timeline</CardTitle>
+                        <CardDescription>
+                            Each step of the fabric production process from allocation to final packing.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <PmsTimeline 
+                            processConfig={PMS_PROCESS_CONFIG} 
+                            onFirstStepComplete={() => setIsPrintDialogOpen(true)}
+                        />
+                    </CardContent>
+                </Card>
+            </div>
+            
+            <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                     <DialogHeader>
+                        <DialogTitle>Generate Barcode Sticker</DialogTitle>
+                        <DialogDescription>
+                            The first step is complete. Print the barcode sticker to attach to the materials.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div id="barcode-sticker-print" className="py-4">
+                        <BarcodeSticker
+                            dealId={MOCK_ORDER_DATA.dealId}
+                            customerName={MOCK_ORDER_DATA.customerName}
+                            orderType={MOCK_ORDER_DATA.orderType}
+                        />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                         <Button variant="ghost" onClick={() => setIsPrintDialogOpen(false)}><X className="mr-2"/>Close</Button>
+                         <Button onClick={handlePrint}><Printer className="mr-2"/>Print Sticker</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+        </>
     );
 }
