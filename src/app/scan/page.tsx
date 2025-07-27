@@ -15,8 +15,7 @@ import { Camera, CheckCircle, Loader2, ScanLine, Home } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { completePmsProcess } from '@/ai/flows/complete-pms-process';
-import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
-
+import { BrowserMultiFormatReader, NotFoundException, DecodeHintType } from '@zxing/library';
 
 function PmsScanner() {
     const router = useRouter();
@@ -29,6 +28,7 @@ function PmsScanner() {
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+    const isScanningRef = useRef(false);
 
     const processScan = async (id: string) => {
         if (!id || loading) return;
@@ -45,7 +45,6 @@ function PmsScanner() {
                  toast({ title: 'Success!', description: result.message });
             }
 
-            // Fetch the latest order data to display details regardless of success/failure
             const ordersRef = collection(db, 'orders');
             const q = query(ordersRef, where('crmOrderNo', '==', id));
             const querySnapshot = await getDocs(q);
@@ -66,36 +65,34 @@ function PmsScanner() {
             console.error("Error during scan process:", error);
         } finally {
             setLoading(false);
+            // Allow scanning again
+            setTimeout(() => {
+                isScanningRef.current = false;
+                startDecoding();
+            }, 3000); // 3-second cooldown
         }
     };
     
-    useEffect(() => {
-        const startDecoding = async (videoEl: HTMLVideoElement) => {
-            try {
-                const result = await codeReader.current.decodeFromVideoElement(videoEl);
-                const scannedText = result.getText();
-                if (scannedText !== scannedId) {
+    const startDecoding = () => {
+        if (videoRef.current && !isScanningRef.current && hasCameraPermission) {
+            isScanningRef.current = true;
+            codeReader.current.decodeFromVideoElement(videoRef.current)
+                .then(result => {
+                    const scannedText = result.getText();
                     setScannedId(scannedText);
                     setManualId(scannedText);
-                    await processScan(scannedText);
-                    // No need to loop, user can re-scan if needed.
-                }
-            } catch (err) {
-                if (!(err instanceof NotFoundException)) {
-                    console.error('Barcode decoding error:', err);
-                }
-            }
-        };
-        
-        if (videoRef.current) {
-            videoRef.current.onloadeddata = () => {
-                if (hasCameraPermission) {
-                    startDecoding(videoRef.current!);
-                }
-            };
+                    processScan(scannedText);
+                })
+                .catch(err => {
+                    isScanningRef.current = false;
+                    if (!(err instanceof NotFoundException)) {
+                        console.error('Barcode decoding error:', err);
+                    }
+                    // If not found, try again after a short delay
+                    setTimeout(() => startDecoding(), 100);
+                });
         }
-    }, [hasCameraPermission, scannedId]);
-
+    };
 
     useEffect(() => {
         const getCameraPermission = async () => {
@@ -104,6 +101,11 @@ function PmsScanner() {
                 setHasCameraPermission(true);
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
+                    // Start scanning once video is playing
+                    videoRef.current.onloadedmetadata = () => {
+                        videoRef.current?.play();
+                        startDecoding();
+                    };
                 }
             } catch (error) {
                 console.error('Error accessing camera:', error);
@@ -154,7 +156,7 @@ function PmsScanner() {
                     </CardHeader>
                     <CardContent>
                         <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center mb-4">
-                            <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline />
+                            <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
                             {hasCameraPermission === null && (
                                  <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
                                     <Loader2 className="h-12 w-12 text-muted-foreground mb-4 animate-spin"/>
