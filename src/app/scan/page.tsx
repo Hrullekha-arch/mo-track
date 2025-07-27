@@ -21,7 +21,11 @@ function PmsScanner() {
     const router = useRouter();
     const { toast } = useToast();
     const videoRef = useRef<HTMLVideoElement>(null);
-    const codeReader = useRef(new BrowserMultiFormatReader());
+    
+    // Initialize the code reader with hints in the constructor
+    const codeReader = useRef(new BrowserMultiFormatReader(new Map([
+        [DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128]]
+    ])));
 
     const [scannedId, setScannedId] = useState('');
     const [manualId, setManualId] = useState('');
@@ -87,10 +91,6 @@ function PmsScanner() {
                     videoRef.current.srcObject = stream;
                     await videoRef.current.play();
                     setHasCameraPermission(true);
-
-                    const hints = new Map();
-                    hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128]);
-                    codeReader.current.setHints(hints);
 
                     codeReader.current.decodeFromVideoDevice(
                         undefined,
@@ -199,7 +199,7 @@ function PmsScanner() {
                     <CardHeader>
                         <CardTitle>Scanned Order Details</CardTitle>
                          <CardDescription>
-                           {order ? `Details for order ${order.id}` : 'Scan an order to see details here.'}
+                           {order ? `Details for order ${order.crmOrderNo}` : 'Scan an order to see details here.'}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
