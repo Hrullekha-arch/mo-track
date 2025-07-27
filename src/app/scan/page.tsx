@@ -33,6 +33,7 @@ function PmsScanner() {
     const processScan = async (id: string) => {
         if (!id || loading) return;
 
+        isScanningRef.current = true; // Stop further scanning
         setLoading(true);
         setOrder(null);
         
@@ -45,6 +46,7 @@ function PmsScanner() {
                  toast({ title: 'Success!', description: result.message });
             }
 
+            // Fetch the updated order to show details
             const ordersRef = collection(db, 'orders');
             const q = query(ordersRef, where('crmOrderNo', '==', id));
             const querySnapshot = await getDocs(q);
@@ -65,47 +67,44 @@ function PmsScanner() {
             console.error("Error during scan process:", error);
         } finally {
             setLoading(false);
-            // Allow scanning again
+            // Cooldown before allowing another scan
             setTimeout(() => {
                 isScanningRef.current = false;
-                startDecoding();
-            }, 3000); // 3-second cooldown
+            }, 3000);
         }
     };
     
-    const startDecoding = () => {
-        if (videoRef.current && !isScanningRef.current && hasCameraPermission) {
-            isScanningRef.current = true;
-            codeReader.current.decodeFromVideoElement(videoRef.current)
-                .then(result => {
-                    const scannedText = result.getText();
-                    setScannedId(scannedText);
-                    setManualId(scannedText);
-                    processScan(scannedText);
-                })
-                .catch(err => {
-                    isScanningRef.current = false;
-                    if (!(err instanceof NotFoundException)) {
-                        console.error('Barcode decoding error:', err);
-                    }
-                    // If not found, try again after a short delay
-                    setTimeout(() => startDecoding(), 100);
-                });
-        }
-    };
-
     useEffect(() => {
-        const getCameraPermission = async () => {
+        const startCamera = async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                setHasCameraPermission(true);
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
-                    // Start scanning once video is playing
-                    videoRef.current.onloadedmetadata = () => {
-                        videoRef.current?.play();
-                        startDecoding();
+                    await videoRef.current.play();
+                    setHasCameraPermission(true);
+
+                    // Start continuous scanning
+                    const decodeContinuously = async () => {
+                        if (isScanningRef.current || !videoRef.current || !videoRef.current.srcObject) {
+                            requestAnimationFrame(decodeContinuously);
+                            return;
+                        }
+                        try {
+                            const result = await codeReader.current.decodeFromVideoElement(videoRef.current);
+                            if (result) {
+                                const scannedText = result.getText();
+                                setScannedId(scannedText);
+                                setManualId(scannedText);
+                                processScan(scannedText);
+                            }
+                        } catch (err) {
+                            if (!(err instanceof NotFoundException)) {
+                                console.error('Barcode decoding error:', err);
+                            }
+                        }
+                        requestAnimationFrame(decodeContinuously);
                     };
+                    decodeContinuously();
                 }
             } catch (error) {
                 console.error('Error accessing camera:', error);
@@ -118,7 +117,8 @@ function PmsScanner() {
                 });
             }
         };
-        getCameraPermission();
+
+        startCamera();
         
         return () => {
              if (videoRef.current && videoRef.current.srcObject) {
