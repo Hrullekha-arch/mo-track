@@ -174,6 +174,9 @@ function InboundScan() {
                                     <p className="text-sm text-muted-foreground">Please allow camera access to use this feature.</p>
                                  </div>
                             )}
+                             <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="w-4/5 h-2/5 border-4 border-red-500 rounded-lg bg-black/20" />
+                             </div>
                         </div>
                         <Button 
                             className="w-full mt-4" 

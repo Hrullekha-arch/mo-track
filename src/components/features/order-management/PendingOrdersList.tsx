@@ -121,7 +121,7 @@ export function PendingOrdersList() {
             toast({ title: "Order Deleted", description: `Order ${deletingOrder.id} has been removed.` });
             setDeletingOrder(null);
         } catch (error) {
-            console.error("Error deleting order: ", error);
+            console.error("Error deleting order:", error);
             toast({ variant: "destructive", title: "Error", description: "Failed to delete order." });
         } finally {
             setUpdatingOrderId(null);

@@ -17,7 +17,7 @@ import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, isS
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from '@/components/ui/badge';
+import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
@@ -162,7 +162,7 @@ function O2DProcessTimeline({
                 {(showAllSteps ? O2D_PROCESS_CONFIG : stepsToShow).map((stepConfig, index) => {
                     const stepStatus = order.o2dMilestones?.find(s => s.stepId === stepConfig.id);
                     const prevStepConfigIndex = O2D_PROCESS_CONFIG.findIndex(s => s.id === stepConfig.id) - 1;
-                    const prevStepStatus = prevStepConfigIndex < 0 ? { status: 'completed' } : order.o2dMilestones?.find(s => s.stepId === O2D_PROCESS_CONFIG[prevStepConfigIndex].id);
+                    const prevStepStatus = prevStepConfigIndex < 0 ? { status: 'completed' } : order.o2dMilestones?.find(s => s.id === O2D_PROCESS_CONFIG[prevStepConfigIndex].id);
                     
                     const isPending = !stepStatus;
                     
