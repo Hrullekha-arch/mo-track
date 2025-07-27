@@ -9,13 +9,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useAuth } from "@/context/AuthContext";
-import { LogIn, Loader2, ScanLine, Database, Info } from "lucide-react";
+import { LogIn, Loader2, ScanLine } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from 'next/image';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
@@ -23,7 +21,7 @@ const formSchema = z.object({
 });
 
 export default function LoginPage() {
-  const { login, loading: authLoading, user } = useAuth();
+  const { login, loading: authLoading, user, role } = useAuth();
   const [formLoading, setFormLoading] = useState(false);
   const router = useRouter();
 
@@ -37,13 +35,13 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      if (user.role === 'installer') {
+      if (role === 'installer') {
         router.push('/mobile');
       } else {
         router.push('/dashboard');
       }
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, router, role]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setFormLoading(true);
@@ -70,13 +68,6 @@ export default function LoginPage() {
             <CardDescription className="pt-4">Enter your credentials to access your account</CardDescription>
           </CardHeader>
           <CardContent>
-             <Alert className="mb-4 bg-blue-50 border-blue-200">
-                <Info className="h-4 w-4 text-blue-600" />
-                <AlertTitle className="text-blue-800">Simulated Login</AlertTitle>
-                <AlertDescription className="text-blue-700">
-                    Use <span className="font-bold">admin@motrack.com</span> and password <span className="font-bold">password</span> to log in.
-                </AlertDescription>
-            </Alert>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 <FormField

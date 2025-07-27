@@ -20,41 +20,53 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// --- SIMULATED LOGIN ---
-// This is a "fake" user for the local login simulation.
-const MOCK_USER: User = {
-    id: "admin-user-id",
-    name: "Admin User",
-    email: "admin@motrack.com",
-    role: "admin",
-    designation: undefined,
-};
-
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
   const { toast } = useToast();
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    setLoading(true);
-    // This is a simulated login to avoid external API calls.
-    // It allows access to the dashboard without needing Firebase Auth to be configured.
-    if (email === 'admin@motrack.com' && password === 'password') {
-        setUser(MOCK_USER);
-        toast({ title: "Login Successful", description: "This is a simulated login." });
-        
-        sessionStorage.removeItem('hasSeenWelcome');
-        if (MOCK_USER.role === 'installer') {
-            router.push('/mobile');
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+        if (fbUser) {
+            setFirebaseUser(fbUser);
+            const userDocRef = doc(db, "users", fbUser.uid);
+            const docSnap = await getDoc(userDocRef);
+            if (docSnap.exists()) {
+                setUser({ id: docSnap.id, ...docSnap.data() } as User);
+            } else {
+                // Handle case where user exists in Auth but not Firestore
+                setUser(null);
+            }
         } else {
-            router.push('/dashboard');
+            setUser(null);
+            setFirebaseUser(null);
         }
         setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+
+  const login = async (email: string, password: string): Promise<boolean> => {
+    setLoading(true);
+    try {
+        await signInWithEmailAndPassword(auth, email, password);
+        toast({ title: "Login Successful" });
+        sessionStorage.removeItem('hasSeenWelcome');
+        
+        // The onAuthStateChanged listener will handle routing
+        setLoading(false);
         return true;
-    } else {
-        toast({ variant: "destructive", title: "Login Failed", description: "Use the credentials mentioned on the login page." });
+    } catch (error: any) {
+        console.error("Login Error:", error);
+        toast({
+            variant: "destructive",
+            title: "Login Failed",
+            description: "Invalid email or password. Please try again.",
+        });
         setLoading(false);
         return false;
     }
@@ -62,8 +74,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = async () => {
     setLoading(true);
-    setUser(null);
-    setFirebaseUser(null);
+    await signOut(auth);
     sessionStorage.removeItem('hasSeenWelcome');
     router.push('/');
     setLoading(false);
