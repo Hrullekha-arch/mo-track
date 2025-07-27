@@ -210,7 +210,7 @@ const OrderList = ({ orders, onBarcodeView }: { orders: Order[], onBarcodeView: 
 };
 
 export default function PmsPage() {
-    const [allPmsOrders, setAllPmsOrders] = useState<Order[]>([]);
+    const [allOrders, setAllOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
     const [orderForPrint, setOrderForPrint] = useState<Order | null>(null);
@@ -222,19 +222,21 @@ export default function PmsPage() {
                 const data = doc.data() as Omit<Order, 'id'>;
                 return { id: doc.id, ...data, pmsMilestones: data.pmsMilestones || [] } as Order;
             });
-            
-            // Filter orders for PMS: "Sent to Stitching" is done.
-            const pmsOrders = allOrdersData.filter(order => {
-                const sentToStitching = order.milestones.find(m => m.id === 3);
-                return sentToStitching?.completed;
-            });
 
-            setAllPmsOrders(pmsOrders);
+            setAllOrders(allOrdersData);
             setLoading(false);
         });
 
         return () => unsubscribe();
     }, []);
+    
+    // An order is in the PMS system if "Sent to Stitching" is complete.
+    const allPmsOrders = useMemo(() => {
+        return allOrders.filter(order => {
+            const sentToStitching = order.milestones.find(m => m.id === 3);
+            return sentToStitching?.completed;
+        });
+    }, [allOrders]);
 
     const activeStitchingOrders = useMemo(() => {
         return allPmsOrders.filter(order => {
