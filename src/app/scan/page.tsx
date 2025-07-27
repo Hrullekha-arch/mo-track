@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ArrowLeft, Camera, CheckCircle, Loader2, ScanLine, Search, Home } from 'lucide-react';
+import { Camera, CheckCircle, Loader2, ScanLine, Home } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 
@@ -53,44 +53,44 @@ function PmsScanner() {
         };
     }, [toast]);
 
-    const handleSearch = async (dealId: string) => {
-        if (!dealId) return;
+    const handleScan = async () => {
+        if (!scannedId) {
+            toast({ variant: 'destructive', title: 'No ID entered', description: 'Please enter a Deal ID to scan.' });
+            return;
+        }
         setLoading(true);
         setOrder(null);
-        try {
-            const orderRef = doc(db, 'orders', dealId);
-            const docSnap = await getDoc(orderRef);
-            if (docSnap.exists()) {
-                setOrder({ id: docSnap.id, ...docSnap.data() } as Order);
-            } else {
-                toast({ variant: 'destructive', title: 'Not Found', description: `Order with ID ${dealId} could not be found.` });
-            }
-        } catch (error) {
-             toast({ variant: 'destructive', title: 'Error', description: 'Failed to search for order.' });
-        } finally {
-            setLoading(false);
-        }
-    };
-    
-    const handleScan = async () => {
-        if (!order) return;
         
-        const sentToStitching = order.milestones.find(m => m.id === 3);
-        const stitchingDone = order.milestones.find(m => m.id === 4);
-
-        if (!sentToStitching?.completed) {
-            toast({ variant: "destructive", title: "Not in Production", description: "This order has not been sent to stitching yet." });
-            return;
-        }
-        if (stitchingDone?.completed) {
-            toast({ title: "Already Complete", description: "This order's production is already marked as complete." });
-            return;
-        }
-
-        setLoading(true);
         try {
-            const orderRef = doc(db, "orders", order.id);
-            const updatedMilestones = order.milestones.map(m => 
+            const orderRef = doc(db, 'orders', scannedId);
+            const docSnap = await getDoc(orderRef);
+
+            if (!docSnap.exists()) {
+                toast({ variant: 'destructive', title: 'Not Found', description: `Order with ID ${scannedId} could not be found.` });
+                setLoading(false);
+                return;
+            }
+            
+            const fetchedOrder = { id: docSnap.id, ...docSnap.data() } as Order;
+
+            const sentToStitching = fetchedOrder.milestones.find(m => m.id === 3);
+            const stitchingDone = fetchedOrder.milestones.find(m => m.id === 4);
+
+            if (!sentToStitching?.completed) {
+                toast({ variant: "destructive", title: "Not in Production", description: "This order has not been sent to stitching yet." });
+                setOrder(fetchedOrder);
+                setLoading(false);
+                return;
+            }
+            if (stitchingDone?.completed) {
+                toast({ title: "Already Complete", description: "This order's production is already marked as complete." });
+                setOrder(fetchedOrder);
+                setLoading(false);
+                return;
+            }
+
+            // If everything is fine, update the milestone
+            const updatedMilestones = fetchedOrder.milestones.map(m => 
                 m.id === 4 // "Stitching Done" milestone
                 ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: "PMS Scanner" }
                 : m
@@ -100,9 +100,9 @@ function PmsScanner() {
 
             toast({
                 title: "Production Complete!",
-                description: `Order ${order.id} has been marked as 'Stitching Done'.`,
+                description: `Order ${fetchedOrder.id} has been marked as 'Stitching Done'.`,
             });
-            setOrder(prev => prev ? {...prev, milestones: updatedMilestones} : null);
+            setOrder(prev => fetchedOrder ? {...fetchedOrder, milestones: updatedMilestones} : null);
 
         } catch (error) {
              toast({
@@ -130,31 +130,15 @@ function PmsScanner() {
                     </div>
                 </div>
             </div>
-            
-             <Card className="mb-6">
-                <CardContent className="p-4 flex flex-col sm:flex-row gap-4">
-                    <Input 
-                        placeholder="Or type Deal ID here..."
-                        value={scannedId}
-                        onChange={(e) => setScannedId(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSearch(scannedId)}
-                    />
-                    <Button onClick={() => handleSearch(scannedId)} disabled={loading || !scannedId}>
-                        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
-                        Search Order
-                    </Button>
-                </CardContent>
-            </Card>
-
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Camera Feed</CardTitle>
-                        <CardDescription>Camera is active for scanning.</CardDescription>
+                        <CardTitle>Scanner</CardTitle>
+                        <CardDescription>Enter the Deal ID from the barcode sticker and scan.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
+                        <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center mb-4">
                             <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
                             {hasCameraPermission === false && (
                                  <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
@@ -167,17 +151,29 @@ function PmsScanner() {
                                 <div className="w-4/5 h-2/5 border-4 border-red-500 rounded-lg bg-black/20" />
                              </div>
                         </div>
+                         <div className="flex flex-col sm:flex-row gap-4">
+                            <Input 
+                                placeholder="Type Deal ID here..."
+                                value={scannedId}
+                                onChange={(e) => setScannedId(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleScan()}
+                            />
+                            <Button onClick={handleScan} disabled={loading || !scannedId}>
+                                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ScanLine className="mr-2 h-4 w-4" />}
+                                Simulate Scan
+                            </Button>
+                        </div>
                     </CardContent>
                 </Card>
                  <Card>
                     <CardHeader>
-                        <CardTitle>Scanned Order</CardTitle>
+                        <CardTitle>Scanned Order Details</CardTitle>
                          <CardDescription>
-                           {order ? `Details for order ${order.id}` : 'Search for an order to see details here.'}
+                           {order ? `Details for order ${order.id}` : 'Scan an order to see details here.'}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                       {loading && <Skeleton className="h-40 w-full" />}
+                       {loading && !order && <Skeleton className="h-40 w-full" />}
                        {!loading && order && (
                            <div className="space-y-3">
                                <div>
@@ -186,16 +182,17 @@ function PmsScanner() {
                                </div>
                                <div>
                                    <p className="text-sm text-muted-foreground">Status</p>
-                                   <p className="font-medium">{order.milestones.find(m=>m.id === 4)?.completed ? 'Stitching Already Done' : 'Pending Completion'}</p>
+                                   <p className="font-medium">{order.milestones.find(m=>m.id === 4)?.completed ? 'Stitching Done' : 'Pending Completion'}</p>
                                </div>
-                                <Button 
-                                    className="w-full mt-4" 
-                                    onClick={handleScan} 
-                                    disabled={loading || order.milestones.find(m=>m.id===4)?.completed}
-                                >
-                                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-                                    Mark Production as Complete
-                                </Button>
+                                {order.milestones.find(m=>m.id === 4)?.completed && (
+                                     <Alert className="mt-4" variant="default">
+                                        <CheckCircle className="h-4 w-4" />
+                                        <AlertTitle>Success!</AlertTitle>
+                                        <AlertDescription>
+                                            This order's production is complete.
+                                        </AlertDescription>
+                                    </Alert>
+                                )}
                            </div>
                        )}
                        {!loading && !order && (

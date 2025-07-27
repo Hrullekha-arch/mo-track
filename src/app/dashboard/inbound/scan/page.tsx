@@ -153,7 +153,7 @@ function InboundScan() {
                     <Link href={`/dashboard/inbound/${dealId}`}><ArrowLeft /></Link>
                 </Button>
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Barcode Scanner</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">Inbound Scanner</h1>
                     <p className="text-muted-foreground">For Deal ID: {request.dealId}</p>
                 </div>
             </div>
@@ -197,7 +197,7 @@ function InboundScan() {
                             {(items || []).map((item, index) => {
                                  const detail = item as any;
                                 const name = detail.fabricName || detail.furnitureName;
-                                const isScanned = item.inboundMilestones?.some(m => m.stepId === 3);
+                                const isScanned = item.inboundMilestones?.some(m => m.stepId === 3 && m.status === 'completed');
 
                                 return (
                                     <div key={index} className="flex items-center justify-between p-3 rounded-md border bg-card">
@@ -213,7 +213,7 @@ function InboundScan() {
                              {totalCount === 0 && <p className="text-sm text-muted-foreground text-center py-4">No items in this request.</p>}
                         </div>
                         {scannedCount === totalCount && totalCount > 0 && (
-                             <Alert className="mt-4">
+                             <Alert className="mt-4" variant="default">
                                 <CheckCircle className="h-4 w-4" />
                                 <AlertTitle>All items scanned!</AlertTitle>
                                 <AlertDescription>
