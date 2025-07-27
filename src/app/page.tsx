@@ -9,16 +9,55 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useAuth } from "@/context/AuthContext";
-import { LogIn, Loader2, ScanLine } from "lucide-react";
+import { LogIn, Loader2, ScanLine, Database } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from 'next/image';
+import { collection, getDocs, limit, query } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
   password: z.string().min(1, { message: "Password is required." }),
 });
+
+type DbStatus = 'checking' | 'connected' | 'error';
+
+function DatabaseStatusIndicator() {
+    const [dbStatus, setDbStatus] = useState<DbStatus>('checking');
+
+    useEffect(() => {
+        const checkDbConnection = async () => {
+            try {
+                // A lightweight query to check if we can read from the database.
+                const q = query(collection(db, "users"), limit(1));
+                await getDocs(q);
+                setDbStatus('connected');
+            } catch (error) {
+                console.error("Database connection check failed:", error);
+                setDbStatus('error');
+            }
+        };
+        checkDbConnection();
+    }, []);
+
+    return (
+        <div className="absolute top-4 right-4">
+            <Database className={cn(
+                "h-6 w-6 transition-all",
+                dbStatus === 'checking' && "text-gray-400 animate-pulse",
+                dbStatus === 'connected' && "text-green-500",
+                dbStatus === 'error' && "text-red-500"
+            )} />
+            {dbStatus === 'connected' && (
+                <div className="absolute top-0 right-0 h-full w-full bg-green-500 rounded-full animate-ping opacity-75 -z-10"></div>
+            )}
+        </div>
+    );
+}
+
 
 export default function LoginPage() {
   const { login, loading: authLoading, user } = useAuth();
@@ -60,7 +99,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4" key={user ? 'logged-in' : 'logged-out'}>
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 relative" key={user ? 'logged-in' : 'logged-out'}>
+      <DatabaseStatusIndicator />
       <div className="w-full max-w-md">
         <Card>
           <CardHeader className="text-center">
