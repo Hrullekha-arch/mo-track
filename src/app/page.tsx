@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useAuth } from "@/context/AuthContext";
-import { LogIn, Loader2 } from "lucide-react";
+import { LogIn, Loader2, ScanLine } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -105,12 +105,19 @@ export default function LoginPage() {
           </CardContent>
         </Card>
         <footer className="mt-8 text-center text-sm text-muted-foreground space-y-2">
-            <p>
-                Are you a customer?{" "}
-                <Link href="/track" className="underline hover:text-primary">
-                    Track your order here.
-                </Link>
-            </p>
+            <div className="flex items-center justify-center gap-4">
+                 <p>
+                    Are you a customer?{" "}
+                    <Link href="/track" className="underline hover:text-primary">
+                        Track your order here.
+                    </Link>
+                </p>
+                <p>
+                     <Link href="/scan" className="underline hover:text-primary flex items-center justify-center gap-1">
+                        <ScanLine className="h-4 w-4" /> Scan a Barcode
+                    </Link>
+                </p>
+            </div>
             <p>&copy; {new Date().getFullYear()} Mo Designs Pvt. Ltd. All rights reserved.</p>
         </footer>
       </div>
