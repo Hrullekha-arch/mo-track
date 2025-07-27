@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Camera, CheckCircle, Loader2, ScanLine, Home } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
-import { completePmsProcess } from '@/ai/flows/complete-pms-process';
+import { completePmsProcess } from './actions';
 import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
 import { Order } from '@/lib/types';
 
@@ -42,6 +42,7 @@ function PmsScanner() {
                 setOrder(null);
             } else {
                  toast({ title: 'Success!', description: result.message });
+                 // The result from a server action is a plain object, we need to cast it
                  setOrder(result.order as Order);
             }
         } catch (error) {
