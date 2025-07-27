@@ -36,6 +36,9 @@ function PmsTimeline({
 
         const orderRef = doc(db, "orders", order.id);
         const isCompleting = !completedSteps.includes(stepId);
+        
+        // Ensure pmsMilestones exists before trying to modify it
+        const currentPmsMilestones = order.pmsMilestones || [];
 
         try {
             if (isCompleting) {
@@ -59,7 +62,7 @@ function PmsTimeline({
                 }
             } else {
                 // To mark a step as incomplete, all subsequent steps must also be marked incomplete
-                const milestonesToRemove = (order.pmsMilestones || []).filter(m => m.stepId >= stepId);
+                const milestonesToRemove = currentPmsMilestones.filter(m => m.stepId >= stepId);
                 await updateDoc(orderRef, { pmsMilestones: arrayRemove(...milestonesToRemove) });
                 toast({ title: `Step ${stepId} and all subsequent steps reverted.`});
             }
@@ -278,7 +281,7 @@ export default function PmsPage() {
                     {orderForPrint && (
                         <div id="barcode-sticker-print" className="py-4">
                             <BarcodeSticker
-                                dealId={orderForPrint.id}
+                                dealId={orderForPrint.crmOrderNo}
                                 customerName={orderForPrint.customerName}
                                 orderType={orderForPrint.orderType}
                             />

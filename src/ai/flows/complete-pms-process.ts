@@ -49,11 +49,15 @@ const completePmsProcessFlow = ai.defineFlow(
       
       const orderDoc = querySnapshot.docs[0];
       const orderRef = orderDoc.ref;
-      const order = { id: orderDoc.id, ...orderDoc.data() } as Order;
+      const orderData = orderDoc.data() as Omit<Order, 'id'>;
       
-      // Removed the pre-check that was causing permission errors.
-      // The flow now directly attempts to update the order.
+      // Ensure pmsMilestones exists to prevent errors
+      if (!orderData.pmsMilestones) {
+          orderData.pmsMilestones = [];
+      }
 
+      const order = { id: orderDoc.id, ...orderData } as Order;
+      
       const completedAt = new Date().toISOString();
       const completedBy = "PMS Scanner";
 
