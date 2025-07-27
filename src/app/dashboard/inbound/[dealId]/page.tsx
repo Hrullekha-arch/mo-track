@@ -7,7 +7,7 @@ import { db } from "@/lib/firebase";
 import { PurchaseRequest, InboundMilestone, FabricDetail, FurnitureDetail, PurchaseStatus, Order, O2DStatus } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2 } from 'lucide-react';
+import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2, ScanLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
@@ -260,14 +260,22 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
     return (
         <AlertDialog>
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
-            <div className="flex items-center gap-4 mb-4">
-                <Button asChild variant="outline" size="icon">
-                    <Link href="/dashboard/inbound"><ArrowLeft /></Link>
-                </Button>
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Inbound Process</h1>
-                    <p className="text-muted-foreground">Track the receiving process for each item in Deal ID: {request.dealId}</p>
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-4">
+                    <Button asChild variant="outline" size="icon">
+                        <Link href="/dashboard/inbound"><ArrowLeft /></Link>
+                    </Button>
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight">Inbound Process</h1>
+                        <p className="text-muted-foreground">Track the receiving process for each item in Deal ID: {request.dealId}</p>
+                    </div>
                 </div>
+                <Button asChild>
+                    <Link href={`/dashboard/inbound/scan?dealId=${dealId}`}>
+                        <ScanLine className="mr-2 h-4 w-4" />
+                        Scan Items
+                    </Link>
+                </Button>
             </div>
 
             <Card className="mb-6">
@@ -349,5 +357,3 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         </AlertDialog>
     );
 }
-
-    
