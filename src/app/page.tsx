@@ -9,20 +9,18 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useAuth } from "@/context/AuthContext";
-import { LogIn, Loader2, ScanLine, Database } from "lucide-react";
+import { LogIn, Loader2, ScanLine, Database, Info } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from 'next/image';
-import { collection, getDocs, limit, query } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
   password: z.string().min(1, { message: "Password is required." }),
 });
-
 
 export default function LoginPage() {
   const { login, loading: authLoading, user } = useAuth();
@@ -72,6 +70,13 @@ export default function LoginPage() {
             <CardDescription className="pt-4">Enter your credentials to access your account</CardDescription>
           </CardHeader>
           <CardContent>
+             <Alert className="mb-4 bg-blue-50 border-blue-200">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertTitle className="text-blue-800">Simulated Login</AlertTitle>
+                <AlertDescription className="text-blue-700">
+                    Use <span className="font-bold">admin@motrack.com</span> and password <span className="font-bold">password</span> to log in.
+                </AlertDescription>
+            </Alert>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 <FormField

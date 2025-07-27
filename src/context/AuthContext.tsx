@@ -20,76 +20,50 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// --- SIMULATED LOGIN ---
+// This is a "fake" user for the local login simulation.
+const MOCK_USER: User = {
+    id: "admin-user-id",
+    name: "Admin User",
+    email: "admin@motrack.com",
+    role: "admin",
+    designation: undefined,
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      setFirebaseUser(fbUser);
-      if (fbUser) {
-        // User is signed in, get their custom user data from Firestore
-        const userDocRef = doc(db, "users", fbUser.uid);
-        const userDoc = await getDoc(userDocRef);
-        if (userDoc.exists()) {
-          const userData = { id: userDoc.id, ...userDoc.data() } as User;
-          setUser(userData);
-        } else {
-          // Handle case where user exists in Auth but not Firestore
-          setUser(null); 
-        }
-      } else {
-        // User is signed out
-        setUser(null);
-      }
-      setLoading(false);
-    });
-
-    // Cleanup subscription on unmount
-    return () => unsubscribe();
-  }, []);
-
-  const login = async (email: string, password: string):Promise<boolean> => {
-    try {
-      setLoading(true);
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      
-      const userDocRef = doc(db, "users", userCredential.user.uid);
-      const userDoc = await getDoc(userDocRef);
-
-      if (userDoc.exists()) {
-        const userData = { id: userDoc.id, ...userDoc.data() } as User;
-        setUser(userData);
-        // Clear any previous session storage to ensure welcome message shows
+  const login = async (email: string, password: string): Promise<boolean> => {
+    setLoading(true);
+    // This is a simulated login to avoid external API calls.
+    // It allows access to the dashboard without needing Firebase Auth to be configured.
+    if (email === 'admin@motrack.com' && password === 'password') {
+        setUser(MOCK_USER);
+        toast({ title: "Login Successful", description: "This is a simulated login." });
+        
         sessionStorage.removeItem('hasSeenWelcome');
-        if (userData.role === 'installer') {
-          router.push('/mobile');
+        if (MOCK_USER.role === 'installer') {
+            router.push('/mobile');
         } else {
-          router.push('/dashboard');
+            router.push('/dashboard');
         }
-        return true;
-      } else {
-        await signOut(auth);
-        toast({ variant: "destructive", title: "Login Failed", description: "No user data found in the database."});
-        return false;
-      }
-    } catch (error: any) {
-        toast({ variant: "destructive", title: "Login Failed", description: "Invalid credentials. Please check your email and password." });
-        return false;
-    } finally {
         setLoading(false);
+        return true;
+    } else {
+        toast({ variant: "destructive", title: "Login Failed", description: "Use the credentials mentioned on the login page." });
+        setLoading(false);
+        return false;
     }
   };
 
   const logout = async () => {
     setLoading(true);
-    await signOut(auth);
     setUser(null);
     setFirebaseUser(null);
-    // Also clear session storage on logout
     sessionStorage.removeItem('hasSeenWelcome');
     router.push('/');
     setLoading(false);
