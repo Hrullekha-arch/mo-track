@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Layers, Check, Scan, Ruler, Box, Tag, Award, Waves, Printer, X, GanttChartSquare, ChevronDown, Barcode, Package, Wind, Users, Scissors, Milestone } from 'lucide-react';
+import { Layers, Check, Scan, Ruler, Box, Tag, Award, Waves, Printer, X, GanttChartSquare, ChevronDown, Barcode, Package, Wind, Users, Scissors, Milestone, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -170,26 +170,41 @@ const OrderList = ({ orders, onBarcodeView }: { orders: Order[], onBarcodeView: 
 
     return (
         <div className="space-y-4">
-            {orders.map(order => (
-                <Collapsible key={order.id} className="border rounded-lg overflow-hidden">
-                    <CollapsibleTrigger className="w-full p-4 bg-muted/50 hover:bg-muted/80 transition-colors flex justify-between items-center">
-                        <div>
-                            <p className="font-semibold text-lg">{order.customerName}</p>
-                            <p className="text-sm text-muted-foreground">{order.id}</p>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                            View Process
-                            <ChevronDown className="h-5 w-5" />
-                        </div>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                        <PmsTimeline 
-                            order={order}
-                            onBarcodeView={() => onBarcodeView(order)}
-                        />
-                    </CollapsibleContent>
-                </Collapsible>
-            ))}
+            {orders.map(order => {
+                const isStitchingComplete = !!order.milestones.find(m => m.id === 4)?.completed;
+
+                return (
+                    <Collapsible key={order.id} className="border rounded-lg overflow-hidden">
+                        <CollapsibleTrigger className="w-full p-4 bg-muted/50 hover:bg-muted/80 transition-colors flex justify-between items-center">
+                            <div>
+                                <p className="font-semibold text-lg">{order.customerName}</p>
+                                <p className="text-sm text-muted-foreground">{order.id}</p>
+                            </div>
+                            <div className="flex items-center gap-4 text-sm">
+                                {isStitchingComplete ? (
+                                    <span className="font-semibold flex items-center gap-2 text-green-600">
+                                        <CheckCircle className="h-5 w-5" />
+                                        Complete
+                                    </span>
+                                ) : (
+                                    <span className="font-semibold flex items-center gap-2 text-blue-600">
+                                        <Layers className="h-5 w-5" />
+                                        Pending
+                                    </span>
+                                )}
+                                <span className="text-muted-foreground">View Process</span>
+                                <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                            </div>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                            <PmsTimeline 
+                                order={order}
+                                onBarcodeView={() => onBarcodeView(order)}
+                            />
+                        </CollapsibleContent>
+                    </Collapsible>
+                );
+            })}
         </div>
     );
 };
