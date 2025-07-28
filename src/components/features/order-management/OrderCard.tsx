@@ -37,6 +37,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const [isScheduling, setIsScheduling] = useState(false);
   const [isAssigningCrm, setIsAssigningCrm] = useState(false);
   const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
+  const [isMaterialDialogOpen, setIsMaterialDialogOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentOrder, setCurrentOrder] = useState(order);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -331,38 +332,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             </div>
         </div>
 
-        {items.length > 0 && (
-            <>
-                <Separator className="my-1" />
-                 <Tabs defaultValue="fabric" className="w-full text-sm">
-                    <TabsList className="grid w-full grid-cols-2 h-8">
-                        <TabsTrigger value="fabric" disabled={!currentOrder.fabricDetails.length}>Fabric ({currentOrder.fabricDetails.length})</TabsTrigger>
-                        <TabsTrigger value="furniture" disabled={!currentOrder.furnitureDetails.length}>Furniture ({currentOrder.furnitureDetails.length})</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="fabric" className="mt-2 max-h-24 overflow-y-auto">
-                        <div className="space-y-1 text-xs text-muted-foreground">
-                            {currentOrder.fabricDetails.map((item, index) => item.fabricName && (
-                                <div key={index} className="flex justify-between p-1 rounded-md hover:bg-muted/50">
-                                    <span>{item.fabricName}</span>
-                                    <span className="font-mono">{item.quantity} Mtr</span>
-                                </div>
-                            ))}
-                        </div>
-                    </TabsContent>
-                    <TabsContent value="furniture" className="mt-2 max-h-24 overflow-y-auto">
-                        <div className="space-y-1 text-xs text-muted-foreground">
-                            {currentOrder.furnitureDetails.map((item, index) => item.furnitureName && (
-                                <div key={index} className="flex justify-between p-1 rounded-md hover:bg-muted/50">
-                                    <span>{item.furnitureName}</span>
-                                    <span className="font-mono">{item.quantity} Qty</span>
-                                d</div>
-                            ))}
-                        </div>
-                    </TabsContent>
-                </Tabs>
-            </>
-        )}
-        
         {scheduledDate && (
              <div className="text-sm flex items-center gap-2 text-blue-500 font-medium pt-1">
                 <CalendarClock className="h-4 w-4" />
@@ -442,7 +411,18 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             Created on {createdAtDate.toLocaleDateString()}
         </div>
          {(canAssignCrm || canAssignInstaller || canSchedule || canSendMessage) && (
-            <div className="w-full [column-count:2] sm:[column-count:4] [column-gap:0.5rem] pt-2">
+            <div className="w-full [column-count:2] sm:[column-count:3] lg:[column-count:5] [column-gap:0.5rem] pt-2">
+                <div className="break-inside-avoid mb-2">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="outline" size="sm" className="w-full" onClick={() => setIsMaterialDialogOpen(true)}>
+                                <ShoppingBag className="mr-2 h-4 w-4" />
+                                Material
+                            </Button>
+                        </TooltipTrigger>
+                    </Tooltip>
+                </div>
+
                 <div className="break-inside-avoid mb-2">
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -538,6 +518,49 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             </div>
             <DialogFooter>
                 <Button variant="ghost" onClick={() => setIsMessageDialogOpen(false)}>Close</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+    <Dialog open={isMaterialDialogOpen} onOpenChange={setIsMaterialDialogOpen}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Material Details for {currentOrder.id}</DialogTitle>
+                <DialogDescription>Items requested for this order.</DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+                <Tabs defaultValue="fabric" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="fabric" disabled={!currentOrder.fabricDetails?.length}>
+                            Fabric ({currentOrder.fabricDetails?.length || 0})
+                        </TabsTrigger>
+                        <TabsTrigger value="furniture" disabled={!currentOrder.furnitureDetails?.length}>
+                            Furniture ({currentOrder.furnitureDetails?.length || 0})
+                        </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="fabric" className="mt-4 max-h-60 overflow-y-auto">
+                        <div className="space-y-2 text-sm">
+                            {(currentOrder.fabricDetails || []).map((item, index) => (
+                                <div key={index} className="flex justify-between items-center p-2 rounded-md bg-muted">
+                                    <span>{item.fabricName}</span>
+                                    <span className="font-mono bg-background px-2 py-1 rounded-sm">{item.quantity} Mtr</span>
+                                </div>
+                            ))}
+                        </div>
+                    </TabsContent>
+                    <TabsContent value="furniture" className="mt-4 max-h-60 overflow-y-auto">
+                        <div className="space-y-2 text-sm">
+                            {(currentOrder.furnitureDetails || []).map((item, index) => (
+                                <div key={index} className="flex justify-between items-center p-2 rounded-md bg-muted">
+                                    <span>{item.furnitureName}</span>
+                                    <span className="font-mono bg-background px-2 py-1 rounded-sm">{item.quantity} Qty</span>
+                                </div>
+                            ))}
+                        </div>
+                    </TabsContent>
+                </Tabs>
+            </div>
+            <DialogFooter>
+                <Button onClick={() => setIsMaterialDialogOpen(false)}>Close</Button>
             </DialogFooter>
         </DialogContent>
     </Dialog>
