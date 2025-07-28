@@ -4,8 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StockTable } from "@/components/features/inventory/StockTable";
+import { getStockData } from "./actions";
 
-export default function InventoryPage() {
+
+export default async function InventoryPage() {
+    const initialStock = await getStockData();
+
     return (
         <div className="w-full p-4 md:p-6 lg:p-8 space-y-4">
              <header>
@@ -18,7 +22,7 @@ export default function InventoryPage() {
                 </TabsList>
                 <TabsContent value="stock">
                     <Suspense fallback={<InventorySkeleton />}>
-                        <StockTable />
+                        <StockTable initialData={initialStock} />
                     </Suspense>
                 </TabsContent>
             </Tabs>
