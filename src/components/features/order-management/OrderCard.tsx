@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Order, User, Milestone } from "@/lib/types";
-import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2, AlertCircle } from "lucide-react";
+import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2, AlertCircle, ShoppingBag } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 
 interface OrderCardProps {
   order: Order;
@@ -55,6 +57,17 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
   const isOrderComplete = currentOrder.milestones.every(m => m.completed) && (!!currentOrder.feedbackRating || !!currentOrder.customerFeedbackRating || !!currentOrder.bypassedOtp);
 
+  const getItemsForOrder = (order: Order) => {
+    const fabricItems = (order.fabricDetails || [])
+        .filter(f => f.fabricName)
+        .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
+    const furnitureItems = (order.furnitureDetails || [])
+        .filter(f => f.furnitureName)
+        .map(f => ({ name: f.furnitureName, quantity: f.quantity, unit: 'Qty' }));
+    return [...fabricItems, ...furnitureItems];
+  }
+
+  const items = getItemsForOrder(currentOrder);
 
   // Permissions Logic
   const canAssignCrm = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
@@ -317,6 +330,38 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                 </div>
             </div>
         </div>
+
+        {items.length > 0 && (
+            <>
+                <Separator className="my-1" />
+                 <Tabs defaultValue="fabric" className="w-full text-sm">
+                    <TabsList className="grid w-full grid-cols-2 h-8">
+                        <TabsTrigger value="fabric" disabled={!currentOrder.fabricDetails.length}>Fabric ({currentOrder.fabricDetails.length})</TabsTrigger>
+                        <TabsTrigger value="furniture" disabled={!currentOrder.furnitureDetails.length}>Furniture ({currentOrder.furnitureDetails.length})</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="fabric" className="mt-2 max-h-24 overflow-y-auto">
+                        <div className="space-y-1 text-xs text-muted-foreground">
+                            {currentOrder.fabricDetails.map((item, index) => item.fabricName && (
+                                <div key={index} className="flex justify-between p-1 rounded-md hover:bg-muted/50">
+                                    <span>{item.fabricName}</span>
+                                    <span className="font-mono">{item.quantity} Mtr</span>
+                                </div>
+                            ))}
+                        </div>
+                    </TabsContent>
+                    <TabsContent value="furniture" className="mt-2 max-h-24 overflow-y-auto">
+                        <div className="space-y-1 text-xs text-muted-foreground">
+                            {currentOrder.furnitureDetails.map((item, index) => item.furnitureName && (
+                                <div key={index} className="flex justify-between p-1 rounded-md hover:bg-muted/50">
+                                    <span>{item.furnitureName}</span>
+                                    <span className="font-mono">{item.quantity} Qty</span>
+                                d</div>
+                            ))}
+                        </div>
+                    </TabsContent>
+                </Tabs>
+            </>
+        )}
         
         {scheduledDate && (
              <div className="text-sm flex items-center gap-2 text-blue-500 font-medium pt-1">
