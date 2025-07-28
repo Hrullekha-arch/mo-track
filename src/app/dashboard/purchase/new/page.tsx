@@ -16,7 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { useAuth } from "@/context/AuthContext";
-import { collection, doc, setDoc, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, setDoc, onSnapshot, query, where, getDocs, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
@@ -33,13 +33,19 @@ const fabricDetailSchema = z.object({
   panels: z.string().optional(),
 });
 
+const furnitureDetailSchema = z.object({
+    furnitureName: z.string().min(1, "Furniture name is required"),
+    quantity: z.string().min(1, "Quantity is required"),
+});
+
 const formSchema = z.object({
   email: z.string().email("Invalid email address.").optional(),
   dealId: z.string().min(1, "Deal ID is required"),
   customerName: z.string().min(1, "Customer name is required"),
   deliveryDate: z.date({ required_error: "Delivery date is required." }),
   salesman: z.string().min(1, "Salesman is required"),
-  fabricDetails: z.array(fabricDetailSchema).min(1, "At least one fabric item is required."),
+  fabricDetails: z.array(fabricDetailSchema).optional(),
+  furnitureDetails: z.array(furnitureDetailSchema).optional(),
 });
 
 
@@ -59,6 +65,9 @@ const PurchaseRequestPreviewDialog = ({
     isSubmitting: boolean;
 }) => {
     if (!data) return null;
+    
+    const hasFabric = data.fabricDetails && data.fabricDetails.length > 0 && data.fabricDetails.some(f => f.fabricName);
+    const hasFurniture = data.furnitureDetails && data.furnitureDetails.length > 0 && data.furnitureDetails.some(f => f.furnitureName);
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -82,28 +91,48 @@ const PurchaseRequestPreviewDialog = ({
                             </div>
                         </CardContent>
                     </Card>
-                     <Card>
-                        <CardHeader>
-                            <CardTitle>Item Details (Fabric)</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            {data.fabricDetails?.map((item, index) => (
-                                <div key={index}>
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                                        <p className="font-medium col-span-2">{item.fabricName}</p>
-                                        <p className="text-muted-foreground">Qty: <span className="font-medium text-foreground">{item.quantity}</span> Mtr</p>
-                                        {item.hasPanels && (
-                                            <>
-                                                <p className="text-muted-foreground">Type: <span className="font-medium text-foreground">{item.type}</span></p>
-                                                <p className="text-muted-foreground col-span-2">Panels: <span className="font-medium text-foreground">{item.panels}</span></p>
-                                            </>
-                                        )}
+                     {hasFabric && (
+                         <Card>
+                            <CardHeader>
+                                <CardTitle>Item Details (Fabric)</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                {data.fabricDetails?.map((item, index) => (
+                                    <div key={index}>
+                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                                            <p className="font-medium col-span-2">{item.fabricName}</p>
+                                            <p className="text-muted-foreground">Qty: <span className="font-medium text-foreground">{item.quantity}</span> Mtr</p>
+                                            {item.hasPanels && (
+                                                <>
+                                                    <p className="text-muted-foreground">Type: <span className="font-medium text-foreground">{item.type}</span></p>
+                                                    <p className="text-muted-foreground col-span-2">Panels: <span className="font-medium text-foreground">{item.panels}</span></p>
+                                                </>
+                                            )}
+                                        </div>
+                                        {index < (data.fabricDetails?.length || 0) - 1 && <Separator className="my-2" />}
                                     </div>
-                                    {index < (data.fabricDetails?.length || 0) - 1 && <Separator className="my-2" />}
-                                </div>
-                            ))}
-                        </CardContent>
-                    </Card>
+                                ))}
+                            </CardContent>
+                        </Card>
+                     )}
+                     {hasFurniture && (
+                          <Card>
+                            <CardHeader>
+                                <CardTitle>Item Details (Furniture)</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                {data.furnitureDetails?.map((item, index) => (
+                                    <div key={index}>
+                                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                                            <p className="font-medium col-span-2">{item.furnitureName}</p>
+                                            <p className="text-muted-foreground">Qty: <span className="font-medium text-foreground">{item.quantity}</span></p>
+                                        </div>
+                                        {index < (data.furnitureDetails?.length || 0) - 1 && <Separator className="my-2" />}
+                                    </div>
+                                ))}
+                            </CardContent>
+                        </Card>
+                     )}
                 </div>
                 <DialogFooter>
                     <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
@@ -125,6 +154,7 @@ export default function NewPurchaseRequestPage() {
     const [salesmen, setSalesmen] = useState<User[]>([]);
     const [previewData, setPreviewData] = useState<PurchaseFormValues | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [activeTab, setActiveTab] = useState("fabric");
 
     const form = useForm<PurchaseFormValues>({
         resolver: zodResolver(formSchema),
@@ -133,13 +163,19 @@ export default function NewPurchaseRequestPage() {
             dealId: "",
             customerName: "",
             salesman: "",
-            fabricDetails: [{ fabricName: "", quantity: "", hasPanels: false, type: "", panels: "" }],
+            fabricDetails: [],
+            furnitureDetails: [],
         },
     });
 
-    const fabricFields = useFieldArray({
+    const { fields: fabricFields, append: appendFabric, remove: removeFabric } = useFieldArray({
         control: form.control,
         name: "fabricDetails",
+    });
+
+    const { fields: furnitureFields, append: appendFurniture, remove: removeFurniture } = useFieldArray({
+        control: form.control,
+        name: "furnitureDetails",
     });
 
     const watchedFabricDetails = form.watch('fabricDetails');
@@ -172,14 +208,14 @@ export default function NewPurchaseRequestPage() {
 
             const requestData: PurchaseRequest = {
                 id: previewData.dealId,
-                type: 'fabric',
+                type: activeTab as 'fabric' | 'furniture',
                 email: previewData.email || "",
                 dealId: previewData.dealId,
                 customerName: previewData.customerName,
                 promiseDeliveryDate: previewData.deliveryDate.toISOString(),
                 salesman: previewData.salesman,
                 fabricDetails: previewData.fabricDetails || [],
-                furnitureDetails: [], // Ensure this is empty
+                furnitureDetails: previewData.furnitureDetails || [],
                 createdAt: new Date().toISOString(),
                 createdBy: {
                     id: user.id,
@@ -191,10 +227,29 @@ export default function NewPurchaseRequestPage() {
             };
 
             await setDoc(newRequestRef, requestData);
-            toast({
-                title: "Purchase Request Created",
-                description: "Your request has been submitted for approval.",
-            });
+
+            // Now, find the corresponding order and update it with item details
+            const ordersRef = collection(db, "orders");
+            const q = query(ordersRef, where("crmOrderNo", "==", previewData.dealId));
+            const orderSnapshot = await getDocs(q);
+
+            if (!orderSnapshot.empty) {
+                const orderDoc = orderSnapshot.docs[0];
+                await updateDoc(orderDoc.ref, {
+                    fabricDetails: previewData.fabricDetails || [],
+                    furnitureDetails: previewData.furnitureDetails || [],
+                });
+                toast({
+                    title: "Purchase Request Created & Order Updated",
+                    description: "Item details have been synced to the order.",
+                });
+            } else {
+                 toast({
+                    title: "Purchase Request Created",
+                    description: "Your request has been submitted for approval.",
+                });
+            }
+
             setPreviewData(null);
             router.push("/dashboard/purchase");
         } catch (error) {
@@ -220,7 +275,7 @@ export default function NewPurchaseRequestPage() {
                                 <ArrowLeft className="h-6 w-6" />
                             </Button>
                             <CardTitle className="text-2xl text-center flex-grow">
-                                New Fabric Purchase Request
+                                New Purchase Request
                             </CardTitle>
                              <div className="w-8"></div>
                         </div>
@@ -273,7 +328,7 @@ export default function NewPurchaseRequestPage() {
                                         name="deliveryDate"
                                         render={({ field }) => (
                                             <FormItem className="flex flex-col">
-                                                <FormLabel>Delivery Date</FormLabel>
+                                                <FormLabel>Promised Delivery Date</FormLabel>
                                                 <Popover>
                                                     <PopoverTrigger asChild>
                                                         <FormControl>
@@ -333,78 +388,128 @@ export default function NewPurchaseRequestPage() {
                                 
                                 <div className="space-y-4">
                                     <h3 className="font-medium">Item Details</h3>
-                                    {fabricFields.fields.map((field, index) => {
-                                        const hasPanels = watchedFabricDetails?.[index]?.hasPanels;
-                                        return (
-                                            <Card key={field.id} className="p-4 space-y-4 bg-muted/50">
-                                                <div className="grid grid-cols-10 gap-4">
-                                                    <div className="col-span-5">
-                                                        <FormField control={form.control} name={`fabricDetails.${index}.fabricName`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">Fabric Name</FormLabel><FormControl><Input placeholder="Fabric Name" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                                                    </div>
-                                                    <div className="col-span-3">
-                                                        <FormField control={form.control} name={`fabricDetails.${index}.quantity`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">Qty (Mtr)</FormLabel><FormControl><Input placeholder="Qty (Mtr)" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                                                    </div>
-                                                    <div className="col-span-2 self-end">
-                                                        <Button type="button" variant="destructive" size="icon" className="w-full" onClick={() => fabricFields.remove(index)}><Trash2 className="h-4 w-4"/></Button>
-                                                    </div>
-                                                </div>
-                                                <div className="grid grid-cols-10 gap-4 items-center">
-                                                    <div className="col-span-1 flex flex-col items-center">
-                                                        <FormLabel className="text-xs mb-2">Panels?</FormLabel>
-                                                        <FormField control={form.control} name={`fabricDetails.${index}.hasPanels`} render={({ field }) => ( <FormItem><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl></FormItem>)} />
-                                                    </div>
-                                                    <div className="col-span-5">
+                                    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                                        <TabsList className="grid w-full grid-cols-2">
+                                            <TabsTrigger value="fabric">Fabric</TabsTrigger>
+                                            <TabsTrigger value="furniture">Furniture</TabsTrigger>
+                                        </TabsList>
+                                        <TabsContent value="fabric" className="space-y-4 pt-4">
+                                             {fabricFields.fields.map((field, index) => {
+                                                const hasPanels = watchedFabricDetails?.[index]?.hasPanels;
+                                                return (
+                                                    <Card key={field.id} className="p-4 space-y-4 bg-muted/50">
+                                                        <div className="grid grid-cols-10 gap-4">
+                                                            <div className="col-span-5">
+                                                                <FormField control={form.control} name={`fabricDetails.${index}.fabricName`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">Fabric Name</FormLabel><FormControl><Input placeholder="Fabric Name" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                                            </div>
+                                                            <div className="col-span-3">
+                                                                <FormField control={form.control} name={`fabricDetails.${index}.quantity`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">Qty (Mtr)</FormLabel><FormControl><Input placeholder="Qty (Mtr)" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                                            </div>
+                                                            <div className="col-span-2 self-end">
+                                                                <Button type="button" variant="destructive" size="icon" className="w-full" onClick={() => removeFabric(index)}><Trash2 className="h-4 w-4"/></Button>
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid grid-cols-10 gap-4 items-center">
+                                                            <div className="col-span-1 flex flex-col items-center">
+                                                                <FormLabel className="text-xs mb-2">Panels?</FormLabel>
+                                                                <FormField control={form.control} name={`fabricDetails.${index}.hasPanels`} render={({ field }) => ( <FormItem><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl></FormItem>)} />
+                                                            </div>
+                                                            <div className="col-span-5">
+                                                                <FormField
+                                                                    control={form.control}
+                                                                    name={`fabricDetails.${index}.type`}
+                                                                    render={({ field }) => (
+                                                                        <FormItem>
+                                                                            <FormLabel className="text-xs">Type</FormLabel>
+                                                                            {hasPanels ? (
+                                                                                <FormControl><Input placeholder="Enter Type" {...field} /></FormControl>
+                                                                            ) : (
+                                                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                                                    <FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl>
+                                                                                    <SelectContent>
+                                                                                        <SelectItem value="Three Pleat - Reg">Three Pleat - Reg</SelectItem>
+                                                                                        <SelectItem value="Three Pleat - Sheer">Three Pleat - Sheer</SelectItem>
+                                                                                        <SelectItem value="Eyelet - Reg">Eyelet - Reg</SelectItem>
+                                                                                        <SelectItem value="Eleza Tape Curtain Stitching">Eleza Tape Curtain Stitching</SelectItem>
+                                                                                        <SelectItem value="Nefa Curtain Stitching Charge">Nefa Curtain Stitching Charge</SelectItem>
+                                                                                        <SelectItem value="Curtain Alteration Stitching">Curtain Alteration Stitching</SelectItem>
+                                                                                        <SelectItem value="Eyelet Sheer">Eyelet Sheer</SelectItem>
+                                                                                        <SelectItem value="Pencil Pleat - Reg">Pencil Pleat - Reg</SelectItem>
+                                                                                        <SelectItem value="Loop Curtain Stitching">Loop Curtain Stitching</SelectItem>
+                                                                                        <SelectItem value="Ripple Pleat Curtain">Ripple Pleat Curtain</SelectItem>
+                                                                                        <SelectItem value="Wire Curtain">Wire Curtain</SelectItem>
+                                                                                        <SelectItem value="Plain Curtain Stitching">Plain Curtain Stitching</SelectItem>
+                                                                                        <SelectItem value="Goblet Pleat Curtain">Goblet Pleat Curtain</SelectItem>
+                                                                                        <SelectItem value="Delivery">Delivery</SelectItem>
+                                                                                        <SelectItem value="Production">Production</SelectItem>
+                                                                                    </SelectContent>
+                                                                                </Select>
+                                                                            )}
+                                                                            <FormMessage />
+                                                                        </FormItem>
+                                                                    )}
+                                                                />
+                                                            </div>
+                                                            <div className="col-span-4">
+                                                                <FormField control={form.control} name={`fabricDetails.${index}.panels`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">No of Panels</FormLabel><FormControl><Input placeholder="No of Panels" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                                            </div>
+                                                        </div>
+                                                    </Card>
+                                                )
+                                            })}
+                                            <Button
+                                                type="button"
+                                                variant="secondary"
+                                                size="sm"
+                                                onClick={() => appendFabric({ fabricName: "", quantity: "", hasPanels: false, type: "", panels: "" })}
+                                            >
+                                                <PlusCircle className="mr-2 h-4 w-4"/>
+                                                Add Fabric
+                                            </Button>
+                                        </TabsContent>
+                                        <TabsContent value="furniture" className="space-y-4 pt-4">
+                                            {furnitureFields.fields.map((field, index) => (
+                                                <Card key={field.id} className="p-4 bg-muted/50">
+                                                    <div className="flex items-end gap-4">
                                                         <FormField
                                                             control={form.control}
-                                                            name={`fabricDetails.${index}.type`}
+                                                            name={`furnitureDetails.${index}.furnitureName`}
                                                             render={({ field }) => (
-                                                                <FormItem>
-                                                                    <FormLabel className="text-xs">Type</FormLabel>
-                                                                    {hasPanels ? (
-                                                                        <FormControl><Input placeholder="Enter Type" {...field} /></FormControl>
-                                                                    ) : (
-                                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                                            <FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl>
-                                                                            <SelectContent>
-                                                                                <SelectItem value="Three Pleat - Reg">Three Pleat - Reg</SelectItem>
-                                                                                <SelectItem value="Three Pleat - Sheer">Three Pleat - Sheer</SelectItem>
-                                                                                <SelectItem value="Eyelet - Reg">Eyelet - Reg</SelectItem>
-                                                                                <SelectItem value="Eleza Tape Curtain Stitching">Eleza Tape Curtain Stitching</SelectItem>
-                                                                                <SelectItem value="Nefa Curtain Stitching Charge">Nefa Curtain Stitching Charge</SelectItem>
-                                                                                <SelectItem value="Curtain Alteration Stitching">Curtain Alteration Stitching</SelectItem>
-                                                                                <SelectItem value="Eyelet Sheer">Eyelet Sheer</SelectItem>
-                                                                                <SelectItem value="Pencil Pleat - Reg">Pencil Pleat - Reg</SelectItem>
-                                                                                <SelectItem value="Loop Curtain Stitching">Loop Curtain Stitching</SelectItem>
-                                                                                <SelectItem value="Ripple Pleat Curtain">Ripple Pleat Curtain</SelectItem>
-                                                                                <SelectItem value="Wire Curtain">Wire Curtain</SelectItem>
-                                                                                <SelectItem value="Plain Curtain Stitching">Plain Curtain Stitching</SelectItem>
-                                                                                <SelectItem value="Goblet Pleat Curtain">Goblet Pleat Curtain</SelectItem>
-                                                                                <SelectItem value="Delivery">Delivery</SelectItem>
-                                                                                <SelectItem value="Production">Production</SelectItem>
-                                                                            </SelectContent>
-                                                                        </Select>
-                                                                    )}
+                                                                <FormItem className="flex-grow">
+                                                                    <FormLabel className="text-xs">Furniture Name</FormLabel>
+                                                                    <FormControl><Input placeholder="Furniture Name" {...field} /></FormControl>
                                                                     <FormMessage />
                                                                 </FormItem>
                                                             )}
                                                         />
+                                                        <FormField
+                                                            control={form.control}
+                                                            name={`furnitureDetails.${index}.quantity`}
+                                                            render={({ field }) => (
+                                                                <FormItem>
+                                                                    <FormLabel className="text-xs">Qty</FormLabel>
+                                                                    <FormControl><Input placeholder="Qty" {...field} /></FormControl>
+                                                                    <FormMessage />
+                                                                </FormItem>
+                                                            )}
+                                                        />
+                                                        <Button type="button" variant="destructive" size="icon" onClick={() => removeFurniture(index)}>
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
                                                     </div>
-                                                    <div className="col-span-4">
-                                                        <FormField control={form.control} name={`fabricDetails.${index}.panels`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">No of Panels</FormLabel><FormControl><Input placeholder="No of Panels" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                                                    </div>
-                                                </div>
-                                            </Card>
-                                        )
-                                    })}
-                                    <Button
-                                        type="button"
-                                        variant="secondary"
-                                        size="sm"
-                                        onClick={() => fabricFields.append({ fabricName: "", quantity: "", hasPanels: false, type: "", panels: "" })}
-                                    >
-                                        <PlusCircle className="mr-2 h-4 w-4"/>
-                                        Add Fabric
-                                    </Button>
+                                                </Card>
+                                            ))}
+                                            <Button
+                                                type="button"
+                                                variant="secondary"
+                                                size="sm"
+                                                onClick={() => appendFurniture({ furnitureName: "", quantity: "" })}
+                                            >
+                                                <PlusCircle className="mr-2 h-4 w-4"/>
+                                                Add Furniture
+                                            </Button>
+                                        </TabsContent>
+                                    </Tabs>
                                 </div>
 
                                 <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" size="lg">Submit</Button>
