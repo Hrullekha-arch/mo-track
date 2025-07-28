@@ -377,7 +377,7 @@ export default function NewPurchaseRequestPage() {
                                                         />
                                                     </div>
                                                     <div className="col-span-4">
-                                                        <FormField control={form.control} name={`fabricDetails.${index}.panels`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">No of Panels</FormLabel><FormControl><Input placeholder="No of Panels" {...field} disabled={!hasPanels} /></FormControl><FormMessage /></FormItem>)} />
+                                                        <FormField control={form.control} name={`fabricDetails.${index}.panels`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">No of Panels</FormLabel><FormControl><Input placeholder="No of Panels" {...field} /></FormControl><FormMessage /></FormItem>)} />
                                                     </div>
                                                 </div>
                                             </Card>
