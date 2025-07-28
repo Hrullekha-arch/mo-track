@@ -4,6 +4,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -74,6 +75,9 @@ export interface FabricDetail {
     vendorName?: string;
     expectedDeliveryDate?: string;
     inboundMilestones?: InboundMilestone[];
+    hasPanels?: boolean;
+    type?: string;
+    panels?: string;
 }
 
 export interface FurnitureDetail {
@@ -139,7 +143,7 @@ export interface PurchaseRequest {
   customerName: string;
   promiseDeliveryDate: string; // ISO Date string
   salesman: string;
-  workType: string;
+  workType?: string; // Made optional as it's being removed
   
   fabricDetails?: FabricDetail[];
   furnitureDetails?: FurnitureDetail[];
