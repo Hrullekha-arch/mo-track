@@ -41,6 +41,7 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [isImporting, setIsImporting] = React.useState(false);
+  const [importProgress, setImportProgress] = React.useState(0);
   const { role } = useAuth();
   const { toast } = useToast();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -56,6 +57,7 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
     if (!file) return;
     
     setIsImporting(true);
+    setImportProgress(0);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -123,6 +125,9 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
                 });
                 
                 await batch.commit();
+
+                const progress = Math.round(((i + chunk.length) / allItems.length) * 100);
+                setImportProgress(progress);
             }
             
             toast({
@@ -142,6 +147,7 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
                 fileInputRef.current.value = "";
             }
             setIsImporting(false);
+            setImportProgress(0);
         }
     };
     reader.readAsArrayBuffer(file);
@@ -240,7 +246,7 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
           <div className="ml-auto flex items-center gap-2">
             <Button onClick={() => fileInputRef.current?.click()} variant="outline" disabled={!isAuthorized || isImporting}>
               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-              {isImporting ? 'Importing...' : 'Import from XLS'}
+              {isImporting ? `Importing... (${importProgress}%)` : 'Import from XLS'}
             </Button>
             <input
               type="file"
