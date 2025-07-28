@@ -1,9 +1,9 @@
 
-import { PurchaseRequestTable } from "@/components/features/purchase/PurchaseRequestTable";
 import { Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StockTable } from "@/components/features/inventory/StockTable";
 
 export default function InventoryPage() {
     return (
@@ -18,7 +18,7 @@ export default function InventoryPage() {
                 </TabsList>
                 <TabsContent value="stock">
                     <Suspense fallback={<InventorySkeleton />}>
-                        <PurchaseRequestTable view="all" />
+                        <StockTable />
                     </Suspense>
                 </TabsContent>
             </Tabs>

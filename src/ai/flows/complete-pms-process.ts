@@ -1,24 +1,34 @@
 
 'use server';
+/**
+ * @fileOverview A Genkit flow to mark the entire PMS (Production Management System) process as complete for a given order.
+ *
+ * - completePmsProcess - A function that handles the PMS completion logic.
+ * - CompletePmsInput - The input type for the completePmsProcess function.
+ * - CompletePmsOutput - The return type for the completePmsProcess function.
+ */
 
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
 import { adminDb } from '@/lib/firebase-admin';
 import { Order, PmsStatus } from '@/lib/types';
 import { PMS_PROCESS_CONFIG } from '@/components/features/pms/pms-constants';
 
-interface CompletePmsInput {
-  orderId: string;
-}
+const CompletePmsInputSchema = z.object({
+  orderId: z.string().describe('The CRM Order No. of the order to complete.'),
+});
+export type CompletePmsInput = z.infer<typeof CompletePmsInputSchema>;
 
-interface CompletePmsOutput {
-  success: boolean;
-  message: string;
-  order?: Order | null;
-}
+const CompletePmsOutputSchema = z.object({
+  success: z.boolean().describe('Whether the operation was successful.'),
+  message: z.string().describe('A message detailing the result of the operation.'),
+  order: z.any().optional().describe('The updated order object, if found.'),
+});
+export type CompletePmsOutput = z.infer<typeof CompletePmsOutputSchema>;
 
-// This function is kept for potential direct use, but the primary logic is now in the Genkit flow.
 export async function completePmsProcess(input: CompletePmsInput): Promise<CompletePmsOutput> {
   const { orderId } = input;
-  
+
   if (!orderId) {
     return { success: false, message: 'Order ID is required.' };
   }
@@ -92,10 +102,21 @@ export async function completePmsProcess(input: CompletePmsInput): Promise<Compl
       order: plainOrderObject,
     };
   } catch (error: any) {
-    console.error('Error in completePmsProcess server action:', error);
+    console.error('Error in completePmsProcess flow:', error);
     return {
       success: false,
       message: 'An unexpected error occurred while updating the order.',
     };
   }
 }
+
+ai.defineFlow(
+  {
+    name: 'completePmsProcessFlow',
+    inputSchema: CompletePmsInputSchema,
+    outputSchema: CompletePmsOutputSchema,
+  },
+  async (input) => {
+    return await completePmsProcess(input);
+  }
+);

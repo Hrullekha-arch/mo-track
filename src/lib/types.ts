@@ -8,6 +8,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -135,8 +136,6 @@ export interface SalesmanCrmAssignment {
 // Purchase Process Types
 export interface PurchaseRequest {
   id: string;
-  type: 'fabric' | 'furniture';
-  email: string;
   dealId: string;
   customerName: string;
   promiseDeliveryDate: string; // ISO Date string
@@ -184,4 +183,16 @@ export interface PurchaseStep {
         hours?: number;
         minutes?: number;
     }
+}
+
+export interface Stock {
+  id: string;
+  itemName: string;
+  quantity: number;
+  unit: 'Mtr' | 'Qty' | string;
+  type: 'fabric' | 'furniture';
+  sourcePurchaseRequestId: string;
+  sourcePoNumber?: string;
+  vendorName?: string;
+  lastUpdatedAt: string; // ISO Date
 }

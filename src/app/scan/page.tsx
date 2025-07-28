@@ -10,12 +10,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Camera, CheckCircle, Loader2, ScanLine, Home, User, ShoppingBag, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
-import { completePmsProcess } from './actions';
+import { completePmsProcess } from '@/ai/flows/complete-pms-process';
 import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
-import { Order } from '@/lib/types';
+import { Order, PurchaseRequest } from '@/lib/types';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 type ScanStatus = 'success' | 'warning' | 'error';
 
@@ -61,12 +63,33 @@ function PmsScanner() {
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
 
+    const getItemsForOrder = async (order: Order | null) => {
+        if (!order) return [];
+        try {
+            const prRef = doc(db, 'purchaseRequests', order.crmOrderNo);
+            const prSnap = await getDoc(prRef);
+            if (prSnap.exists()) {
+                const prData = prSnap.data() as PurchaseRequest;
+                const fabricItems = (prData.fabricDetails || []).map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
+                const furnitureItems = (prData.furnitureDetails || []).map(f => ({ name: f.furnitureName, quantity: f.quantity, unit: 'Qty' }));
+                return [...fabricItems, ...furnitureItems];
+            }
+        } catch (error) {
+            console.error("Error fetching items for order:", error);
+        }
+        return [];
+    }
+
+    const [items, setItems] = useState<{name: string, quantity: string, unit: string}[]>([]);
+
+
     const processScan = async (id: string) => {
         if (!id || loading || isScanningRef.current) return;
 
         isScanningRef.current = true;
         setLoading(true);
         setOrder(null);
+        setItems([]);
         
         try {
             const result = await completePmsProcess({ orderId: id });
@@ -81,7 +104,10 @@ function PmsScanner() {
             setTimeout(() => setIsPopupOpen(false), 1500);
 
             if (result.order) {
-                 setOrder(result.order as Order);
+                 const fetchedOrder = result.order as Order;
+                 setOrder(fetchedOrder);
+                 const fetchedItems = await getItemsForOrder(fetchedOrder);
+                 setItems(fetchedItems);
             } else {
                 setOrder(null);
             }
@@ -159,18 +185,6 @@ function PmsScanner() {
         e.preventDefault();
         processScan(manualId);
     };
-
-    const getItemsForOrder = (order: Order | null) => {
-        if (!order) return [];
-        const fabricItems = (order.fabricDetails || [])
-            .filter(f => f.fabricName)
-            .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
-        const furnitureItems = (order.furnitureDetails || [])
-            .filter(f => f.furnitureName)
-            .map(f => ({ name: f.furnitureName, quantity: f.quantity, unit: 'Qty' }));
-        return [...fabricItems, ...furnitureItems];
-    }
-    const items = getItemsForOrder(order);
 
     return (
         <>
