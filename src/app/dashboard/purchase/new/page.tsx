@@ -27,16 +27,16 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const fabricDetailSchema = z.object({
-  fabricName: z.string().min(1, "Fabric name is required"),
-  quantity: z.string().min(1, "Quantity is required"),
+  fabricName: z.string(),
+  quantity: z.string(),
   hasPanels: z.boolean().default(false),
   type: z.string().optional(),
   panels: z.string().optional(),
 });
 
 const furnitureDetailSchema = z.object({
-    furnitureName: z.string().min(1, "Furniture name is required"),
-    quantity: z.string().min(1, "Quantity is required"),
+    furnitureName: z.string(),
+    quantity: z.string(),
 });
 
 const formSchema = z.object({
@@ -47,7 +47,17 @@ const formSchema = z.object({
   salesman: z.string().min(1, "Salesman is required"),
   fabricDetails: z.array(fabricDetailSchema).optional(),
   furnitureDetails: z.array(furnitureDetailSchema).optional(),
-});
+}).refine(
+    (data) => {
+        const hasFabric = data.fabricDetails?.some((item) => item.fabricName && item.quantity);
+        const hasFurniture = data.furnitureDetails?.some((item) => item.furnitureName && item.quantity);
+        return hasFabric || hasFurniture;
+    },
+    {
+        message: "At least one fabric or furniture item is required.",
+        path: ["fabricDetails"], // You can point to one of the fields for the error message
+    }
+);
 
 
 type PurchaseFormValues = z.infer<typeof formSchema>;
@@ -163,8 +173,8 @@ export default function NewPurchaseRequestPage() {
             dealId: "",
             customerName: "",
             salesman: "",
-            fabricDetails: [{ fabricName: "", quantity: "", hasPanels: false, type: "", panels: "" }],
-            furnitureDetails: [{ furnitureName: "", quantity: "" }],
+            fabricDetails: [],
+            furnitureDetails: [],
         },
     });
 
@@ -533,3 +543,5 @@ export default function NewPurchaseRequestPage() {
         </>
     );
 }
+
+    
