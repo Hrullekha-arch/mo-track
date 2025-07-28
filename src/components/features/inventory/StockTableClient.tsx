@@ -65,7 +65,7 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
             return;
         }
 
-        const headers: string[] = (json[0] as string[]).map(h => h.trim().toLowerCase());
+        const headers: string[] = (json[0] as string[]).map(h => String(h).trim().toLowerCase());
         const requiredHeaders = [
             'bcn', 'distributor collection name', 'serial no', 'hsn code', 
             'rl price', 'cl price', 'mrp', 'caterogary', 'vendor name'
@@ -87,25 +87,27 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
             
             for (let i = 1; i < json.length; i++) {
                 const row = json[i] as any[];
-                if (!row || row.length === 0) continue; // Skip empty rows
+                if (!row || row.length === 0 || !row[0]) continue; // Skip empty rows or rows without a BCN
 
                 const stockItem: Partial<Stock> = {
                     bcn: String(row[0] || ''),
-                    itemName: String(row[1] || ''), // Distributor Collection Name
+                    itemName: String(row[1] || ''),
                     serialNo: String(row[2] || ''),
                     hsnCode: String(row[3] || ''),
                     rlPrice: Number(row[4] || 0),
                     clPrice: Number(row[5] || 0),
                     mrp: Number(row[6] || 0),
-                    category: String(row[7] || ''), // caterogary
-                    vendorName: String(row[8] || ''),
+                    category: String(row[9] || ''), // Column J
+                    vendorName: String(row[10] || ''), // Column K
                     quantity: 1, // Default quantity
                     unit: 'pcs', // Default unit
-                    type: String(row[7] || 'fabric').toLowerCase(), // Use category as type
+                    type: String(row[9] || 'fabric').toLowerCase(), // Use category as type
                     lastUpdatedAt: new Date().toISOString(),
                 };
                 
-                const docId = stockItem.bcn ? stockItem.bcn : doc(collection(db, 'stocks')).id;
+                const docId = stockItem.bcn;
+                if (!docId) continue;
+
                 const stockRef = doc(db, "stocks", docId);
                 batch.set(stockRef, stockItem);
             }
@@ -116,12 +118,14 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
                 title: "Import Successful",
                 description: `${json.length - 1} items have been added/updated. The page will refresh shortly.`,
             });
-            // You might want to trigger a re-fetch or page reload here
-            window.location.reload();
+            
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
 
         } catch (error) {
             console.error("Error importing stock:", error);
-            toast({ variant: "destructive", title: "Import Failed", description: "An error occurred during the import process." });
+            toast({ variant: "destructive", title: "Import Failed", description: "An error occurred during the import process. Check console for details." });
         } finally {
             if (fileInputRef.current) {
                 fileInputRef.current.value = "";
