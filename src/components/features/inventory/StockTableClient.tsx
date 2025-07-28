@@ -105,11 +105,14 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
                     lastUpdatedAt: new Date().toISOString(),
                 };
                 
-                const docId = stockItem.bcn;
-                if (!docId) continue;
+                const rawDocId = stockItem.bcn;
+                if (!rawDocId) continue;
+
+                // Sanitize the document ID by replacing slashes
+                const docId = rawDocId.replace(/\//g, '-');
 
                 const stockRef = doc(db, "stocks", docId);
-                batch.set(stockRef, stockItem);
+                batch.set(stockRef, { ...stockItem, id: docId });
             }
 
             await batch.commit();
