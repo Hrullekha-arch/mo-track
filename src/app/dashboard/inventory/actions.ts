@@ -32,8 +32,9 @@ export async function getStockData(): Promise<Stock[]> {
     }
 }
 
-export async function importStockData(fileBuffer: Buffer): Promise<{ success: boolean; message: string; count?: number }> {
+export async function importStockData(base64Data: string): Promise<{ success: boolean; message: string; count?: number }> {
     try {
+        const fileBuffer = Buffer.from(base64Data, 'base64');
         const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];

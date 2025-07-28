@@ -32,13 +32,14 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { importStockData } from "@/app/dashboard/inventory/actions";
-
+import { Progress } from "@/components/ui/progress";
 
 export function StockTableClient({ initialData }: { initialData: Stock[] }) {
   const [stock, setStock] = React.useState<Stock[]>(initialData);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [isImporting, setIsImporting] = React.useState(false);
+  const [importProgress, setImportProgress] = React.useState<number | null>(null);
   const { role } = useAuth();
   const { toast } = useToast();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -54,17 +55,23 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
     if (!file) return;
     
     setIsImporting(true);
+    setImportProgress(0);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            const buffer = e.target?.result as ArrayBuffer;
-            if (!buffer) {
+            const dataUrl = e.target?.result as string;
+            if (!dataUrl) {
                  toast({ variant: "destructive", title: "File Read Error", description: "Could not read the selected file."});
+                 setIsImporting(false);
+                 setImportProgress(null);
                  return;
             }
             
-            const result = await importStockData(Buffer.from(buffer));
+            // Extract base64 part from data URL
+            const base64Data = dataUrl.split(',')[1];
+            
+            const result = await importStockData(base64Data);
             
             if (result.success) {
                  toast({
@@ -91,9 +98,10 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
                 fileInputRef.current.value = "";
             }
             setIsImporting(false);
+            setImportProgress(null);
         }
     };
-    reader.readAsArrayBuffer(file);
+    reader.readAsDataURL(file);
   };
 
   const columns: ColumnDef<Stock>[] = [
@@ -189,7 +197,7 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
           <div className="ml-auto flex items-center gap-2">
             <Button onClick={() => fileInputRef.current?.click()} variant="outline" disabled={!isAuthorized || isImporting}>
               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-              {isImporting ? 'Importing...' : 'Import from XLS'}
+              {isImporting ? `Importing... ${importProgress !== null ? `(${importProgress}%)` : ''}` : 'Import from XLS'}
             </Button>
             <input
               type="file"
@@ -204,6 +212,11 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
             </Button>
           </div>
         </div>
+        {isImporting && importProgress !== null && (
+          <div className="px-1 py-2">
+            <Progress value={importProgress} className="w-full" />
+          </div>
+        )}
         <div className="rounded-md border">
           <Table>
             <TableHeader>
