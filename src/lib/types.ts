@@ -9,6 +9,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -186,13 +187,18 @@ export interface PurchaseStep {
 }
 
 export interface Stock {
-  id: string;
-  itemName: string;
-  quantity: number;
-  unit: 'Mtr' | 'Qty' | string;
-  type: 'fabric' | 'furniture';
-  sourcePurchaseRequestId: string;
-  sourcePoNumber?: string;
+  id: string; // Document ID
+  itemName: string; // from Distributor Collection Name
+  bcn?: string;
+  serialNo?: string;
+  hsnCode?: string;
+  rlPrice?: number;
+  clPrice?: number;
+  mrp?: number;
+  category?: string;
   vendorName?: string;
+  quantity: number; // You may want a default or handle this from import
+  unit: string;
+  type: 'fabric' | 'furniture' | string; // Making it flexible
   lastUpdatedAt: string; // ISO Date
 }
