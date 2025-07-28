@@ -1,6 +1,6 @@
 
 import { Card, CardDescription, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle } from "lucide-react";
+import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle, Warehouse } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -37,6 +37,14 @@ const dashboardItems = [
         icon: Archive,
         color: "bg-rose-500",
         id: "inbound"
+    },
+     {
+        href: "/dashboard/inventory",
+        title: "Inventory",
+        description: "View all purchased items and stock.",
+        icon: Warehouse,
+        color: "bg-yellow-500",
+        id: "inventory"
     },
      {
         href: "/dashboard/pms",
