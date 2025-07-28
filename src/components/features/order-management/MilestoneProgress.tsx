@@ -99,7 +99,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
                                 className="h-5 w-5"
                                 disabled={!canBeTicked}
                                 // We use onCheckedChange on the trigger so it doesn't fire the change, only opens the dialog
-                                onCheckedChange={(e) => { e.preventDefault()}}
+                                onCheckedChange={() => { /* This is the fix: do nothing here, let the dialog handle it */ }}
                             />
                         </AlertDialogTrigger>
                          <AlertDialogContent>
