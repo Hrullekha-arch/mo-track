@@ -24,6 +24,7 @@ import { PurchaseRequest, User } from "@/lib/types";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const fabricDetailSchema = z.object({
   fabricName: z.string().min(1, "Fabric name is required"),
@@ -33,14 +34,34 @@ const fabricDetailSchema = z.object({
   panels: z.string().optional(),
 });
 
+const furnitureDetailSchema = z.object({
+    furnitureName: z.string().min(1, "Furniture name is required"),
+    quantity: z.string().min(1, "Quantity is required"),
+});
+
 const formSchema = z.object({
   email: z.string().email("Invalid email address.").optional(),
   dealId: z.string().min(1, "Deal ID is required"),
   customerName: z.string().min(1, "Customer name is required"),
   deliveryDate: z.date({ required_error: "Delivery date is required." }),
   salesman: z.string().min(1, "Salesman is required"),
-  fabricDetails: z.array(fabricDetailSchema).min(1, "At least one item is required"),
-});
+  requestType: z.enum(['fabric', 'furniture']),
+  fabricDetails: z.array(fabricDetailSchema).optional(),
+  furnitureDetails: z.array(furnitureDetailSchema).optional(),
+})
+.refine(data => {
+    if (data.requestType === 'fabric') {
+        return data.fabricDetails && data.fabricDetails.length > 0;
+    }
+    return true;
+}, { message: "At least one fabric item is required.", path: ["fabricDetails"]})
+.refine(data => {
+     if (data.requestType === 'furniture') {
+        return data.furnitureDetails && data.furnitureDetails.length > 0;
+    }
+    return true;
+}, { message: "At least one furniture item is required.", path: ["furnitureDetails"]});
+
 
 type PurchaseFormValues = z.infer<typeof formSchema>;
 
@@ -83,10 +104,10 @@ const PurchaseRequestPreviewDialog = ({
                     </Card>
                      <Card>
                         <CardHeader>
-                            <CardTitle>Item Details</CardTitle>
+                            <CardTitle>Item Details ({data.requestType})</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            {data.fabricDetails?.map((item, index) => (
+                            {data.requestType === 'fabric' && data.fabricDetails?.map((item, index) => (
                                 <div key={index}>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                                         <p className="font-medium col-span-2">{item.fabricName}</p>
@@ -99,6 +120,15 @@ const PurchaseRequestPreviewDialog = ({
                                         )}
                                     </div>
                                     {index < (data.fabricDetails?.length || 0) - 1 && <Separator className="my-2" />}
+                                </div>
+                            ))}
+                            {data.requestType === 'furniture' && data.furnitureDetails?.map((item, index) => (
+                                 <div key={index}>
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                                        <p className="font-medium col-span-2">{item.furnitureName}</p>
+                                        <p className="text-muted-foreground">Qty: <span className="font-medium text-foreground">{item.quantity}</span></p>
+                                    </div>
+                                    {index < (data.furnitureDetails?.length || 0) - 1 && <Separator className="my-2" />}
                                 </div>
                             ))}
                         </CardContent>
@@ -132,13 +162,20 @@ export default function NewPurchaseRequestPage() {
             dealId: "",
             customerName: "",
             salesman: "",
-            fabricDetails: [{ fabricName: "", quantity: "", hasPanels: false, type: "", panels: "" }],
+            requestType: 'fabric',
+            fabricDetails: [],
+            furnitureDetails: [],
         },
     });
 
-    const { fields, append, remove } = useFieldArray({
+    const fabricFields = useFieldArray({
         control: form.control,
         name: "fabricDetails",
+    });
+
+    const furnitureFields = useFieldArray({
+        control: form.control,
+        name: "furnitureDetails",
     });
 
     useEffect(() => {
@@ -155,6 +192,16 @@ export default function NewPurchaseRequestPage() {
         });
         return () => unsubscribe();
     }, []);
+    
+    useEffect(() => {
+        // Initialize with one item when tab is switched to
+        if (form.watch('requestType') === 'fabric' && form.getValues('fabricDetails')?.length === 0) {
+            fabricFields.append({ fabricName: "", quantity: "", hasPanels: false, type: "", panels: "" });
+        }
+        if (form.watch('requestType') === 'furniture' && form.getValues('furnitureDetails')?.length === 0) {
+            furnitureFields.append({ furnitureName: "", quantity: "" });
+        }
+    }, [form.watch('requestType')]);
 
 
     const handlePreview = (data: PurchaseFormValues) => {
@@ -170,15 +217,14 @@ export default function NewPurchaseRequestPage() {
 
             const requestData: PurchaseRequest = {
                 id: previewData.dealId,
-                type: 'fabric', // Only fabric is supported in this form
+                type: previewData.requestType,
                 email: previewData.email || "",
                 dealId: previewData.dealId,
                 customerName: previewData.customerName,
                 promiseDeliveryDate: previewData.deliveryDate.toISOString(),
                 salesman: previewData.salesman,
-                fabricDetails: previewData.fabricDetails || [],
-                furnitureDetails: [],
-
+                fabricDetails: previewData.requestType === 'fabric' ? previewData.fabricDetails || [] : [],
+                furnitureDetails: previewData.requestType === 'furniture' ? previewData.furnitureDetails || [] : [],
                 createdAt: new Date().toISOString(),
                 createdBy: {
                     id: user.id,
@@ -330,48 +376,85 @@ export default function NewPurchaseRequestPage() {
                                 
                                 <Separator />
                                 
-                                <div className="space-y-4">
-                                    <FormLabel>Item Details</FormLabel>
-                                    {fields.map((field, index) => {
-                                        const hasPanels = form.watch(`fabricDetails.${index}.hasPanels`);
-                                        return (
-                                            <Card key={field.id} className="p-4 space-y-4 bg-muted/50">
-                                                <div className="grid grid-cols-10 gap-4">
-                                                    <div className="col-span-5">
-                                                        <FormField control={form.control} name={`fabricDetails.${index}.fabricName`} render={({ field }) => ( <FormItem><FormControl><Input placeholder="Fabric Name" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                                                    </div>
-                                                    <div className="col-span-3">
-                                                        <FormField control={form.control} name={`fabricDetails.${index}.quantity`} render={({ field }) => ( <FormItem><FormControl><Input placeholder="Qty (Mtr)" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                                                    </div>
-                                                    <div className="col-span-2">
-                                                        <Button type="button" variant="destructive" className="w-full" onClick={() => remove(index)}>Delete</Button>
-                                                    </div>
-                                                </div>
-                                                <div className="grid grid-cols-10 gap-4 items-center">
-                                                     <div className="col-span-1">
-                                                        <FormField control={form.control} name={`fabricDetails.${index}.hasPanels`} render={({ field }) => ( <FormItem><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl></FormItem>)} />
-                                                    </div>
-                                                     <div className="col-span-5">
-                                                        <FormField control={form.control} name={`fabricDetails.${index}.type`} render={({ field }) => ( <FormItem><Select onValueChange={field.onChange} defaultValue={field.value} disabled={!hasPanels}><FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl><SelectContent><SelectItem value="typeA">Type A</SelectItem><SelectItem value="typeB">Type B</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
-                                                    </div>
-                                                    <div className="col-span-4">
-                                                         <FormField control={form.control} name={`fabricDetails.${index}.panels`} render={({ field }) => ( <FormItem><FormControl><Input placeholder="No of Panels" {...field} disabled={!hasPanels} /></FormControl><FormMessage /></FormItem>)} />
-                                                    </div>
-                                                </div>
-                                            </Card>
-                                        )
-                                    })}
-                                     <Button
-                                        type="button"
-                                        variant="secondary"
-                                        size="sm"
-                                        className="bg-green-600 text-white hover:bg-green-700"
-                                        onClick={() => append({ fabricName: "", quantity: "", hasPanels: false, type: "", panels: "" })}
-                                    >
-                                        <PlusCircle className="mr-2 h-4 w-4"/>
-                                        Add
-                                    </Button>
+                                <div>
+                                    <FormField
+                                        control={form.control}
+                                        name="requestType"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Item Type</FormLabel>
+                                                 <Tabs defaultValue={field.value} onValueChange={(value) => field.onChange(value as 'fabric' | 'furniture')} className="w-full">
+                                                    <TabsList className="grid w-full grid-cols-2">
+                                                        <TabsTrigger value="fabric">Fabric</TabsTrigger>
+                                                        <TabsTrigger value="furniture">Furniture</TabsTrigger>
+                                                    </TabsList>
+                                                    <TabsContent value="fabric" className="space-y-4 pt-4">
+                                                        {fabricFields.fields.map((field, index) => {
+                                                            const hasPanels = form.watch(`fabricDetails.${index}.hasPanels`);
+                                                            return (
+                                                                <Card key={field.id} className="p-4 space-y-4 bg-muted/50">
+                                                                    <div className="grid grid-cols-10 gap-4">
+                                                                        <div className="col-span-5">
+                                                                            <FormField control={form.control} name={`fabricDetails.${index}.fabricName`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">Fabric Name</FormLabel><FormControl><Input placeholder="Fabric Name" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                                                        </div>
+                                                                        <div className="col-span-3">
+                                                                            <FormField control={form.control} name={`fabricDetails.${index}.quantity`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">Qty (Mtr)</FormLabel><FormControl><Input placeholder="Qty (Mtr)" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                                                        </div>
+                                                                        <div className="col-span-2 self-end">
+                                                                            <Button type="button" variant="destructive" size="icon" className="w-full" onClick={() => fabricFields.remove(index)}><Trash2 className="h-4 w-4"/></Button>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-10 gap-4 items-center">
+                                                                         <div className="col-span-1 flex flex-col items-center">
+                                                                            <FormLabel className="text-xs mb-2">Panels?</FormLabel>
+                                                                            <FormField control={form.control} name={`fabricDetails.${index}.hasPanels`} render={({ field }) => ( <FormItem><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl></FormItem>)} />
+                                                                        </div>
+                                                                         <div className="col-span-5">
+                                                                            <FormField control={form.control} name={`fabricDetails.${index}.type`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">Type</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value} disabled={!hasPanels}><FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl><SelectContent><SelectItem value="typeA">Type A</SelectItem><SelectItem value="typeB">Type B</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
+                                                                        </div>
+                                                                        <div className="col-span-4">
+                                                                             <FormField control={form.control} name={`fabricDetails.${index}.panels`} render={({ field }) => ( <FormItem><FormLabel className="text-xs">No of Panels</FormLabel><FormControl><Input placeholder="No of Panels" {...field} disabled={!hasPanels} /></FormControl><FormMessage /></FormItem>)} />
+                                                                        </div>
+                                                                    </div>
+                                                                </Card>
+                                                            )
+                                                        })}
+                                                         <Button
+                                                            type="button"
+                                                            variant="secondary"
+                                                            size="sm"
+                                                            onClick={() => fabricFields.append({ fabricName: "", quantity: "", hasPanels: false, type: "", panels: "" })}
+                                                        >
+                                                            <PlusCircle className="mr-2 h-4 w-4"/>
+                                                            Add Fabric
+                                                        </Button>
+                                                    </TabsContent>
+                                                     <TabsContent value="furniture" className="space-y-4 pt-4">
+                                                        {furnitureFields.fields.map((field, index) => (
+                                                            <Card key={field.id} className="p-4 bg-muted/50">
+                                                                <div className="flex items-end gap-4">
+                                                                    <FormField control={form.control} name={`furnitureDetails.${index}.furnitureName`} render={({ field }) => ( <FormItem className="flex-grow"><FormLabel className="text-xs">Furniture Name</FormLabel><FormControl><Input placeholder="Furniture Name" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                                                    <FormField control={form.control} name={`furnitureDetails.${index}.quantity`} render={({ field }) => ( <FormItem className="w-1/4"><FormLabel className="text-xs">Qty</FormLabel><FormControl><Input placeholder="Qty" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                                                    <Button type="button" variant="destructive" size="icon" onClick={() => furnitureFields.remove(index)}><Trash2 className="h-4 w-4"/></Button>
+                                                                </div>
+                                                            </Card>
+                                                        ))}
+                                                        <Button
+                                                            type="button"
+                                                            variant="secondary"
+                                                            size="sm"
+                                                            onClick={() => furnitureFields.append({ furnitureName: "", quantity: "" })}
+                                                        >
+                                                            <PlusCircle className="mr-2 h-4 w-4"/>
+                                                            Add Furniture
+                                                        </Button>
+                                                     </TabsContent>
+                                                </Tabs>
+                                            </FormItem>
+                                        )}
+                                    />
                                 </div>
+
                                 <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" size="lg">Submit</Button>
                             </form>
                         </Form>

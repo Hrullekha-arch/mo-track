@@ -5,6 +5,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -145,8 +146,8 @@ export interface PurchaseRequest {
   salesman: string;
   workType?: string; // Made optional as it's being removed
   
-  fabricDetails?: FabricDetail[];
-  furnitureDetails?: FurnitureDetail[];
+  fabricDetails: FabricDetail[];
+  furnitureDetails: FurnitureDetail[];
   
   createdAt: string; // ISO Date string
   createdBy: {
