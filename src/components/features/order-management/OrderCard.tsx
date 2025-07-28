@@ -6,14 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { Order, User, Milestone } from "@/lib/types";
+import { Order, User, Milestone, PurchaseRequest } from "@/lib/types";
 import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2, AlertCircle, ShoppingBag } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { AssignInstallerDialog } from "./AssignInstallerDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
-import { doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { AssignCrmDialog } from "./AssignCrmDialog";
@@ -31,6 +31,11 @@ interface OrderCardProps {
   allUsers: User[];
 }
 
+interface MaterialDetails {
+    fabricDetails: { name: string; quantity: string; unit: string; }[];
+    furnitureDetails: { name: string; quantity: string; unit: string; }[];
+}
+
 export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const [showMilestones, setShowMilestones] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
@@ -38,6 +43,8 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const [isAssigningCrm, setIsAssigningCrm] = useState(false);
   const [isMessageDialogOpen, setIsMessageDialogOpen] = useState(false);
   const [isMaterialDialogOpen, setIsMaterialDialogOpen] = useState(false);
+  const [materialDetails, setMaterialDetails] = useState<MaterialDetails | null>(null);
+  const [materialLoading, setMaterialLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentOrder, setCurrentOrder] = useState(order);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -58,17 +65,38 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
   const isOrderComplete = currentOrder.milestones.every(m => m.completed) && (!!currentOrder.feedbackRating || !!currentOrder.customerFeedbackRating || !!currentOrder.bypassedOtp);
 
-  const getItemsForOrder = (order: Order) => {
-    const fabricItems = (order.fabricDetails || [])
-        .filter(f => f.fabricName)
-        .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
-    const furnitureItems = (order.furnitureDetails || [])
-        .filter(f => f.furnitureName)
-        .map(f => ({ name: f.furnitureName, quantity: f.quantity, unit: 'Qty' }));
-    return [...fabricItems, ...furnitureItems];
-  }
+  const handleShowMaterial = async () => {
+    setIsMaterialDialogOpen(true);
+    setMaterialLoading(true);
+    try {
+        const purchaseRequestRef = doc(db, "purchaseRequests", currentOrder.crmOrderNo);
+        const purchaseRequestSnap = await getDoc(purchaseRequestRef);
 
-  const items = getItemsForOrder(currentOrder);
+        if (purchaseRequestSnap.exists()) {
+            const prData = purchaseRequestSnap.data() as PurchaseRequest;
+            const fabricDetails = (prData.fabricDetails || [])
+                .filter(f => f.fabricName)
+                .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
+            const furnitureDetails = (prData.furnitureDetails || [])
+                .filter(f => f.furnitureName)
+                .map(f => ({ name: f.furnitureName, quantity: f.quantity, unit: 'Qty' }));
+            
+            setMaterialDetails({ fabricDetails, furnitureDetails });
+        } else {
+            setMaterialDetails({ fabricDetails: [], furnitureDetails: [] });
+            toast({
+                variant: 'destructive',
+                title: 'Not Found',
+                description: `No purchase request found for Deal ID ${currentOrder.crmOrderNo}`,
+            });
+        }
+    } catch (e) {
+        console.error("Error fetching material details: ", e);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch material details.' });
+    } finally {
+        setMaterialLoading(false);
+    }
+  };
 
   // Permissions Logic
   const canAssignCrm = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
@@ -415,7 +443,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                 <div className="break-inside-avoid mb-2">
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <Button variant="outline" size="sm" className="w-full" onClick={() => setIsMaterialDialogOpen(true)}>
+                            <Button variant="outline" size="sm" className="w-full" onClick={handleShowMaterial}>
                                 <ShoppingBag className="mr-2 h-4 w-4" />
                                 Material
                             </Button>
@@ -528,36 +556,42 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                 <DialogDescription>Items requested for this order.</DialogDescription>
             </DialogHeader>
             <div className="py-4">
-                <Tabs defaultValue="fabric" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="fabric" disabled={!currentOrder.fabricDetails?.length}>
-                            Fabric ({currentOrder.fabricDetails?.length || 0})
-                        </TabsTrigger>
-                        <TabsTrigger value="furniture" disabled={!currentOrder.furnitureDetails?.length}>
-                            Furniture ({currentOrder.furnitureDetails?.length || 0})
-                        </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="fabric" className="mt-4 max-h-60 overflow-y-auto">
-                        <div className="space-y-2 text-sm">
-                            {(currentOrder.fabricDetails || []).map((item, index) => (
-                                <div key={index} className="flex justify-between items-center p-2 rounded-md bg-muted">
-                                    <span>{item.fabricName}</span>
-                                    <span className="font-mono bg-background px-2 py-1 rounded-sm">{item.quantity} Mtr</span>
-                                </div>
-                            ))}
-                        </div>
-                    </TabsContent>
-                    <TabsContent value="furniture" className="mt-4 max-h-60 overflow-y-auto">
-                        <div className="space-y-2 text-sm">
-                            {(currentOrder.furnitureDetails || []).map((item, index) => (
-                                <div key={index} className="flex justify-between items-center p-2 rounded-md bg-muted">
-                                    <span>{item.furnitureName}</span>
-                                    <span className="font-mono bg-background px-2 py-1 rounded-sm">{item.quantity} Qty</span>
-                                </div>
-                            ))}
-                        </div>
-                    </TabsContent>
-                </Tabs>
+                {materialLoading ? (
+                    <div className="flex justify-center items-center h-40">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                    </div>
+                ) : (
+                    <Tabs defaultValue="fabric" className="w-full">
+                        <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="fabric" disabled={!materialDetails?.fabricDetails?.length}>
+                                Fabric ({materialDetails?.fabricDetails?.length || 0})
+                            </TabsTrigger>
+                            <TabsTrigger value="furniture" disabled={!materialDetails?.furnitureDetails?.length}>
+                                Furniture ({materialDetails?.furnitureDetails?.length || 0})
+                            </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="fabric" className="mt-4 max-h-60 overflow-y-auto">
+                            <div className="space-y-2 text-sm">
+                                {materialDetails?.fabricDetails.map((item, index) => (
+                                    <div key={index} className="flex justify-between items-center p-2 rounded-md bg-muted">
+                                        <span>{item.name}</span>
+                                        <span className="font-mono bg-background px-2 py-1 rounded-sm">{item.quantity} {item.unit}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </TabsContent>
+                        <TabsContent value="furniture" className="mt-4 max-h-60 overflow-y-auto">
+                            <div className="space-y-2 text-sm">
+                                {materialDetails?.furnitureDetails.map((item, index) => (
+                                    <div key={index} className="flex justify-between items-center p-2 rounded-md bg-muted">
+                                        <span>{item.name}</span>
+                                        <span className="font-mono bg-background px-2 py-1 rounded-sm">{item.quantity} {item.unit}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </TabsContent>
+                    </Tabs>
+                )}
             </div>
             <DialogFooter>
                 <Button onClick={() => setIsMaterialDialogOpen(false)}>Close</Button>

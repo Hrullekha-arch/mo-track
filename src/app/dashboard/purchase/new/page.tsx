@@ -24,6 +24,7 @@ import { PurchaseRequest, User } from "@/lib/types";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const fabricDetailSchema = z.object({
   fabricName: z.string().min(1, "Fabric name is required"),
@@ -154,7 +155,6 @@ export default function NewPurchaseRequestPage() {
     const [salesmen, setSalesmen] = useState<User[]>([]);
     const [previewData, setPreviewData] = useState<PurchaseFormValues | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [activeTab, setActiveTab] = useState("fabric");
 
     const form = useForm<PurchaseFormValues>({
         resolver: zodResolver(formSchema),
@@ -163,8 +163,8 @@ export default function NewPurchaseRequestPage() {
             dealId: "",
             customerName: "",
             salesman: "",
-            fabricDetails: [],
-            furnitureDetails: [],
+            fabricDetails: [{ fabricName: "", quantity: "", hasPanels: false, type: "", panels: "" }],
+            furnitureDetails: [{ furnitureName: "", quantity: "" }],
         },
     });
 
@@ -203,19 +203,24 @@ export default function NewPurchaseRequestPage() {
         if (!previewData || !user) return;
         setIsSubmitting(true);
         
+        // Filter out empty items before submitting
+        const finalFabricDetails = previewData.fabricDetails?.filter(f => f.fabricName && f.quantity) || [];
+        const finalFurnitureDetails = previewData.furnitureDetails?.filter(f => f.furnitureName && f.quantity) || [];
+
         try {
             const newRequestRef = doc(db, "purchaseRequests", previewData.dealId);
 
             const requestData: PurchaseRequest = {
                 id: previewData.dealId,
-                type: activeTab as 'fabric' | 'furniture',
+                // Determine type based on which items are present
+                type: finalFabricDetails.length > 0 ? 'fabric' : 'furniture',
                 email: previewData.email || "",
                 dealId: previewData.dealId,
                 customerName: previewData.customerName,
                 promiseDeliveryDate: previewData.deliveryDate.toISOString(),
                 salesman: previewData.salesman,
-                fabricDetails: previewData.fabricDetails || [],
-                furnitureDetails: previewData.furnitureDetails || [],
+                fabricDetails: finalFabricDetails,
+                furnitureDetails: finalFurnitureDetails,
                 createdAt: new Date().toISOString(),
                 createdBy: {
                     id: user.id,
@@ -236,17 +241,16 @@ export default function NewPurchaseRequestPage() {
             if (!orderSnapshot.empty) {
                 const orderDoc = orderSnapshot.docs[0];
                 await updateDoc(orderDoc.ref, {
-                    fabricDetails: previewData.fabricDetails || [],
-                    furnitureDetails: previewData.furnitureDetails || [],
+                    // This part is no longer needed as we fetch directly
                 });
                 toast({
-                    title: "Purchase Request Created & Order Updated",
-                    description: "Item details have been synced to the order.",
+                    title: "Purchase Request Created",
+                    description: `Your request for ${previewData.dealId} has been submitted.`,
                 });
             } else {
                  toast({
                     title: "Purchase Request Created",
-                    description: "Your request has been submitted for approval.",
+                    description: `Your request for ${previewData.dealId} has been submitted for approval.`,
                 });
             }
 
@@ -386,15 +390,15 @@ export default function NewPurchaseRequestPage() {
                                 
                                 <Separator />
                                 
-                                <div className="space-y-4">
+                                 <div className="space-y-4">
                                     <h3 className="font-medium">Item Details</h3>
-                                    <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                                    <Tabs defaultValue="fabric" className="w-full">
                                         <TabsList className="grid w-full grid-cols-2">
                                             <TabsTrigger value="fabric">Fabric</TabsTrigger>
                                             <TabsTrigger value="furniture">Furniture</TabsTrigger>
                                         </TabsList>
                                         <TabsContent value="fabric" className="space-y-4 pt-4">
-                                             {fabricFields.fields.map((field, index) => {
+                                             {fabricFields.map((field, index) => {
                                                 const hasPanels = watchedFabricDetails?.[index]?.hasPanels;
                                                 return (
                                                     <Card key={field.id} className="p-4 space-y-4 bg-muted/50">
@@ -468,7 +472,7 @@ export default function NewPurchaseRequestPage() {
                                             </Button>
                                         </TabsContent>
                                         <TabsContent value="furniture" className="space-y-4 pt-4">
-                                            {furnitureFields.fields.map((field, index) => (
+                                            {furnitureFields.map((field, index) => (
                                                 <Card key={field.id} className="p-4 bg-muted/50">
                                                     <div className="flex items-end gap-4">
                                                         <FormField
@@ -511,6 +515,7 @@ export default function NewPurchaseRequestPage() {
                                         </TabsContent>
                                     </Tabs>
                                 </div>
+
 
                                 <Button type="submit" className="w-full bg-green-600 hover:bg-green-700" size="lg">Submit</Button>
                             </form>

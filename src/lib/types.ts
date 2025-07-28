@@ -7,6 +7,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -112,11 +113,6 @@ export interface Order {
     name: string;
   },
   isAcknowledged: boolean;
-
-  // These come from the purchase request, but might be useful to have here
-  // for generating the barcode sticker without another DB read.
-  fabricDetails: FabricDetail[];
-  furnitureDetails: FurnitureDetail[];
 
   // Installer feedback
   feedbackRating?: number;

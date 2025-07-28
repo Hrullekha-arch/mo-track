@@ -3,20 +3,24 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Layers, Check, Scan, Ruler, Box, Tag, Award, Waves, Printer, X, GanttChartSquare, ChevronDown, Barcode, Package, Wind, Users, Scissors, Milestone, CheckCircle } from 'lucide-react';
+import { Layers, Check, Scan, Ruler, Box, Tag, Award, Waves, Printer, X, GanttChartSquare, ChevronDown, Barcode, Package, Wind, Users, Scissors, Milestone, CheckCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { BarcodeSticker } from '@/components/features/pms/BarcodeSticker';
-import { collection, doc, onSnapshot, query, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, updateDoc, arrayUnion, arrayRemove, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Order, PmsStatus } from '@/lib/types';
+import { Order, PmsStatus, PurchaseRequest } from '@/lib/types';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PMS_PROCESS_CONFIG } from '@/components/features/pms/pms-constants';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+interface OrderWithItems extends Order {
+    items: { name: string; quantity: string; unit: string; }[];
+}
 
 
 function PmsTimeline({ 
@@ -213,7 +217,9 @@ export default function PmsPage() {
     const [allOrders, setAllOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
-    const [orderForPrint, setOrderForPrint] = useState<Order | null>(null);
+    const [orderForPrint, setOrderForPrint] = useState<OrderWithItems | null>(null);
+    const [printLoading, setPrintLoading] = useState(false);
+    const { toast } = useToast();
 
     useEffect(() => {
         const q = query(collection(db, "orders"));
@@ -245,9 +251,33 @@ export default function PmsPage() {
         });
     }, [allPmsOrders]);
 
-    const handleBarcodeView = (order: Order) => {
-        setOrderForPrint(order);
+    const handleBarcodeView = async (order: Order) => {
+        setPrintLoading(true);
         setIsPrintDialogOpen(true);
+        try {
+            const prRef = doc(db, 'purchaseRequests', order.crmOrderNo);
+            const prSnap = await getDoc(prRef);
+
+            let items: OrderWithItems['items'] = [];
+            if (prSnap.exists()) {
+                const prData = prSnap.data() as PurchaseRequest;
+                 const fabricItems = (prData.fabricDetails || [])
+                    .filter(f => f.fabricName)
+                    .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
+                const furnitureItems = (prData.furnitureDetails || [])
+                    .filter(f => f.furnitureName)
+                    .map(f => ({ name: f.furnitureName, quantity: f.quantity, unit: 'Qty' }));
+                items = [...fabricItems, ...furnitureItems];
+            } else {
+                 toast({ variant: 'destructive', title: 'No Purchase Request', description: `Could not find item details for ${order.crmOrderNo}`})
+            }
+             setOrderForPrint({ ...order, items });
+        } catch(error) {
+            console.error("Error fetching items for printing:", error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Failed to fetch item details.'});
+        } finally {
+            setPrintLoading(false);
+        }
     };
 
     const handlePrint = () => {
@@ -291,16 +321,6 @@ export default function PmsPage() {
         );
     }
 
-    const getItemsForOrder = (order: Order) => {
-        const fabricItems = (order.fabricDetails || [])
-            .filter(f => f.fabricName)
-            .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
-        const furnitureItems = (order.furnitureDetails || [])
-            .filter(f => f.furnitureName)
-            .map(f => ({ name: f.furnitureName, quantity: f.quantity, unit: 'Qty' }));
-        return [...fabricItems, ...furnitureItems];
-    }
-
     return (
         <>
             <div className="container mx-auto p-4 md:p-6 lg:p-8">
@@ -333,20 +353,25 @@ export default function PmsPage() {
                             Print the barcode sticker to attach to the materials.
                         </DialogDescription>
                     </DialogHeader>
-                    {orderForPrint && (
+                    {printLoading && (
+                        <div className="flex justify-center items-center h-48">
+                            <Loader2 className="h-8 w-8 animate-spin" />
+                        </div>
+                    )}
+                    {!printLoading && orderForPrint && (
                         <div id="barcode-sticker-print" className="py-4 flex justify-center">
                             <BarcodeSticker
                                 dealId={orderForPrint.crmOrderNo}
                                 customerName={orderForPrint.customerName}
                                 salesman={orderForPrint.salesPerson}
                                 orderType={orderForPrint.orderType}
-                                items={getItemsForOrder(orderForPrint)}
+                                items={orderForPrint.items}
                             />
                         </div>
                     )}
                     <div className="flex justify-end gap-2">
                          <Button variant="ghost" onClick={() => setIsPrintDialogOpen(false)}><X className="mr-2"/>Close</Button>
-                         <Button onClick={handlePrint}><Printer className="mr-2"/>Print Sticker</Button>
+                         <Button onClick={handlePrint} disabled={printLoading || !orderForPrint}><Printer className="mr-2"/>Print Sticker</Button>
                     </div>
                 </DialogContent>
             </Dialog>
