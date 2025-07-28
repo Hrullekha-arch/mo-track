@@ -7,13 +7,44 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Camera, CheckCircle, Loader2, ScanLine, Home, User, ShoppingBag } from 'lucide-react';
+import { Camera, CheckCircle, Loader2, ScanLine, Home, User, ShoppingBag, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { completePmsProcess } from './actions';
 import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
 import { Order } from '@/lib/types';
 import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
+
+type ScanStatus = 'success' | 'warning' | 'error';
+
+interface ScanResult {
+    status: ScanStatus;
+    message: string;
+}
+
+const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult | null, isOpen: boolean, onOpenChange: (open: boolean) => void }) => {
+    if (!result) return null;
+
+    const { status, message } = result;
+    const Icon = status === 'success' ? CheckCircle : status === 'warning' ? AlertTriangle : XCircle;
+    const iconColor = status === 'success' ? 'text-green-500' : status === 'warning' ? 'text-orange-400' : 'text-red-500';
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md p-0" hideCloseButton>
+                <div className={cn(
+                    "flex flex-col items-center justify-center p-8 rounded-lg text-center space-y-4",
+                )}>
+                    <Icon className={cn("h-20 w-20", iconColor)} />
+                    <p className="text-xl font-bold">{message}</p>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 
 function PmsScanner() {
     const { toast } = useToast();
@@ -26,6 +57,8 @@ function PmsScanner() {
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+    const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+    const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
 
     const processScan = async (id: string) => {
@@ -37,26 +70,31 @@ function PmsScanner() {
         
         try {
             const result = await completePmsProcess({ orderId: id });
+            
+            let status: ScanStatus = 'error';
+            if (result.success) {
+                status = result.message.includes('already complete') ? 'warning' : 'success';
+            }
+            
+            setScanResult({ status, message: result.message });
+            setIsPopupOpen(true);
+            setTimeout(() => setIsPopupOpen(false), 1500);
 
-            if (!result.success || !result.order) {
-                toast({ variant: 'destructive', title: 'Scan Failed', description: result.message, duration: 5000 });
-                setOrder(null);
-            } else {
-                 toast({ title: 'Success!', description: result.message });
+            if (result.order) {
                  setOrder(result.order as Order);
+            } else {
+                setOrder(null);
             }
         } catch (error) {
-             toast({
-                variant: "destructive",
-                title: "Scan Error",
-                description: "An unexpected error occurred during the scan.",
-            });
-            console.error("Error during scan process:", error);
+             setScanResult({ status: 'error', message: 'An unexpected error occurred.' });
+             setIsPopupOpen(true);
+             setTimeout(() => setIsPopupOpen(false), 1500);
+             console.error("Error during scan process:", error);
         } finally {
             setLoading(false);
             setTimeout(() => {
                 isScanningRef.current = false;
-            }, 3000); // 3-second cooldown
+            }, 2000); // 2-second cooldown
         }
     };
     
@@ -135,6 +173,7 @@ function PmsScanner() {
     const items = getItemsForOrder(order);
 
     return (
+        <>
         <div className="container mx-auto p-4 md:p-6 lg:p-8 max-w-4xl">
              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-4">
@@ -198,7 +237,7 @@ function PmsScanner() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                       {loading && <Skeleton className="h-40 w-full" />}
+                       {loading && !order && <Skeleton className="h-40 w-full" />}
                        {!loading && order && (
                            <div className="space-y-4">
                                <div className="space-y-2 text-sm">
@@ -238,6 +277,8 @@ function PmsScanner() {
                 </Card>
             </div>
         </div>
+        <ScanResultPopup result={scanResult} isOpen={isPopupOpen} onOpenChange={setIsPopupOpen} />
+        </>
     );
 }
 
