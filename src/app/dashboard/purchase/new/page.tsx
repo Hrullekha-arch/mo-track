@@ -366,8 +366,21 @@ export default function NewPurchaseRequestPage() {
                                                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                                             <FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl>
                                                                             <SelectContent>
-                                                                                <SelectItem value="typeA">Type A</SelectItem>
-                                                                                <SelectItem value="typeB">Type B</SelectItem>
+                                                                                <SelectItem value="Three Pleat - Reg">Three Pleat - Reg</SelectItem>
+                                                                                <SelectItem value="Three Pleat - Sheer">Three Pleat - Sheer</SelectItem>
+                                                                                <SelectItem value="Eyelet - Reg">Eyelet - Reg</SelectItem>
+                                                                                <SelectItem value="Eleza Tape Curtain Stitching">Eleza Tape Curtain Stitching</SelectItem>
+                                                                                <SelectItem value="Nefa Curtain Stitching Charge">Nefa Curtain Stitching Charge</SelectItem>
+                                                                                <SelectItem value="Curtain Alteration Stitching">Curtain Alteration Stitching</SelectItem>
+                                                                                <SelectItem value="Eyelet Sheer">Eyelet Sheer</SelectItem>
+                                                                                <SelectItem value="Pencil Pleat - Reg">Pencil Pleat - Reg</SelectItem>
+                                                                                <SelectItem value="Loop Curtain Stitching">Loop Curtain Stitching</SelectItem>
+                                                                                <SelectItem value="Ripple Pleat Curtain">Ripple Pleat Curtain</SelectItem>
+                                                                                <SelectItem value="Wire Curtain">Wire Curtain</SelectItem>
+                                                                                <SelectItem value="Plain Curtain Stitching">Plain Curtain Stitching</SelectItem>
+                                                                                <SelectItem value="Goblet Pleat Curtain">Goblet Pleat Curtain</SelectItem>
+                                                                                <SelectItem value="Delivery">Delivery</SelectItem>
+                                                                                <SelectItem value="Production">Production</SelectItem>
                                                                             </SelectContent>
                                                                         </Select>
                                                                     )}
