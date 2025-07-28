@@ -144,7 +144,6 @@ export interface PurchaseRequest {
   customerName: string;
   promiseDeliveryDate: string; // ISO Date string
   salesman: string;
-  workType?: string; // Made optional as it's being removed
   
   fabricDetails: FabricDetail[];
   furnitureDetails: FurnitureDetail[];

@@ -399,7 +399,6 @@ const PurchaseRequestCard = ({
                                     <h3 className="font-semibold text-lg">{request.customerName}</h3>
                                     <p className="text-sm text-muted-foreground">ID: {request.dealId}</p>
                                     <p className='flex items-center gap-2 pt-1'><User className='h-4 w-4 text-muted-foreground' /> Salesman: {request.salesman}</p>
-                                    <p className='flex items-center gap-2'><Briefcase className='h-4 w-4 text-muted-foreground' /> Work Type: {request.workType}</p>
                                      <p className={cn('flex items-center gap-2 font-medium', statusTextColor)}>
                                         <Clock className='h-4 w-4'/>
                                         Status: {statusText} {pendingWith && `(Pending with: ${pendingWith})`}
