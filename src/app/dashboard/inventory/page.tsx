@@ -4,18 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StockTable } from "@/components/features/inventory/StockTable";
-import { getStockData } from "./actions";
 
 
-export default async function InventoryPage() {
-    const initialStock = await getStockData();
-    const totalStockCount = initialStock.length;
-
+export default function InventoryPage() {
     return (
         <div className="w-full p-4 md:p-6 lg:p-8 space-y-4">
              <header>
                 <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
-                <p className="text-muted-foreground">View and manage your stock. Total unique items: {totalStockCount.toLocaleString()}</p>
+                <p className="text-muted-foreground">View and manage your stock.</p>
             </header>
             <Tabs defaultValue="stock" className="w-full">
                 <TabsList>
@@ -23,7 +19,7 @@ export default async function InventoryPage() {
                 </TabsList>
                 <TabsContent value="stock">
                     <Suspense fallback={<InventorySkeleton />}>
-                        <StockTable initialData={initialStock} />
+                        <StockTable />
                     </Suspense>
                 </TabsContent>
             </Tabs>

@@ -27,7 +27,8 @@ export async function getStockData(): Promise<Stock[]> {
         return stockData;
     } catch (error) {
         console.error("Error fetching stock data from server:", error);
-        // In a real app, you might want more robust error handling
+        // If quota is exceeded or another error occurs, return an empty array to prevent crashing.
+        // The client can then handle the empty state or show an error.
         return [];
     }
 }
