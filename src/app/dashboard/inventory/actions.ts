@@ -3,6 +3,10 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import { Stock } from '@/lib/types';
+import * as XLSX from "xlsx";
+import { writeBatch } from 'firebase-admin/firestore';
+
+const BATCH_SIZE = 499; // Firestore batch limit is 500 operations
 
 export async function getStockData(): Promise<Stock[]> {
     try {
@@ -25,5 +29,68 @@ export async function getStockData(): Promise<Stock[]> {
         console.error("Error fetching stock data from server:", error);
         // In a real app, you might want more robust error handling
         return [];
+    }
+}
+
+export async function importStockData(fileBuffer: Buffer): Promise<{ success: boolean; message: string; count?: number }> {
+    try {
+        const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        if (json.length < 2) {
+            return { success: false, message: "The Excel sheet is empty or invalid." };
+        }
+
+        const headers: string[] = (json[0] as string[]).map(h => String(h).trim().toLowerCase());
+        const requiredHeaders = [
+            'bcn', 'distributor collection name', 'serial no', 'hsn code',
+            'rl price', 'cl price', 'mrp', 'caterogary', 'vendor name'
+        ];
+        const missingHeaders = requiredHeaders.filter(rh => !headers.includes(rh));
+        if (missingHeaders.length > 0) {
+            return { success: false, message: `Missing required columns: ${missingHeaders.join(', ')}` };
+        }
+
+        const allItems = json.slice(1).map(row => {
+            const stockItem: Partial<Stock> = {
+                bcn: String(row[0] || ''),
+                itemName: String(row[1] || ''),
+                serialNo: String(row[2] || ''),
+                hsnCode: String(row[3] || ''),
+                rlPrice: Number(row[4] || 0),
+                clPrice: Number(row[5] || 0),
+                mrp: Number(row[6] || 0),
+                category: String(row[9] || ''), // Column J
+                vendorName: String(row[10] || ''), // Column K
+                quantity: 1,
+                unit: 'pcs',
+                type: String(row[9] || 'fabric').toLowerCase(),
+                lastUpdatedAt: new Date().toISOString(),
+            };
+            return stockItem;
+        }).filter(item => item.bcn);
+
+        for (let i = 0; i < allItems.length; i += BATCH_SIZE) {
+            const chunk = allItems.slice(i, i + BATCH_SIZE);
+            const batch = adminDb.batch();
+
+            chunk.forEach(stockItem => {
+                const rawDocId = stockItem.bcn;
+                if (!rawDocId) return;
+
+                const docId = rawDocId.replace(/\//g, '-');
+                const stockRef = adminDb.collection("stocks").doc(docId);
+                batch.set(stockRef, { ...stockItem, id: docId });
+            });
+            await batch.commit();
+        }
+
+        return { success: true, message: "Import successful!", count: allItems.length };
+
+    } catch (error: any) {
+        console.error("Error in importStockData server action:", error);
+        return { success: false, message: `Server-side import failed: ${error.message}` };
     }
 }

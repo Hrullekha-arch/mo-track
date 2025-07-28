@@ -27,21 +27,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
-import { collection, doc, writeBatch } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import { Stock } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
+import { importStockData } from "@/app/dashboard/inventory/actions";
 
-const BATCH_SIZE = 500; // Firestore batch limit is 500 operations
 
 export function StockTableClient({ initialData }: { initialData: Stock[] }) {
   const [stock, setStock] = React.useState<Stock[]>(initialData);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [isImporting, setIsImporting] = React.useState(false);
-  const [importProgress, setImportProgress] = React.useState(0);
   const { role } = useAuth();
   const { toast } = useToast();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -57,87 +54,34 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
     if (!file) return;
     
     setIsImporting(true);
-    setImportProgress(0);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
-            const data = new Uint8Array(e.target?.result as ArrayBuffer);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-            if (json.length < 2) {
-                toast({ variant: "destructive", title: "Import Failed", description: "The Excel sheet is empty."});
-                setIsImporting(false);
-                return;
+            const buffer = e.target?.result as ArrayBuffer;
+            if (!buffer) {
+                 toast({ variant: "destructive", title: "File Read Error", description: "Could not read the selected file."});
+                 return;
             }
-
-            const headers: string[] = (json[0] as string[]).map(h => String(h).trim().toLowerCase());
-            const requiredHeaders = [
-                'bcn', 'distributor collection name', 'serial no', 'hsn code', 
-                'rl price', 'cl price', 'mrp', 'caterogary', 'vendor name'
-            ];
-
-            const missingHeaders = requiredHeaders.filter(rh => !headers.includes(rh));
-            if (missingHeaders.length > 0) {
-                toast({
+            
+            const result = await importStockData(Buffer.from(buffer));
+            
+            if (result.success) {
+                 toast({
+                    title: "Import Successful",
+                    description: `${result.count} items have been added/updated. The page will refresh shortly.`,
+                });
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            } else {
+                 toast({
                     variant: "destructive",
-                    title: "Invalid Headers",
-                    description: `Missing required columns: ${missingHeaders.join(', ')}`,
+                    title: "Import Failed",
+                    description: result.message,
                     duration: 7000,
                 });
-                setIsImporting(false);
-                return;
             }
-
-            const allItems = json.slice(1).map(row => {
-                const stockItem: Partial<Stock> = {
-                    bcn: String(row[0] || ''),
-                    itemName: String(row[1] || ''),
-                    serialNo: String(row[2] || ''),
-                    hsnCode: String(row[3] || ''),
-                    rlPrice: Number(row[4] || 0),
-                    clPrice: Number(row[5] || 0),
-                    mrp: Number(row[6] || 0),
-                    category: String(row[9] || ''), // Column J
-                    vendorName: String(row[10] || ''), // Column K
-                    quantity: 1, // Default quantity
-                    unit: 'pcs', // Default unit
-                    type: String(row[9] || 'fabric').toLowerCase(), // Use category as type
-                    lastUpdatedAt: new Date().toISOString(),
-                };
-                return stockItem;
-            }).filter(item => item.bcn); // Filter out rows without a BCN
-
-            for (let i = 0; i < allItems.length; i += BATCH_SIZE) {
-                const chunk = allItems.slice(i, i + BATCH_SIZE);
-                const batch = writeBatch(db);
-                
-                chunk.forEach(stockItem => {
-                    const rawDocId = stockItem.bcn;
-                    if (!rawDocId) return;
-
-                    const docId = rawDocId.replace(/\//g, '-');
-                    const stockRef = doc(db, "stocks", docId);
-                    batch.set(stockRef, { ...stockItem, id: docId });
-                });
-                
-                await batch.commit();
-
-                const progress = Math.round(((i + chunk.length) / allItems.length) * 100);
-                setImportProgress(progress);
-            }
-            
-            toast({
-                title: "Import Successful",
-                description: `${allItems.length} items have been added/updated. The page will refresh shortly.`,
-            });
-            
-            setTimeout(() => {
-                window.location.reload();
-            }, 2000);
 
         } catch (error) {
             console.error("Error importing stock:", error);
@@ -147,7 +91,6 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
                 fileInputRef.current.value = "";
             }
             setIsImporting(false);
-            setImportProgress(0);
         }
     };
     reader.readAsArrayBuffer(file);
@@ -246,7 +189,7 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
           <div className="ml-auto flex items-center gap-2">
             <Button onClick={() => fileInputRef.current?.click()} variant="outline" disabled={!isAuthorized || isImporting}>
               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-              {isImporting ? `Importing... (${importProgress}%)` : 'Import from XLS'}
+              {isImporting ? 'Importing...' : 'Import from XLS'}
             </Button>
             <input
               type="file"
