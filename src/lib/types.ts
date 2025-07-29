@@ -13,6 +13,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -97,6 +98,13 @@ export interface FurnitureDetail {
     inboundMilestones?: InboundMilestone[];
 }
 
+export interface VasDetail {
+    vasName: string;
+    rate: string;
+    quantity: string;
+    total: string;
+}
+
 
 export interface Order {
   id: string; // This can also be the tracking code
@@ -153,6 +161,7 @@ export interface PurchaseRequest {
   
   fabricDetails: FabricDetail[];
   furnitureDetails: FurnitureDetail[];
+  vasDetails?: VasDetail[];
   
   createdAt: string; // ISO Date string
   createdBy: {

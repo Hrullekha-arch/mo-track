@@ -52,6 +52,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { CreateQuotationDialog } from "./CreateQuotationDialog";
 
 
 export function OrdersTable() {
@@ -64,6 +65,7 @@ export function OrdersTable() {
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
   const [deletingOrder, setDeletingOrder] = React.useState<Order | null>(null);
+  const [isQuotationDialogOpen, setIsQuotationDialogOpen] = React.useState(false);
 
 
   // New states for advanced filters
@@ -353,11 +355,9 @@ export function OrdersTable() {
             <h1 className="text-3xl font-bold tracking-tight">Orders Dashboard</h1>
             <p className="text-muted-foreground">A detailed, searchable view of all acknowledged orders.</p>
           </div>
-          <Button asChild>
-            <Link href="/dashboard/purchase/new">
+          <Button onClick={() => setIsQuotationDialogOpen(true)}>
               <PlusCircle className="mr-2 h-4 w-4" />
               Create Quotation
-            </Link>
           </Button>
         </header>
         <Card>
@@ -563,6 +563,7 @@ export function OrdersTable() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <CreateQuotationDialog isOpen={isQuotationDialogOpen} onClose={() => setIsQuotationDialogOpen(false)} />
     </>
   );
 }
