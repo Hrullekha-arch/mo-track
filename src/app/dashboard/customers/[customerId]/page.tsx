@@ -41,8 +41,14 @@ export default function CustomerDetailPage() {
     if (loading) {
         return (
             <div className="p-8 space-y-6">
-                <Skeleton className="h-8 w-1/4" />
-                <Skeleton className="h-6 w-1/2" />
+                <div className="flex justify-between items-start">
+                    <div className="space-y-2">
+                        <Skeleton className="h-8 w-48" />
+                        <Skeleton className="h-5 w-64" />
+                    </div>
+                    <Skeleton className="h-10 w-36" />
+                </div>
+                <Skeleton className="h-px w-full" />
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-64 w-full" />
             </div>
@@ -53,7 +59,7 @@ export default function CustomerDetailPage() {
         return (
             <div className="p-8 text-center">
                 <h2 className="text-xl font-semibold">Customer not found</h2>
-                 <Button variant="link" asChild className="mt-4">
+                 <Button variant="outline" asChild className="mt-4">
                     <Link href="/dashboard/customers">
                         <ArrowLeft className="mr-2 h-4 w-4" />
                         Back to Customers
