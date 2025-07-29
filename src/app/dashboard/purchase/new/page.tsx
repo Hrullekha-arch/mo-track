@@ -220,8 +220,7 @@ export default function NewPurchaseRequestPage() {
         try {
             const newRequestRef = doc(db, "purchaseRequests", previewData.dealId);
 
-            const requestData: PurchaseRequest = {
-                id: previewData.dealId,
+            const requestData: Omit<PurchaseRequest, 'id'> = {
                 // Determine type based on which items are present
                 type: finalFabricDetails.length > 0 ? 'fabric' : 'furniture',
                 email: previewData.email || "",

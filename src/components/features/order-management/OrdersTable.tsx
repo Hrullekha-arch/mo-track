@@ -45,7 +45,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { NewOrderDialog } from "./NewOrderDialog";
 import { PlusCircle } from "lucide-react";
 import Link from "next/link";
 import { format, isWithinInterval } from "date-fns";
@@ -66,7 +65,6 @@ export function OrdersTable() {
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
   const [deletingOrder, setDeletingOrder] = React.useState<Order | null>(null);
-  const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = React.useState(false);
 
   // New states for advanced filters
   const [orderNoFilter, setOrderNoFilter] = React.useState("");
@@ -353,9 +351,11 @@ export function OrdersTable() {
             <h1 className="text-3xl font-bold tracking-tight">Orders Dashboard</h1>
             <p className="text-muted-foreground">A detailed, searchable view of all acknowledged orders.</p>
           </div>
-          <Button onClick={() => setIsNewOrderDialogOpen(true)}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            New Order
+          <Button asChild>
+              <Link href="/dashboard/purchase/new">
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  New Purchase Request
+              </Link>
           </Button>
         </header>
         <Card>
@@ -561,7 +561,6 @@ export function OrdersTable() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <NewOrderDialog isOpen={isNewOrderDialogOpen} onClose={() => setIsNewOrderDialogOpen(false)} />
     </>
   );
 }

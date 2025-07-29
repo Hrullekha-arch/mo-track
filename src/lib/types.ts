@@ -11,6 +11,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -145,6 +146,8 @@ export interface PurchaseRequest {
   customerName: string;
   promiseDeliveryDate: string; // ISO Date string
   salesman: string;
+  email?: string;
+  type: 'fabric' | 'furniture';
   
   fabricDetails: FabricDetail[];
   furnitureDetails: FurnitureDetail[];
