@@ -619,7 +619,7 @@ export default function PurchasePage() {
                 <Card className="text-center p-12">
                     <CardTitle>No Active Requests Found</CardTitle>
                     <CardDescription>
-                        Create a new purchase request or check the "All" tab for completed ones.
+                        All purchase requests are completed. Check the "All" tab for history.
                     </CardDescription>
                 </Card>
             );
@@ -637,17 +637,9 @@ export default function PurchasePage() {
     return (
         <AlertDialog>
             <div className="space-y-4">
-                <header className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Purchase Process</h1>
-                        <p className="text-muted-foreground">Manage and track all purchase requests from authorization to placing the order.</p>
-                    </div>
-                    <Button asChild>
-                        <Link href="/dashboard/purchase/new">
-                            <PlusCircle className="mr-2 h-4 w-4" />
-                            New Quotation
-                        </Link>
-                    </Button>
+                <header>
+                    <h1 className="text-3xl font-bold tracking-tight">Purchase Process</h1>
+                    <p className="text-muted-foreground">Manage and track all purchase requests from authorization to placing the order.</p>
                 </header>
                 
                 <Tabs defaultValue="fabric" className="w-full">

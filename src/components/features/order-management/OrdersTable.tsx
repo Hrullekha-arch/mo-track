@@ -119,7 +119,9 @@ export function OrdersTable() {
       id: "index",
       header: "#",
       cell: ({ row, table }) => {
-        const sortedRowIndex = table.getSortedRowModel().rows.findIndex(sortedRow => sortedRow.id === row.id);
+        const sortedRowModel = table.getSortedRowModel();
+        const rowModel = sortedRowModel ? sortedRowModel : table.getRowModel();
+        const sortedRowIndex = rowModel.rows.findIndex(sortedRow => sortedRow.id === row.id);
         const pageIndex = table.getState().pagination.pageIndex;
         const pageSize = table.getState().pagination.pageSize;
         return <span>{pageIndex * pageSize + sortedRowIndex + 1}</span>;
