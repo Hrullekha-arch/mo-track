@@ -14,10 +14,9 @@ import { Info, PlusCircle, Search, Trash2, Upload, Play, Loader2 } from "lucide-
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NewContactDialog } from '@/components/features/customer/NewContactDialog';
 import { Customer } from '@/lib/types';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { CustomerResultsTable } from '@/components/features/customer/CustomerResultsTable';
+import { searchCustomers } from './actions';
 
 const searchSchema = z.object({
   customerName: z.string().optional(),
@@ -51,24 +50,12 @@ export default function CustomersPage() {
     setLoading(true);
     setHasSearched(true);
     try {
-      // NOTE: For a large-scale CRM, a more efficient search like Algolia or Elasticsearch is recommended.
-      // This client-side filtering approach is suitable for a smaller number of customers.
-      const customersRef = collection(db, 'customers');
-      const q = query(customersRef);
-      const querySnapshot = await getDocs(q);
-      const allCustomers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Customer);
-
-      const filteredCustomers = allCustomers.filter(customer => {
-        const nameMatch = !data.customerName || customer.name.toLowerCase().includes(data.customerName.toLowerCase());
-        const mobileMatch = !data.mobileNo || customer.mobileNo.includes(data.mobileNo);
-        // Add other filter logic here as data model evolves (e.g., dealName, billingName)
-        const salesSupportMatch = !data.salesSupport || data.salesSupport === 'all' || customer.salesSupport === data.salesSupport;
-
-        return nameMatch && mobileMatch && salesSupportMatch;
+      const results = await searchCustomers({
+        customerName: data.customerName,
+        mobileNo: data.mobileNo,
+        salesSupport: data.salesSupport,
       });
-
-      setSearchResults(filteredCustomers);
-
+      setSearchResults(results);
     } catch (error) {
       console.error("Error searching customers:", error);
       toast({
