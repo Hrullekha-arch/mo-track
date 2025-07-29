@@ -11,7 +11,24 @@ interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {
 
 export async function addCustomer(data: AddCustomerInput): Promise<{ success: boolean; message: string; customer?: Customer }> {
   try {
-    const newContactRef = adminDb.collection("customers").doc();
+    const customersRef = adminDb.collection("customers");
+
+    // Check for existing customer with the same name (case-insensitive for robustness, though Firestore doesn't support this directly without workarounds)
+    // For simplicity, we'll do an exact match check. For case-insensitivity, you'd store a lowercase version.
+    const nameQuery = customersRef.where('name', '==', data.name);
+    const nameSnapshot = await nameQuery.get();
+    if (!nameSnapshot.empty) {
+        return { success: false, message: "A customer with this name already exists." };
+    }
+
+    // Check for existing customer with the same mobile number
+    const mobileQuery = customersRef.where('mobileNo', '==', data.mobileNo);
+    const mobileSnapshot = await mobileQuery.get();
+    if (!mobileSnapshot.empty) {
+        return { success: false, message: "A customer with this mobile number already exists." };
+    }
+
+    const newContactRef = customersRef.doc();
     const newCustomerData: Omit<Customer, 'id'> = {
       ...data,
       createdAt: new Date().toISOString(),
