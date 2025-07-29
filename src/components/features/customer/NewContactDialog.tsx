@@ -79,7 +79,7 @@ export function NewContactDialog({ isOpen, onClose }: NewContactDialogProps) {
             ...data,
             id: newContactRef.id,
             createdAt: new Date().toISOString(),
-            createdBy: user.uid,
+            createdBy: user.id,
         });
         toast({ title: "Contact Created", description: `${data.name} has been added to your contacts.` });
         onClose();
