@@ -13,14 +13,6 @@ export async function addCustomer(data: AddCustomerInput): Promise<{ success: bo
   try {
     const customersRef = adminDb.collection("customers");
 
-    // Check for existing customer with the same name (case-insensitive for robustness, though Firestore doesn't support this directly without workarounds)
-    // For simplicity, we'll do an exact match check. For case-insensitivity, you'd store a lowercase version.
-    const nameQuery = customersRef.where('name', '==', data.name);
-    const nameSnapshot = await nameQuery.get();
-    if (!nameSnapshot.empty) {
-        return { success: false, message: "A customer with this name already exists." };
-    }
-
     // Check for existing customer with the same mobile number
     const mobileQuery = customersRef.where('mobileNo', '==', data.mobileNo);
     const mobileSnapshot = await mobileQuery.get();
