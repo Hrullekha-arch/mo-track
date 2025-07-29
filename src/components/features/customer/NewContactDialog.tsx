@@ -15,8 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { collection, doc, setDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { addCustomer } from "@/app/dashboard/customers/actions";
 
 const contactSchema = z.object({
   name: z.string().min(1, "Name is required."),
@@ -74,16 +73,18 @@ export function NewContactDialog({ isOpen, onClose }: NewContactDialogProps) {
     }
     setLoading(true);
     try {
-        const newContactRef = doc(collection(db, "customers"));
-        await setDoc(newContactRef, {
+        const result = await addCustomer({
             ...data,
-            id: newContactRef.id,
-            createdAt: new Date().toISOString(),
             createdBy: user.id,
         });
-        toast({ title: "Contact Created", description: `${data.name} has been added to your contacts.` });
-        onClose();
-        form.reset();
+
+        if (result.success) {
+            toast({ title: "Contact Created", description: `${data.name} has been added to your contacts.` });
+            onClose();
+            form.reset();
+        } else {
+            toast({ variant: "destructive", title: "Error", description: result.message });
+        }
     } catch (error) {
         console.error("Error creating contact:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not save the new contact." });
