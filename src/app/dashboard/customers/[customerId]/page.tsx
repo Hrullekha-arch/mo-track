@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -12,29 +11,33 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Image from 'next/image';
 import { getCustomerById } from '../actions';
 
-interface CustomerDetailPageProps {
-    preloadedCustomer?: Customer;
-    onBack?: () => void;
-}
-
-export default function CustomerDetailPage({ preloadedCustomer, onBack }: CustomerDetailPageProps) {
+export default function CustomerDetailPage() {
     const params = useParams();
+    const router = useRouter();
     const customerId = params.customerId as string;
-    const [customer, setCustomer] = useState<Customer | null>(preloadedCustomer || null);
-    const [loading, setLoading] = useState(!preloadedCustomer);
+    const [customer, setCustomer] = useState<Customer | null>(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!preloadedCustomer && customerId) {
+        if (customerId) {
             const fetchCustomer = async () => {
                 setLoading(true);
-                const fetchedCustomer = await getCustomerById(customerId);
-                setCustomer(fetchedCustomer);
-                setLoading(false);
+                try {
+                    const fetchedCustomer = await getCustomerById(customerId);
+                    setCustomer(fetchedCustomer);
+                } catch (error) {
+                    console.error("Failed to fetch customer", error);
+                    setCustomer(null);
+                } finally {
+                    setLoading(false);
+                }
             };
 
             fetchCustomer();
+        } else {
+            setLoading(false);
         }
-    }, [customerId, preloadedCustomer]);
+    }, [customerId]);
 
     if (loading) {
         return (
@@ -52,14 +55,10 @@ export default function CustomerDetailPage({ preloadedCustomer, onBack }: Custom
             <div className="p-8 text-center">
                 <h2 className="text-xl font-semibold">Customer not found</h2>
                  <Button variant="link" asChild className="mt-4">
-                    {onBack ? (
-                        <button onClick={onBack}><ArrowLeft className="mr-2 h-4 w-4" />Back to Search</button>
-                    ) : (
-                        <Link href="/dashboard/customers">
-                            <ArrowLeft className="mr-2 h-4 w-4" />
-                            Back to Customers
-                        </Link>
-                    )}
+                    <Link href="/dashboard/customers">
+                        <ArrowLeft className="mr-2 h-4 w-4" />
+                        Back to Customers
+                    </Link>
                 </Button>
             </div>
         )
@@ -76,14 +75,10 @@ export default function CustomerDetailPage({ preloadedCustomer, onBack }: Custom
                     <p className="text-sm text-muted-foreground">Mobile: {customer.mobileNo} {customer.email && `| Email: ${customer.email}`}</p>
                 </div>
                  <Button variant="outline" asChild>
-                    {onBack ? (
-                        <button onClick={onBack}><ArrowLeft className="mr-2 h-4 w-4" />Back to Search</button>
-                    ) : (
-                        <Link href="/dashboard/customers">
-                            <ArrowLeft className="mr-2 h-4 w-4" />
-                            Back to Customers
-                        </Link>
-                    )}
+                    <Link href="/dashboard/customers">
+                        <ArrowLeft className="mr-2 h-4 w-4" />
+                        Back to Customers
+                    </Link>
                 </Button>
             </header>
 

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from 'react';
@@ -17,7 +16,7 @@ import { Customer } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { CustomerResultsTable } from '@/components/features/customer/CustomerResultsTable';
 import { searchCustomers } from './actions';
-import CustomerDetailPage from './[customerId]/page';
+import { useRouter } from 'next/navigation';
 
 const searchSchema = z.object({
   customerName: z.string().optional(),
@@ -32,15 +31,14 @@ type SearchFormValues = z.infer<typeof searchSchema>;
 enum ViewState {
   SEARCH,
   RESULTS,
-  DETAIL,
 }
 
 export default function CustomersPage() {
   const [loading, setLoading] = useState(false);
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<Customer[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [viewState, setViewState] = useState<ViewState>(ViewState.SEARCH);
+  const router = useRouter();
 
   const { toast } = useToast();
 
@@ -81,28 +79,32 @@ export default function CustomersPage() {
     form.reset();
     setSearchResults([]);
     setViewState(ViewState.SEARCH);
-    setSelectedCustomer(null);
   };
   
   const handleNewContactSuccess = (customer: Customer) => {
     setIsNewContactOpen(false);
-    setSelectedCustomer(customer);
-    setViewState(ViewState.DETAIL);
+    router.push(`/dashboard/customers/${customer.id}`);
   };
-  
-  const handleBackToSearch = () => {
-      setSelectedCustomer(null);
-      setViewState(ViewState.SEARCH);
-      clearForm();
-  }
 
-  const renderContent = () => {
-    if (viewState === ViewState.DETAIL && selectedCustomer) {
-      return <CustomerDetailPage preloadedCustomer={selectedCustomer} onBack={handleBackToSearch} />;
-    }
-    
-    return (
-      <>
+  return (
+    <>
+    <TooltipProvider>
+      <div className="container mx-auto p-4 md:p-6 lg:p-8">
+        <header className="flex items-center justify-between mb-6">
+            <h1 className="text-2xl font-semibold tracking-tight">
+                Search Customer
+            </h1>
+            <div className="flex items-center gap-2">
+                 <Button onClick={() => setIsNewContactOpen(true)}>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    New Contact
+                </Button>
+                <Button variant="destructive" size="icon">
+                    <Play className="h-4 w-4" />
+                </Button>
+            </div>
+        </header>
+
         <Card>
           <CardContent className="pt-6">
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -162,30 +164,6 @@ export default function CustomersPage() {
                 hasSearched={viewState === ViewState.RESULTS} 
             />
         </div>
-      </>
-    );
-  };
-
-  return (
-    <>
-    <TooltipProvider>
-      <div className="container mx-auto p-4 md:p-6 lg:p-8">
-        <header className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-semibold tracking-tight">
-                {viewState === ViewState.DETAIL ? `Customer Details` : `Search Customer`}
-            </h1>
-            <div className="flex items-center gap-2">
-                 <Button onClick={() => setIsNewContactOpen(true)}>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    New Contact
-                </Button>
-                <Button variant="destructive" size="icon">
-                    <Play className="h-4 w-4" />
-                </Button>
-            </div>
-        </header>
-
-        {renderContent()}
       </div>
     </TooltipProvider>
     <NewContactDialog 
