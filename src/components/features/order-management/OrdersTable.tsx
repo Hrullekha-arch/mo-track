@@ -257,7 +257,7 @@ export function OrdersTable() {
 
   return (
     <>
-    <div className="w-full container mx-auto p-4 md:p-6 lg:p-8">
+    <div className="w-full p-4 md:p-6 lg:p-8">
         <header className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Orders Dashboard</h1>
