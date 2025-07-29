@@ -14,7 +14,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, ShieldAlert, Trash2, CalendarIcon, Search, X } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, ShieldAlert, Trash2, CalendarIcon, Search, X, PlusCircle } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import { Button } from "@/components/ui/button";
@@ -45,7 +45,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { PlusCircle } from "lucide-react";
 import Link from "next/link";
 import { format, isWithinInterval } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -53,7 +52,6 @@ import { Calendar } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { NewOrderDialog } from "./NewOrderDialog";
 
 
 export function OrdersTable() {
@@ -66,7 +64,6 @@ export function OrdersTable() {
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
   const [deletingOrder, setDeletingOrder] = React.useState<Order | null>(null);
-  const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = React.useState(false);
 
 
   // New states for advanced filters
@@ -356,9 +353,11 @@ export function OrdersTable() {
             <h1 className="text-3xl font-bold tracking-tight">Orders Dashboard</h1>
             <p className="text-muted-foreground">A detailed, searchable view of all acknowledged orders.</p>
           </div>
-          <Button onClick={() => setIsNewOrderDialogOpen(true)}>
+          <Button asChild>
+            <Link href="/dashboard/purchase/new">
               <PlusCircle className="mr-2 h-4 w-4" />
-              New Order
+              Create Quotation
+            </Link>
           </Button>
         </header>
         <Card>
@@ -549,10 +548,6 @@ export function OrdersTable() {
             </CardContent>
         </Card>
     </div>
-    <NewOrderDialog
-        isOpen={isNewOrderDialogOpen}
-        onClose={() => setIsNewOrderDialogOpen(false)}
-    />
      <AlertDialog open={!!deletingOrder} onOpenChange={() => setDeletingOrder(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
