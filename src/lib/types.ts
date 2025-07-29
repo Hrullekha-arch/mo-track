@@ -15,6 +15,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -220,4 +221,24 @@ export interface Stock {
   unit: string;
   type: 'fabric' | 'furniture' | string; // Making it flexible
   lastUpdatedAt: string; // ISO Date
+}
+
+export interface Customer {
+    id: string;
+    name: string;
+    mobileNo: string;
+    email?: string;
+    architect?: string;
+    salesSupport?: string;
+    landmark?: string;
+    city?: string;
+    state?: string;
+    addressPinCode?: string;
+    gstin?: string;
+    panNo?: string;
+    referenceName?: string;
+    sourceOfCustomer?: string;
+    pinCode?: string;
+    createdAt: string;
+    createdBy: string;
 }

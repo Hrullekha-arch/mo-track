@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Info, PlusCircle, Search, Trash2, Upload, Play } from "lucide-react";
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { NewContactDialog } from '@/components/features/customer/NewContactDialog';
 
 const searchSchema = z.object({
   customerName: z.string().optional(),
@@ -25,6 +26,7 @@ type SearchFormValues = z.infer<typeof searchSchema>;
 
 export default function CustomersPage() {
   const [loading, setLoading] = useState(false);
+  const [isNewContactOpen, setIsNewContactOpen] = useState(false);
 
   const form = useForm<SearchFormValues>({
     resolver: zodResolver(searchSchema),
@@ -47,12 +49,13 @@ export default function CustomersPage() {
   };
 
   return (
+    <>
     <TooltipProvider>
       <div className="container mx-auto p-4 md:p-6 lg:p-8">
         <header className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-semibold tracking-tight">Search Customer</h1>
             <div className="flex items-center gap-2">
-                 <Button>
+                 <Button onClick={() => setIsNewContactOpen(true)}>
                     <PlusCircle className="mr-2 h-4 w-4" />
                     New Contact
                 </Button>
@@ -128,5 +131,7 @@ export default function CustomersPage() {
         </div>
       </div>
     </TooltipProvider>
+    <NewContactDialog isOpen={isNewContactOpen} onClose={() => setIsNewContactOpen(false)} />
+    </>
   );
 }
