@@ -53,6 +53,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { NewOrderDialog } from "./NewOrderDialog";
 
 
 export function OrdersTable() {
@@ -65,6 +66,8 @@ export function OrdersTable() {
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
   const [deletingOrder, setDeletingOrder] = React.useState<Order | null>(null);
+  const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = React.useState(false);
+
 
   // New states for advanced filters
   const [orderNoFilter, setOrderNoFilter] = React.useState("");
@@ -351,11 +354,9 @@ export function OrdersTable() {
             <h1 className="text-3xl font-bold tracking-tight">Orders Dashboard</h1>
             <p className="text-muted-foreground">A detailed, searchable view of all acknowledged orders.</p>
           </div>
-          <Button asChild>
-              <Link href="/dashboard/purchase/new">
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  New Purchase Request
-              </Link>
+          <Button onClick={() => setIsNewOrderDialogOpen(true)}>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              New Order
           </Button>
         </header>
         <Card>
@@ -546,6 +547,10 @@ export function OrdersTable() {
             </CardContent>
         </Card>
     </div>
+    <NewOrderDialog
+        isOpen={isNewOrderDialogOpen}
+        onClose={() => setIsNewOrderDialogOpen(false)}
+    />
      <AlertDialog open={!!deletingOrder} onOpenChange={() => setDeletingOrder(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
