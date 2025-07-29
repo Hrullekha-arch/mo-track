@@ -38,6 +38,7 @@ const formSchema = z.object({
   customerPhone: z.string().min(1, "Customer phone is required"),
   customerAddress: z.string().min(1, "Customer address is required"),
   salesPerson: z.string().min(1, "Sales person name or code is required"),
+  storeName: z.string().min(1, "Store name is required"),
   orderType: z.enum(['delivery', 'stitching', 'stitching+installation'], { required_error: "Order type is required" }),
   remarks: z.string().optional(),
   fabricDetails: z.array(fabricDetailSchema).optional(),
@@ -178,6 +179,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       customerPhone: "",
       customerAddress: "",
       salesPerson: "",
+      storeName: "",
       remarks: "",
       fabricDetails: [],
       furnitureDetails: [],
@@ -245,6 +247,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         customerPhone: values.customerPhone,
         customerAddress: values.customerAddress,
         salesPerson: salesmanUser.name, // Store the actual name
+        storeName: values.storeName,
         orderType: values.orderType,
         remarks: values.remarks || "",
         milestones: newMilestones,
@@ -362,6 +365,19 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
                     </FormItem>
                   )}
                 />
+                 <FormField
+                  control={form.control}
+                  name="storeName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Store Name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g., MO GCR BRANCH" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <FormField
                   control={form.control}
                   name="orderType"
@@ -388,7 +404,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
                   control={form.control}
                   name="remarks"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="col-span-1 md:col-span-2">
                       <FormLabel>Remarks</FormLabel>
                       <FormControl>
                         <Textarea placeholder="Add any special instructions or notes here..." {...field} />

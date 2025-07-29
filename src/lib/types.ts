@@ -10,6 +10,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -103,6 +104,7 @@ export interface Order {
   customerAddress: string;
   salesPerson: string;
   orderType: OrderType;
+  storeName?: string;
   milestones: Milestone[];
   o2dMilestones?: O2DStatus[];
   pmsMilestones?: PmsStatus[];
@@ -127,6 +129,8 @@ export interface Order {
 
   otp?: string;
   completedAt?: string; // ISO Date string
+  fabricDetails?: FabricDetail[];
+  furnitureDetails?: FurnitureDetail[];
 }
 
 export interface SalesmanCrmAssignment {
