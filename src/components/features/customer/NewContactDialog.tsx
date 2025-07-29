@@ -76,7 +76,7 @@ export function NewContactDialog({ isOpen, onClose }: NewContactDialogProps) {
     try {
         const result = await addCustomer({
             ...data,
-            createdBy: user.id,
+            createdBy: user.name,
         });
 
         if (result.success && result.id) {
