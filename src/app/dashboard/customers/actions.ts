@@ -12,7 +12,7 @@ interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {
 export async function addCustomer(data: AddCustomerInput): Promise<{ success: boolean; message: string; id?: string }> {
   try {
     const newContactRef = adminDb.collection("customers").doc();
-    const newCustomer: Omit<Customer, 'id'> & { createdAt: string } = {
+    const newCustomer: Omit<Customer, 'id'> = {
       ...data,
       createdAt: new Date().toISOString(),
       createdBy: data.createdBy,
