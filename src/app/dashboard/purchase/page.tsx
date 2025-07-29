@@ -645,7 +645,7 @@ export default function PurchasePage() {
                     <Button asChild>
                         <Link href="/dashboard/purchase/new">
                             <PlusCircle className="mr-2 h-4 w-4" />
-                            New Purchase Request
+                            New Quotation
                         </Link>
                     </Button>
                 </header>

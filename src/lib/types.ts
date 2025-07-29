@@ -12,6 +12,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -148,6 +149,7 @@ export interface PurchaseRequest {
   salesman: string;
   email?: string;
   type: 'fabric' | 'furniture';
+  workType?: 'stitching' | 'production' | 'delivery';
   
   fabricDetails: FabricDetail[];
   furnitureDetails: FurnitureDetail[];
