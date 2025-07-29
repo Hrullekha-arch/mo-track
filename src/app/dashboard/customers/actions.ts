@@ -31,6 +31,7 @@ export async function addCustomer(data: AddCustomerInput): Promise<{ success: bo
     
     const customer = { id: newContactRef.id, ...newCustomerData };
 
+    // Important: Serialize the object to ensure it's a plain object before returning
     return { success: true, message: "Contact created successfully.", customer: JSON.parse(JSON.stringify(customer)) };
   } catch (error: any) {
     console.error("Error creating contact in server action:", error);
@@ -73,18 +74,21 @@ export async function searchCustomers(filters: {
 
 export async function getCustomerById(customerId: string): Promise<Customer | null> {
     try {
+        if (!customerId) return null;
+        
         const docRef = adminDb.collection('customers').doc(customerId);
         const docSnap = await docRef.get();
 
         if (docSnap.exists()) {
             const customerData = { id: docSnap.id, ...docSnap.data() } as Customer;
-            // Serialize date objects to strings
+            // Serialize date objects to strings to pass them from server to client component.
             return JSON.parse(JSON.stringify(customerData));
         } else {
+            console.log(`Customer document with ID ${customerId} not found.`);
             return null;
         }
     } catch (error) {
-        console.error("Error fetching customer by ID:", error);
+        console.error(`Error fetching customer by ID ${customerId}:`, error);
         return null;
     }
 }

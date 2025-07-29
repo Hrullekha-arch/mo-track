@@ -28,11 +28,6 @@ const searchSchema = z.object({
 
 type SearchFormValues = z.infer<typeof searchSchema>;
 
-enum ViewState {
-  SEARCH,
-  RESULTS,
-}
-
 export default function CustomersPage() {
   const [loading, setLoading] = useState(false);
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);

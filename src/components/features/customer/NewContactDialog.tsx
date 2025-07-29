@@ -12,11 +12,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Info, Loader2, PlusCircle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { addCustomer } from "@/app/dashboard/customers/actions";
-import { Customer } from "@/lib/types";
 import { useRouter } from "next/navigation";
 
 const contactSchema = z.object({

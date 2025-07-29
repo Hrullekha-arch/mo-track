@@ -12,7 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getCustomerById } from '../actions';
 import { Separator } from '@/components/ui/separator';
 
-
 export default function CustomerDetailPage() {
     const params = useParams();
     const customerId = params.customerId as string;
