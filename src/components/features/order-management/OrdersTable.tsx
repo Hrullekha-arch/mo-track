@@ -14,7 +14,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, ShieldAlert, Trash2 } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, ShieldAlert, Trash2, CalendarIcon, Search, X } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import { Button } from "@/components/ui/button";
@@ -48,7 +48,13 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { NewOrderDialog } from "./NewOrderDialog";
 import { PlusCircle } from "lucide-react";
 import Link from "next/link";
-import { format } from "date-fns";
+import { format, isWithinInterval } from "date-fns";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { DateRange } from "react-day-picker";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+
 
 export function OrdersTable() {
   const [orders, setOrders] = React.useState<Order[]>([]);
@@ -61,6 +67,11 @@ export function OrdersTable() {
   const [rowSelection, setRowSelection] = React.useState({});
   const [deletingOrder, setDeletingOrder] = React.useState<Order | null>(null);
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = React.useState(false);
+
+  // New states for advanced filters
+  const [orderNoFilter, setOrderNoFilter] = React.useState("");
+  const [dateRangeFilter, setDateRangeFilter] = React.useState<DateRange | undefined>();
+  const [storeFilter, setStoreFilter] = React.useState("all");
 
   const { toast } = useToast();
   const { user, role } = useAuth();
@@ -207,8 +218,18 @@ export function OrdersTable() {
     },
   ];
 
+  const filteredData = React.useMemo(() => {
+    return orders.filter(order => {
+      const orderNoMatch = orderNoFilter ? order.crmOrderNo.includes(orderNoFilter) : true;
+      const dateMatch = dateRangeFilter?.from ? isWithinInterval(new Date(order.createdAt), { start: dateRangeFilter.from, end: dateRangeFilter.to || dateRangeFilter.from }) : true;
+      const storeMatch = storeFilter === 'all' ? true : order.storeName === storeFilter;
+
+      return orderNoMatch && dateMatch && storeMatch;
+    });
+  }, [orders, orderNoFilter, dateRangeFilter, storeFilter]);
+
   const table = useReactTable({
-    data: orders,
+    data: filteredData,
     columns,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -229,6 +250,15 @@ export function OrdersTable() {
   const handleExport = () => {
     // Export logic here
   }
+  
+  const clearFilters = () => {
+    setOrderNoFilter("");
+    setDateRangeFilter(undefined);
+    setStoreFilter("all");
+    setColumnFilters([]);
+  }
+
+  const uniqueStores = Array.from(new Set(orders.map(o => o.storeName).filter(Boolean)));
 
   if (loading) {
     return (
@@ -243,7 +273,7 @@ export function OrdersTable() {
   
   if (!isAuthorized) {
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
+        <div className="w-full p-4 md:p-6 lg:p-8">
             <Card className="mt-8">
                 <CardHeader className="text-center">
                     <ShieldAlert className="h-12 w-12 text-destructive mx-auto" />
@@ -270,46 +300,85 @@ export function OrdersTable() {
         </header>
         <Card>
             <CardContent className="p-4">
-                <div className="flex items-center py-4 gap-4">
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <Input
-                        placeholder="Filter by customer..."
+                      placeholder="Order No"
+                      value={orderNoFilter}
+                      onChange={(e) => setOrderNoFilter(e.target.value)}
+                    />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="date"
+                          variant={"outline"}
+                          className={cn(
+                            "justify-start text-left font-normal",
+                            !dateRangeFilter && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {dateRangeFilter?.from ? (
+                            dateRangeFilter.to ? (
+                              <>
+                                {format(dateRangeFilter.from, "LLL dd, y")} -{" "}
+                                {format(dateRangeFilter.to, "LLL dd, y")}
+                              </>
+                            ) : (
+                              format(dateRangeFilter.from, "LLL dd, y")
+                            )
+                          ) : (
+                            <span>Pick a date range</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          initialFocus
+                          mode="range"
+                          defaultMonth={dateRangeFilter?.from}
+                          selected={dateRangeFilter}
+                          onSelect={setDateRangeFilter}
+                          numberOfMonths={2}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <div />
+                     <Select value={storeFilter} onValueChange={setStoreFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Store" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Stores</SelectItem>
+                        {uniqueStores.map(store => <SelectItem key={store} value={store!}>{store}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Select>
+                        <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
+                        <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
+                    </Select>
+                    <Select>
+                        <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
+                        <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button><Search className="mr-2 h-4 w-4"/>Search</Button>
+                    <Button variant="outline" onClick={clearFilters}><X className="mr-2 h-4 w-4"/>Clear</Button>
+                  </div>
+                </div>
+
+                <div className="flex items-center py-4 gap-4">
+                     <Input
+                        placeholder="Filter by any column..."
                         value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
                         onChange={(event) =>
                             table.getColumn("customerName")?.setFilterValue(event.target.value)
                         }
-                        className="max-w-sm"
+                        className="max-w-sm ml-auto"
                     />
-                    <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="outline" className="ml-auto">
-                        Columns <ChevronDown className="ml-2 h-4 w-4" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        {table
-                        .getAllColumns()
-                        .filter((column) => column.getCanHide())
-                        .map((column) => {
-                            return (
-                            <DropdownMenuCheckboxItem
-                                key={column.id}
-                                className="capitalize"
-                                checked={column.getIsVisible()}
-                                onCheckedChange={(value) =>
-                                column.toggleVisibility(!!value)
-                                }
-                            >
-                                {column.id.replace(/_/g, " ")}
-                            </DropdownMenuCheckboxItem>
-                            );
-                        })}
-                    </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Button onClick={handleExport} disabled>
-                        <Download className="mr-2 h-4 w-4" />
-                        Export
-                    </Button>
                 </div>
+
                 <div className="rounded-md border">
                     <Table>
                     <TableHeader>
