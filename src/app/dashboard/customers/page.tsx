@@ -10,9 +10,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Info, PlusCircle, Search, Trash2, Upload, Play } from "lucide-react";
+import { Info, PlusCircle, Search, Trash2, Upload, Play, Loader2 } from "lucide-react";
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NewContactDialog } from '@/components/features/customer/NewContactDialog';
+import { Customer } from '@/lib/types';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { useToast } from '@/hooks/use-toast';
+import { CustomerResultsTable } from '@/components/features/customer/CustomerResultsTable';
 
 const searchSchema = z.object({
   customerName: z.string().optional(),
@@ -27,6 +32,9 @@ type SearchFormValues = z.infer<typeof searchSchema>;
 export default function CustomersPage() {
   const [loading, setLoading] = useState(false);
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
+  const [searchResults, setSearchResults] = useState<Customer[]>([]);
+  const [hasSearched, setHasSearched] = useState(false);
+  const { toast } = useToast();
 
   const form = useForm<SearchFormValues>({
     resolver: zodResolver(searchSchema),
@@ -39,13 +47,44 @@ export default function CustomersPage() {
     }
   });
 
-  const onSubmit = (data: SearchFormValues) => {
-    console.log("Searching with:", data);
-    // TODO: Implement search logic
+  const onSubmit = async (data: SearchFormValues) => {
+    setLoading(true);
+    setHasSearched(true);
+    try {
+      // NOTE: For a large-scale CRM, a more efficient search like Algolia or Elasticsearch is recommended.
+      // This client-side filtering approach is suitable for a smaller number of customers.
+      const customersRef = collection(db, 'customers');
+      const q = query(customersRef);
+      const querySnapshot = await getDocs(q);
+      const allCustomers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Customer);
+
+      const filteredCustomers = allCustomers.filter(customer => {
+        const nameMatch = !data.customerName || customer.name.toLowerCase().includes(data.customerName.toLowerCase());
+        const mobileMatch = !data.mobileNo || customer.mobileNo.includes(data.mobileNo);
+        // Add other filter logic here as data model evolves (e.g., dealName, billingName)
+        const salesSupportMatch = !data.salesSupport || data.salesSupport === 'all' || customer.salesSupport === data.salesSupport;
+
+        return nameMatch && mobileMatch && salesSupportMatch;
+      });
+
+      setSearchResults(filteredCustomers);
+
+    } catch (error) {
+      console.error("Error searching customers:", error);
+      toast({
+        variant: "destructive",
+        title: "Search Failed",
+        description: "Could not fetch customer data.",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const clearForm = () => {
     form.reset();
+    setSearchResults([]);
+    setHasSearched(false);
   };
 
   return (
@@ -100,8 +139,8 @@ export default function CustomersPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button type="submit">
-                    <Search className="mr-2 h-4 w-4" />
+                <Button type="submit" disabled={loading}>
+                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
                     Search
                 </Button>
                 <Button type="button" variant="outline" onClick={clearForm}>
@@ -117,17 +156,12 @@ export default function CustomersPage() {
           </CardContent>
         </Card>
 
-        {/* Placeholder for search results */}
         <div className="mt-8">
-            <Card>
-                <CardHeader>
-                    <CardTitle>Search Results</CardTitle>
-                    <CardDescription>Customers matching your criteria will appear here.</CardDescription>
-                </CardHeader>
-                <CardContent className="text-center text-muted-foreground py-12">
-                    <p>Enter search criteria and click "Search" to see results.</p>
-                </CardContent>
-            </Card>
+            <CustomerResultsTable 
+                customers={searchResults} 
+                isLoading={loading} 
+                hasSearched={hasSearched} 
+            />
         </div>
       </div>
     </TooltipProvider>
