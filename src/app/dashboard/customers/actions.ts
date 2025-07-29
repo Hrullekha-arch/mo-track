@@ -9,18 +9,20 @@ interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {
     // Add any additional fields that are not part of the core Customer type but are in the form
 }
 
-export async function addCustomer(data: AddCustomerInput): Promise<{ success: boolean; message: string; id?: string }> {
+export async function addCustomer(data: AddCustomerInput): Promise<{ success: boolean; message: string; customer?: Customer }> {
   try {
     const newContactRef = adminDb.collection("customers").doc();
-    const newCustomer: Omit<Customer, 'id'> = {
+    const newCustomerData: Omit<Customer, 'id'> = {
       ...data,
       createdAt: new Date().toISOString(),
       createdBy: data.createdBy,
     };
 
-    await newContactRef.set(newCustomer);
+    await newContactRef.set(newCustomerData);
     
-    return { success: true, message: "Contact created successfully.", id: newContactRef.id };
+    const customer = { id: newContactRef.id, ...newCustomerData };
+
+    return { success: true, message: "Contact created successfully.", customer: JSON.parse(JSON.stringify(customer)) };
   } catch (error: any) {
     console.error("Error creating contact in server action:", error);
     return { success: false, message: `Server error: ${error.message}` };

@@ -12,24 +12,29 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Image from 'next/image';
 import { getCustomerById } from '../actions';
 
-export default function CustomerDetailPage() {
+interface CustomerDetailPageProps {
+    preloadedCustomer?: Customer;
+    onBack?: () => void;
+}
+
+export default function CustomerDetailPage({ preloadedCustomer, onBack }: CustomerDetailPageProps) {
     const params = useParams();
     const customerId = params.customerId as string;
-    const [customer, setCustomer] = useState<Customer | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [customer, setCustomer] = useState<Customer | null>(preloadedCustomer || null);
+    const [loading, setLoading] = useState(!preloadedCustomer);
 
     useEffect(() => {
-        if (!customerId) return;
-        
-        const fetchCustomer = async () => {
-            setLoading(true);
-            const fetchedCustomer = await getCustomerById(customerId);
-            setCustomer(fetchedCustomer);
-            setLoading(false);
-        };
+        if (!preloadedCustomer && customerId) {
+            const fetchCustomer = async () => {
+                setLoading(true);
+                const fetchedCustomer = await getCustomerById(customerId);
+                setCustomer(fetchedCustomer);
+                setLoading(false);
+            };
 
-        fetchCustomer();
-    }, [customerId]);
+            fetchCustomer();
+        }
+    }, [customerId, preloadedCustomer]);
 
     if (loading) {
         return (
@@ -46,11 +51,15 @@ export default function CustomerDetailPage() {
         return (
             <div className="p-8 text-center">
                 <h2 className="text-xl font-semibold">Customer not found</h2>
-                <Button variant="link" asChild className="mt-4">
-                    <Link href="/dashboard/customers">
-                        <ArrowLeft className="mr-2 h-4 w-4" />
-                        Back to Customers
-                    </Link>
+                 <Button variant="link" asChild className="mt-4">
+                    {onBack ? (
+                        <button onClick={onBack}><ArrowLeft className="mr-2 h-4 w-4" />Back to Search</button>
+                    ) : (
+                        <Link href="/dashboard/customers">
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Back to Customers
+                        </Link>
+                    )}
                 </Button>
             </div>
         )
@@ -67,10 +76,14 @@ export default function CustomerDetailPage() {
                     <p className="text-sm text-muted-foreground">Mobile: {customer.mobileNo} {customer.email && `| Email: ${customer.email}`}</p>
                 </div>
                  <Button variant="outline" asChild>
-                    <Link href="/dashboard/customers">
-                        <ArrowLeft className="mr-2 h-4 w-4" />
-                        Back to Customers
-                    </Link>
+                    {onBack ? (
+                        <button onClick={onBack}><ArrowLeft className="mr-2 h-4 w-4" />Back to Search</button>
+                    ) : (
+                        <Link href="/dashboard/customers">
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Back to Customers
+                        </Link>
+                    )}
                 </Button>
             </header>
 

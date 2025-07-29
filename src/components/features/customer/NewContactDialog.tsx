@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { addCustomer } from "@/app/dashboard/customers/actions";
-import { useRouter } from "next/navigation";
+import { Customer } from "@/lib/types";
 
 const contactSchema = z.object({
   name: z.string().min(1, "Name is required."),
@@ -41,13 +41,13 @@ type ContactFormValues = z.infer<typeof contactSchema>;
 interface NewContactDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess: (customer: Customer) => void;
 }
 
-export function NewContactDialog({ isOpen, onClose }: NewContactDialogProps) {
+export function NewContactDialog({ isOpen, onClose, onSuccess }: NewContactDialogProps) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
-  const router = useRouter();
   
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(contactSchema),
@@ -80,11 +80,10 @@ export function NewContactDialog({ isOpen, onClose }: NewContactDialogProps) {
             createdBy: user.name,
         });
 
-        if (result.success && result.id) {
+        if (result.success && result.customer) {
             toast({ title: "Contact Created", description: `${data.name} has been added to your contacts.` });
-            onClose();
+            onSuccess(result.customer);
             form.reset();
-            router.push(`/dashboard/customers/${result.id}`);
         } else {
             toast({ variant: "destructive", title: "Error", description: result.message });
         }
