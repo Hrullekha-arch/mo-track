@@ -3,7 +3,7 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import { Customer } from '@/lib/types';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc } from 'firebase/firestore';
 
 interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {
     // Add any additional fields that are not part of the core Customer type but are in the form
@@ -12,9 +12,8 @@ interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {
 export async function addCustomer(data: AddCustomerInput): Promise<{ success: boolean; message: string; id?: string }> {
   try {
     const newContactRef = adminDb.collection("customers").doc();
-    const newCustomer: Customer = {
+    const newCustomer: Omit<Customer, 'id'> & { createdAt: string } = {
       ...data,
-      id: newContactRef.id,
       createdAt: new Date().toISOString(),
       createdBy: data.createdBy,
     };
@@ -59,4 +58,22 @@ export async function searchCustomers(filters: {
     console.error("Error searching customers in server action:", error);
     return [];
   }
+}
+
+export async function getCustomerById(customerId: string): Promise<Customer | null> {
+    try {
+        const docRef = adminDb.collection('customers').doc(customerId);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists()) {
+            const customerData = { id: docSnap.id, ...docSnap.data() } as Customer;
+            // Serialize date objects to strings
+            return JSON.parse(JSON.stringify(customerData));
+        } else {
+            return null;
+        }
+    } catch (error) {
+        console.error("Error fetching customer by ID:", error);
+        return null;
+    }
 }

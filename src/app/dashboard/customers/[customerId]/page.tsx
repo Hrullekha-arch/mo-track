@@ -1,9 +1,8 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { Customer } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -11,6 +10,7 @@ import { ArrowLeft, PlusCircle, Settings, CircleDashed, Archive, Receipt, FileTe
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Image from 'next/image';
+import { getCustomerById } from '../actions';
 
 export default function CustomerDetailPage() {
     const params = useParams();
@@ -23,15 +23,8 @@ export default function CustomerDetailPage() {
         
         const fetchCustomer = async () => {
             setLoading(true);
-            const docRef = doc(db, 'customers', customerId);
-            const docSnap = await getDoc(docRef);
-
-            if (docSnap.exists()) {
-                setCustomer({ id: docSnap.id, ...docSnap.data() } as Customer);
-            } else {
-                // Handle customer not found
-                setCustomer(null);
-            }
+            const fetchedCustomer = await getCustomerById(customerId);
+            setCustomer(fetchedCustomer);
             setLoading(false);
         };
 
