@@ -115,8 +115,26 @@ export function OrdersTable() {
 
   const columns: ColumnDef<Order>[] = [
     {
+      id: "index",
+      header: "#",
+      cell: ({ row, table }) => {
+        const sortedRowIndex = table.getSortedRowModel().rows.findIndex(sortedRow => sortedRow.id === row.id);
+        const pageIndex = table.getState().pagination.pageIndex;
+        const pageSize = table.getState().pagination.pageSize;
+        return <span>{pageIndex * pageSize + sortedRowIndex + 1}</span>;
+      }
+    },
+    {
       accessorKey: "crmOrderNo",
-      header: "Order No",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Order No
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
       cell: ({ row }) => (
         <Button variant="link" asChild className="p-0 h-auto font-medium">
             <Link href={`/dashboard/orders/${row.original.id}`}>
@@ -136,35 +154,53 @@ export function OrdersTable() {
     },
     {
       accessorKey: "remarks",
-      header: "Remark",
-    },
-    {
-      id: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const lastCompleted = row.original.milestones.slice().reverse().find(m => m.completed);
-        const status = lastCompleted?.name || "Order Received";
-        let variant: "default" | "secondary" | "outline" = "secondary";
-        if (status === 'Installation Done' || status === 'Completed') variant = 'default';
-        if (status === 'Ready for Delivery') variant = 'outline';
-        return <Badge variant={variant}>{status}</Badge>;
-      }
-    },
-    {
-      accessorKey: "salesPerson",
-      header: "Created By",
-    },
-    {
-      accessorKey: "createdAt",
       header: ({ column }) => (
         <Button
           variant="ghost"
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
-          Created On
+          Remark
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
+    },
+    {
+      id: "status",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Status
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const lastCompleted = row.original.milestones.slice().reverse().find(m => m.completed);
+        const status = lastCompleted?.name || "Order Received";
+        let badgeText = 'NEW';
+        if (status) {
+            badgeText = status.toUpperCase();
+        }
+        return <Badge variant="secondary">{badgeText}</Badge>;
+      }
+    },
+    {
+      accessorKey: "salesPerson",
+       header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Created By
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => <div className="uppercase">{row.original.salesPerson.split(' ')[0]}</div>
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Created On",
       cell: ({ row }) => format(new Date(row.getValue("createdAt")), "dd/MM/yyyy"),
     },
     {
@@ -174,15 +210,39 @@ export function OrdersTable() {
     },
     {
       accessorKey: "customerName",
-      header: "Contact Name",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Contact Name
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
     },
     {
       accessorKey: "customerPhone",
-      header: "Mobile No",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Mobile No
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
     },
     {
       id: "dealName",
-      header: "Deal Name",
+       header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Deal Name
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
       cell: ({ row }) => {
         return `${row.original.orderType.toUpperCase()} (${row.original.crmOrderNo})`
       }
@@ -287,7 +347,7 @@ export function OrdersTable() {
 
   return (
     <>
-    <div className="w-full p-4 md:p-6 lg:p-8">
+    <div className="w-full">
         <header className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Orders Dashboard</h1>
@@ -328,7 +388,7 @@ export function OrdersTable() {
                               format(dateRangeFilter.from, "LLL dd, y")
                             )
                           ) : (
-                            <span>Pick a date range</span>
+                            <span>From Date</span>
                           )}
                         </Button>
                       </PopoverTrigger>
@@ -339,19 +399,46 @@ export function OrdersTable() {
                           defaultMonth={dateRangeFilter?.from}
                           selected={dateRangeFilter}
                           onSelect={setDateRangeFilter}
-                          numberOfMonths={2}
+                          numberOfMonths={1}
                         />
                       </PopoverContent>
                     </Popover>
-                    <div />
-                     <Select value={storeFilter} onValueChange={setStoreFilter}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Store" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Stores</SelectItem>
-                        {uniqueStores.map(store => <SelectItem key={store} value={store!}>{store}</SelectItem>)}
-                      </SelectContent>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="date-to"
+                          variant={"outline"}
+                          className={cn(
+                            "justify-start text-left font-normal",
+                            !dateRangeFilter?.to && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {dateRangeFilter?.to ? (
+                              format(dateRangeFilter.to, "LLL dd, y")
+                          ) : (
+                            <span>To Date</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          initialFocus
+                          mode="range"
+                          defaultMonth={dateRangeFilter?.from}
+                          selected={dateRangeFilter}
+                          onSelect={setDateRangeFilter}
+                          numberOfMonths={1}
+                        />
+                      </PopoverContent>
+                    </Popover>
+
+                    <Select value={storeFilter} onValueChange={setStoreFilter}>
+                        <SelectTrigger><SelectValue placeholder="Store*" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Stores</SelectItem>
+                            {uniqueStores.map(store => <SelectItem key={store} value={store!}>{store}</SelectItem>)}
+                        </SelectContent>
                     </Select>
                     <Select>
                         <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
@@ -369,14 +456,17 @@ export function OrdersTable() {
                 </div>
 
                 <div className="flex items-center py-4 gap-4">
-                     <Input
-                        placeholder="Filter by any column..."
-                        value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
-                        onChange={(event) =>
-                            table.getColumn("customerName")?.setFilterValue(event.target.value)
-                        }
-                        className="max-w-sm ml-auto"
-                    />
+                     <div className="ml-auto relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                         <Input
+                            placeholder="Search..."
+                            value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
+                            onChange={(event) =>
+                                table.getColumn("customerName")?.setFilterValue(event.target.value)
+                            }
+                            className="max-w-sm pl-9"
+                        />
+                     </div>
                 </div>
 
                 <div className="rounded-md border">

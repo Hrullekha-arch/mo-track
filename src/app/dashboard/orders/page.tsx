@@ -14,7 +14,7 @@ export default function OrdersPage() {
 
 function OrdersDashboardSkeleton() {
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
+        <div className="w-full p-4 md:p-6 lg:p-8">
             <header className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
                 <div>
                 <Skeleton className="h-9 w-48 mb-2" />

@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, use } from 'react';
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,7 +72,7 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
 
     if (loading) {
         return (
-            <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-4">
+            <div className="p-4 md:p-6 lg:p-8 space-y-4">
                 <Skeleton className="h-10 w-48" />
                 <Skeleton className="h-40 w-full" />
                 <Skeleton className="h-24 w-full" />
@@ -83,7 +83,7 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
     
     if (!order) {
         return (
-             <div className="container mx-auto p-4 md:p-6 lg:p-8 text-center">
+             <div className="p-4 md:p-6 lg:p-8 text-center">
                 <h1 className="text-2xl font-bold">Order not found</h1>
                 <p className="text-muted-foreground">The order with ID {orderId} could not be found.</p>
                 <Button asChild variant="link" className="mt-4">
@@ -94,7 +94,7 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
     }
 
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
+        <div className="p-4 md:p-6 lg:p-8">
             <div className="flex items-center gap-4 mb-4">
                 <Button asChild variant="outline" size="icon">
                     <Link href="/dashboard/orders"><ArrowLeft /></Link>
@@ -140,4 +140,3 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
         </div>
     );
 }
-
