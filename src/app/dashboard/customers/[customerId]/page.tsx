@@ -1,7 +1,8 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { Customer } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -12,15 +13,19 @@ import Image from 'next/image';
 import { getCustomerById } from '../actions';
 import { Separator } from '@/components/ui/separator';
 
-export default function CustomerDetailPage() {
+interface CustomerDetailPageProps {
+    preloadedCustomer?: Customer;
+}
+
+export default function CustomerDetailPage({ preloadedCustomer }: CustomerDetailPageProps) {
     const params = useParams();
-    const router = useRouter();
     const customerId = params.customerId as string;
-    const [customer, setCustomer] = useState<Customer | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [customer, setCustomer] = useState<Customer | null>(preloadedCustomer || null);
+    const [loading, setLoading] = useState(!preloadedCustomer);
 
     useEffect(() => {
-        if (customerId) {
+        // Only fetch if data wasn't preloaded
+        if (!preloadedCustomer && customerId) {
             const fetchCustomer = async () => {
                 setLoading(true);
                 try {
@@ -35,10 +40,8 @@ export default function CustomerDetailPage() {
             };
 
             fetchCustomer();
-        } else {
-            setLoading(false);
         }
-    }, [customerId]);
+    }, [customerId, preloadedCustomer]);
 
     if (loading) {
         return (

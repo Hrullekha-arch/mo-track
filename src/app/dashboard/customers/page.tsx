@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -16,7 +17,7 @@ import { Customer } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { CustomerResultsTable } from '@/components/features/customer/CustomerResultsTable';
 import { searchCustomers } from './actions';
-import { useRouter } from 'next/navigation';
+import CustomerDetailPage from './[customerId]/page';
 
 const searchSchema = z.object({
   customerName: z.string().optional(),
@@ -31,6 +32,7 @@ type SearchFormValues = z.infer<typeof searchSchema>;
 enum ViewState {
   SEARCH,
   RESULTS,
+  DETAIL,
 }
 
 export default function CustomersPage() {
@@ -38,7 +40,7 @@ export default function CustomersPage() {
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<Customer[]>([]);
   const [viewState, setViewState] = useState<ViewState>(ViewState.SEARCH);
-  const router = useRouter();
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
   const { toast } = useToast();
 
@@ -55,7 +57,6 @@ export default function CustomersPage() {
 
   const onSubmit = async (data: SearchFormValues) => {
     setLoading(true);
-    setViewState(ViewState.RESULTS);
     try {
       const results = await searchCustomers({
         customerName: data.customerName,
@@ -63,6 +64,7 @@ export default function CustomersPage() {
         salesSupport: data.salesSupport,
       });
       setSearchResults(results);
+      setViewState(ViewState.RESULTS);
     } catch (error) {
       console.error("Error searching customers:", error);
       toast({
@@ -79,12 +81,18 @@ export default function CustomersPage() {
     form.reset();
     setSearchResults([]);
     setViewState(ViewState.SEARCH);
+    setSelectedCustomer(null);
   };
   
   const handleNewContactSuccess = (customer: Customer) => {
     setIsNewContactOpen(false);
-    router.push(`/dashboard/customers/${customer.id}`);
+    setSelectedCustomer(customer);
+    setViewState(ViewState.DETAIL);
   };
+
+  if (viewState === ViewState.DETAIL && selectedCustomer) {
+      return <CustomerDetailPage preloadedCustomer={selectedCustomer} />;
+  }
 
   return (
     <>
