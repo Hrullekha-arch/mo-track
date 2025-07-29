@@ -93,7 +93,7 @@ export default function CustomerDetailPage() {
                          />
                         <h3 className="text-xl font-semibold mb-2">There are no deals</h3>
                         <p className="text-muted-foreground mb-6">
-                            There are no deals, do you want to add deal? <br/>
+                            There are no deals do you want to add deal? <br/>
                              <Link href="#" className="text-primary hover:underline">click here</Link> or click on New Deal button below
                         </p>
                         <Button>
