@@ -17,7 +17,6 @@ import { Customer } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { CustomerResultsTable } from '@/components/features/customer/CustomerResultsTable';
 import { searchCustomers } from './actions';
-import CustomerDetailPage from './[customerId]/page';
 
 const searchSchema = z.object({
   customerName: z.string().optional(),
@@ -32,15 +31,13 @@ type SearchFormValues = z.infer<typeof searchSchema>;
 enum ViewState {
   SEARCH,
   RESULTS,
-  DETAIL,
 }
 
 export default function CustomersPage() {
   const [loading, setLoading] = useState(false);
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<Customer[]>([]);
-  const [viewState, setViewState] = useState<ViewState>(ViewState.SEARCH);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
   const { toast } = useToast();
 
@@ -57,6 +54,7 @@ export default function CustomersPage() {
 
   const onSubmit = async (data: SearchFormValues) => {
     setLoading(true);
+    setHasSearched(true);
     try {
       const results = await searchCustomers({
         customerName: data.customerName,
@@ -64,7 +62,6 @@ export default function CustomersPage() {
         salesSupport: data.salesSupport,
       });
       setSearchResults(results);
-      setViewState(ViewState.RESULTS);
     } catch (error) {
       console.error("Error searching customers:", error);
       toast({
@@ -80,19 +77,8 @@ export default function CustomersPage() {
   const clearForm = () => {
     form.reset();
     setSearchResults([]);
-    setViewState(ViewState.SEARCH);
-    setSelectedCustomer(null);
+    setHasSearched(false);
   };
-  
-  const handleNewContactSuccess = (customer: Customer) => {
-    setIsNewContactOpen(false);
-    setSelectedCustomer(customer);
-    setViewState(ViewState.DETAIL);
-  };
-
-  if (viewState === ViewState.DETAIL && selectedCustomer) {
-      return <CustomerDetailPage preloadedCustomer={selectedCustomer} />;
-  }
 
   return (
     <>
@@ -169,7 +155,7 @@ export default function CustomersPage() {
             <CustomerResultsTable 
                 customers={searchResults} 
                 isLoading={loading} 
-                hasSearched={viewState === ViewState.RESULTS} 
+                hasSearched={hasSearched} 
             />
         </div>
       </div>
@@ -177,7 +163,6 @@ export default function CustomersPage() {
     <NewContactDialog 
         isOpen={isNewContactOpen} 
         onClose={() => setIsNewContactOpen(false)} 
-        onSuccess={handleNewContactSuccess}
     />
     </>
   );

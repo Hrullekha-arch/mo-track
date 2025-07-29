@@ -13,19 +13,15 @@ import Image from 'next/image';
 import { getCustomerById } from '../actions';
 import { Separator } from '@/components/ui/separator';
 
-interface CustomerDetailPageProps {
-    preloadedCustomer?: Customer;
-}
 
-export default function CustomerDetailPage({ preloadedCustomer }: CustomerDetailPageProps) {
+export default function CustomerDetailPage() {
     const params = useParams();
     const customerId = params.customerId as string;
-    const [customer, setCustomer] = useState<Customer | null>(preloadedCustomer || null);
-    const [loading, setLoading] = useState(!preloadedCustomer);
+    const [customer, setCustomer] = useState<Customer | null>(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Only fetch if data wasn't preloaded
-        if (!preloadedCustomer && customerId) {
+        if (customerId) {
             const fetchCustomer = async () => {
                 setLoading(true);
                 try {
@@ -41,7 +37,7 @@ export default function CustomerDetailPage({ preloadedCustomer }: CustomerDetail
 
             fetchCustomer();
         }
-    }, [customerId, preloadedCustomer]);
+    }, [customerId]);
 
     if (loading) {
         return (
