@@ -1,4 +1,3 @@
-
 "use client";
 
 import { AppShell } from "@/components/shared/AppShell";
@@ -19,10 +18,12 @@ export default function DashboardLayout({
 
   useEffect(() => {
     // Show welcome message on login.
-    const hasSeenWelcome = sessionStorage.getItem('hasSeenWelcome');
-    if (!loading && user && !hasSeenWelcome) {
-      setShowWelcome(true);
-      sessionStorage.setItem('hasSeenWelcome', 'true');
+    if (!loading && user) {
+        const hasSeenWelcome = sessionStorage.getItem('hasSeenWelcome');
+        if (!hasSeenWelcome) {
+            setShowWelcome(true);
+            sessionStorage.setItem('hasSeenWelcome', 'true');
+        }
     }
   }, [user, loading]);
 

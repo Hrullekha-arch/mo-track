@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -16,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { addCustomer } from "@/app/dashboard/customers/actions";
+import { useRouter } from "next/navigation";
 
 const contactSchema = z.object({
   name: z.string().min(1, "Name is required."),
@@ -46,6 +46,7 @@ export function NewContactDialog({ isOpen, onClose }: NewContactDialogProps) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
+  const router = useRouter();
   
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(contactSchema),
@@ -78,10 +79,11 @@ export function NewContactDialog({ isOpen, onClose }: NewContactDialogProps) {
             createdBy: user.id,
         });
 
-        if (result.success) {
+        if (result.success && result.id) {
             toast({ title: "Contact Created", description: `${data.name} has been added to your contacts.` });
             onClose();
             form.reset();
+            router.push(`/dashboard/customers/${result.id}`);
         } else {
             toast({ variant: "destructive", title: "Error", description: result.message });
         }

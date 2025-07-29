@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -32,6 +31,7 @@ import {
   Archive,
   GanttChartSquare,
   Warehouse,
+  Contact,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -41,6 +41,7 @@ const allNavItems = [
   { href: "/dashboard/o2d", icon: Truck, label: "O2D", roles: ['admin', 'employee'] },
   { href: "/dashboard/pending", icon: CheckSquare, label: "To Be Received", roles: ['admin', 'employee'] },
   { href: "/dashboard/orders", icon: ClipboardList, label: "Orders Dashboard", roles: ['admin', 'employee'] },
+  { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
   { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
   { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
   { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
@@ -91,7 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           onClick={() => setOpen(false)}
           className={cn(
             "flex items-center gap-2 transition-colors hover:text-foreground",
-            pathname.startsWith(item.href) && item.href !== '/dashboard' ? "text-foreground" : pathname === item.href ? "text-foreground" : "text-muted-foreground",
+            pathname.startsWith(item.href) && !['/dashboard', '/dashboard/'].includes(item.href) ? "text-foreground" : pathname === item.href ? "text-foreground" : "text-muted-foreground",
             isMobile && "py-2"
           )}
         >
