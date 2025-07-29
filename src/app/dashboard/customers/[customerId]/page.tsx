@@ -97,14 +97,20 @@ export default function CustomerDetailPage({ preloadedCustomer }: CustomerDetail
                 </TabsList>
                 <TabsContent value="deals" className="pt-4">
                     <div className="text-center py-16 px-6 border-2 border-dashed rounded-lg mt-2">
-                         <Image 
-                            src="https://placehold.co/600x400.png" 
-                            alt="No deals illustration"
-                            data-ai-hint="empty state illustration"
-                            width={200}
-                            height={200}
-                            className="mx-auto mb-6"
-                         />
+                        <svg
+                            className="mx-auto mb-6 h-24 w-24 text-gray-300"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth="1"
+                            aria-hidden="true"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"
+                            />
+                        </svg>
                         <h3 className="text-xl font-semibold mb-2">There are no deals</h3>
                         <p className="text-muted-foreground mb-6">
                             There are no deals do you want to add deal? <br/>
