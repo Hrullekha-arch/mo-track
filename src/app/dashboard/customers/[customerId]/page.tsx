@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, PlusCircle, Settings, Archive, Receipt, FileText, CircleDollarSign } from 'lucide-react';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import Image from 'next/image';
 import { getCustomerById } from '../actions';
 import { Separator } from '@/components/ui/separator';
 
