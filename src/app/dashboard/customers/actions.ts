@@ -63,4 +63,3 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
     return { success: false, message: `Server error: ${error.message}` };
   }
 }
-
