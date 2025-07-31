@@ -17,6 +17,7 @@
 
 
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -242,4 +243,13 @@ export interface Customer {
     pinCode?: string;
     createdAt: string;
     createdBy: string;
+}
+
+export interface Deal {
+    id: string;
+    dealName: string;
+    dealAmount: number;
+    representativeId: string;
+    description: string;
+    createdAt: string; // ISO string
 }
