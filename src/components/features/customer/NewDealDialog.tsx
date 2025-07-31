@@ -19,7 +19,11 @@ import { addDealAction } from "@/app/dashboard/customers/actions";
 const dealSchema = z.object({
   dealName: z.string().min(1, "Deal Name is required."),
   dealAmount: z.preprocess(
-    (a) => parseFloat(z.string().parse(a)),
+    (a) => {
+        if (typeof a === 'string' && a.trim() === '') return undefined;
+        const parsed = parseFloat(z.string().parse(a));
+        return isNaN(parsed) ? undefined : parsed;
+    },
     z.number().positive("Deal amount must be a positive number.").optional()
   ),
   representativeId: z.string().min(1, "A representative must be selected."),
@@ -44,7 +48,7 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
     resolver: zodResolver(dealSchema),
     defaultValues: {
       dealName: "",
-      dealAmount: undefined,
+      dealAmount: '',
       representativeId: "",
       description: "",
     }
