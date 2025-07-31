@@ -13,9 +13,10 @@ async function getCustomer(id: string): Promise<Customer | null> {
         const docRef = adminDb.collection('customers').doc(id);
         const docSnap = await docRef.get();
 
-        if (docSnap.exists()) {
+        if (docSnap.exists) {
             const customerData = { id: docSnap.id, ...docSnap.data() } as Customer;
-            return JSON.parse(JSON.stringify(customerData));
+            // The data is already serializable, no need for JSON parsing here
+            return customerData as Customer;
         } else {
             console.warn(`Customer document with ID ${id} not found in Firestore.`);
             return null;
