@@ -2,7 +2,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
@@ -32,6 +32,7 @@ import {
   Loader2,
   PlusCircle,
   Calculator,
+  Trash2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -49,6 +50,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Combobox } from "@/components/ui/combobox";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 
 const visitSchema = z.object({
@@ -73,6 +75,23 @@ const measurementSchema = z.object({
 
 type MeasurementFormValues = z.infer<typeof measurementSchema>;
 
+const productSchema = z.object({
+    productCategory: z.string().optional(),
+    collectionBrand: z.string().min(1, "Collection/Brand is required."),
+    serialNo: z.string().min(1, "Serial No is required."),
+    salesDescription: z.string().optional(),
+    quantity: z.string().min(1, "Quantity is required."),
+    remarks: z.string().optional(),
+    room: z.string().optional(),
+    noOfPcs: z.string().optional(),
+    info1: z.string().optional(),
+    info2: z.string().optional(),
+    stitchingType: z.enum(["in", "out"]).optional(),
+    file: z.any().optional(),
+    pushToMeasurement: z.boolean().default(false),
+});
+
+type ProductFormValues = z.infer<typeof productSchema>;
 
 function VisitForm({ salesmen }: { salesmen: User[] }) {
     const [loading, setLoading] = useState(false);
@@ -392,6 +411,120 @@ function MeasurementForm() {
     );
 }
 
+const productCategoryOptions = [{ value: "fabric", label: "Fabric" }, { value: "furniture", label: "Furniture" }];
+const collectionBrandOptions = [{ value: "brand-a", label: "Brand A" }, { value: "brand-b", label: "Brand B" }];
+const serialNoOptions = [{ value: "1001", label: "1001" }, { value: "1002", label: "1002" }];
+const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtain" }, { value: "sofa", label: "Sofa Fabric" }];
+
+function ProductForm() {
+    const [loading, setLoading] = useState(false);
+    const { toast } = useToast();
+
+    const form = useForm<ProductFormValues>({
+        resolver: zodResolver(productSchema),
+        defaultValues: {
+            productCategory: 'fabric',
+            noOfPcs: '1',
+            pushToMeasurement: false,
+        },
+    });
+
+    const onSubmit = (data: ProductFormValues) => {
+        setLoading(true);
+        console.log("Product Data:", data);
+        setTimeout(() => {
+            setLoading(false);
+            toast({ title: "Product Added", description: "The new product has been saved." });
+            // Here you would typically add the product to a list
+            form.reset();
+        }, 1500);
+    }
+
+    return (
+        <Card className="mt-6">
+            <CardContent className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-semibold">Add More Products</h3>
+                    <div className="text-sm text-muted-foreground">
+                        <span className="mr-4">MRP: </span>
+                        <span>UOM: MTRS</span>
+                    </div>
+                </div>
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <FormField control={form.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/></FormLabel> <Combobox options={productCategoryOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                            <FormField control={form.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand <span className="text-destructive">*</span><Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={collectionBrandOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                            <FormField control={form.control} name="serialNo" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <Combobox options={serialNoOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                            <FormField control={form.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                         </div>
+                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                             <FormField control={form.control} name="quantity" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Quantity <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <div className="flex items-center"><FormControl><Input {...field}/></FormControl><Button type="button" variant="ghost" size="icon" className="ml-1"><Calculator className="h-5 w-5"/></Button></div> <FormMessage /> </FormItem>)} />
+                             <FormField control={form.control} name="remarks" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Remarks <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
+                             <FormField control={form.control} name="room" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Room <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                             <FormField control={form.control} name="noOfPcs" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">No of Pcs <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
+                         </div>
+                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+                            <FormField control={form.control} name="info1" render={({ field }) => (<FormItem> <FormLabel>Info 1</FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
+                            <FormField control={form.control} name="info2" render={({ field }) => (<FormItem> <FormLabel>Info 2</FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
+                            <FormField control={form.control} name="stitchingType" render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Stitching Type</FormLabel>
+                                    <FormControl>
+                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex h-10 items-center space-x-4">
+                                            <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="in" /></FormControl><FormLabel className="font-normal">IN</FormLabel></FormItem>
+                                            <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="out" /></FormControl><FormLabel className="font-normal">OUT</FormLabel></FormItem>
+                                        </RadioGroup>
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )} />
+                            <FormField control={form.control} name="file" render={({ field }) => (<FormItem> <FormLabel>Upload file</FormLabel> <FormControl><Input type="file" className="bg-teal-500 text-white file:text-white" /></FormControl> <FormMessage /> </FormItem>)} />
+                         </div>
+                         <FormField control={form.control} name="pushToMeasurement" render={({ field }) => (<FormItem className="flex flex-row items-center space-x-3 space-y-0"> <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl> <div className="space-y-1 leading-none"><FormLabel>Push to Measurement</FormLabel></div> </FormItem>)} />
+
+                        <div className="mt-8 flex">
+                            <Button type="submit" disabled={loading} className="bg-teal-600 hover:bg-teal-700">
+                                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Add
+                            </Button>
+                        </div>
+                    </form>
+                </Form>
+                <div className="mt-8">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>#</TableHead>
+                                <TableHead>Delete</TableHead>
+                                <TableHead>Collection/Brand Name</TableHead>
+                                <TableHead>Serial No</TableHead>
+                                <TableHead>Quantity</TableHead>
+                                <TableHead>Room</TableHead>
+                                <TableHead>No of Pcs</TableHead>
+                                <TableHead>Description</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            <TableRow>
+                                <TableCell>1</TableCell>
+                                <TableCell><Button variant="ghost" size="icon"><Trash2 className="h-4 w-4 text-destructive"/></Button></TableCell>
+                                <TableCell>F114623</TableCell>
+                                <TableCell>1242</TableCell>
+                                <TableCell>12</TableCell>
+                                <TableCell>BEDROOM</TableCell>
+                                <TableCell>1</TableCell>
+                                <TableCell>DRAWING ROOM CURTAIN</TableCell>
+                            </TableRow>
+                        </TableBody>
+                    </Table>
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
+
+
 function CrmActivitySkeleton() {
   return (
     <div className="flex h-full">
@@ -564,6 +697,10 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
             <MeasurementForm />
           </TabsContent>
           
+          <TabsContent value="products">
+            <ProductForm />
+          </TabsContent>
+
         </Tabs>
       </main>
     </div>
