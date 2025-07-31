@@ -14,38 +14,9 @@ import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { Customer } from "@/lib/types";
+import { addCustomerAction } from "@/app/dashboard/customers/actions";
+import { useRouter } from "next/navigation";
 
-interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {}
-
-async function addCustomerAction(data: AddCustomerInput): Promise<{ success: boolean; message: string; customer?: Customer }> {
-  'use server';
-  const { adminDb } = await import('@/lib/firebase-admin');
-  try {
-    const customersRef = adminDb.collection("customers");
-
-    // Check for existing customer with the same mobile number
-    const mobileQuery = customersRef.where('mobileNo', '==', data.mobileNo);
-    const mobileSnapshot = await mobileQuery.get();
-    if (!mobileSnapshot.empty) {
-        return { success: false, message: "A customer with this mobile number already exists." };
-    }
-
-    const newContactRef = customersRef.doc();
-    const newCustomerData: Omit<Customer, 'id'> = {
-      ...data,
-      createdAt: new Date().toISOString(),
-    };
-
-    await newContactRef.set(newCustomerData);
-    
-    const customer = { id: newContactRef.id, ...newCustomerData };
-
-    return { success: true, message: "Contact created successfully.", customer: JSON.parse(JSON.stringify(customer)) };
-  } catch (error: any) {
-    console.error("Error creating contact in server action:", error);
-    return { success: false, message: `Server error: ${error.message}` };
-  }
-}
 
 const contactSchema = z.object({
   name: z.string().min(1, "Name is required."),
@@ -66,6 +37,7 @@ export function NewContactDialog({ isOpen, onClose, onSuccess }: NewContactDialo
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
+  const router = useRouter();
   
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(contactSchema),
