@@ -151,10 +151,12 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"><Trash2 className="h-4 w-4"/></Button>
                                                 </div>
                                             </CardTitle>
-                                            <CardDescription>
-                                                <Badge variant="secondary">
-                                                    {getSalesmanName(deal.representativeId)}
-                                                </Badge>
+                                            <CardDescription asChild>
+                                                <div>
+                                                    <Badge variant="secondary">
+                                                        {getSalesmanName(deal.representativeId)}
+                                                    </Badge>
+                                                </div>
                                             </CardDescription>
                                         </CardHeader>
                                         <CardContent>
@@ -208,3 +210,5 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
         />
         </>
     );
+
+    
