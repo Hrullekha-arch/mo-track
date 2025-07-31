@@ -2,6 +2,9 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -23,13 +26,229 @@ import {
   Receipt,
   ShoppingCart,
   User as UserIcon,
+  Info,
+  CalendarDays,
+  Clock,
+  Loader2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import Image from "next/image";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
 import { getDealById } from "./actions";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { format } from "date-fns";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
+
+const visitSchema = z.object({
+  representative: z.string().min(1, "Representative is required."),
+  typeOfVisit: z.string().min(1, "Type of visit is required."),
+  notes: z.string().max(2000, "Notes cannot exceed 2000 characters.").optional(),
+  dueDate: z.date({ required_error: "Due date is required." }),
+  happyCodeRequired: z.enum(["yes", "no"]).default("no"),
+  sendVisitEmail: z.boolean().default(false),
+  sendVisitSms: z.boolean().default(false),
+});
+
+type VisitFormValues = z.infer<typeof visitSchema>;
+
+function VisitForm({ salesmen }: { salesmen: User[] }) {
+    const [loading, setLoading] = useState(false);
+    const { toast } = useToast();
+
+    const form = useForm<VisitFormValues>({
+        resolver: zodResolver(visitSchema),
+        defaultValues: {
+            representative: "",
+            typeOfVisit: "",
+            notes: "",
+            happyCodeRequired: "no",
+            sendVisitEmail: false,
+            sendVisitSms: false,
+        }
+    });
+
+    function onSubmit(data: VisitFormValues) {
+        setLoading(true);
+        console.log(data);
+        // Simulate API call
+        setTimeout(() => {
+            toast({
+                title: "Activity Updated",
+                description: "The new visit has been added to the activity log.",
+            });
+            setLoading(false);
+            form.reset();
+        }, 1500);
+    }
+
+    return (
+         <Card className="mt-6">
+            <CardContent className="p-6">
+                 <h3 className="text-xl font-semibold mb-6">Add More Visit</h3>
+                 <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-8">
+                                <FormField
+                                    control={form.control}
+                                    name="representative"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex items-center gap-1">Representative <span className="text-destructive">*</span> <Info className="h-3 w-3 text-muted-foreground" /></FormLabel>
+                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                <FormControl>
+                                                    <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    {salesmen.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                                </SelectContent>
+                                            </Select>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="notes"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Notes <span className="text-destructive">* (Upto 2000 characters)</span></FormLabel>
+                                            <FormControl>
+                                                <Textarea rows={5} maxLength={2000} {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                             <div className="space-y-8">
+                                <FormField
+                                    control={form.control}
+                                    name="typeOfVisit"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Type of Visit</FormLabel>
+                                             <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                <FormControl>
+                                                    <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
+                                                </FormControl>
+                                                <SelectContent>
+                                                    <SelectItem value="initial-consultation">Initial Consultation</SelectItem>
+                                                    <SelectItem value="measurement">Measurement</SelectItem>
+                                                    <SelectItem value="follow-up">Follow-up</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                 <FormField
+                                    control={form.control}
+                                    name="dueDate"
+                                    render={({ field }) => (
+                                        <FormItem className="flex flex-col">
+                                            <FormLabel>Due Date <span className="text-destructive">*</span></FormLabel>
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <FormControl>
+                                                        <Button
+                                                            variant={"outline"}
+                                                            className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
+                                                        >
+                                                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                                            <Clock className="ml-auto h-4 w-4 opacity-50" />
+                                                        </Button>
+                                                    </FormControl>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0" align="start">
+                                                    <CalendarPicker
+                                                        mode="single"
+                                                        selected={field.value}
+                                                        onSelect={field.onChange}
+                                                        disabled={(date) => date < new Date() || date < new Date("1900-01-01")}
+                                                        initialFocus
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="happyCodeRequired"
+                                    render={({ field }) => (
+                                        <FormItem className="space-y-3">
+                                            <FormLabel>Happy code Required</FormLabel>
+                                            <FormControl>
+                                                <RadioGroup
+                                                    onValueChange={field.onChange}
+                                                    defaultValue={field.value}
+                                                    className="flex items-center space-x-4"
+                                                >
+                                                    <FormItem className="flex items-center space-x-2">
+                                                        <FormControl><RadioGroupItem value="yes" /></FormControl>
+                                                        <FormLabel className="font-normal">YES</FormLabel>
+                                                    </FormItem>
+                                                    <FormItem className="flex items-center space-x-2">
+                                                        <FormControl><RadioGroupItem value="no" /></FormControl>
+                                                        <FormLabel className="font-normal">NO</FormLabel>
+                                                    </FormItem>
+                                                </RadioGroup>
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <FormField
+                                control={form.control}
+                                name="sendVisitEmail"
+                                render={({ field }) => (
+                                    <FormItem className="flex flex-row items-center space-x-2">
+                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                        <div className="space-y-1 leading-none">
+                                            <FormLabel>Send Visit Email</FormLabel>
+                                        </div>
+                                    </FormItem>
+                                )}
+                            />
+                             <FormField
+                                control={form.control}
+                                name="sendVisitSms"
+                                render={({ field }) => (
+                                    <FormItem className="flex flex-row items-center space-x-2">
+                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                        <div className="space-y-1 leading-none">
+                                            <FormLabel>Send Visit SMS</FormLabel>
+                                        </div>
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
+                         <div className="mt-8 flex items-center gap-4">
+                            <p className="text-sm text-destructive">Please click on Update Activity if you have updated any changes.</p>
+                            <Button type="submit" disabled={loading} className="bg-cyan-600 hover:bg-cyan-700">
+                                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Update Activity
+                            </Button>
+                        </div>
+                    </form>
+                 </Form>
+            </CardContent>
+        </Card>
+    )
+}
+
 
 function CrmActivitySkeleton() {
   return (
@@ -196,20 +415,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsList>
           
           <TabsContent value="visits">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold">Visits</h3>
-              <Button>New Visit +</Button>
-            </div>
-            <div className="text-center border-2 border-dashed rounded-lg p-12">
-              <Image src="https://placehold.co/200x150.png" alt="Manage Visits" width={200} height={150} data-ai-hint="illustration visit" className="mx-auto mb-4" />
-              <h4 className="text-lg font-semibold">Manage Visits</h4>
-              <p className="text-muted-foreground">Visits are not available you can create visit by clicking</p>
-              <Button variant="link" className="text-primary">New Visit</Button>
-            </div>
-            <div className="mt-6 flex items-center gap-4">
-                <p className="text-sm text-red-500">Please click on Update Activity if you have updated any changes.</p>
-                <Button variant="default" className="bg-cyan-600 hover:bg-cyan-700">Update Activity</Button>
-            </div>
+            <VisitForm salesmen={salesmen} />
           </TabsContent>
           
           {/* Add other TabsContent here */}
