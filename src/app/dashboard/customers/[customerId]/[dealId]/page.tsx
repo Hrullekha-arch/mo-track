@@ -30,6 +30,8 @@ import {
   CalendarDays,
   Clock,
   Loader2,
+  PlusCircle,
+  Calculator,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -45,6 +47,9 @@ import { format } from "date-fns";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Combobox } from "@/components/ui/combobox";
+
 
 const visitSchema = z.object({
   representative: z.string().min(1, "Representative is required."),
@@ -57,6 +62,17 @@ const visitSchema = z.object({
 });
 
 type VisitFormValues = z.infer<typeof visitSchema>;
+
+const measurementSchema = z.object({
+    room: z.string().min(1, "Room is required."),
+    measurementReference: z.string().min(1, "Measurement reference is required."),
+    noOfUnits: z.string().min(1, "Number of units is required."),
+    measurement: z.string().max(2000, "Measurement cannot exceed 2000 characters.").min(1, "Measurement is required."),
+    file: z.any().optional(),
+});
+
+type MeasurementFormValues = z.infer<typeof measurementSchema>;
+
 
 function VisitForm({ salesmen }: { salesmen: User[] }) {
     const [loading, setLoading] = useState(false);
@@ -249,6 +265,132 @@ function VisitForm({ salesmen }: { salesmen: User[] }) {
     )
 }
 
+const roomOptions = [
+    { value: "living-room", label: "Living Room" },
+    { value: "bed-room", label: "Bed Room" },
+    { value: "kitchen", label: "Kitchen" },
+    { value: "dining-room", label: "Dining Room" },
+];
+
+function MeasurementForm() {
+    const [loading, setLoading] = useState(false);
+    const { toast } = useToast();
+
+    const form = useForm<MeasurementFormValues>({
+        resolver: zodResolver(measurementSchema),
+        defaultValues: {
+            room: "",
+            measurementReference: "",
+            noOfUnits: "1",
+            measurement: "",
+        },
+    });
+
+    const onSubmit = (data: MeasurementFormValues) => {
+        setLoading(true);
+        console.log("Measurement Data:", data);
+        setTimeout(() => {
+            setLoading(false);
+            toast({ title: "Measurement Added", description: "The new measurement has been saved." });
+            form.reset();
+        }, 1500);
+    }
+
+    return (
+        <Card className="mt-6">
+            <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-6">Add More Measurements</h3>
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-6">
+                                <FormField
+                                    control={form.control}
+                                    name="room"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex items-center gap-1">Room <span className="text-destructive">*</span><Info className="h-3 w-3" /><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel>
+                                            <Combobox
+                                                options={roomOptions}
+                                                value={field.value}
+                                                onSelect={field.onChange}
+                                                placeholder="--SELECT--"
+                                            />
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="noOfUnits"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>No of Units <span className="text-destructive">*</span></FormLabel>
+                                            <FormControl>
+                                                <Input {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="file"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Upload file</FormLabel>
+                                            <FormControl>
+                                                <Input type="file" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                            <div className="space-y-6">
+                                <FormField
+                                    control={form.control}
+                                    name="measurementReference"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Measurement Reference <span className="text-destructive">*</span></FormLabel>
+                                            <FormControl>
+                                                <Input {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="measurement"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Measurement <span className="text-destructive">* (Upto 2000 characters)</span></FormLabel>
+                                            <div className="relative">
+                                                <FormControl>
+                                                    <Textarea rows={5} maxLength={2000} className="pr-10" {...field} />
+                                                </FormControl>
+                                                <Button type="button" variant="ghost" size="icon" className="absolute top-1 right-1 h-7 w-7 text-muted-foreground"><Calculator className="h-4 w-4"/></Button>
+                                            </div>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                        </div>
+                        <div className="mt-8 flex">
+                            <Button type="submit" disabled={loading}>
+                                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Add
+                            </Button>
+                        </div>
+                    </form>
+                </Form>
+            </CardContent>
+        </Card>
+    );
+}
 
 function CrmActivitySkeleton() {
   return (
@@ -418,7 +560,9 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
             <VisitForm salesmen={salesmen} />
           </TabsContent>
           
-          {/* Add other TabsContent here */}
+          <TabsContent value="measurement">
+            <MeasurementForm />
+          </TabsContent>
           
         </Tabs>
       </main>
