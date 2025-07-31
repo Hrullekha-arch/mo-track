@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -25,7 +25,7 @@ async function getCustomer(id: string): Promise<Customer | null> {
         const docRef = doc(db, "customers", id);
         const docSnap = await getDoc(docRef);
 
-        if (docSnap.exists) {
+        if (docSnap.exists()) {
             return { id: docSnap.id, ...docSnap.data() } as Customer;
         } else {
             console.warn(`Customer document with ID ${id} not found in Firestore.`);
@@ -37,7 +37,8 @@ async function getCustomer(id: string): Promise<Customer | null> {
     }
 }
 
-export default function CustomerDetailPage({ params }: { params: { customerId: string }}) {
+export default function CustomerDetailPage({ params }: { params: Promise<{ customerId: string }> }) {
+    const { customerId } = use(params);
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [deals, setDeals] = useState<Deal[]>([]);
     const [salesmen, setSalesmen] = useState<User[]>([]);
@@ -47,7 +48,7 @@ export default function CustomerDetailPage({ params }: { params: { customerId: s
 
     useEffect(() => {
         const fetchInitialData = async () => {
-            const customerData = await getCustomer(params.customerId);
+            const customerData = await getCustomer(customerId);
             setCustomer(customerData);
             setLoading(false);
         };
@@ -55,7 +56,7 @@ export default function CustomerDetailPage({ params }: { params: { customerId: s
         fetchInitialData();
         
         // Listen for deals
-        const dealsRef = collection(db, `customers/${params.customerId}/deals`);
+        const dealsRef = collection(db, `customers/${customerId}/deals`);
         const unsubscribeDeals = onSnapshot(dealsRef, (snapshot) => {
             const dealsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Deal));
             setDeals(dealsData);
@@ -75,7 +76,7 @@ export default function CustomerDetailPage({ params }: { params: { customerId: s
             unsubscribeSalesmen();
         };
 
-    }, [params.customerId]);
+    }, [customerId]);
 
     const handleNewDealSuccess = () => {
         toast({ title: "Deal Created!", description: "The new deal has been successfully added."});
