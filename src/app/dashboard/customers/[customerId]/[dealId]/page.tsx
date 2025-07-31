@@ -51,7 +51,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getStockData } from "@/app/dashboard/inventory/actions";
+import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 
 
 const visitSchema = z.object({
@@ -415,8 +415,10 @@ function MeasurementForm() {
 const productCategoryOptions = [{ value: "fabric", label: "Fabric" }, { value: "furniture", label: "Furniture" }];
 const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtain" }, { value: "sofa", label: "Sofa Fabric" }];
 
-function ProductForm({ stockData }: { stockData: Stock[] }) {
+function ProductForm() {
     const [loading, setLoading] = useState(false);
+    const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
     const { toast } = useToast();
 
     const form = useForm<ProductFormValues>({
@@ -430,16 +432,34 @@ function ProductForm({ stockData }: { stockData: Stock[] }) {
         },
     });
 
-    const bcnOptions: { value: string; label: string; }[] = useMemo(() => 
-        stockData.map(stock => ({ value: stock.bcn || stock.id, label: stock.bcn || stock.id }))
-    , [stockData]);
-
-    const handleBcnSelect = (bcn: string) => {
-        const selectedStock = stockData.find(s => (s.bcn || s.id) === bcn);
-        if (selectedStock) {
-            form.setValue('collectionBrand', bcn);
-            form.setValue('productCategory', selectedStock.category?.toLowerCase() || 'fabric');
-            form.setValue('serialNo', selectedStock.serialNo || '');
+    const handleBcnSearch = async (query: string) => {
+        if (query.length < 2) {
+            setBcnOptions([]);
+            return;
+        }
+        setIsSearching(true);
+        try {
+            const results = await searchStockByBcn(query);
+            setBcnOptions(results.map(stock => ({
+                value: stock.bcn || stock.id,
+                label: `${stock.bcn} - ${stock.itemName}`,
+                stockItem: stock,
+            })));
+        } catch (error) {
+            console.error("Error searching BCN:", error);
+            toast({ variant: 'destructive', title: 'Search failed' });
+        } finally {
+            setIsSearching(false);
+        }
+    };
+    
+    const handleBcnSelect = (value: string) => {
+        const selectedOption = bcnOptions.find(opt => opt.value === value);
+        if (selectedOption) {
+            const stockItem = selectedOption.stockItem;
+            form.setValue('collectionBrand', stockItem.bcn || stockItem.id);
+            form.setValue('productCategory', stockItem.category?.toLowerCase() || 'fabric');
+            form.setValue('serialNo', stockItem.serialNo || '');
         }
     };
 
@@ -449,7 +469,6 @@ function ProductForm({ stockData }: { stockData: Stock[] }) {
         setTimeout(() => {
             setLoading(false);
             toast({ title: "Product Added", description: "The new product has been saved." });
-            // Here you would typically add the product to a list
             form.reset();
         }, 1500);
     }
@@ -468,7 +487,7 @@ function ProductForm({ stockData }: { stockData: Stock[] }) {
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                             <FormField control={form.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/></FormLabel> <Combobox options={productCategoryOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
-                            <FormField control={form.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN) <span className="text-destructive">*</span><Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} placeholder="Search BCN..." searchPlaceholder="Search BCN..." emptyPlaceholder="No BCN found." /> <FormMessage /> </FormItem> )} />
+                            <FormField control={form.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN) <span className="text-destructive">*</span><Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} onSearch={handleBcnSearch} placeholder="Search BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /> <FormMessage /> </FormItem> )} />
                             <FormField control={form.control} name="serialNo" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} readOnly /></FormControl> <FormMessage /> </FormItem> )} />
                             <FormField control={form.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                          </div>
@@ -578,7 +597,6 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [deal, setDeal] = useState<Deal | null>(null);
   const [salesmen, setSalesmen] = useState<User[]>([]);
-  const [stockData, setStockData] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -587,11 +605,10 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [customerData, dealData, salesmenData, fetchedStockData] = await Promise.all([
+        const [customerData, dealData, salesmenData] = await Promise.all([
           getCustomerById(customerId),
           getDealById(customerId, dealId),
           getSalesmen(),
-          getStockData(),
         ]);
         
         if (!customerData) throw new Error("Customer not found");
@@ -600,7 +617,6 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
         setCustomer(customerData);
         setDeal(dealData);
         setSalesmen(salesmenData);
-        setStockData(fetchedStockData);
         
       } catch (error) {
         console.error("Failed to fetch CRM activity data:", error);
@@ -715,7 +731,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
           
           <TabsContent value="products">
-            <ProductForm stockData={stockData} />
+            <ProductForm />
           </TabsContent>
 
         </Tabs>

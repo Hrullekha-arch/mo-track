@@ -96,3 +96,28 @@ export async function importStockData(base64Data: string): Promise<{ success: bo
         return { success: false, message: `Server-side import failed: ${error.message}` };
     }
 }
+
+export async function searchStockByBcn(query: string): Promise<Stock[]> {
+    if (!query) {
+        return [];
+    }
+
+    try {
+        const stockRef = adminDb.collection('stocks');
+        const snapshot = await stockRef
+            .where('bcn', '>=', query)
+            .where('bcn', '<=', query + '\uf8ff')
+            .limit(10)
+            .get();
+
+        if (snapshot.empty) {
+            return [];
+        }
+
+        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
+        return JSON.parse(JSON.stringify(results));
+    } catch (error) {
+        console.error("Error searching stock by BCN:", error);
+        return [];
+    }
+}
