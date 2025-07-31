@@ -142,7 +142,8 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                              </div>
                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 {deals.map(deal => (
-                                    <Card key={deal.id}>
+                                    <Link key={deal.id} href={`/dashboard/customers/${customerId}/${deal.id}`} className="block">
+                                    <Card className="h-full hover:shadow-lg transition-shadow">
                                         <CardHeader>
                                             <CardTitle className="flex justify-between items-start">
                                                 <span>{deal.dealName}</span>
@@ -164,6 +165,7 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                                             <p className="text-sm text-muted-foreground">{deal.description}</p>
                                         </CardContent>
                                     </Card>
+                                    </Link>
                                 ))}
                             </div>
                         </div>
@@ -210,5 +212,4 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
         />
         </>
     );
-
-    
+}
