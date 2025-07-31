@@ -47,13 +47,10 @@ export async function searchCustomers(filters: {
 }): Promise<Customer[]> {
   try {
     const customersRef = adminDb.collection('customers');
-    let q = customersRef.orderBy('createdAt', 'desc'); // Start with a base query
+    let q = customersRef.orderBy('createdAt', 'desc');
 
-    // Firestore does not support partial string matching (like 'includes') natively on the backend.
-    // For a production CRM, a dedicated search service like Algolia or Elasticsearch is recommended.
-    // For now, we will fetch all and filter, which works for smaller datasets.
-    
     const querySnapshot = await q.get();
+    // Correctly map documents to include the Firestore document ID.
     const allCustomers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Customer);
 
     // Apply filters in memory
@@ -80,6 +77,7 @@ export async function getCustomerById(customerId: string): Promise<Customer | nu
         const docSnap = await docRef.get();
 
         if (docSnap.exists()) {
+            // Correctly return the document ID along with the rest of the data.
             const customerData = { id: docSnap.id, ...docSnap.data() } as Customer;
             // Serialize date objects to strings to pass them from server to client component.
             return JSON.parse(JSON.stringify(customerData));
