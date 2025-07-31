@@ -8,7 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Customer, Deal, User } from "@/lib/types";
+import { Customer, Deal, User, Stock } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getStockData } from "@/app/dashboard/inventory/actions";
 
 
 const visitSchema = z.object({
@@ -77,8 +78,8 @@ type MeasurementFormValues = z.infer<typeof measurementSchema>;
 
 const productSchema = z.object({
     productCategory: z.string().optional(),
-    collectionBrand: z.string().min(1, "Collection/Brand is required."),
-    serialNo: z.string().min(1, "Serial No is required."),
+    collectionBrand: z.string().min(1, "Collection/Brand is required."), // This will now hold the BCN
+    serialNo: z.string().optional(),
     salesDescription: z.string().optional(),
     quantity: z.string().min(1, "Quantity is required."),
     remarks: z.string().optional(),
@@ -412,11 +413,9 @@ function MeasurementForm() {
 }
 
 const productCategoryOptions = [{ value: "fabric", label: "Fabric" }, { value: "furniture", label: "Furniture" }];
-const collectionBrandOptions = [{ value: "brand-a", label: "Brand A" }, { value: "brand-b", label: "Brand B" }];
-const serialNoOptions = [{ value: "1001", label: "1001" }, { value: "1002", label: "1002" }];
 const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtain" }, { value: "sofa", label: "Sofa Fabric" }];
 
-function ProductForm() {
+function ProductForm({ stockData }: { stockData: Stock[] }) {
     const [loading, setLoading] = useState(false);
     const { toast } = useToast();
 
@@ -424,10 +423,25 @@ function ProductForm() {
         resolver: zodResolver(productSchema),
         defaultValues: {
             productCategory: 'fabric',
+            collectionBrand: "",
+            serialNo: "",
             noOfPcs: '1',
             pushToMeasurement: false,
         },
     });
+
+    const bcnOptions: { value: string; label: string; }[] = useMemo(() => 
+        stockData.map(stock => ({ value: stock.bcn || stock.id, label: stock.bcn || stock.id }))
+    , [stockData]);
+
+    const handleBcnSelect = (bcn: string) => {
+        const selectedStock = stockData.find(s => (s.bcn || s.id) === bcn);
+        if (selectedStock) {
+            form.setValue('collectionBrand', bcn);
+            form.setValue('productCategory', selectedStock.category?.toLowerCase() || 'fabric');
+            form.setValue('serialNo', selectedStock.serialNo || '');
+        }
+    };
 
     const onSubmit = (data: ProductFormValues) => {
         setLoading(true);
@@ -454,8 +468,8 @@ function ProductForm() {
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                             <FormField control={form.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/></FormLabel> <Combobox options={productCategoryOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
-                            <FormField control={form.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand <span className="text-destructive">*</span><Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={collectionBrandOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
-                            <FormField control={form.control} name="serialNo" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <Combobox options={serialNoOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                            <FormField control={form.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN) <span className="text-destructive">*</span><Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} placeholder="Search BCN..." searchPlaceholder="Search BCN..." emptyPlaceholder="No BCN found." /> <FormMessage /> </FormItem> )} />
+                            <FormField control={form.control} name="serialNo" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} readOnly /></FormControl> <FormMessage /> </FormItem> )} />
                             <FormField control={form.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                          </div>
                          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -564,6 +578,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [deal, setDeal] = useState<Deal | null>(null);
   const [salesmen, setSalesmen] = useState<User[]>([]);
+  const [stockData, setStockData] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -572,10 +587,11 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [customerData, dealData, salesmenData] = await Promise.all([
+        const [customerData, dealData, salesmenData, fetchedStockData] = await Promise.all([
           getCustomerById(customerId),
           getDealById(customerId, dealId),
           getSalesmen(),
+          getStockData(),
         ]);
         
         if (!customerData) throw new Error("Customer not found");
@@ -584,6 +600,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
         setCustomer(customerData);
         setDeal(dealData);
         setSalesmen(salesmenData);
+        setStockData(fetchedStockData);
         
       } catch (error) {
         console.error("Failed to fetch CRM activity data:", error);
@@ -698,7 +715,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
           
           <TabsContent value="products">
-            <ProductForm />
+            <ProductForm stockData={stockData} />
           </TabsContent>
 
         </Tabs>
@@ -706,3 +723,4 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     </div>
   );
 }
+
