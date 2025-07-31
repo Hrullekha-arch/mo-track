@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -19,7 +19,8 @@ import { NewDealDialog } from "@/components/features/customer/NewDealDialog";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getDealsForCustomer, getSalesmen } from '../actions';
 
-export default function CustomerDetailPage({ params }: { params: { customerId: string } }) {
+export default function CustomerDetailPage({ params: paramsPromise }: { params: Promise<{ customerId: string }> }) {
+    const params = use(paramsPromise);
     const { customerId } = params;
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [deals, setDeals] = useState<Deal[]>([]);
@@ -62,7 +63,9 @@ export default function CustomerDetailPage({ params }: { params: { customerId: s
             }
         };
 
-        fetchInitialData();
+        if (customerId) {
+            fetchInitialData();
+        }
     }, [customerId, toast]);
 
     const handleNewDealSuccess = (newDeal: Deal) => {
@@ -205,4 +208,3 @@ export default function CustomerDetailPage({ params }: { params: { customerId: s
         />
         </>
     );
-}
