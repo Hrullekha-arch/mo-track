@@ -1,15 +1,13 @@
 
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { doc, getDoc, onSnapshot, collection } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import { Customer, Deal, User } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, PlusCircle, Settings, Archive, Receipt, FileText, CircleDollarSign, Edit, Trash2 } from "lucide-react";
+import { ArrowLeft, PlusCircle, Settings, Archive, Receipt, FileText, CircleDollarSign, Edit, Trash2, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
@@ -19,26 +17,10 @@ import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { NewDealDialog } from "@/components/features/customer/NewDealDialog";
 import { useToast } from "@/hooks/use-toast";
+import { getCustomerById, getDealsForCustomer, getSalesmen } from '../actions';
 
-async function getCustomer(id: string): Promise<Customer | null> {
-    try {
-        const docRef = doc(db, "customers", id);
-        const docSnap = await getDoc(docRef);
-
-        if (docSnap.exists()) {
-            return { id: docSnap.id, ...docSnap.data() } as Customer;
-        } else {
-            console.warn(`Customer document with ID ${id} not found in Firestore.`);
-            return null;
-        }
-    } catch (error) {
-        console.error(`Error fetching customer by ID ${id}:`, error);
-        return null;
-    }
-}
-
-export default function CustomerDetailPage({ params }: { params: Promise<{ customerId: string }> }) {
-    const { customerId } = use(params);
+export default function CustomerDetailPage({ params }: { params: { customerId: string } }) {
+    const { customerId } = params;
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [deals, setDeals] = useState<Deal[]>([]);
     const [salesmen, setSalesmen] = useState<User[]>([]);
@@ -48,37 +30,43 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ custo
 
     useEffect(() => {
         const fetchInitialData = async () => {
-            const customerData = await getCustomer(customerId);
-            setCustomer(customerData);
-            setLoading(false);
+            setLoading(true);
+            try {
+                const [customerData, dealsData, salesmenData] = await Promise.all([
+                    getCustomerById(customerId),
+                    getDealsForCustomer(customerId),
+                    getSalesmen(),
+                ]);
+
+                if (customerData) {
+                    setCustomer(customerData);
+                    setDeals(dealsData);
+                    setSalesmen(salesmenData);
+                } else {
+                    setCustomer(null);
+                    toast({
+                        variant: 'destructive',
+                        title: 'Error',
+                        description: 'Customer could not be found.'
+                    })
+                }
+            } catch (error) {
+                console.error("Error fetching customer page data:", error);
+                 toast({
+                    variant: 'destructive',
+                    title: 'Error',
+                    description: 'Failed to fetch customer details.'
+                })
+            } finally {
+                 setLoading(false);
+            }
         };
 
         fetchInitialData();
-        
-        // Listen for deals
-        const dealsRef = collection(db, `customers/${customerId}/deals`);
-        const unsubscribeDeals = onSnapshot(dealsRef, (snapshot) => {
-            const dealsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Deal));
-            setDeals(dealsData);
-        });
-        
-        // Listen for salesmen
-        const salesmenRef = collection(db, 'users');
-        const unsubscribeSalesmen = onSnapshot(salesmenRef, (snapshot) => {
-            const usersData = snapshot.docs
-                .map(doc => ({ id: doc.id, ...doc.data() } as User))
-                .filter(user => user.role === 'salesman');
-            setSalesmen(usersData);
-        });
+    }, [customerId, toast]);
 
-        return () => {
-            unsubscribeDeals();
-            unsubscribeSalesmen();
-        };
-
-    }, [customerId]);
-
-    const handleNewDealSuccess = () => {
+    const handleNewDealSuccess = (newDeal: Deal) => {
+        setDeals(prevDeals => [...prevDeals, newDeal]);
         toast({ title: "Deal Created!", description: "The new deal has been successfully added."});
         setIsNewDealOpen(false);
     }

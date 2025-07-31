@@ -2,7 +2,8 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Customer, Deal } from '@/lib/types';
+import { Customer, Deal, User } from '@/lib/types';
+import { query, where } from 'firebase/firestore';
 
 export async function searchCustomersAction(filters: {
   customerName?: string;
@@ -30,6 +31,57 @@ export async function searchCustomersAction(filters: {
     return [];
   }
 }
+
+export async function getCustomerById(id: string): Promise<Customer | null> {
+    try {
+        const docRef = adminDb.collection("customers").doc(id);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists) {
+            return { id: docSnap.id, ...docSnap.data() } as Customer;
+        } else {
+            console.warn(`Customer document with ID ${id} not found in Firestore.`);
+            return null;
+        }
+    } catch (error) {
+        console.error(`Error fetching customer by ID ${id}:`, error);
+        return null;
+    }
+}
+
+
+export async function getDealsForCustomer(customerId: string): Promise<Deal[]> {
+    try {
+        const dealsRef = adminDb.collection('customers').doc(customerId).collection('deals');
+        const snapshot = await dealsRef.orderBy('createdAt', 'desc').get();
+        if (snapshot.empty) {
+            return [];
+        }
+        const deals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Deal);
+        return JSON.parse(JSON.stringify(deals));
+    } catch (error) {
+        console.error(`Error fetching deals for customer ${customerId}:`, error);
+        return [];
+    }
+}
+
+
+export async function getSalesmen(): Promise<User[]> {
+    try {
+        const usersRef = adminDb.collection('users');
+        const q = usersRef.where('role', '==', 'salesman');
+        const snapshot = await q.get();
+        if (snapshot.empty) {
+            return [];
+        }
+        const salesmen = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as User);
+        return JSON.parse(JSON.stringify(salesmen));
+    } catch (error) {
+        console.error('Error fetching salesmen:', error);
+        return [];
+    }
+}
+
 
 interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {}
 
