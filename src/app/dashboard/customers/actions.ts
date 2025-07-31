@@ -3,11 +3,8 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import { Customer } from '@/lib/types';
-import { collection, getDocs, query, where, doc } from 'firebase/firestore';
 
-interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {
-    // Add any additional fields that are not part of the core Customer type but are in the form
-}
+interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {}
 
 export async function addCustomer(data: AddCustomerInput): Promise<{ success: boolean; message: string; customer?: Customer }> {
   try {
@@ -24,7 +21,6 @@ export async function addCustomer(data: AddCustomerInput): Promise<{ success: bo
     const newCustomerData: Omit<Customer, 'id'> = {
       ...data,
       createdAt: new Date().toISOString(),
-      createdBy: data.createdBy,
     };
 
     await newContactRef.set(newCustomerData);
@@ -38,7 +34,6 @@ export async function addCustomer(data: AddCustomerInput): Promise<{ success: bo
     return { success: false, message: `Server error: ${error.message}` };
   }
 }
-
 
 export async function searchCustomers(filters: {
   customerName?: string;
@@ -77,9 +72,7 @@ export async function getCustomerById(customerId: string): Promise<Customer | nu
         const docSnap = await docRef.get();
 
         if (docSnap.exists()) {
-            // Correctly return the document ID along with the rest of the data.
             const customerData = { id: docSnap.id, ...docSnap.data() } as Customer;
-            // Serialize date objects to strings to pass them from server to client component.
             return JSON.parse(JSON.stringify(customerData));
         } else {
             console.log(`Customer document with ID ${customerId} not found.`);

@@ -6,23 +6,22 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Info, PlusCircle, Search, Trash2, Upload, Play, Loader2 } from "lucide-react";
+import { Info, PlusCircle, Search, Trash2, Loader2 } from "lucide-react";
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NewContactDialog } from '@/components/features/customer/NewContactDialog';
 import { Customer } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { CustomerResultsTable } from '@/components/features/customer/CustomerResultsTable';
 import { searchCustomers } from './actions';
+import { useRouter } from 'next/navigation';
 
 const searchSchema = z.object({
   customerName: z.string().optional(),
   mobileNo: z.string().optional(),
-  dealName: z.string().optional(),
-  billingName: z.string().optional(),
   salesSupport: z.string().optional(),
 });
 
@@ -33,6 +32,7 @@ export default function CustomersPage() {
   const [isNewContactOpen, setIsNewContactOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<Customer[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+  const router = useRouter();
 
   const { toast } = useToast();
 
@@ -41,9 +41,7 @@ export default function CustomersPage() {
     defaultValues: {
       customerName: "",
       mobileNo: "",
-      dealName: "",
-      billingName: "",
-      salesSupport: "",
+      salesSupport: "all",
     }
   });
 
@@ -69,6 +67,11 @@ export default function CustomersPage() {
     }
   };
 
+  const handleNewContactSuccess = (newCustomer: Customer) => {
+    setIsNewContactOpen(false);
+    router.push(`/dashboard/customers/${newCustomer.id}`);
+  };
+
   const clearForm = () => {
     form.reset();
     setSearchResults([]);
@@ -88,16 +91,13 @@ export default function CustomersPage() {
                     <PlusCircle className="mr-2 h-4 w-4" />
                     New Contact
                 </Button>
-                <Button variant="destructive" size="icon">
-                    <Play className="h-4 w-4" />
-                </Button>
             </div>
         </header>
 
         <Card>
           <CardContent className="pt-6">
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div className="space-y-2">
                     <Label htmlFor="customerName" className="flex items-center gap-1">Name of Customer <Tooltip><TooltipTrigger asChild><Info className="h-3 w-3" /></TooltipTrigger><TooltipContent><p>Search by full or partial customer name.</p></TooltipContent></Tooltip></Label>
                     <Input id="customerName" {...form.register("customerName")} />
@@ -107,16 +107,8 @@ export default function CustomersPage() {
                     <Input id="mobileNo" {...form.register("mobileNo")} />
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor="dealName" className="flex items-center gap-1">Search by Deal Name <Tooltip><TooltipTrigger asChild><Info className="h-3 w-3" /></TooltipTrigger><TooltipContent><p>Find customers associated with a specific deal.</p></TooltipContent></Tooltip></Label>
-                    <Input id="dealName" {...form.register("dealName")} />
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="billingName" className="flex items-center gap-1">Billing Name <Tooltip><TooltipTrigger asChild><Info className="h-3 w-3" /></TooltipTrigger><TooltipContent><p>Search by the name used for billing.</p></TooltipContent></Tooltip></Label>
-                    <Input id="billingName" {...form.register("billingName")} />
-                </div>
-                <div className="space-y-2">
-                    <Label htmlFor="salesSupport" className="flex items-center gap-1">Architect / Sales Support <Tooltip><TooltipTrigger asChild><Info className="h-3 w-3" /></TooltipTrigger><TooltipContent><p>Filter by the assigned architect or sales support person.</p></TooltipContent></Tooltip></Label>
-                    <Select onValueChange={(value) => form.setValue("salesSupport", value)}>
+                    <Label htmlFor="salesSupport" className="flex items-center gap-1">Architect / Sales Support</Label>
+                    <Select onValueChange={(value) => form.setValue("salesSupport", value)} defaultValue={form.getValues("salesSupport")}>
                         <SelectTrigger id="salesSupport">
                             <SelectValue placeholder="--SELECT--" />
                         </SelectTrigger>
@@ -137,10 +129,6 @@ export default function CustomersPage() {
                     <Trash2 className="mr-2 h-4 w-4" />
                     Clear
                 </Button>
-                <Button type="button">
-                    <Upload className="mr-2 h-4 w-4" />
-                    Upload
-                </Button>
               </div>
             </form>
           </CardContent>
@@ -157,7 +145,8 @@ export default function CustomersPage() {
     </TooltipProvider>
     <NewContactDialog 
         isOpen={isNewContactOpen} 
-        onClose={() => setIsNewContactOpen(false)} 
+        onClose={() => setIsNewContactOpen(false)}
+        onSuccess={handleNewContactSuccess}
     />
     </>
   );

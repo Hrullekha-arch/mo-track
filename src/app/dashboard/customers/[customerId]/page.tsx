@@ -97,19 +97,8 @@ export default function CustomerDetailPage() {
                 </TabsList>
                 <TabsContent value="deals" className="pt-4">
                     <div className="text-center py-16 px-6 border-2 border-dashed rounded-lg mt-2">
-                        <svg
-                            className="mx-auto mb-6 h-24 w-24 text-gray-300"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth="1"
-                            aria-hidden="true"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"
-                            />
+                        <svg className="mx-auto h-24 w-24 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1" aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
                         </svg>
                         <h3 className="text-xl font-semibold mb-2">There are no deals</h3>
                         <p className="text-muted-foreground mb-6">
