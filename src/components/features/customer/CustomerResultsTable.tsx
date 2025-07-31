@@ -78,11 +78,15 @@ export function CustomerResultsTable({ customers, isLoading, hasSearched }: Cust
                             </TableCell>
                             <TableCell>{format(new Date(customer.createdAt), "PPP")}</TableCell>
                             <TableCell className="text-right">
-                                <Button asChild variant="ghost" size="icon">
-                                    <Link href={`/dashboard/customers/${customer.id}`}>
-                                        <ChevronRight className="h-4 w-4" />
-                                    </Link>
-                                </Button>
+                                {customer.id ? (
+                                    <Button asChild variant="ghost" size="icon">
+                                        <Link href={`/dashboard/customers/${customer.id}`}>
+                                            <ChevronRight className="h-4 w-4" />
+                                        </Link>
+                                    </Button>
+                                ) : (
+                                    <span className="text-xs text-destructive">No ID</span>
+                                )}
                             </TableCell>
                         </TableRow>
                     ))}

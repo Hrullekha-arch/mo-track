@@ -16,8 +16,36 @@ import { NewContactDialog } from '@/components/features/customer/NewContactDialo
 import { Customer } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { CustomerResultsTable } from '@/components/features/customer/CustomerResultsTable';
-import { searchCustomers } from './actions';
 import { useRouter } from 'next/navigation';
+
+async function searchCustomersAction(filters: {
+  customerName?: string;
+  mobileNo?: string;
+  salesSupport?: string;
+}): Promise<Customer[]> {
+  'use server';
+  const { adminDb } = await import('@/lib/firebase-admin');
+  try {
+    const customersRef = adminDb.collection('customers');
+    let q = customersRef.orderBy('createdAt', 'desc');
+
+    const querySnapshot = await q.get();
+    const allCustomers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Customer);
+
+    // Apply filters in memory
+    const filteredCustomers = allCustomers.filter(customer => {
+        const nameMatch = !filters.customerName || customer.name.toLowerCase().includes(filters.customerName.toLowerCase());
+        const mobileMatch = !filters.mobileNo || customer.mobileNo.includes(filters.mobileNo);
+        const salesSupportMatch = !filters.salesSupport || filters.salesSupport === 'all' || customer.salesSupport === filters.salesSupport;
+        return nameMatch && mobileMatch && salesSupportMatch;
+    });
+
+    return JSON.parse(JSON.stringify(filteredCustomers));
+  } catch (error) {
+    console.error("Error searching customers in server action:", error);
+    return [];
+  }
+}
 
 const searchSchema = z.object({
   customerName: z.string().optional(),
@@ -49,7 +77,7 @@ export default function CustomersPage() {
     setLoading(true);
     setHasSearched(true);
     try {
-      const results = await searchCustomers({
+      const results = await searchCustomersAction({
         customerName: data.customerName,
         mobileNo: data.mobileNo,
         salesSupport: data.salesSupport,

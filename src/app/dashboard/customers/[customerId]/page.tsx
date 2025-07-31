@@ -1,71 +1,36 @@
 
-"use client";
-
-import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { adminDb } from '@/lib/firebase-admin';
 import { Customer } from '@/lib/types';
-import { Skeleton } from '@/components/ui/skeleton';
+import { notFound } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, PlusCircle, Settings, Archive, Receipt, FileText, CircleDollarSign } from 'lucide-react';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getCustomerById } from '../actions';
 import { Separator } from '@/components/ui/separator';
 
-export default function CustomerDetailPage() {
-    const params = useParams();
-    const customerId = params.customerId as string;
-    const [customer, setCustomer] = useState<Customer | null>(null);
-    const [loading, setLoading] = useState(true);
+async function getCustomer(id: string): Promise<Customer | null> {
+    try {
+        const docRef = adminDb.collection('customers').doc(id);
+        const docSnap = await docRef.get();
 
-    useEffect(() => {
-        if (customerId) {
-            const fetchCustomer = async () => {
-                setLoading(true);
-                try {
-                    const fetchedCustomer = await getCustomerById(customerId);
-                    setCustomer(fetchedCustomer);
-                } catch (error) {
-                    console.error("Failed to fetch customer", error);
-                    setCustomer(null);
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            fetchCustomer();
+        if (docSnap.exists()) {
+            const customerData = { id: docSnap.id, ...docSnap.data() } as Customer;
+            return JSON.parse(JSON.stringify(customerData));
+        } else {
+            console.warn(`Customer document with ID ${id} not found in Firestore.`);
+            return null;
         }
-    }, [customerId]);
-
-    if (loading) {
-        return (
-            <div className="p-8 space-y-6">
-                <div className="flex justify-between items-start">
-                    <div className="space-y-2">
-                        <Skeleton className="h-8 w-48" />
-                        <Skeleton className="h-5 w-64" />
-                    </div>
-                    <Skeleton className="h-10 w-36" />
-                </div>
-                <Skeleton className="h-px w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-64 w-full" />
-            </div>
-        );
+    } catch (error) {
+        console.error(`Error fetching customer by ID ${id}:`, error);
+        return null;
     }
-    
+}
+
+export default async function CustomerDetailPage({ params }: { params: { customerId: string }}) {
+    const customer = await getCustomer(params.customerId);
+
     if (!customer) {
-        return (
-            <div className="p-8 text-center">
-                <h2 className="text-xl font-semibold">Customer not found</h2>
-                 <Button variant="outline" asChild className="mt-4">
-                    <Link href="/dashboard/customers">
-                        <ArrowLeft className="mr-2 h-4 w-4" />
-                        Back to Customers
-                    </Link>
-                </Button>
-            </div>
-        )
+        notFound();
     }
 
     return (
