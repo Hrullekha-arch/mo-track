@@ -422,6 +422,7 @@ function ProductForm() {
     const [activityLoading, setActivityLoading] = useState(false);
     const [products, setProducts] = useState<ProductFormValues[]>([]);
     const [editingIndex, setEditingIndex] = useState<number | null>(null);
+    const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const { toast } = useToast();
@@ -476,13 +477,11 @@ function ProductForm() {
     const onSubmit = (data: ProductFormValues) => {
         setLoading(true);
         if (editingIndex !== null) {
-            // Update existing product
             const updatedProducts = [...products];
             updatedProducts[editingIndex] = data;
             setProducts(updatedProducts);
             toast({ title: "Product Updated", description: "The product has been updated in the list." });
         } else {
-            // Add new product
             setProducts(prev => [...prev, data]);
             toast({ title: "Product Added", description: "The new product has been added to the list." });
         }
@@ -522,6 +521,42 @@ function ProductForm() {
         }, 2000);
     }
 
+    const handleToggleAll = (checked: boolean) => {
+        if (checked) {
+            const allIndices = new Set(products.map((_, index) => index));
+            setSelectedIndices(allIndices);
+        } else {
+            setSelectedIndices(new Set());
+        }
+    };
+
+    const handleToggleRow = (index: number) => {
+        const newSelection = new Set(selectedIndices);
+        if (newSelection.has(index)) {
+            newSelection.delete(index);
+        } else {
+            newSelection.add(index);
+        }
+        setSelectedIndices(newSelection);
+    };
+
+    const handleConvert = (type: 'order' | 'quotation') => {
+        const selectedProducts = products.filter((_, index) => selectedIndices.has(index));
+        if (selectedProducts.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'No Products Selected',
+                description: 'Please select at least one product to convert.',
+            });
+            return;
+        }
+        console.log(`Converting ${selectedProducts.length} products to ${type}:`, selectedProducts);
+        toast({
+            title: `Converting to ${type}`,
+            description: `Processing ${selectedProducts.length} selected products.`,
+        });
+    }
+
     return (
         <Card className="mt-6">
             <CardContent className="p-6">
@@ -530,7 +565,13 @@ function ProductForm() {
                      <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>#</TableHead>
+                                <TableHead className="w-12">
+                                     <Checkbox
+                                        checked={selectedIndices.size > 0 && selectedIndices.size === products.length}
+                                        onCheckedChange={handleToggleAll}
+                                        aria-label="Select all rows"
+                                    />
+                                </TableHead>
                                 <TableHead>Modify</TableHead>
                                 <TableHead>Collection / Brand</TableHead>
                                 <TableHead>Serial No</TableHead>
@@ -544,8 +585,14 @@ function ProductForm() {
                         </TableHeader>
                         <TableBody>
                             {products.length > 0 ? products.map((product, index) => (
-                                <TableRow key={index}>
-                                    <TableCell>{index + 1}</TableCell>
+                                <TableRow key={index} data-state={selectedIndices.has(index) && "selected"}>
+                                    <TableCell>
+                                         <Checkbox
+                                            checked={selectedIndices.has(index)}
+                                            onCheckedChange={() => handleToggleRow(index)}
+                                            aria-label={`Select row ${index + 1}`}
+                                        />
+                                    </TableCell>
                                     <TableCell>
                                         <Button variant="ghost" size="icon" onClick={() => handleEdit(index)}><Edit className="h-4 w-4 text-blue-600"/></Button>
                                         <Button variant="ghost" size="icon" onClick={() => handleDelete(index)}><Trash2 className="h-4 w-4 text-destructive"/></Button>
@@ -568,8 +615,8 @@ function ProductForm() {
                     </Table>
                 </div>
                  <div className="flex gap-2 mb-8">
-                    <Button>Convert To Order</Button>
-                    <Button>Convert To Quotation</Button>
+                    <Button onClick={() => handleConvert('order')}>Convert To Order</Button>
+                    <Button onClick={() => handleConvert('quotation')}>Convert To Quotation</Button>
                 </div>
 
                 <div className="flex justify-between items-center mb-6">
