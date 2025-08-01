@@ -131,7 +131,7 @@ const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Co
                 setValue(`items.${index}.amount`, newAmount, { shouldValidate: true });
             }
         });
-    }, [items, control, setValue, getValues]);
+    }, [items, setValue, getValues]);
 
     return (
         <div className="space-y-4">
@@ -334,7 +334,7 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
                 <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
                 <Button type="submit" disabled={loading}>
                     {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Create Quotation
+                    Proceed
                 </Button>
             </DialogFooter>
           </form>
