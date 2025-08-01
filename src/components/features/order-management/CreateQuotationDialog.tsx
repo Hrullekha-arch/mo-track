@@ -14,7 +14,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { User, Deal, DealProduct } from "@/lib/types";
-import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, Edit, Check } from "lucide-react";
+import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, Edit, Check, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,6 +28,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter as TableFooterComponent } from "@/components/ui/table";
+import { QuotationPreview } from "./QuotationPreview";
 
 
 // Placeholder options for comboboxes
@@ -83,7 +84,7 @@ const formSchema = z.object({
   vasDetails: z.array(vasDetailSchema).optional(),
 });
 
-type FormValues = z.infer<typeof formSchema>;
+export type FormValues = z.infer<typeof formSchema>;
 interface ItemDetailValues extends DealProduct {
     rate?: number;
 }
@@ -220,6 +221,7 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
+  const [view, setView] = useState<'edit' | 'preview'>('edit');
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -231,39 +233,44 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
     },
   });
 
-  useEffect(() => {
-    if (isOpen && deal) {
-      const itemsForForm: any[] = initialItems.map(item => ({
-        id: item.collectionBrand + item.serialNo, // Create a unique-ish ID
-        collectionBrand: item.collectionBrand || '',
-        serialNo: item.serialNo || '',
-        salesDescription: item.salesDescription || 'Default Description',
-        quantity: parseFloat(item.quantity) || 0,
-        rate: item.rate || 0,
-        discountPercent: 0,
-        amount: 0,
-        room: item.room || '',
-        remarks: item.remarks || '',
-      }));
+  const allItems = useWatch({ control: form.control, name: 'items' });
 
-      form.reset({
-        company: '',
-        store: "mo-gcr-branch",
-        date: new Date(),
-        validTillDate: undefined,
-        customerName: '', // This should ideally be passed in or fetched based on the deal
-        dealName: deal.dealName,
-        discountPercent: '',
-        applyTax: false,
-        billingName: '',
-        items: itemsForForm,
-        vasDetails: [],
-      });
+  useEffect(() => {
+    if (isOpen) {
+      if (deal) {
+        const itemsForForm: any[] = initialItems.map(item => ({
+          id: item.collectionBrand + item.serialNo, // Create a unique-ish ID
+          collectionBrand: item.collectionBrand || '',
+          serialNo: item.serialNo || '',
+          salesDescription: item.salesDescription || 'Default Description',
+          quantity: parseFloat(item.quantity) || 0,
+          rate: item.rate || 0,
+          discountPercent: 0,
+          amount: 0,
+          room: item.room || '',
+          remarks: item.remarks || '',
+        }));
+
+        form.reset({
+          company: '',
+          store: "mo-gcr-branch",
+          date: new Date(),
+          validTillDate: undefined,
+          customerName: '', // This should ideally be passed in or fetched based on the deal
+          dealName: deal.dealName,
+          discountPercent: '',
+          applyTax: false,
+          billingName: '',
+          items: itemsForForm,
+          vasDetails: [],
+        });
+      }
+      setView('edit'); // Reset to edit view when dialog opens
     }
   }, [isOpen, deal, initialItems, form]);
 
 
-  async function onSubmit(values: FormValues) {
+  async function createQuotation(values: FormValues) {
     if (!user) {
         toast({ variant: "destructive", title: "Not authenticated." });
         return;
@@ -298,48 +305,79 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
     }
   }
 
+  const handleProceed = () => {
+    form.trigger().then(isValid => {
+      if(isValid) {
+        setView('preview');
+      } else {
+        toast({ variant: 'destructive', title: 'Validation Error', description: 'Please fill in all required fields before proceeding.' });
+      }
+    });
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-[90vw]">
         <DialogHeader>
-          <DialogTitle>Create Quotation</DialogTitle>
+          <DialogTitle>
+            {view === 'edit' ? 'Create Quotation' : 'Quotation Preview'}
+          </DialogTitle>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 py-4 max-h-[85vh] overflow-y-auto pr-4">
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                 <FormField control={form.control} name="company" render={({ field }) => (<FormItem><FormLabel>Company</FormLabel><Combobox options={companyOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
-                 <FormField control={form.control} name="store" render={({ field }) => (<FormItem><FormLabel>Store*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                 <FormField control={form.control} name="date" render={({ field }) => (<FormItem><FormLabel>Date*</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
-                 <FormField control={form.control} name="validTillDate" render={({ field }) => (<FormItem><FormLabel>Valid Till Date</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
-                 <FormField control={form.control} name="customerName" render={({ field }) => (<FormItem><FormLabel>Customer Name*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                 <FormField control={form.control} name="dealName" render={({ field }) => (<FormItem><FormLabel>Deal Name*</FormLabel><Combobox options={dealOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
-            </div>
+        
+        {view === 'edit' && (
+            <Form {...form}>
+            <form className="space-y-6 py-4 max-h-[85vh] overflow-y-auto pr-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                    <FormField control={form.control} name="company" render={({ field }) => (<FormItem><FormLabel>Company</FormLabel><Combobox options={companyOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="store" render={({ field }) => (<FormItem><FormLabel>Store*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="date" render={({ field }) => (<FormItem><FormLabel>Date*</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="validTillDate" render={({ field }) => (<FormItem><FormLabel>Valid Till Date</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="customerName" render={({ field }) => (<FormItem><FormLabel>Customer Name*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="dealName" render={({ field }) => (<FormItem><FormLabel>Deal Name*</FormLabel><Combobox options={dealOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
-                <FormField control={form.control} name="discountPercent" render={({ field }) => (<FormItem><FormLabel>Discount(%)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                <FormField control={form.control} name="applyTax" render={({ field }) => (<FormItem className="flex flex-row items-center space-x-2 pt-4"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel>Apply Tax</FormLabel></FormItem>)} />
-                <FormField control={form.control} name="billingName" render={({ field }) => (<FormItem className="col-span-2"><FormLabel>Billing Name <Button variant="link" type="button" className="p-0 h-auto ml-2">CRM Details</Button></FormLabel><Combobox options={billingOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
-            </div>
-            
-            <Separator />
-            
-            <PreviouslySelectedItems control={form.control} setValue={form.setValue} getValues={form.getValues} />
-            
-            <Separator />
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
+                    <FormField control={form.control} name="discountPercent" render={({ field }) => (<FormItem><FormLabel>Discount(%)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="applyTax" render={({ field }) => (<FormItem className="flex flex-row items-center space-x-2 pt-4"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel>Apply Tax</FormLabel></FormItem>)} />
+                    <FormField control={form.control} name="billingName" render={({ field }) => (<FormItem className="col-span-2"><FormLabel>Billing Name <Button variant="link" type="button" className="p-0 h-auto ml-2">CRM Details</Button></FormLabel><Combobox options={billingOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                </div>
+                
+                <Separator />
+                
+                <PreviouslySelectedItems control={form.control} setValue={form.setValue} getValues={form.getValues} />
+                
+                <Separator />
 
-            <VasForm form={form} />
-            
-            <DialogFooter>
-                <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-                <Button type="submit" disabled={loading}>
-                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Proceed
-                </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+                <VasForm form={form} />
+                
+                <DialogFooter>
+                    <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+                    <Button type="button" onClick={handleProceed}>
+                        Proceed
+                    </Button>
+                </DialogFooter>
+            </form>
+            </Form>
+        )}
+        
+        {view === 'preview' && (
+            <div className="space-y-4 py-4 max-h-[85vh] overflow-y-auto pr-4">
+                <QuotationPreview values={form.getValues()} />
+                <DialogFooter>
+                    <Button type="button" variant="ghost" onClick={() => setView('edit')}>
+                        <ArrowLeft className="mr-2 h-4 w-4" />
+                        Back to Edit
+                    </Button>
+                    <Button type="button" onClick={form.handleSubmit(createQuotation)} disabled={loading}>
+                        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
+                        Confirm & Create Quotation
+                    </Button>
+                </DialogFooter>
+            </div>
+        )}
+
       </DialogContent>
     </Dialog>
   );
 }
+
