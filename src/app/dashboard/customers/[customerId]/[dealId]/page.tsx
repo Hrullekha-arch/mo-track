@@ -551,7 +551,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal }: {
         setActivityLoading(false);
     }
     
-    const handleQuotationClick = () => {
+    const handleQuotationClick = async () => {
         const selectedIds = Object.keys(selectedRows).filter(id => selectedRows[id]);
         if (selectedIds.length === 0) {
             toast({
@@ -561,12 +561,24 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal }: {
             });
             return;
         }
-
+    
         const selectedProducts = fields
             .filter(field => selectedIds.includes(field.id))
             .map(field => field as DealProduct);
+        
+        // Fetch MRP for each selected product
+        const productsWithRate = await Promise.all(
+            selectedProducts.map(async (product) => {
+                const stockResults = await searchStockByBcn(product.collectionBrand);
+                const stockItem = stockResults.find(s => s.bcn === product.collectionBrand);
+                return {
+                    ...product,
+                    rate: stockItem?.mrp || 0, // Default to 0 if not found
+                };
+            })
+        );
             
-        setSelectedProductsForQuotation(selectedProducts);
+        setSelectedProductsForQuotation(productsWithRate);
         setIsQuotationDialogOpen(true);
     };
     
@@ -592,9 +604,12 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal }: {
 
     return (
         <FormProvider {...form}>
-        <form onSubmit={form.handleSubmit(handleUpdateActivity)}>
         <Card className="mt-6">
             <CardContent className="p-6">
+                <AddProductForm onAddProduct={handleAddProduct}/>
+
+                <Separator className="my-8" />
+                
                 <div className="flex items-center justify-between mb-6">
                     <h3 className="text-xl font-semibold">Previously Added Products</h3>
                      <Button type="button" variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
@@ -659,19 +674,18 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal }: {
                     <Button type="button" >Convert To Order</Button>
                     <Button type="button" onClick={handleQuotationClick}>Convert To Quotation</Button>
                 </div>
-
-                <AddProductForm onAddProduct={handleAddProduct}/>
-
+                
                  <div className="mt-12 flex flex-col items-start gap-4">
-                    <p className="text-sm text-destructive">Please click on Update Activity if you have updated any changes.</p>
-                    <Button type="submit" disabled={activityLoading} className="bg-cyan-600 hover:bg-cyan-700">
-                        {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Update Activity
-                    </Button>
+                    <form onSubmit={form.handleSubmit(handleUpdateActivity)}>
+                        <p className="text-sm text-destructive mb-2">Please click on Update Activity if you have updated any changes.</p>
+                        <Button type="submit" disabled={activityLoading} className="bg-cyan-600 hover:bg-cyan-700">
+                            {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Update Activity
+                        </Button>
+                    </form>
                 </div>
             </CardContent>
         </Card>
-        </form>
         <CreateQuotationDialog 
             isOpen={isQuotationDialogOpen} 
             onClose={() => setIsQuotationDialogOpen(false)} 

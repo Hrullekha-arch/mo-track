@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -83,14 +84,16 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
-type ItemDetailValues = z.infer<typeof itemDetailSchema>;
+interface ItemDetailValues extends DealProduct {
+    rate?: number;
+}
 
 
 interface CreateQuotationDialogProps {
   isOpen: boolean;
   onClose: () => void;
   deal: Deal;
-  initialItems: DealProduct[];
+  initialItems: ItemDetailValues[];
 }
 
 
@@ -159,7 +162,7 @@ const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Co
                                 <p className="text-xs text-muted-foreground">{getValues(`items.${index}.serialNo`)}</p>
                             </TableCell>
                             <TableCell>
-                                <FormField control={control} name={`items.${index}.description`} render={({ field }) => (<Combobox options={descriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" />)} />
+                                <FormField control={control} name={`items.${index}.salesDescription`} render={({ field }) => (<Combobox options={descriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" />)} />
                             </TableCell>
                             <TableCell>
                                  <FormField control={control} name={`items.${index}.quantity`} render={({ field }) => (<Input type="number" {...field} />)} />
@@ -229,18 +232,18 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
   });
 
   useEffect(() => {
-    if (isOpen && deal && initialItems) {
-      const itemsForForm: ItemDetailValues[] = initialItems.map(item => ({
+    if (isOpen && deal) {
+      const itemsForForm: any[] = initialItems.map(item => ({
         id: item.collectionBrand + item.serialNo, // Create a unique-ish ID
         collectionBrand: item.collectionBrand || '',
         serialNo: item.serialNo || '',
-        description: item.salesDescription || 'Default Description',
+        salesDescription: item.salesDescription || 'Default Description',
         quantity: parseFloat(item.quantity) || 0,
-        rate: 0, // Default rate
+        rate: item.rate || 0,
         discountPercent: 0,
         amount: 0,
         room: item.room || '',
-        remark: item.remarks || '',
+        remarks: item.remarks || '',
       }));
 
       form.reset({
@@ -297,7 +300,7 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-7xl">
+      <DialogContent className="max-w-[90vw]">
         <DialogHeader>
           <DialogTitle>Create Quotation</DialogTitle>
         </DialogHeader>
