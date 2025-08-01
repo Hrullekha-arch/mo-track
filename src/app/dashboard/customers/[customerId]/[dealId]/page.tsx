@@ -9,7 +9,7 @@ import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Customer, Deal, User, Stock, DealProduct, Quotation } from "@/lib/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -35,6 +35,7 @@ import {
   Trash2,
   Edit,
   RefreshCw,
+  Check,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -56,6 +57,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 import { CreateQuotationDialog } from "@/components/features/order-management/CreateQuotationDialog";
 import { Badge } from "@/components/ui/badge";
+import { QuotationPreview } from "@/components/features/order-management/QuotationPreview";
 
 
 const visitSchema = z.object({
@@ -702,6 +704,22 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [loading, setLoading] = useState(true);
 
+    const parseDate = (date: any): Date => {
+        if (date instanceof Date) {
+            return date;
+        }
+        // Handle Firestore Timestamp object if it's coming from server action serialization
+        if (date && typeof date === 'object' && date._seconds) {
+            return new Date(date._seconds * 1000);
+        }
+        // Handle ISO string
+        if (typeof date === 'string') {
+            return new Date(date);
+        }
+        // Fallback for invalid date
+        return new Date();
+    }
+
     useEffect(() => {
         const fetchQuotations = async () => {
             setLoading(true);
@@ -744,7 +762,7 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
                                 <TableRow key={q.id}>
                                     <TableCell>{i + 1}</TableCell>
                                     <TableCell className="font-medium text-primary cursor-pointer hover:underline">{q.quotationNo}</TableCell>
-                                    <TableCell>{format(new Date(q.date), 'dd/MM/yyyy')}</TableCell>
+                                    <TableCell>{format(parseDate(q.date), 'dd/MM/yyyy')}</TableCell>
                                     <TableCell>{q.customerName}</TableCell>
                                     <TableCell><Badge variant="secondary">{q.status}</Badge></TableCell>
                                     <TableCell className="text-right">{q.totalAmount.toFixed(2)}</TableCell>
