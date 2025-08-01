@@ -55,6 +55,7 @@ import { Input } from "@/components/ui/input";
 import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
+import { CreateQuotationDialog } from "@/components/features/order-management/CreateQuotationDialog";
 
 
 const visitSchema = z.object({
@@ -509,6 +510,8 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh }: { initi
     const { toast } = useToast();
     const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isQuotationDialogOpen, setIsQuotationDialogOpen] = React.useState(false);
+
 
     const form = useForm<ProductListFormValues>({
         resolver: zodResolver(productListSchema),
@@ -628,7 +631,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh }: { initi
                 </div>
                  <div className="flex gap-2 mb-8">
                     <Button type="button" >Convert To Order</Button>
-                    <Button type="button" >Convert To Quotation</Button>
+                    <Button type="button" onClick={() => setIsQuotationDialogOpen(true)}>Convert To Quotation</Button>
                 </div>
 
                 <AddProductForm onAddProduct={handleAddProduct}/>
@@ -643,6 +646,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh }: { initi
             </CardContent>
         </Card>
         </form>
+        <CreateQuotationDialog isOpen={isQuotationDialogOpen} onClose={() => setIsQuotationDialogOpen(false)} />
         </FormProvider>
     )
 }
