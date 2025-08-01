@@ -1,9 +1,8 @@
 
-
 "use client";
 
-import { use, useEffect, useState, useMemo, useCallback } from "react";
-import { useForm, useFieldArray, FormProvider, useFormContext, Control } from "react-hook-form";
+import { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
+import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormReturn } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
@@ -505,7 +504,7 @@ const AddProductForm = ({ onAddProduct }: { onAddProduct: (data: ProductFormValu
     );
 };
 
-function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal }) {
+function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, customer }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal, customer: Customer }) {
     const [activityLoading, setActivityLoading] = useState(false);
     const { toast } = useToast();
     const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
@@ -690,6 +689,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal }: {
             isOpen={isQuotationDialogOpen} 
             onClose={() => setIsQuotationDialogOpen(false)} 
             deal={deal}
+            customer={customer}
             initialItems={selectedProductsForQuotation}
         />
         </FormProvider>
@@ -875,6 +875,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 dealId={dealId}
                 onRefresh={fetchData}
                 deal={deal}
+                customer={customer}
             />
           </TabsContent>
 

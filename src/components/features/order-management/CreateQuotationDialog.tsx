@@ -2,8 +2,8 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
-import { useForm, useFieldArray, useWatch, Control } from "react-hook-form";
+import { useState, useEffect, ReactNode } from "react";
+import { useForm, useFieldArray, useWatch, Control, UseFormReturn } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { doc, setDoc, collection } from "firebase/firestore";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { User, Deal, DealProduct } from "@/lib/types";
+import { User, Deal, DealProduct, Customer } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, Edit, Check, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,7 +45,7 @@ const itemDetailSchema = z.object({
   id: z.string().optional(),
   collectionBrand: z.string().min(1, "Collection/Brand is required"),
   serialNo: z.string().optional(),
-  description: z.string().min(1, "Description is required"),
+  salesDescription: z.string().min(1, "Description is required"),
   quantity: z.preprocess(
     (val) => (typeof val === "string" ? parseFloat(val) : val),
     z.number().min(0, "Quantity must be non-negative")
@@ -94,6 +94,7 @@ interface CreateQuotationDialogProps {
   isOpen: boolean;
   onClose: () => void;
   deal: Deal;
+  customer: Customer;
   initialItems: ItemDetailValues[];
 }
 
@@ -217,7 +218,7 @@ const VasForm = ({ form }: { form: any }) => {
     );
 };
 
-export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: CreateQuotationDialogProps) {
+export function CreateQuotationDialog({ isOpen, onClose, deal, customer, initialItems }: CreateQuotationDialogProps) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -233,11 +234,9 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
     },
   });
 
-  const allItems = useWatch({ control: form.control, name: 'items' });
-
   useEffect(() => {
     if (isOpen) {
-      if (deal) {
+      if (deal && customer) {
         const itemsForForm: any[] = initialItems.map(item => ({
           id: item.collectionBrand + item.serialNo, // Create a unique-ish ID
           collectionBrand: item.collectionBrand || '',
@@ -256,7 +255,7 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
           store: "mo-gcr-branch",
           date: new Date(),
           validTillDate: undefined,
-          customerName: '', // This should ideally be passed in or fetched based on the deal
+          customerName: customer.name,
           dealName: deal.dealName,
           discountPercent: '',
           applyTax: false,
@@ -267,7 +266,7 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
       }
       setView('edit'); // Reset to edit view when dialog opens
     }
-  }, [isOpen, deal, initialItems, form]);
+  }, [isOpen, deal, customer, initialItems, form]);
 
 
   async function createQuotation(values: FormValues) {
@@ -332,8 +331,8 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
                     <FormField control={form.control} name="store" render={({ field }) => (<FormItem><FormLabel>Store*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="date" render={({ field }) => (<FormItem><FormLabel>Date*</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="validTillDate" render={({ field }) => (<FormItem><FormLabel>Valid Till Date</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name="customerName" render={({ field }) => (<FormItem><FormLabel>Customer Name*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name="dealName" render={({ field }) => (<FormItem><FormLabel>Deal Name*</FormLabel><Combobox options={dealOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="customerName" render={({ field }) => (<FormItem><FormLabel>Customer Name*</FormLabel><FormControl><Input {...field} readOnly /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="dealName" render={({ field }) => (<FormItem><FormLabel>Deal Name*</FormLabel><Combobox options={[{value: deal.dealName, label: deal.dealName}]} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
@@ -380,4 +379,3 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
     </Dialog>
   );
 }
-
