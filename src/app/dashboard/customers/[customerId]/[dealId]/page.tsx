@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { use, useEffect, useState, useMemo } from "react";
@@ -458,7 +459,12 @@ function ProductForm() {
         if (selectedOption) {
             const stockItem = selectedOption.stockItem;
             form.setValue('collectionBrand', stockItem.bcn || stockItem.id);
-            form.setValue('productCategory', stockItem.category?.toLowerCase() || 'fabric');
+            const category = stockItem.category?.toLowerCase() || '';
+            if (category.includes('fabric')) {
+                form.setValue('productCategory', 'fabric');
+            } else if (category.includes('furniture')) {
+                form.setValue('productCategory', 'furniture');
+            }
             form.setValue('serialNo', stockItem.serialNo || '');
         }
     };
