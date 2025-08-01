@@ -3,7 +3,7 @@
 "use client";
 
 import { use, useEffect, useState, useMemo } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm, useFieldArray, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
@@ -79,22 +79,26 @@ const measurementSchema = z.object({
 type MeasurementFormValues = z.infer<typeof measurementSchema>;
 
 const productSchema = z.object({
-    productCategory: z.string().optional(),
+    productCategory: z.string().optional().default(''),
     collectionBrand: z.string().min(1, "Collection/Brand is required."), // This will now hold the BCN
-    serialNo: z.string().optional(),
-    salesDescription: z.string().optional(),
+    serialNo: z.string().optional().default(''),
+    salesDescription: z.string().optional().default(''),
     quantity: z.string().min(1, "Quantity is required."),
-    remarks: z.string().optional(),
-    room: z.string().optional(),
-    noOfPcs: z.string().optional(),
-    info1: z.string().optional(),
-    info2: z.string().optional(),
+    remarks: z.string().optional().default(''),
+    room: z.string().optional().default(''),
+    noOfPcs: z.string().optional().default('1'),
+    info1: z.string().optional().default(''),
+    info2: z.string().optional().default(''),
     stitchingType: z.enum(["in", "out"]).optional(),
     file: z.any().optional(),
     pushToMeasurement: z.boolean().default(false),
 });
 
-type ProductFormValues = z.infer<typeof productSchema>;
+const productListSchema = z.object({
+    products: z.array(productSchema)
+})
+
+type ProductListFormValues = z.infer<typeof productListSchema>;
 
 function VisitForm({ salesmen }: { salesmen: User[] }) {
     const [loading, setLoading] = useState(false);
@@ -418,37 +422,26 @@ const productCategoryOptions = [{ value: "fabric", label: "Fabric" }, { value: "
 const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtain" }, { value: "sofa", label: "Sofa Fabric" }];
 
 function ProductForm({ initialProducts, customerId, dealId }: { initialProducts: DealProduct[], customerId: string, dealId: string }) {
-    const [loading, setLoading] = useState(false);
     const [activityLoading, setActivityLoading] = useState(false);
-    const [products, setProducts] = useState<ProductFormValues[]>(initialProducts || []);
-    const [editingIndex, setEditingIndex] = useState<number | null>(null);
-    const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const { toast } = useToast();
 
-    useEffect(() => {
-        setProducts(initialProducts || []);
-    }, [initialProducts]);
-
-    const form = useForm<ProductFormValues>({
-        resolver: zodResolver(productSchema),
+    const form = useForm<ProductListFormValues>({
+        resolver: zodResolver(productListSchema),
         defaultValues: {
-            productCategory: 'fabric',
-            collectionBrand: "",
-            serialNo: "",
-            salesDescription: "",
-            quantity: "",
-            remarks: "",
-            room: "",
-            noOfPcs: '1',
-            info1: "",
-            info2: "",
-            stitchingType: undefined,
-            file: undefined,
-            pushToMeasurement: false,
+            products: initialProducts || [],
         },
     });
+
+    const { fields, append, remove, update } = useFieldArray({
+        control: form.control,
+        name: "products"
+    });
+
+    useEffect(() => {
+        form.reset({ products: initialProducts || [] });
+    }, [initialProducts, form]);
 
     const handleBcnSearch = async (query: string) => {
         if (query.length < 2) {
@@ -471,65 +464,27 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
         }
     };
     
-    const handleBcnSelect = (value: string) => {
+    const handleBcnSelect = (value: string, fieldName: `products.${number}.collectionBrand`) => {
         const selectedOption = bcnOptions.find(opt => opt.value === value);
         if (selectedOption) {
             const stockItem = selectedOption.stockItem;
-            form.setValue('collectionBrand', stockItem.bcn || stockItem.id);
+            form.setValue(fieldName, stockItem.bcn || stockItem.id);
+            const index = parseInt(fieldName.split('.')[1]);
             const category = stockItem.category?.toLowerCase() || '';
+
+            let productCategoryValue = '';
             if (category.includes('fabric')) {
-                form.setValue('productCategory', 'fabric');
+                productCategoryValue = 'fabric';
             } else if (category.includes('furniture')) {
-                form.setValue('productCategory', 'furniture');
+                productCategoryValue = 'furniture';
             }
-            form.setValue('serialNo', stockItem.serialNo || '');
+            form.setValue(`products.${index}.productCategory`, productCategoryValue);
+            form.setValue(`products.${index}.serialNo`, stockItem.serialNo || '');
         }
     };
 
-    const onSubmit = (data: ProductFormValues) => {
-        setLoading(true);
-        if (editingIndex !== null) {
-            const updatedProducts = [...products];
-            updatedProducts[editingIndex] = data;
-            setProducts(updatedProducts);
-            toast({ title: "Product Updated", description: "The product has been updated in the list." });
-        } else {
-            setProducts(prev => [...prev, data]);
-            toast({ title: "Product Added", description: "The new product has been added to the list." });
-        }
-        setEditingIndex(null);
-        form.reset({
-            productCategory: 'fabric',
-            collectionBrand: "",
-            serialNo: "",
-            salesDescription: "",
-            quantity: "",
-            remarks: "",
-            room: "",
-            noOfPcs: '1',
-            info1: "",
-            info2: "",
-            stitchingType: undefined,
-            file: undefined,
-            pushToMeasurement: false,
-        });
-        setLoading(false);
-    }
-    
-    const handleEdit = (index: number) => {
-        setEditingIndex(index);
-        const productToEdit = products[index];
-        form.reset(productToEdit);
-    }
-
-    const handleDelete = (index: number) => {
-        setProducts(products.filter((_, i) => i !== index));
-        toast({ title: "Product Removed", description: "The product has been removed from the list." });
-    }
-
-    const handleCancelEdit = () => {
-        setEditingIndex(null);
-        form.reset({
+    const handleAddProduct = () => {
+        append({
             productCategory: 'fabric',
             collectionBrand: "",
             serialNo: "",
@@ -545,10 +500,10 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
             pushToMeasurement: false,
         });
     }
-    
-    const handleUpdateActivity = async () => {
+
+    const handleUpdateActivity = async (data: ProductListFormValues) => {
         setActivityLoading(true);
-        const result = await updateDealProducts(customerId, dealId, products);
+        const result = await updateDealProducts(customerId, dealId, data.products);
         if (result.success) {
             toast({ title: "Activity Updated", description: "All product changes have been saved." });
         } else {
@@ -557,43 +512,9 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
         setActivityLoading(false);
     }
 
-    const handleToggleAll = (checked: boolean) => {
-        if (checked) {
-            const allIndices = new Set(products.map((_, index) => index));
-            setSelectedIndices(allIndices);
-        } else {
-            setSelectedIndices(new Set());
-        }
-    };
-
-    const handleToggleRow = (index: number) => {
-        const newSelection = new Set(selectedIndices);
-        if (newSelection.has(index)) {
-            newSelection.delete(index);
-        } else {
-            newSelection.add(index);
-        }
-        setSelectedIndices(newSelection);
-    };
-
-    const handleConvert = (type: 'order' | 'quotation') => {
-        const selectedProducts = products.filter((_, index) => selectedIndices.has(index));
-        if (selectedProducts.length === 0) {
-            toast({
-                variant: 'destructive',
-                title: 'No Products Selected',
-                description: 'Please select at least one product to convert.',
-            });
-            return;
-        }
-        console.log(`Converting ${selectedProducts.length} products to ${type}:`, selectedProducts);
-        toast({
-            title: `Converting to ${type}`,
-            description: `Processing ${selectedProducts.length} selected products.`,
-        });
-    }
-
     return (
+        <FormProvider {...form}>
+        <form onSubmit={form.handleSubmit(handleUpdateActivity)}>
         <Card className="mt-6">
             <CardContent className="p-6">
                 <h3 className="text-xl font-semibold mb-6">Previously Added Products</h3>
@@ -603,8 +524,8 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
                             <TableRow>
                                 <TableHead className="w-12">
                                      <Checkbox
-                                        checked={selectedIndices.size > 0 && selectedIndices.size === products.length}
-                                        onCheckedChange={handleToggleAll}
+                                        checked={false} // Needs state for selected rows
+                                        onCheckedChange={() => {}}
                                         aria-label="Select all rows"
                                     />
                                 </TableHead>
@@ -620,26 +541,26 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {products.length > 0 ? products.map((product, index) => (
-                                <TableRow key={index} data-state={selectedIndices.has(index) && "selected"}>
+                            {fields.length > 0 ? fields.map((field, index) => (
+                                <TableRow key={field.id} data-state={false && "selected"}>
                                     <TableCell>
                                          <Checkbox
-                                            checked={selectedIndices.has(index)}
-                                            onCheckedChange={() => handleToggleRow(index)}
+                                            checked={false}
+                                            onCheckedChange={() => {}}
                                             aria-label={`Select row ${index + 1}`}
                                         />
                                     </TableCell>
                                     <TableCell>
-                                        <Button variant="ghost" size="icon" onClick={() => handleEdit(index)}><Edit className="h-4 w-4 text-blue-600"/></Button>
-                                        <Button variant="ghost" size="icon" onClick={() => handleDelete(index)}><Trash2 className="h-4 w-4 text-destructive"/></Button>
+                                        <Button type="button" variant="ghost" size="icon" onClick={() => {}}><Edit className="h-4 w-4 text-blue-600"/></Button>
+                                        <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4 text-destructive"/></Button>
                                     </TableCell>
-                                    <TableCell>{product.collectionBrand}</TableCell>
-                                    <TableCell>{product.serialNo}</TableCell>
-                                    <TableCell>{product.quantity}</TableCell>
-                                    <TableCell>{product.room}</TableCell>
-                                    <TableCell>{product.noOfPcs}</TableCell>
-                                    <TableCell>{product.salesDescription}</TableCell>
-                                    <TableCell>{product.remarks}</TableCell>
+                                    <TableCell>{form.watch(`products.${index}.collectionBrand`)}</TableCell>
+                                    <TableCell>{form.watch(`products.${index}.serialNo`)}</TableCell>
+                                    <TableCell>{form.watch(`products.${index}.quantity`)}</TableCell>
+                                    <TableCell>{form.watch(`products.${index}.room`)}</TableCell>
+                                    <TableCell>{form.watch(`products.${index}.noOfPcs`)}</TableCell>
+                                    <TableCell>{form.watch(`products.${index}.salesDescription`)}</TableCell>
+                                    <TableCell>{form.watch(`products.${index}.remarks`)}</TableCell>
                                     <TableCell>Order Created</TableCell>
                                 </TableRow>
                             )) : (
@@ -651,69 +572,58 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
                     </Table>
                 </div>
                  <div className="flex gap-2 mb-8">
-                    <Button onClick={() => handleConvert('order')}>Convert To Order</Button>
-                    <Button onClick={() => handleConvert('quotation')}>Convert To Quotation</Button>
+                    <Button type="button" >Convert To Order</Button>
+                    <Button type="button" >Convert To Quotation</Button>
                 </div>
 
                 <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold">{editingIndex !== null ? 'Edit Product' : 'Add More Products'}</h3>
-                    <div className="text-sm text-muted-foreground">
-                        <span className="mr-4">MRP: </span>
-                        <span>UOM: MTRS</span>
-                    </div>
+                    <h3 className="text-xl font-semibold">Add More Products</h3>
                 </div>
-                <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                            <FormField control={form.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/></FormLabel> <Combobox options={productCategoryOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
-                            <FormField control={form.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN)* <span className="text-destructive">*</span><Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} onSearch={handleBcnSearch} placeholder="Search by any part of BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /> <FormMessage /> </FormItem> )} />
-                            <FormField control={form.control} name="serialNo" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} readOnly /></FormControl> <FormMessage /> </FormItem> )} />
-                            <FormField control={form.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
-                         </div>
-                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                             <FormField control={form.control} name="quantity" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Quantity <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <div className="flex items-center"><FormControl><Input {...field}/></FormControl><Button type="button" variant="ghost" size="icon" className="ml-1"><Calculator className="h-5 w-5"/></Button></div> <FormMessage /> </FormItem>)} />
-                             <FormField control={form.control} name="remarks" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Remarks <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
-                             <FormField control={form.control} name="room" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Room <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
-                             <FormField control={form.control} name="noOfPcs" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">No of Pcs <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
-                         </div>
-                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
-                            <FormField control={form.control} name="info1" render={({ field }) => (<FormItem> <FormLabel>Info 1</FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
-                            <FormField control={form.control} name="info2" render={({ field }) => (<FormItem> <FormLabel>Info 2</FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
-                            <FormField control={form.control} name="stitchingType" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Stitching Type</FormLabel>
-                                    <FormControl>
-                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex h-10 items-center space-x-4">
-                                            <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="in" /></FormControl><FormLabel className="font-normal">IN</FormLabel></FormItem>
-                                            <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="out" /></FormControl><FormLabel className="font-normal">OUT</FormLabel></FormItem>
-                                        </RadioGroup>
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )} />
-                            <FormField control={form.control} name="file" render={({ field }) => (<FormItem> <FormLabel>Upload file</FormLabel> <FormControl><Input type="file" className="bg-teal-500 text-white file:text-white" /></FormControl> <FormMessage /> </FormItem>)} />
-                         </div>
-                         <FormField control={form.control} name="pushToMeasurement" render={({ field }) => (<FormItem className="flex flex-row items-center space-x-3 space-y-0"> <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl> <div className="space-y-1 leading-none"><FormLabel>Push to Measurement</FormLabel></div> </FormItem>)} />
 
-                        <div className="mt-8 flex gap-2">
-                            <Button type="submit" disabled={loading} className="bg-teal-600 hover:bg-teal-700">
-                                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (editingIndex !== null ? 'Update Product' : 'Add Product')}
-                            </Button>
-                            {editingIndex !== null && (
-                                <Button type="button" variant="outline" onClick={handleCancelEdit}>Cancel Edit</Button>
-                            )}
+                {fields.map((field, index) => (
+                    <Card key={field.id} className="mb-4 p-4 relative">
+                        <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute top-2 right-2 h-6 w-6"
+                            onClick={() => remove(index)}
+                        >
+                            <Trash2 className="h-3 w-3" />
+                        </Button>
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                <FormField control={form.control} name={`products.${index}.productCategory`} render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/></FormLabel> <Combobox options={productCategoryOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                                <FormField control={form.control} name={`products.${index}.collectionBrand`} render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN)* <span className="text-destructive">*</span><Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={(val) => handleBcnSelect(val, `products.${index}.collectionBrand`)} onSearch={handleBcnSearch} placeholder="Search by any part of BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /> <FormMessage /> </FormItem> )} />
+                                <FormField control={form.control} name={`products.${index}.serialNo`} render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} readOnly /></FormControl> <FormMessage /> </FormItem> )} />
+                                <FormField control={form.control} name={`products.${index}.salesDescription`} render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                <FormField control={form.control} name={`products.${index}.quantity`} render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Quantity <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <div className="flex items-center"><FormControl><Input {...field}/></FormControl><Button type="button" variant="ghost" size="icon" className="ml-1"><Calculator className="h-5 w-5"/></Button></div> <FormMessage /> </FormItem>)} />
+                                <FormField control={form.control} name={`products.${index}.remarks`} render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Remarks <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
+                                <FormField control={form.control} name={`products.${index}.room`} render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Room <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                                <FormField control={form.control} name={`products.${index}.noOfPcs`} render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">No of Pcs <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
+                            </div>
                         </div>
-                    </form>
-                </Form>
+                    </Card>
+                ))}
+
+                <div className="mt-4">
+                    <Button type="button" onClick={handleAddProduct} variant="outline">
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Product
+                    </Button>
+                </div>
                  <div className="mt-12 flex flex-col items-start gap-4">
                     <p className="text-sm text-destructive">Please click on Update Activity if you have updated any changes.</p>
-                    <Button onClick={handleUpdateActivity} disabled={activityLoading} className="bg-cyan-600 hover:bg-cyan-700">
+                    <Button type="submit" disabled={activityLoading} className="bg-cyan-600 hover:bg-cyan-700">
                         {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Update Activity
                     </Button>
                 </div>
             </CardContent>
         </Card>
+        </form>
+        </FormProvider>
     )
 }
 
