@@ -36,6 +36,10 @@ import {
   Edit,
   RefreshCw,
   Check,
+  MoreVertical,
+  Printer,
+  Copy,
+  FileDown,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -58,6 +62,8 @@ import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 import { CreateQuotationDialog } from "@/components/features/order-management/CreateQuotationDialog";
 import { Badge } from "@/components/ui/badge";
 import { QuotationPreview } from "@/components/features/order-management/QuotationPreview";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
 
 
 const visitSchema = z.object({
@@ -703,20 +709,12 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
 function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: string }) {
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
 
     const parseDate = (date: any): Date => {
-        if (date instanceof Date) {
-            return date;
-        }
-        // Handle Firestore Timestamp object if it's coming from server action serialization
-        if (date && typeof date === 'object' && date._seconds) {
-            return new Date(date._seconds * 1000);
-        }
-        // Handle ISO string
-        if (typeof date === 'string') {
-            return new Date(date);
-        }
-        // Fallback for invalid date
+        if (date instanceof Date) return date;
+        if (date && typeof date === 'object' && date._seconds) return new Date(date._seconds * 1000);
+        if (typeof date === 'string') return new Date(date);
         return new Date();
     }
 
@@ -739,45 +737,69 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
     }
 
     return (
-        <Card className="mt-6">
-            <CardHeader>
-                <CardTitle>Quotation Details</CardTitle>
-            </CardHeader>
-            <CardContent>
-                {quotations.length > 0 ? (
-                     <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>#</TableHead>
-                                <TableHead>Quotation No</TableHead>
-                                <TableHead>Quotation Date</TableHead>
-                                <TableHead>Customer</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead className="text-right">Amount</TableHead>
-                                <TableHead>Store</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {quotations.map((q, i) => (
-                                <TableRow key={q.id}>
-                                    <TableCell>{i + 1}</TableCell>
-                                    <TableCell className="font-medium text-primary cursor-pointer hover:underline">{q.quotationNo}</TableCell>
-                                    <TableCell>{format(parseDate(q.date), 'dd/MM/yyyy')}</TableCell>
-                                    <TableCell>{q.customerName}</TableCell>
-                                    <TableCell><Badge variant="secondary">{q.status}</Badge></TableCell>
-                                    <TableCell className="text-right">{q.totalAmount.toFixed(2)}</TableCell>
-                                    <TableCell>{q.store}</TableCell>
+        <>
+            <Card className="mt-6">
+                <CardHeader>
+                    <CardTitle>Quotation Details</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {quotations.length > 0 ? (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>#</TableHead>
+                                    <TableHead>Quotation No</TableHead>
+                                    <TableHead>Quotation Date</TableHead>
+                                    <TableHead>Customer</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead className="text-right">Amount</TableHead>
+                                    <TableHead>Store</TableHead>
                                 </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                ) : (
-                    <div className="text-center py-10 text-muted-foreground">
-                        No quotations have been generated for this deal yet.
-                    </div>
-                )}
-            </CardContent>
-        </Card>
+                            </TableHeader>
+                            <TableBody>
+                                {quotations.map((q, i) => (
+                                    <TableRow key={q.id}>
+                                        <TableCell>{i + 1}</TableCell>
+                                        <TableCell className="font-medium flex items-center gap-2">
+                                             <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-6 w-6"><MoreVertical className="h-4 w-4" /></Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent>
+                                                    <DropdownMenuItem><Printer className="mr-2 h-4 w-4"/> Print</DropdownMenuItem>
+                                                    <DropdownMenuItem><Copy className="mr-2 h-4 w-4"/> Office Copy Print</DropdownMenuItem>
+                                                    <DropdownMenuItem><FileDown className="mr-2 h-4 w-4"/> Clone Quotation</DropdownMenuItem>
+                                                    <DropdownMenuItem>Convert to Order</DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                            <Button variant="link" className="p-0 h-auto" onClick={() => setSelectedQuotation(q)}>
+                                                {q.quotationNo}
+                                            </Button>
+                                        </TableCell>
+                                        <TableCell>{format(parseDate(q.date), 'dd/MM/yyyy')}</TableCell>
+                                        <TableCell>{q.customerName}</TableCell>
+                                        <TableCell><Badge variant="secondary">{q.status}</Badge></TableCell>
+                                        <TableCell className="text-right">{q.totalAmount.toFixed(2)}</TableCell>
+                                        <TableCell>{q.store}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    ) : (
+                        <div className="text-center py-10 text-muted-foreground">
+                            No quotations have been generated for this deal yet.
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+            {selectedQuotation && (
+                 <QuotationDetailDialog
+                    isOpen={!!selectedQuotation}
+                    onClose={() => setSelectedQuotation(null)}
+                    quotation={selectedQuotation}
+                />
+            )}
+        </>
     );
 }
 

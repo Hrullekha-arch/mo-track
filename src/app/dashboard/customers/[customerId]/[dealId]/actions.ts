@@ -50,7 +50,7 @@ export async function createQuotationAction(customerId: string, dealId: string, 
     const quotationRef = dealRef.collection('quotations').doc();
 
     const newQuotation: Omit<Quotation, 'id'> = {
-        quotationNo: quotationRef.id.substring(0, 6).toUpperCase(), // Example quotation number
+        quotationNo: Math.floor(1000 + Math.random() * 9000).toString(),
         ...values,
         createdAt: new Date().toISOString(),
         status: 'Generated',
