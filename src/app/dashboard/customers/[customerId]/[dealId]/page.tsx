@@ -443,7 +443,7 @@ function ProductForm() {
             const results = await searchStockByBcn(query);
             setBcnOptions(results.map(stock => ({
                 value: stock.bcn || stock.id,
-                label: `${stock.bcn} - ${stock.itemName}`,
+                label: stock.bcn || stock.id,
                 stockItem: stock,
             })));
         } catch (error) {
