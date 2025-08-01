@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Customer, Deal, User, Stock } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById } from "./actions";
+import { getDealById, updateDealProducts } from "./actions";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -417,15 +417,19 @@ function MeasurementForm() {
 const productCategoryOptions = [{ value: "fabric", label: "Fabric" }, { value: "furniture", label: "Furniture" }];
 const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtain" }, { value: "sofa", label: "Sofa Fabric" }];
 
-function ProductForm() {
+function ProductForm({ initialProducts, customerId, dealId }: { initialProducts: DealProduct[], customerId: string, dealId: string }) {
     const [loading, setLoading] = useState(false);
     const [activityLoading, setActivityLoading] = useState(false);
-    const [products, setProducts] = useState<ProductFormValues[]>([]);
+    const [products, setProducts] = useState<ProductFormValues[]>(initialProducts || []);
     const [editingIndex, setEditingIndex] = useState<number | null>(null);
     const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const { toast } = useToast();
+
+    useEffect(() => {
+        setProducts(initialProducts || []);
+    }, [initialProducts]);
 
     const form = useForm<ProductFormValues>({
         resolver: zodResolver(productSchema),
@@ -448,7 +452,7 @@ function ProductForm() {
             const results = await searchStockByBcn(query);
             setBcnOptions(results.map(stock => ({
                 value: stock.bcn || stock.id,
-                label: stock.bcn || stock.id, // Only show BCN in dropdown
+                label: stock.bcn || stock.id,
                 stockItem: stock,
             })));
         } catch (error) {
@@ -512,13 +516,15 @@ function ProductForm() {
         form.reset();
     }
     
-    const handleUpdateActivity = () => {
+    const handleUpdateActivity = async () => {
         setActivityLoading(true);
-        console.log("Updating activity with products:", products);
-        setTimeout(() => {
-            setActivityLoading(false);
+        const result = await updateDealProducts(customerId, dealId, products);
+        if (result.success) {
             toast({ title: "Activity Updated", description: "All product changes have been saved." });
-        }, 2000);
+        } else {
+            toast({ variant: 'destructive', title: 'Save Failed', description: result.message });
+        }
+        setActivityLoading(false);
     }
 
     const handleToggleAll = (checked: boolean) => {
@@ -855,7 +861,11 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
           
           <TabsContent value="products">
-            <ProductForm />
+            <ProductForm 
+                initialProducts={deal.products || []}
+                customerId={customerId}
+                dealId={dealId}
+            />
           </TabsContent>
 
         </Tabs>

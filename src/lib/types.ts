@@ -1,4 +1,5 @@
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -226,6 +227,22 @@ export interface Customer {
     createdBy: string;
 }
 
+export interface DealProduct {
+    productCategory?: string;
+    collectionBrand: string;
+    serialNo?: string;
+    salesDescription?: string;
+    quantity: string;
+    remarks?: string;
+    room?: string;
+    noOfPcs?: string;
+    info1?: string;
+    info2?: string;
+    stitchingType?: "in" | "out";
+    file?: any;
+    pushToMeasurement?: boolean;
+}
+
 export interface Deal {
     id: string;
     dealName: string;
@@ -233,4 +250,5 @@ export interface Deal {
     representativeId: string;
     description: string;
     createdAt: string; // ISO string
+    products?: DealProduct[];
 }
