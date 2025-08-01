@@ -437,7 +437,15 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
             productCategory: 'fabric',
             collectionBrand: "",
             serialNo: "",
+            salesDescription: "",
+            quantity: "",
+            remarks: "",
+            room: "",
             noOfPcs: '1',
+            info1: "",
+            info2: "",
+            stitchingType: undefined,
+            file: undefined,
             pushToMeasurement: false,
         },
     });
@@ -494,7 +502,15 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
             productCategory: 'fabric',
             collectionBrand: "",
             serialNo: "",
+            salesDescription: "",
+            quantity: "",
+            remarks: "",
+            room: "",
             noOfPcs: '1',
+            info1: "",
+            info2: "",
+            stitchingType: undefined,
+            file: undefined,
             pushToMeasurement: false,
         });
         setLoading(false);
@@ -513,7 +529,21 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
 
     const handleCancelEdit = () => {
         setEditingIndex(null);
-        form.reset();
+        form.reset({
+            productCategory: 'fabric',
+            collectionBrand: "",
+            serialNo: "",
+            salesDescription: "",
+            quantity: "",
+            remarks: "",
+            room: "",
+            noOfPcs: '1',
+            info1: "",
+            info2: "",
+            stitchingType: undefined,
+            file: undefined,
+            pushToMeasurement: false,
+        });
     }
     
     const handleUpdateActivity = async () => {
