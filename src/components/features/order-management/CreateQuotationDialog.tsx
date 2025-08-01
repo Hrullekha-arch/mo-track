@@ -113,12 +113,11 @@ const TotalsRow = ({ control }: { control: Control<FormValues> }) => {
 
 
 const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Control<FormValues>, setValue: any, getValues: any }) => {
-    const { fields, append, remove } = useFieldArray({ control, name: "items" });
+    const { fields, remove } = useFieldArray({ control, name: "items" });
     
     const items = useWatch({ control, name: 'items' });
 
     useEffect(() => {
-        const subscription = useWatch({ control, name: 'items' });
         items.forEach((item, index) => {
             const quantity = Number(item.quantity) || 0;
             const rate = Number(item.rate) || 0;
@@ -230,7 +229,7 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
   });
 
   useEffect(() => {
-    if (isOpen && deal && initialItems.length > 0) {
+    if (isOpen && deal && initialItems) {
       const itemsForForm: ItemDetailValues[] = initialItems.map(item => ({
         id: item.collectionBrand + item.serialNo, // Create a unique-ish ID
         collectionBrand: item.collectionBrand || '',
@@ -341,5 +340,3 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
     </Dialog>
   );
 }
-
-    
