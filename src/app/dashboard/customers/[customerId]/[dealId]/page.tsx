@@ -1,4 +1,3 @@
-
 "use client";
 
 import { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
@@ -713,9 +712,16 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
 
     const parseDate = (date: any): Date => {
         if (date instanceof Date) return date;
-        if (date && typeof date === 'object' && date._seconds) return new Date(date._seconds * 1000);
-        if (typeof date === 'string') return new Date(date);
-        return new Date();
+        if (date && date._seconds) { // Handle Firestore Timestamps
+            return new Date(date._seconds * 1000 + (date._nanoseconds || 0) / 1000000);
+        }
+        if (typeof date === 'string' || typeof date === 'number') {
+            const parsed = new Date(date);
+            if (!isNaN(parsed.getTime())) {
+                return parsed;
+            }
+        }
+        return new Date(); // Fallback
     }
 
     useEffect(() => {
@@ -769,7 +775,11 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
                                                     <DropdownMenuItem><Printer className="mr-2 h-4 w-4"/> Print</DropdownMenuItem>
                                                     <DropdownMenuItem><Copy className="mr-2 h-4 w-4"/> Office Copy Print</DropdownMenuItem>
                                                     <DropdownMenuItem><FileDown className="mr-2 h-4 w-4"/> Clone Quotation</DropdownMenuItem>
-                                                    <DropdownMenuItem>Convert to Order</DropdownMenuItem>
+                                                    <DropdownMenuItem asChild>
+                                                        <Link href={`/dashboard/invoice/new?customerId=${customerId}&dealId=${dealId}&quotationId=${q.id}`}>
+                                                            Convert to Order
+                                                        </Link>
+                                                    </DropdownMenuItem>
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
                                             <Button variant="link" className="p-0 h-auto" onClick={() => setSelectedQuotation(q)}>
