@@ -510,7 +510,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh }: { initi
     const { toast } = useToast();
     const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
     const [isRefreshing, setIsRefreshing] = useState(false);
-    const [isQuotationDialogOpen, setIsQuotationDialogOpen] = React.useState(false);
+    const [isQuotationDialogOpen, setIsQuotationDialogOpen] = useState(false);
 
 
     const form = useForm<ProductListFormValues>({
