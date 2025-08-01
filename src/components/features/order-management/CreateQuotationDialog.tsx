@@ -171,19 +171,37 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: C
 
   useEffect(() => {
     if (isOpen && deal) {
-      // Map DealProduct[] to ItemDetail[]
       const itemsForForm = initialItems.map(item => ({
-        ...item,
+        productCategory: item.productCategory || '',
+        collectionBrand: item.collectionBrand || '',
+        serialNo: item.serialNo || '',
         description: item.salesDescription || '',
+        quantity: item.quantity || '',
         rate: '0', // Default rate as it's not in DealProduct
-        // Map other fields if necessary
+        discountPercent: '',
+        discountAmount: '',
+        isValueDiscount: false,
+        room: item.room || '',
+        remark: item.remarks || '',
+        info1: item.info1 || '',
+        info2: item.info2 || '',
+        stitchingType: item.stitchingType,
+        file: undefined,
+        pushToMeasurement: item.pushToMeasurement || false,
       }));
 
       form.reset({
-        ...form.formState.defaultValues,
+        company: '',
+        store: "mo-gcr-branch",
+        date: new Date(),
+        validTillDate: undefined,
+        customerName: '', // This should ideally be passed in or fetched based on the deal
         dealName: deal.dealName,
-        customerName: '', // Customer name should be fetched or passed
+        discountPercent: '',
+        applyTax: false,
+        billingName: '',
         items: itemsForForm,
+        vasDetails: [],
       });
     }
   }, [isOpen, deal, initialItems, form]);
