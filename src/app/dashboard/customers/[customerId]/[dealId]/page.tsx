@@ -419,6 +419,7 @@ const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtai
 
 function ProductForm() {
     const [loading, setLoading] = useState(false);
+    const [activityLoading, setActivityLoading] = useState(false);
     const [products, setProducts] = useState<ProductFormValues[]>([]);
     const [editingIndex, setEditingIndex] = useState<number | null>(null);
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
@@ -486,7 +487,13 @@ function ProductForm() {
             toast({ title: "Product Added", description: "The new product has been added to the list." });
         }
         setEditingIndex(null);
-        form.reset();
+        form.reset({
+            productCategory: 'fabric',
+            collectionBrand: "",
+            serialNo: "",
+            noOfPcs: '1',
+            pushToMeasurement: false,
+        });
         setLoading(false);
     }
     
@@ -505,10 +512,66 @@ function ProductForm() {
         setEditingIndex(null);
         form.reset();
     }
+    
+    const handleUpdateActivity = () => {
+        setActivityLoading(true);
+        console.log("Updating activity with products:", products);
+        setTimeout(() => {
+            setActivityLoading(false);
+            toast({ title: "Activity Updated", description: "All product changes have been saved." });
+        }, 2000);
+    }
 
     return (
         <Card className="mt-6">
             <CardContent className="p-6">
+                <h3 className="text-xl font-semibold mb-6">Previously Added Products</h3>
+                <div className="mb-4">
+                     <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>#</TableHead>
+                                <TableHead>Modify</TableHead>
+                                <TableHead>Collection / Brand</TableHead>
+                                <TableHead>Serial No</TableHead>
+                                <TableHead>Quantity</TableHead>
+                                <TableHead>Room</TableHead>
+                                <TableHead>No of Pcs</TableHead>
+                                <TableHead>Description</TableHead>
+                                <TableHead>Remarks</TableHead>
+                                <TableHead>Status</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {products.length > 0 ? products.map((product, index) => (
+                                <TableRow key={index}>
+                                    <TableCell>{index + 1}</TableCell>
+                                    <TableCell>
+                                        <Button variant="ghost" size="icon" onClick={() => handleEdit(index)}><Edit className="h-4 w-4 text-blue-600"/></Button>
+                                        <Button variant="ghost" size="icon" onClick={() => handleDelete(index)}><Trash2 className="h-4 w-4 text-destructive"/></Button>
+                                    </TableCell>
+                                    <TableCell>{product.collectionBrand}</TableCell>
+                                    <TableCell>{product.serialNo}</TableCell>
+                                    <TableCell>{product.quantity}</TableCell>
+                                    <TableCell>{product.room}</TableCell>
+                                    <TableCell>{product.noOfPcs}</TableCell>
+                                    <TableCell>{product.salesDescription}</TableCell>
+                                    <TableCell>{product.remarks}</TableCell>
+                                    <TableCell>Order Created</TableCell>
+                                </TableRow>
+                            )) : (
+                                <TableRow>
+                                    <TableCell colSpan={10} className="text-center h-24">No products added yet.</TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </div>
+                 <div className="flex gap-2 mb-8">
+                    <Button>Convert To Order</Button>
+                    <Button>Convert To Quotation</Button>
+                </div>
+
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-semibold">{editingIndex !== null ? 'Edit Product' : 'Add More Products'}</h3>
                     <div className="text-sm text-muted-foreground">
@@ -551,50 +614,20 @@ function ProductForm() {
 
                         <div className="mt-8 flex gap-2">
                             <Button type="submit" disabled={loading} className="bg-teal-600 hover:bg-teal-700">
-                                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (editingIndex !== null ? 'Update' : 'Add')}
+                                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (editingIndex !== null ? 'Update Product' : 'Add Product')}
                             </Button>
                             {editingIndex !== null && (
-                                <Button type="button" variant="outline" onClick={handleCancelEdit}>Cancel</Button>
+                                <Button type="button" variant="outline" onClick={handleCancelEdit}>Cancel Edit</Button>
                             )}
                         </div>
                     </form>
                 </Form>
-                <div className="mt-8">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>#</TableHead>
-                                <TableHead>Actions</TableHead>
-                                <TableHead>Collection/Brand Name</TableHead>
-                                <TableHead>Serial No</TableHead>
-                                <TableHead>Quantity</TableHead>
-                                <TableHead>Room</TableHead>
-                                <TableHead>No of Pcs</TableHead>
-                                <TableHead>Description</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {products.length > 0 ? products.map((product, index) => (
-                                <TableRow key={index}>
-                                    <TableCell>{index + 1}</TableCell>
-                                    <TableCell className="flex gap-1">
-                                        <Button variant="ghost" size="icon" onClick={() => handleEdit(index)}><Edit className="h-4 w-4 text-blue-600"/></Button>
-                                        <Button variant="ghost" size="icon" onClick={() => handleDelete(index)}><Trash2 className="h-4 w-4 text-destructive"/></Button>
-                                    </TableCell>
-                                    <TableCell>{product.collectionBrand}</TableCell>
-                                    <TableCell>{product.serialNo}</TableCell>
-                                    <TableCell>{product.quantity}</TableCell>
-                                    <TableCell>{product.room}</TableCell>
-                                    <TableCell>{product.noOfPcs}</TableCell>
-                                    <TableCell>{product.salesDescription}</TableCell>
-                                </TableRow>
-                            )) : (
-                                <TableRow>
-                                    <TableCell colSpan={8} className="text-center h-24">No products added yet.</TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
+                 <div className="mt-12 flex flex-col items-start gap-4">
+                    <p className="text-sm text-destructive">Please click on Update Activity if you have updated any changes.</p>
+                    <Button onClick={handleUpdateActivity} disabled={activityLoading} className="bg-cyan-600 hover:bg-cyan-700">
+                        {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Update Activity
+                    </Button>
                 </div>
             </CardContent>
         </Card>
@@ -753,7 +786,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </Button>
         </div>
 
-        <Tabs defaultValue="visits">
+        <Tabs defaultValue="products">
           <TabsList className="mb-4">
             <TabsTrigger value="visits"><Home className="mr-2 h-4 w-4" />Visits</TabsTrigger>
             <TabsTrigger value="measurement"><GanttChartSquare className="mr-2 h-4 w-4"/>Measurement</TabsTrigger>
