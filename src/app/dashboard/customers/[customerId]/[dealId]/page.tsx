@@ -9,7 +9,7 @@ import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Customer, Deal, User, Stock, DealProduct, Quotation } from "@/lib/types";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -55,6 +55,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 import { CreateQuotationDialog } from "@/components/features/order-management/CreateQuotationDialog";
+import { Badge } from "@/components/ui/badge";
 
 
 const visitSchema = z.object({
