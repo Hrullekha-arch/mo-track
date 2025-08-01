@@ -48,7 +48,7 @@ export async function importStockData(base64Data: string): Promise<{ success: bo
         const headers: string[] = (json[0] as string[]).map(h => String(h).trim().toLowerCase());
         const requiredHeaders = [
             'bcn', 'distributor collection name', 'serial no', 'hsn code',
-            'rl price', 'cl price', 'mrp', 'caterogary', 'vendor name'
+            'rl price', 'cl price', 'mrp', 'category', 'vendor name'
         ];
         const missingHeaders = requiredHeaders.filter(rh => !headers.includes(rh));
         if (missingHeaders.length > 0) {
