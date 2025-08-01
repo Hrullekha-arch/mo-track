@@ -104,28 +104,21 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
 
     try {
         const stockRef = adminDb.collection('stocks');
-        
-        // Firestore doesn't support suffix searches directly ('endsWith').
-        // So, we fetch all documents and filter in memory.
-        // This is not ideal for very large collections, but for a few thousand items it's acceptable.
-        // For larger scales, a more advanced search solution like Algolia or a keywords array would be needed.
-        const snapshot = await stockRef.get();
+        // Firestore doesn't support partial string matching well.
+        // This query finds documents where the 'bcn' field starts with the query string.
+        const q = stockRef
+            .where('bcn', '>=', query)
+            .where('bcn', '<=', query + '\uf8ff')
+            .limit(10); // Limit to 10 results for performance
+
+        const snapshot = await q.get();
 
         if (snapshot.empty) {
             return [];
         }
 
-        const allStocks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
-        
-        const lowercasedQuery = query.toLowerCase();
-        
-        // Filter results where the BCN contains the query string.
-        // This will match '184482' in 'BERKSHIRE-6 F 184482'.
-        const filteredResults = allStocks.filter(stock => 
-            stock.bcn?.toLowerCase().includes(lowercasedQuery)
-        ).slice(0, 10); // Limit results to 10
-
-        return JSON.parse(JSON.stringify(filteredResults));
+        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
+        return JSON.parse(JSON.stringify(results));
     } catch (error) {
         console.error("Error searching stock by BCN:", error);
         return [];
