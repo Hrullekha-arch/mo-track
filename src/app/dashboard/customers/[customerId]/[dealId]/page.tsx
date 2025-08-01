@@ -505,12 +505,13 @@ const AddProductForm = ({ onAddProduct }: { onAddProduct: (data: ProductFormValu
     );
 };
 
-function ProductForm({ initialProducts, customerId, dealId, onRefresh }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void }) {
+function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal }) {
     const [activityLoading, setActivityLoading] = useState(false);
     const { toast } = useToast();
     const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isQuotationDialogOpen, setIsQuotationDialogOpen] = useState(false);
+    const [selectedProductsForQuotation, setSelectedProductsForQuotation] = useState<DealProduct[]>([]);
 
 
     const form = useForm<ProductListFormValues>({
@@ -550,18 +551,43 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh }: { initi
         setActivityLoading(false);
     }
     
+    const handleQuotationClick = () => {
+        const selectedIds = Object.keys(selectedRows).filter(id => selectedRows[id]);
+        if (selectedIds.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'No Items Selected',
+                description: 'Please select at least one item to convert to a quotation.'
+            });
+            return;
+        }
+
+        const selectedProducts = fields
+            .filter(field => selectedIds.includes(field.id))
+            .map(field => field as DealProduct);
+            
+        setSelectedProductsForQuotation(selectedProducts);
+        setIsQuotationDialogOpen(true);
+    };
+    
     const allRowsSelected = fields.length > 0 && Object.keys(selectedRows).length === fields.length;
     const handleSelectAll = (checked: boolean) => {
+        const newSelectedRows: Record<string, boolean> = {};
         if (checked) {
-            const newSelectedRows: Record<string, boolean> = {};
             fields.forEach((field) => { newSelectedRows[field.id] = true; });
-            setSelectedRows(newSelectedRows);
-        } else {
-            setSelectedRows({});
         }
+        setSelectedRows(newSelectedRows);
     };
     const handleRowSelect = (id: string, checked: boolean) => {
-        setSelectedRows(prev => ({ ...prev, [id]: checked }));
+        setSelectedRows(prev => {
+            const newSelection = { ...prev };
+            if (checked) {
+                newSelection[id] = true;
+            } else {
+                delete newSelection[id];
+            }
+            return newSelection;
+        });
     };
 
     return (
@@ -631,7 +657,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh }: { initi
                 </div>
                  <div className="flex gap-2 mb-8">
                     <Button type="button" >Convert To Order</Button>
-                    <Button type="button" onClick={() => setIsQuotationDialogOpen(true)}>Convert To Quotation</Button>
+                    <Button type="button" onClick={handleQuotationClick}>Convert To Quotation</Button>
                 </div>
 
                 <AddProductForm onAddProduct={handleAddProduct}/>
@@ -646,7 +672,12 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh }: { initi
             </CardContent>
         </Card>
         </form>
-        <CreateQuotationDialog isOpen={isQuotationDialogOpen} onClose={() => setIsQuotationDialogOpen(false)} />
+        <CreateQuotationDialog 
+            isOpen={isQuotationDialogOpen} 
+            onClose={() => setIsQuotationDialogOpen(false)} 
+            deal={deal}
+            initialItems={selectedProductsForQuotation}
+        />
         </FormProvider>
     )
 }
@@ -829,6 +860,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 customerId={customerId}
                 dealId={dealId}
                 onRefresh={fetchData}
+                deal={deal}
             />
           </TabsContent>
 

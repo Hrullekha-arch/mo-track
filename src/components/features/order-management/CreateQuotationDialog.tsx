@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -12,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { User, FabricDetail, FurnitureDetail, VasDetail } from "@/lib/types";
+import { User, FabricDetail, FurnitureDetail, VasDetail, Deal, DealProduct } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -85,6 +86,8 @@ type FormValues = z.infer<typeof formSchema>;
 interface CreateQuotationDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  deal: Deal;
+  initialItems: DealProduct[];
 }
 
 const AddItemsForm = ({ form }: { form: any }) => {
@@ -151,7 +154,7 @@ const VasForm = ({ form }: { form: any }) => {
     );
 };
 
-export function CreateQuotationDialog({ isOpen, onClose }: CreateQuotationDialogProps) {
+export function CreateQuotationDialog({ isOpen, onClose, deal, initialItems }: CreateQuotationDialogProps) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -165,6 +168,26 @@ export function CreateQuotationDialog({ isOpen, onClose }: CreateQuotationDialog
       vasDetails: [],
     },
   });
+
+  useEffect(() => {
+    if (isOpen && deal) {
+      // Map DealProduct[] to ItemDetail[]
+      const itemsForForm = initialItems.map(item => ({
+        ...item,
+        description: item.salesDescription || '',
+        rate: '0', // Default rate as it's not in DealProduct
+        // Map other fields if necessary
+      }));
+
+      form.reset({
+        ...form.formState.defaultValues,
+        dealName: deal.dealName,
+        customerName: '', // Customer name should be fetched or passed
+        items: itemsForForm,
+      });
+    }
+  }, [isOpen, deal, initialItems, form]);
+
 
   async function onSubmit(values: FormValues) {
     if (!user) {
