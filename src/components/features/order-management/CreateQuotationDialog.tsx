@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, ReactNode } from "react";
@@ -13,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { User, Deal, DealProduct, Customer } from "@/lib/types";
+import { Customer, Deal, DealProduct, Quotation } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, Edit, Check, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,6 +28,7 @@ import { Separator } from "@/components/ui/separator";
 import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter as TableFooterComponent } from "@/components/ui/table";
 import { QuotationPreview } from "./QuotationPreview";
+import { createQuotationAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 
 
 // Placeholder options for comboboxes
@@ -93,6 +93,7 @@ interface ItemDetailValues extends DealProduct {
 interface CreateQuotationDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess: () => void;
   deal: Deal;
   customer: Customer;
   initialItems: ItemDetailValues[];
@@ -218,12 +219,12 @@ const VasForm = ({ form }: { form: any }) => {
     );
 };
 
-export function CreateQuotationDialog({ isOpen, onClose, deal, customer, initialItems }: CreateQuotationDialogProps) {
+export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, customer, initialItems }: CreateQuotationDialogProps) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
   const [view, setView] = useState<'edit' | 'preview'>('edit');
-
+  
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -233,6 +234,15 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, customer, initial
       vasDetails: [],
     },
   });
+  
+  const itemsWatch = useWatch({ control: form.control, name: 'items' });
+  const totalAmount = useMemo(() => {
+    const totalTaxableAmount = itemsWatch.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const cgst = totalTaxableAmount * 0.025;
+    const sgst = totalTaxableAmount * 0.025;
+    return totalTaxableAmount + cgst + sgst;
+  }, [itemsWatch]);
+
 
   useEffect(() => {
     if (isOpen) {
@@ -276,26 +286,16 @@ export function CreateQuotationDialog({ isOpen, onClose, deal, customer, initial
     }
     setLoading(true);
     try {
-        const purchaseRequestRef = doc(collection(db, 'purchaseRequests'));
-        
-        await setDoc(purchaseRequestRef, {
-            ...values,
-            id: purchaseRequestRef.id,
-            dealId: values.dealName,
-            promiseDeliveryDate: values.validTillDate?.toISOString() || new Date().toISOString(),
-            createdAt: new Date().toISOString(),
-            createdBy: {
-                id: user.id,
-                name: user.name,
-            },
-            milestones: [],
-            status: 'pending',
-            vendorType: 'undecided'
-        });
+        const result = await createQuotationAction(customer.id, deal.id, values, totalAmount);
 
-      toast({ title: "Quotation Created", description: "The new purchase request has been created." });
-      form.reset();
-      onClose();
+        if (result.success) {
+            toast({ title: "Quotation Created", description: "The new quotation has been saved." });
+            form.reset();
+            onSuccess();
+            onClose();
+        } else {
+             toast({ variant: "destructive", title: "Error", description: result.message });
+        }
     } catch (error) {
       console.error("Error creating purchase request: ", error);
       toast({ variant: "destructive", title: "Error", description: "Failed to create the quotation." });

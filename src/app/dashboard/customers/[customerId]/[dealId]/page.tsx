@@ -8,7 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Customer, Deal, User, Stock, DealProduct } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, updateDealProducts } from "./actions";
+import { getDealById, updateDealProducts, getQuotationsForDeal } from "./actions";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -80,6 +80,7 @@ const measurementSchema = z.object({
 type MeasurementFormValues = z.infer<typeof measurementSchema>;
 
 const productSchema = z.object({
+    id: z.string().optional(),
     productCategory: z.string().optional().default(''),
     collectionBrand: z.string().min(1, "Collection/Brand is required."), // This will now hold the BCN
     serialNo: z.string().optional().default(''),
@@ -466,7 +467,7 @@ const AddProductForm = ({ onAddProduct }: { onAddProduct: (data: ProductFormValu
 
     const handleAddClick = () => {
         addProductForm.handleSubmit((data) => {
-            onAddProduct(data);
+            onAddProduct({...data, id: new Date().toISOString() });
             addProductForm.reset({
                 productCategory: '', collectionBrand: "", serialNo: "", salesDescription: "",
                 quantity: "", remarks: "", room: "", noOfPcs: '1', info1: "", info2: "",
@@ -562,10 +563,9 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
         }
     
         const selectedProducts = fields
-            .filter(field => selectedIds.includes(field.id))
+            .filter(field => selectedIds.includes(field.id!))
             .map(field => field as DealProduct);
         
-        // Fetch MRP for each selected product
         const productsWithRate = await Promise.all(
             selectedProducts.map(async (product) => {
                 const stockResults = await searchStockByBcn(product.collectionBrand);
@@ -585,7 +585,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     const handleSelectAll = (checked: boolean) => {
         const newSelectedRows: Record<string, boolean> = {};
         if (checked) {
-            fields.forEach((field) => { newSelectedRows[field.id] = true; });
+            fields.forEach((field) => { newSelectedRows[field.id!] = true; });
         }
         setSelectedRows(newSelectedRows);
     };
@@ -640,11 +640,11 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                         </TableHeader>
                         <TableBody>
                             {fields.length > 0 ? fields.map((field, index) => (
-                                <TableRow key={field.id} data-state={selectedRows[field.id] && "selected"}>
+                                <TableRow key={field.id} data-state={selectedRows[field.id!] && "selected"}>
                                     <TableCell>
                                          <Checkbox
-                                            checked={!!selectedRows[field.id]}
-                                            onCheckedChange={(checked) => handleRowSelect(field.id, !!checked)}
+                                            checked={!!selectedRows[field.id!]}
+                                            onCheckedChange={(checked) => handleRowSelect(field.id!, !!checked)}
                                             aria-label={`Select row ${index + 1}`}
                                         />
                                     </TableCell>
@@ -691,9 +691,75 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
             deal={deal}
             customer={customer}
             initialItems={selectedProductsForQuotation}
+            onSuccess={onRefresh}
         />
         </FormProvider>
     )
+}
+
+function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: string }) {
+    const [quotations, setQuotations] = useState<Quotation[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchQuotations = async () => {
+            setLoading(true);
+            const data = await getQuotationsForDeal(customerId, dealId);
+            setQuotations(data);
+            setLoading(false);
+        };
+        fetchQuotations();
+    }, [customerId, dealId]);
+
+    if (loading) {
+        return (
+            <div className="mt-6">
+                <Skeleton className="h-32 w-full" />
+            </div>
+        );
+    }
+
+    return (
+        <Card className="mt-6">
+            <CardHeader>
+                <CardTitle>Quotation Details</CardTitle>
+            </CardHeader>
+            <CardContent>
+                {quotations.length > 0 ? (
+                     <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>#</TableHead>
+                                <TableHead>Quotation No</TableHead>
+                                <TableHead>Quotation Date</TableHead>
+                                <TableHead>Customer</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead className="text-right">Amount</TableHead>
+                                <TableHead>Store</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {quotations.map((q, i) => (
+                                <TableRow key={q.id}>
+                                    <TableCell>{i + 1}</TableCell>
+                                    <TableCell className="font-medium text-primary cursor-pointer hover:underline">{q.quotationNo}</TableCell>
+                                    <TableCell>{format(new Date(q.date), 'dd/MM/yyyy')}</TableCell>
+                                    <TableCell>{q.customerName}</TableCell>
+                                    <TableCell><Badge variant="secondary">{q.status}</Badge></TableCell>
+                                    <TableCell className="text-right">{q.totalAmount.toFixed(2)}</TableCell>
+                                    <TableCell>{q.store}</TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                ) : (
+                    <div className="text-center py-10 text-muted-foreground">
+                        No quotations have been generated for this deal yet.
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
 }
 
 
@@ -877,6 +943,10 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 deal={deal}
                 customer={customer}
             />
+          </TabsContent>
+
+          <TabsContent value="quotations">
+             <QuotationsTab customerId={customerId} dealId={dealId} />
           </TabsContent>
 
         </Tabs>

@@ -35,8 +35,8 @@ export function QuotationPreview({ values }: QuotationPreviewProps) {
         return acc;
     }, { subtotal: 0, totalDiscount: 0, totalTaxableAmount: 0 });
     
-    const cgst = calculation.totalTaxableAmount * 0.09; // 9%
-    const sgst = calculation.totalTaxableAmount * 0.09; // 9%
+    const cgst = calculation.totalTaxableAmount * 0.025; // 2.5%
+    const sgst = calculation.totalTaxableAmount * 0.025; // 2.5%
     const grandTotal = calculation.totalTaxableAmount + cgst + sgst;
 
     return (
@@ -81,7 +81,7 @@ export function QuotationPreview({ values }: QuotationPreviewProps) {
                             return (
                                 <TableRow key={item.id}>
                                     <TableCell>{index + 1}</TableCell>
-                                    <TableCell>{item.description}</TableCell>
+                                    <TableCell>{item.salesDescription}</TableCell>
                                     <TableCell className="text-right">{item.quantity}</TableCell>
                                     <TableCell className="text-right">{formatToINR(item.rate || 0)}</TableCell>
                                     <TableCell className="text-right">{formatToINR(itemAmount)}</TableCell>
@@ -120,11 +120,11 @@ export function QuotationPreview({ values }: QuotationPreviewProps) {
                     </div>
                     <Separator />
                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">CGST @9%:</span>
+                        <span className="text-muted-foreground">CGST @2.5%:</span>
                         <span className="font-semibold">{formatToINR(cgst)}</span>
                     </div>
                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">SGST @9%:</span>
+                        <span className="text-muted-foreground">SGST @2.5%:</span>
                         <span className="font-semibold">{formatToINR(sgst)}</span>
                     </div>
                     <Separator />
@@ -142,4 +142,3 @@ export function QuotationPreview({ values }: QuotationPreviewProps) {
         </div>
     );
 }
-

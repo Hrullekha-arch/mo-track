@@ -1,5 +1,4 @@
 
-
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -228,6 +227,7 @@ export interface Customer {
 }
 
 export interface DealProduct {
+    id?: string;
     productCategory?: string;
     collectionBrand: string;
     serialNo?: string;
@@ -251,4 +251,36 @@ export interface Deal {
     description: string;
     createdAt: string; // ISO string
     products?: DealProduct[];
+}
+
+export interface QuotationItem {
+  id?: string;
+  collectionBrand: string;
+  serialNo?: string;
+  salesDescription: string;
+  quantity: number;
+  rate: number;
+  discountPercent?: number;
+  amount?: number;
+  room?: string;
+  remark?: string;
+}
+
+export interface Quotation {
+    id: string;
+    quotationNo: string;
+    store: string;
+    date: string | Date;
+    validTillDate?: string | Date;
+    customerName: string;
+    dealName: string;
+    items: QuotationItem[];
+    totalAmount: number;
+    status: 'Generated' | 'Converted to Order';
+    createdAt: string;
+    company?: string;
+    discountPercent?: string;
+    applyTax?: boolean;
+    billingName?: string;
+    vasDetails?: VasDetail[];
 }
