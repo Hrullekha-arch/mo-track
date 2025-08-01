@@ -34,6 +34,7 @@ import {
   PlusCircle,
   Calculator,
   Trash2,
+  Edit,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -418,6 +419,8 @@ const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtai
 
 function ProductForm() {
     const [loading, setLoading] = useState(false);
+    const [products, setProducts] = useState<ProductFormValues[]>([]);
+    const [editingIndex, setEditingIndex] = useState<number | null>(null);
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const { toast } = useToast();
@@ -471,19 +474,43 @@ function ProductForm() {
 
     const onSubmit = (data: ProductFormValues) => {
         setLoading(true);
-        console.log("Product Data:", data);
-        setTimeout(() => {
-            setLoading(false);
-            toast({ title: "Product Added", description: "The new product has been saved." });
-            form.reset();
-        }, 1500);
+        if (editingIndex !== null) {
+            // Update existing product
+            const updatedProducts = [...products];
+            updatedProducts[editingIndex] = data;
+            setProducts(updatedProducts);
+            toast({ title: "Product Updated", description: "The product has been updated in the list." });
+        } else {
+            // Add new product
+            setProducts(prev => [...prev, data]);
+            toast({ title: "Product Added", description: "The new product has been added to the list." });
+        }
+        setEditingIndex(null);
+        form.reset();
+        setLoading(false);
+    }
+    
+    const handleEdit = (index: number) => {
+        setEditingIndex(index);
+        const productToEdit = products[index];
+        form.reset(productToEdit);
+    }
+
+    const handleDelete = (index: number) => {
+        setProducts(products.filter((_, i) => i !== index));
+        toast({ title: "Product Removed", description: "The product has been removed from the list." });
+    }
+
+    const handleCancelEdit = () => {
+        setEditingIndex(null);
+        form.reset();
     }
 
     return (
         <Card className="mt-6">
             <CardContent className="p-6">
                 <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold">Add More Products</h3>
+                    <h3 className="text-xl font-semibold">{editingIndex !== null ? 'Edit Product' : 'Add More Products'}</h3>
                     <div className="text-sm text-muted-foreground">
                         <span className="mr-4">MRP: </span>
                         <span>UOM: MTRS</span>
@@ -522,11 +549,13 @@ function ProductForm() {
                          </div>
                          <FormField control={form.control} name="pushToMeasurement" render={({ field }) => (<FormItem className="flex flex-row items-center space-x-3 space-y-0"> <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl> <div className="space-y-1 leading-none"><FormLabel>Push to Measurement</FormLabel></div> </FormItem>)} />
 
-                        <div className="mt-8 flex">
+                        <div className="mt-8 flex gap-2">
                             <Button type="submit" disabled={loading} className="bg-teal-600 hover:bg-teal-700">
-                                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Add
+                                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (editingIndex !== null ? 'Update' : 'Add')}
                             </Button>
+                            {editingIndex !== null && (
+                                <Button type="button" variant="outline" onClick={handleCancelEdit}>Cancel</Button>
+                            )}
                         </div>
                     </form>
                 </Form>
@@ -535,7 +564,7 @@ function ProductForm() {
                         <TableHeader>
                             <TableRow>
                                 <TableHead>#</TableHead>
-                                <TableHead>Delete</TableHead>
+                                <TableHead>Actions</TableHead>
                                 <TableHead>Collection/Brand Name</TableHead>
                                 <TableHead>Serial No</TableHead>
                                 <TableHead>Quantity</TableHead>
@@ -545,16 +574,25 @@ function ProductForm() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            <TableRow>
-                                <TableCell>1</TableCell>
-                                <TableCell><Button variant="ghost" size="icon"><Trash2 className="h-4 w-4 text-destructive"/></Button></TableCell>
-                                <TableCell>F114623</TableCell>
-                                <TableCell>1242</TableCell>
-                                <TableCell>12</TableCell>
-                                <TableCell>BEDROOM</TableCell>
-                                <TableCell>1</TableCell>
-                                <TableCell>DRAWING ROOM CURTAIN</TableCell>
-                            </TableRow>
+                            {products.length > 0 ? products.map((product, index) => (
+                                <TableRow key={index}>
+                                    <TableCell>{index + 1}</TableCell>
+                                    <TableCell className="flex gap-1">
+                                        <Button variant="ghost" size="icon" onClick={() => handleEdit(index)}><Edit className="h-4 w-4 text-blue-600"/></Button>
+                                        <Button variant="ghost" size="icon" onClick={() => handleDelete(index)}><Trash2 className="h-4 w-4 text-destructive"/></Button>
+                                    </TableCell>
+                                    <TableCell>{product.collectionBrand}</TableCell>
+                                    <TableCell>{product.serialNo}</TableCell>
+                                    <TableCell>{product.quantity}</TableCell>
+                                    <TableCell>{product.room}</TableCell>
+                                    <TableCell>{product.noOfPcs}</TableCell>
+                                    <TableCell>{product.salesDescription}</TableCell>
+                                </TableRow>
+                            )) : (
+                                <TableRow>
+                                    <TableCell colSpan={8} className="text-center h-24">No products added yet.</TableCell>
+                                </TableRow>
+                            )}
                         </TableBody>
                     </Table>
                 </div>
