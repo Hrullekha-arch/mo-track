@@ -69,7 +69,7 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
     }, [customerId, toast]);
 
     const handleNewDealSuccess = (newDeal: Deal) => {
-        setDeals(prevDeals => [...prevDeals, newDeal]);
+        setDeals(prevDeals => [newDeal, ...prevDeals]);
         toast({ title: "Deal Created!", description: "The new deal has been successfully added."});
         setIsNewDealOpen(false);
     }

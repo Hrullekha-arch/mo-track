@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -46,7 +47,7 @@ const allNavItems = [
   { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
   { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
   { href: "/dashboard/pms", icon: GanttChartSquare, label: "PMS", roles: ['admin', 'employee'] },
-  { href: "/dashboard/all-orders", icon: Table, label: "All Orders (Admin)", roles: ['admin'] },
+  { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin'] },
   { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin', 'employee'] },
   { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },
   { href: "/mobile", icon: Smartphone, label: "Mobile View", roles: ['installer'] },
@@ -67,7 +68,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       // Employee sees 'employee' roles but not admin-only ones
       if (role === 'employee') {
-          return !['/dashboard/all-orders', '/dashboard/reports'].includes(item.href)
+          return !['/dashboard/all-orders', '/dashboard/reports', '/dashboard/users'].includes(item.href)
       }
       
       // Installer only sees their specific views

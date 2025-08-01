@@ -14,6 +14,9 @@ export async function searchCustomersAction(filters: {
     const customersRef = adminDb.collection('customers');
     let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = customersRef;
 
+    // Firestore doesn't support case-insensitive or partial text search natively on the backend efficiently.
+    // A more scalable solution would involve a third-party search service like Algolia or Typesense.
+    // For now, we fetch all and filter in memory, which works for small-to-medium datasets.
     const querySnapshot = await q.orderBy('createdAt', 'desc').get();
     const allCustomers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Customer);
 
@@ -38,7 +41,9 @@ export async function getCustomerById(id: string): Promise<Customer | null> {
         const docSnap = await docRef.get();
 
         if (docSnap.exists) {
-            return { id: docSnap.id, ...docSnap.data() } as Customer;
+            const customerData = { id: docSnap.id, ...docSnap.data() };
+            // Ensure data is serializable for the client
+            return JSON.parse(JSON.stringify(customerData)) as Customer;
         } else {
             console.warn(`Customer document with ID ${id} not found in Firestore.`);
             return null;
@@ -89,6 +94,7 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
   try {
     const customersRef = adminDb.collection("customers");
 
+    // Check for duplicate mobile number
     const mobileQuery = customersRef.where('mobileNo', '==', data.mobileNo);
     const mobileSnapshot = await mobileQuery.get();
     if (!mobileSnapshot.empty) {

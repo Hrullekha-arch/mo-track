@@ -447,7 +447,7 @@ function ProductForm() {
             const results = await searchStockByBcn(query);
             setBcnOptions(results.map(stock => ({
                 value: stock.bcn || stock.id,
-                label: stock.bcn || stock.id,
+                label: stock.bcn || stock.id, // Only show BCN in dropdown
                 stockItem: stock,
             })));
         } catch (error) {
@@ -768,7 +768,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
            <Separator />
             <div>
             <p className="text-xs text-muted-foreground">Deal Description:</p>
-            <p className="text-sm">{deal.description || "test"}</p>
+            <p className="text-sm">{deal.description || "No description provided."}</p>
           </div>
         </div>
       </aside>

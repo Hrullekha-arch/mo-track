@@ -17,7 +17,7 @@ const dashboardItems = [
     {
         href: "/dashboard/customers",
         title: "Customers",
-        description: "Manage all customer profiles.",
+        description: "Manage all customer profiles and deals.",
         icon: Contact,
         color: "bg-pink-500",
         id: "customers"

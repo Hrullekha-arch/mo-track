@@ -21,6 +21,8 @@ const dealSchema = z.object({
   dealAmount: z.preprocess(
     (a) => {
         if (typeof a === 'string' && a.trim() === '') return undefined;
+        // Allows empty string, which will be converted to undefined
+        if (a === '') return undefined;
         const parsed = parseFloat(z.string().parse(a));
         return isNaN(parsed) ? undefined : parsed;
     },
@@ -48,7 +50,7 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
     resolver: zodResolver(dealSchema),
     defaultValues: {
       dealName: "",
-      dealAmount: '',
+      dealAmount: undefined,
       representativeId: "",
       description: "",
     }
@@ -107,7 +109,7 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
                 <FormItem>
                   <FormLabel>Deal Amount</FormLabel>
                   <FormControl>
-                    <Input type="number" {...field} />
+                    <Input type="number" {...field} value={field.value ?? ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
