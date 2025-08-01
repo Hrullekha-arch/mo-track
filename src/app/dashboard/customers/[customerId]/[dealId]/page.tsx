@@ -2,7 +2,7 @@
 
 "use client";
 
-import { use, useEffect, useState, useMemo } from "react";
+import { use, useEffect, useState, useMemo, useCallback } from "react";
 import { useForm, useFieldArray, FormProvider, useFormContext, Control } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -35,6 +35,7 @@ import {
   Calculator,
   Trash2,
   Edit,
+  RefreshCw,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -422,7 +423,7 @@ function MeasurementForm() {
 const productCategoryOptions = [{ value: "fabric", label: "Fabric" }, { value: "furniture", label: "Furniture" }];
 const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtain" }, { value: "sofa", label: "Sofa Fabric" }];
 
-const AddProductForm = ({ onAddProduct, mainControl }: { onAddProduct: (data: ProductFormValues) => void, mainControl: Control<ProductListFormValues> }) => {
+const AddProductForm = ({ onAddProduct }: { onAddProduct: (data: ProductFormValues) => void }) => {
     const { toast } = useToast();
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -430,7 +431,7 @@ const AddProductForm = ({ onAddProduct, mainControl }: { onAddProduct: (data: Pr
     const addProductForm = useForm<ProductFormValues>({
         resolver: zodResolver(productSchema),
         defaultValues: {
-            productCategory: 'fabric', collectionBrand: "", serialNo: "", salesDescription: "",
+            productCategory: '', collectionBrand: "", serialNo: "", salesDescription: "",
             quantity: "", remarks: "", room: "", noOfPcs: '1', info1: "", info2: "",
         },
     });
@@ -467,7 +468,7 @@ const AddProductForm = ({ onAddProduct, mainControl }: { onAddProduct: (data: Pr
         addProductForm.handleSubmit((data) => {
             onAddProduct(data);
             addProductForm.reset({
-                productCategory: 'fabric', collectionBrand: "", serialNo: "", salesDescription: "",
+                productCategory: '', collectionBrand: "", serialNo: "", salesDescription: "",
                 quantity: "", remarks: "", room: "", noOfPcs: '1', info1: "", info2: "",
             });
         })();
@@ -503,10 +504,11 @@ const AddProductForm = ({ onAddProduct, mainControl }: { onAddProduct: (data: Pr
     );
 };
 
-function ProductForm({ initialProducts, customerId, dealId }: { initialProducts: DealProduct[], customerId: string, dealId: string }) {
+function ProductForm({ initialProducts, customerId, dealId, onRefresh }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void }) {
     const [activityLoading, setActivityLoading] = useState(false);
     const { toast } = useToast();
     const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const form = useForm<ProductListFormValues>({
         resolver: zodResolver(productListSchema),
@@ -521,6 +523,14 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
     useEffect(() => {
         form.reset({ products: initialProducts || [] });
     }, [initialProducts, form]);
+    
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        onRefresh();
+        // Add a small delay for user to perceive the refresh action
+        await new Promise(resolve => setTimeout(resolve, 500));
+        setIsRefreshing(false);
+    };
 
     const handleAddProduct = (productData: ProductFormValues) => {
         append(productData);
@@ -556,7 +566,13 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
         <form onSubmit={form.handleSubmit(handleUpdateActivity)}>
         <Card className="mt-6">
             <CardContent className="p-6">
-                <h3 className="text-xl font-semibold mb-6">Previously Added Products</h3>
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-semibold">Previously Added Products</h3>
+                     <Button type="button" variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+                        {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        Refresh
+                    </Button>
+                </div>
                 <div className="mb-4">
                      <Table>
                         <TableHeader>
@@ -564,7 +580,7 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
                                 <TableHead className="w-12">
                                      <Checkbox
                                         checked={allRowsSelected}
-                                        onCheckedChange={handleSelectAll}
+                                        onCheckedChange={(checked) => handleSelectAll(!!checked)}
                                         aria-label="Select all rows"
                                     />
                                 </TableHead>
@@ -615,7 +631,7 @@ function ProductForm({ initialProducts, customerId, dealId }: { initialProducts:
                     <Button type="button" >Convert To Quotation</Button>
                 </div>
 
-                <AddProductForm onAddProduct={handleAddProduct} mainControl={form.control}/>
+                <AddProductForm onAddProduct={handleAddProduct}/>
 
                  <div className="mt-12 flex flex-col items-start gap-4">
                     <p className="text-sm text-destructive">Please click on Update Activity if you have updated any changes.</p>
@@ -673,39 +689,38 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const [salesmen, setSalesmen] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [customerData, dealData, salesmenData] = await Promise.all([
+        getCustomerById(customerId),
+        getDealById(customerId, dealId),
+        getSalesmen(),
+      ]);
+      
+      if (!customerData) throw new Error("Customer not found");
+      if (!dealData) throw new Error("Deal not found");
+
+      setCustomer(customerData);
+      setDeal(dealData);
+      setSalesmen(salesmenData);
+      
+    } catch (error) {
+      console.error("Failed to fetch CRM activity data:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: (error as Error).message || "Could not load activity data.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [customerId, dealId, toast]);
+
   useEffect(() => {
     if (!customerId || !dealId) return;
-
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [customerData, dealData, salesmenData] = await Promise.all([
-          getCustomerById(customerId),
-          getDealById(customerId, dealId),
-          getSalesmen(),
-        ]);
-        
-        if (!customerData) throw new Error("Customer not found");
-        if (!dealData) throw new Error("Deal not found");
-
-        setCustomer(customerData);
-        setDeal(dealData);
-        setSalesmen(salesmenData);
-        
-      } catch (error) {
-        console.error("Failed to fetch CRM activity data:", error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: (error as Error).message || "Could not load activity data.",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    
     fetchData();
-  }, [customerId, dealId, toast]);
+  }, [customerId, dealId, fetchData]);
 
   if (loading) {
     return <CrmActivitySkeleton />;
@@ -809,6 +824,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 initialProducts={deal.products || []}
                 customerId={customerId}
                 dealId={dealId}
+                onRefresh={fetchData}
             />
           </TabsContent>
 
