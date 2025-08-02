@@ -1,3 +1,4 @@
+
 "use client";
 
 import { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
@@ -723,6 +724,24 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
         }
         return new Date(); // Fallback
     }
+    
+    const handlePrint = (quotation: Quotation) => {
+        const printWindow = window.open('', '_blank');
+        const content = document.getElementById(`print-quotation-${quotation.id}`);
+        if (printWindow && content) {
+            const printDocument = printWindow.document;
+            printDocument.write('<html><head><title>Print Quotation</title></head><body>');
+            printDocument.write(content.innerHTML);
+            printDocument.write('</body></html>');
+            printDocument.close();
+            // Use a timeout to ensure the content is fully loaded before printing
+            setTimeout(() => {
+                printWindow.print();
+                printWindow.close();
+            }, 250);
+        }
+    };
+
 
     useEffect(() => {
         const fetchQuotations = async () => {
@@ -772,17 +791,7 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
                                                     <Button variant="ghost" size="icon" className="h-6 w-6"><MoreVertical className="h-4 w-4" /></Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent>
-                                                    <DropdownMenuItem onClick={() => {
-                                                        const printWindow = window.open('', '_blank');
-                                                        const content = document.getElementById(`print-quotation-${q.id}`);
-                                                        if (printWindow && content) {
-                                                            printWindow.document.write('<html><head><title>Print Quotation</title></head><body>');
-                                                            printWindow.document.write(content.innerHTML);
-                                                            printWindow.document.write('</body></html>');
-                                                            printWindow.document.close();
-                                                            printWindow.print();
-                                                        }
-                                                    }}>
+                                                    <DropdownMenuItem onClick={() => handlePrint(q)}>
                                                         <Printer className="mr-2 h-4 w-4"/> Print
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem><Copy className="mr-2 h-4 w-4"/> Office Copy Print</DropdownMenuItem>
@@ -799,7 +808,7 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
                                             </Button>
                                             <div className="hidden">
                                                 <div id={`print-quotation-${q.id}`}>
-                                                    <QuotationPreview values={q as FormValues} />
+                                                    <QuotationPreview values={q as any} />
                                                 </div>
                                             </div>
                                         </TableCell>
@@ -843,6 +852,20 @@ function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string 
         };
         fetchOrders();
     }, [customerId, dealId]);
+    
+    const parseDate = (date: any): Date => {
+        if (date instanceof Date) return date;
+        if (date && date._seconds) { // Handle Firestore Timestamps
+            return new Date(date._seconds * 1000 + (date._nanoseconds || 0) / 1000000);
+        }
+        if (typeof date === 'string' || typeof date === 'number') {
+            const parsed = new Date(date);
+            if (!isNaN(parsed.getTime())) {
+                return parsed;
+            }
+        }
+        return new Date(); // Fallback
+    }
 
     if (loading) {
         return (
@@ -878,7 +901,7 @@ function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string 
                                         <Button variant="link" className="p-0 h-auto">{order.orderNo}</Button>
                                     </TableCell>
                                     <TableCell>{order.remark || '-'}</TableCell>
-                                    <TableCell>{format(new Date(order.orderDate), 'dd/MM/yyyy')}</TableCell>
+                                    <TableCell>{format(parseDate(order.orderDate), 'dd/MM/yyyy')}</TableCell>
                                     <TableCell>{order.createdBy}</TableCell>
                                 </TableRow>
                             ))}

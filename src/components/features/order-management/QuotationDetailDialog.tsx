@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { FileText, Printer, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { QuotationPreview } from "./QuotationPreview";
 
 interface QuotationDetailDialogProps {
   isOpen: boolean;
@@ -40,6 +41,24 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation }: QuotationD
     return new Date(); // Fallback
   }
 
+  const handlePrint = () => {
+    const printWindow = window.open('', '_blank');
+    const content = document.getElementById(`print-quotation-dialog-${quotation.id}`);
+    if (printWindow && content) {
+        const printDocument = printWindow.document;
+        printDocument.write('<html><head><title>Print Quotation</title></head><body>');
+        printDocument.write(content.innerHTML);
+        printDocument.write('</body></html>');
+        printDocument.close();
+        // Use a timeout to ensure the content is fully loaded before printing
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 250);
+    }
+  };
+
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl p-0">
@@ -58,7 +77,7 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation }: QuotationD
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="outline" size="icon"><Printer className="h-4 w-4" /></Button>
+                    <Button variant="outline" size="icon" onClick={handlePrint}><Printer className="h-4 w-4" /></Button>
                     <Button variant="outline" size="icon"><FileText className="h-4 w-4" /></Button>
                     {/* Add other icons as needed */}
                 </div>
@@ -100,6 +119,11 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation }: QuotationD
                         </TableBody>
                     </Table>
                 </div>
+            </div>
+        </div>
+        <div className="hidden">
+            <div id={`print-quotation-dialog-${quotation.id}`}>
+                <QuotationPreview values={quotation as any} />
             </div>
         </div>
         <DialogFooter className="bg-muted p-4">
