@@ -3,7 +3,7 @@
 
 import { use, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm, useFieldArray, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
@@ -11,124 +11,130 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, PlusCircle, Search, Trash2, Loader2, Calendar as CalendarIcon } from "lucide-react";
+import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
-import { getQuotationsForDeal } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
-import { Quotation, Customer, Deal } from "@/lib/types";
+import { Quotation, Customer, Deal, DealProduct } from "@/lib/types";
 import React, { useEffect, useState } from "react";
-import { getCustomerById, getDealsForCustomer } from "@/app/dashboard/customers/actions";
-import { getDealById } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import { getCustomerById } from "@/app/dashboard/customers/actions";
+import { getDealById, getQuotationsForDeal } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import Link from "next/link";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { cn } from "@/lib/utils";
-import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
-import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Combobox } from "@/components/ui/combobox";
 
-const invoiceItemSchema = z.object({
-  description: z.string(),
-  hsnCode: z.string().optional(),
+const productSchema = z.object({
+  id: z.string().optional(),
+  collectionBrand: z.string(),
+  serialNo: z.string().optional(),
   quantity: z.number(),
-  rate: z.number(),
-  subtotal: z.number(),
-  discountPercent: z.number(),
-  discAmt: z.number(),
-  taxableAmt: z.number(),
-  cgst: z.number(),
-  sgst: z.number(),
-  igst: z.number(),
-  totalTax: z.number(),
+  mrp: z.number(),
+  discountPercent: z.number().optional(),
+  quotationRate: z.number(),
+  orderRate: z.number(),
+  room: z.string().optional(),
+  noOfPcs: z.number().optional(),
   amount: z.number(),
+  description: z.string().optional(),
+  remark: z.string().optional(),
 });
 
-const invoiceSchema = z.object({
-  contact: z.string(),
-  company: z.string(),
-  store: z.string(),
-  invoiceDate: z.date(),
-  billingName: z.string(),
-  type: z.enum(['open', 'product-based']),
-  items: z.array(invoiceItemSchema),
-  roundOff: z.number().optional(),
-  invoiceAmount: z.number(),
+const addProductSchema = z.object({
+  productCategory: z.string().optional(),
+  collectionBrand: z.string().optional(),
+  serialNo: z.string().optional(),
+  description: z.string().optional(),
+  quantity: z.string().optional(),
+  rate: z.string().optional(),
+  discountPercent: z.string().optional(),
+  discAmt: z.string().optional(),
+  value: z.boolean().optional(),
+  room: z.string().optional(),
+  noOfPcs: z.string().optional(),
+  remark: z.string().optional(),
+  info1: z.string().optional(),
+  info2: z.string().optional(),
+  stitchingType: z.enum(["in", "out"]).optional(),
+  file: z.any().optional(),
 });
 
-type InvoiceFormValues = z.infer<typeof invoiceSchema>;
+const convertToOrderSchema = z.object({
+  products: z.array(productSchema),
+  addProduct: addProductSchema,
+  orderRemark: z.string().optional(),
+  billingName: z.string().optional(),
+  addVas: z.boolean().optional(),
+});
 
-function CreateInvoicePageContent() {
+type ConvertToOrderFormValues = z.infer<typeof convertToOrderSchema>;
+
+function ConvertToOrderContent() {
   const searchParams = useSearchParams();
   const customerId = searchParams.get('customerId');
   const dealId = searchParams.get('dealId');
   const quotationId = searchParams.get('quotationId');
-  
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [deal, setDeal] = useState<Deal | null>(null);
-  const [quotation, setQuotation] = useState<Quotation | null>(null);
+
   const [loading, setLoading] = useState(true);
+  const [quotation, setQuotation] = useState<Quotation | null>(null);
 
   const { toast } = useToast();
 
-  const form = useForm<InvoiceFormValues>({
-    resolver: zodResolver(invoiceSchema),
+  const form = useForm<ConvertToOrderFormValues>({
+    resolver: zodResolver(convertToOrderSchema),
     defaultValues: {
-      type: 'open',
+      products: [],
+      addProduct: {},
     }
   });
+
+  const { fields, append, remove, update } = useFieldArray({
+    control: form.control,
+    name: "products"
+  });
+
+  const productTotal = fields.reduce((acc, item, index) => {
+    return {
+      quantity: acc.quantity + (form.getValues(`products.${index}.quantity`) || 0),
+      amount: acc.amount + (form.getValues(`products.${index}.amount`) || 0),
+    };
+  }, { quantity: 0, amount: 0 });
 
   useEffect(() => {
     const fetchData = async () => {
       if (!customerId || !dealId || !quotationId) {
-        toast({ variant: "destructive", title: "Error", description: "Missing required information to create an invoice." });
+        toast({ variant: "destructive", title: "Error", description: "Missing required information to create an order." });
         setLoading(false);
         return;
       }
       try {
-        const [customerData, dealData, quotationsData] = await Promise.all([
-          getCustomerById(customerId),
-          getDealById(customerId, dealId),
-          getQuotationsForDeal(customerId, dealId)
-        ]);
-
-        setCustomer(customerData);
-        setDeal(dealData);
+        const quotationsData = await getQuotationsForDeal(customerId, dealId);
         const specificQuotation = quotationsData.find(q => q.id === quotationId);
-        setQuotation(specificQuotation || null);
 
-        if (customerData && specificQuotation) {
-          form.reset({
-            contact: customerData.name,
-            company: specificQuotation.company || 'MO DESIGNS PRIVATE LIMITED',
-            store: specificQuotation.store,
-            invoiceDate: new Date(),
-            billingName: specificQuotation.billingName || '',
-            type: 'open',
-            items: specificQuotation.items.map(item => {
-              const subtotal = item.quantity * item.rate;
-              const discAmt = subtotal * ((item.discountPercent || 0) / 100);
-              const taxableAmt = subtotal - discAmt;
-              const totalTax = taxableAmt * 0.05; // 5% total tax
-              return {
-                description: item.salesDescription,
-                hsnCode: '540752', // Placeholder
-                quantity: item.quantity,
-                rate: item.rate,
-                subtotal: subtotal,
-                discountPercent: item.discountPercent || 0,
-                discAmt: discAmt,
-                taxableAmt: taxableAmt,
-                cgst: totalTax / 2,
-                sgst: totalTax / 2,
-                igst: 0,
-                totalTax: totalTax,
-                amount: taxableAmt + totalTax
-              };
-            }),
-            invoiceAmount: specificQuotation.totalAmount
+        if (specificQuotation) {
+          setQuotation(specificQuotation);
+          const productsFromQuotation = specificQuotation.items.map(item => {
+            const quotationRate = item.rate * (1 - (item.discountPercent || 0) / 100);
+            return {
+              collectionBrand: item.collectionBrand,
+              serialNo: item.serialNo || '',
+              quantity: item.quantity,
+              mrp: item.rate,
+              discountPercent: item.discountPercent || 0,
+              quotationRate: quotationRate,
+              orderRate: quotationRate,
+              room: item.room || '',
+              noOfPcs: 1, // Placeholder
+              amount: quotationRate * item.quantity,
+              description: item.salesDescription,
+              remark: item.remark || ''
+            };
           });
+          form.setValue("products", productsFromQuotation);
+        } else {
+          toast({ variant: "destructive", title: "Error", description: "Quotation not found." });
         }
       } catch (error) {
         toast({ variant: "destructive", title: "Error", description: "Failed to load quotation data." });
@@ -138,171 +144,126 @@ function CreateInvoicePageContent() {
     };
     fetchData();
   }, [customerId, dealId, quotationId, toast, form]);
-
-  const { fields, remove } = useFieldArray({
-    control: form.control,
-    name: "items"
-  });
-
-  const onSubmit = (data: InvoiceFormValues) => {
-    console.log(data);
-    toast({ title: "Invoice Created!", description: "The invoice has been successfully generated." });
-  };
   
+  const onSubmit = (data: ConvertToOrderFormValues) => {
+    console.log(data);
+    toast({ title: "Order Proceeding...", description: "Order has been processed for the next step." });
+  };
+
   if (loading) {
-      return (
-          <div className="p-8 space-y-4">
-              <Skeleton className="h-8 w-1/4" />
-              <div className="grid grid-cols-4 gap-4">
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-              </div>
-              <Skeleton className="h-48 w-full" />
-          </div>
-      )
+    return <Skeleton className="h-96 w-full" />;
   }
 
   return (
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
-      <header className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Create General Invoice
-        </h1>
-        <Button variant="outline" asChild>
-            <Link href={`/dashboard/customers/${customerId}/${dealId}`}>
-                <ArrowLeft className="mr-2 h-4 w-4" /> Back
-            </Link>
-        </Button>
-      </header>
-
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <FormField control={form.control} name="contact" render={({ field }) => (
-                  <FormItem><Label>Contact</Label><Input {...field} readOnly /></FormItem>
-                )} />
-                <FormField control={form.control} name="company" render={({ field }) => (
-                  <FormItem><Label>Company</Label><Input {...field} readOnly /></FormItem>
-                )} />
-                <FormField control={form.control} name="store" render={({ field }) => (
-                  <FormItem><Label>Store*</Label><Input {...field} readOnly /></FormItem>
-                )} />
-                <FormField control={form.control} name="invoiceDate" render={({ field }) => (
-                  <FormItem className="flex flex-col"><Label>Invoice Date*</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
-                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
-                    </Popover>
-                  </FormItem>
-                )} />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-end">
-                <FormField control={form.control} name="billingName" render={({ field }) => (
-                  <FormItem><Label>Billing Name</Label>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger></FormControl>
-                      <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
-                    </Select>
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="type" render={({ field }) => (
-                  <FormItem><Label>Type*</Label>
-                    <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex items-center space-x-4 pt-2">
-                      <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="open" /></FormControl><Label className="font-normal">Open</Label></FormItem>
-                      <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="product-based" /></FormControl><Label className="font-normal">Product Based</Label></FormItem>
-                    </RadioGroup>
-                  </FormItem>
-                )} />
-                <div className="flex gap-2">
-                    <Button>Proceed</Button>
-                    <Button variant="outline" type="button" onClick={() => form.reset()}>Clear</Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>#</TableHead>
-                      <TableHead>Delete</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>HSN Code</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Rate</TableHead>
-                      <TableHead>Subtotal</TableHead>
-                      <TableHead>Discount(%)</TableHead>
-                      <TableHead>Disc. Amt</TableHead>
-                      <TableHead>Taxable Amt</TableHead>
-                      <TableHead>Tax</TableHead>
-                      <TableHead>CGST</TableHead>
-                      <TableHead>SGST</TableHead>
-                      <TableHead>IGST</TableHead>
-                      <TableHead>Total Tax</TableHead>
-                      <TableHead>Amount</TableHead>
+      <FormProvider {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Product</h2>
+            <div className="border rounded-lg overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>#</TableHead>
+                    <TableHead>Delete</TableHead>
+                    <TableHead>Collection / Brand</TableHead>
+                    <TableHead>Serial No</TableHead>
+                    <TableHead>Quantity</TableHead>
+                    <TableHead>MRP</TableHead>
+                    <TableHead>Discount %</TableHead>
+                    <TableHead>Quotation Rate</TableHead>
+                    <TableHead>Order Rate</TableHead>
+                    <TableHead>Room</TableHead>
+                    <TableHead>No Of Pcs</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Remark</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {fields.map((item, index) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{index + 1}</TableCell>
+                      <TableCell><Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
+                      <TableCell>{item.collectionBrand}</TableCell>
+                      <TableCell>{item.serialNo}</TableCell>
+                      <TableCell><Input type="number" {...form.register(`products.${index}.quantity`)} /></TableCell>
+                      <TableCell>{item.mrp.toFixed(2)}</TableCell>
+                      <TableCell><Input type="number" {...form.register(`products.${index}.discountPercent`)} /></TableCell>
+                      <TableCell>{item.quotationRate.toFixed(2)}</TableCell>
+                      <TableCell><Input type="number" {...form.register(`products.${index}.orderRate`)} /></TableCell>
+                      <TableCell>{item.room}</TableCell>
+                      <TableCell><Input type="number" {...form.register(`products.${index}.noOfPcs`)} /></TableCell>
+                      <TableCell>{item.amount.toFixed(2)}</TableCell>
+                      <TableCell><Input {...form.register(`products.${index}.description`)} /></TableCell>
+                      <TableCell><Button type="button" variant="ghost" size="icon"><Edit className="h-4 w-4 text-blue-500" /></Button></TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {fields.map((item, index) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{index + 1}</TableCell>
-                        <TableCell><Button variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
-                        <TableCell>{item.description}</TableCell>
-                        <TableCell>{item.hsnCode}</TableCell>
-                        <TableCell>{item.quantity}</TableCell>
-                        <TableCell>{item.rate.toFixed(2)}</TableCell>
-                        <TableCell>{item.subtotal.toFixed(2)}</TableCell>
-                        <TableCell>{item.discountPercent.toFixed(2)}</TableCell>
-                        <TableCell>{item.discAmt.toFixed(2)}</TableCell>
-                        <TableCell>{item.taxableAmt.toFixed(2)}</TableCell>
-                        <TableCell>SALES@5%</TableCell>
-                        <TableCell>{item.cgst.toFixed(2)}</TableCell>
-                        <TableCell>{item.sgst.toFixed(2)}</TableCell>
-                        <TableCell>{item.igst.toFixed(2)}</TableCell>
-                        <TableCell>{item.totalTax.toFixed(2)}</TableCell>
-                        <TableCell>{item.amount.toFixed(2)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
-                <FormField control={form.control} name="roundOff" render={({ field }) => (
-                  <FormItem><Label>Round Off</Label><Input type="number" {...field} /></FormItem>
-                )} />
-                <FormField control={form.control} name="invoiceAmount" render={({ field }) => (
-                  <FormItem><Label>Invoice Amount*</Label><Input type="number" {...field} /></FormItem>
-                )} />
-              </div>
-            </CardContent>
-          </Card>
+                  ))}
+                </TableBody>
+                <TableFooter>
+                  <TableRow>
+                    <TableCell colSpan={4} className="font-semibold text-right">Total</TableCell>
+                    <TableCell className="font-semibold">{productTotal.quantity.toFixed(2)}</TableCell>
+                    <TableCell colSpan={6}></TableCell>
+                    <TableCell className="font-semibold">{productTotal.amount.toFixed(2)}</TableCell>
+                    <TableCell colSpan={2}></TableCell>
+                  </TableRow>
+                </TableFooter>
+              </Table>
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Add More Product</h2>
+            <div className="p-4 border rounded-lg space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <FormField control={form.control} name="addProduct.productCategory" render={({ field }) => (<FormItem><FormLabel>Product Category</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger></FormControl><SelectContent><SelectItem value="fabric">Fabric</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.collectionBrand" render={({ field }) => (<FormItem><FormLabel>Collection / Brand</FormLabel><Combobox options={[]} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.serialNo" render={({ field }) => (<FormItem><FormLabel>Serial No*</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger></FormControl><SelectContent><SelectItem value="234">234</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.description" render={({ field }) => (<FormItem><FormLabel>Description</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger></FormControl><SelectContent><SelectItem value="curtain">Curtain</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                     <FormField control={form.control} name="addProduct.quantity" render={({ field }) => (<FormItem><FormLabel>Quantity*</FormLabel><div className="flex items-center"><FormControl><Input {...field} /></FormControl><Button type="button" variant="ghost" size="icon"><Calculator className="h-5 w-5"/></Button></div><FormMessage /></FormItem>)} />
+                     <FormField control={form.control} name="addProduct.rate" render={({ field }) => (<FormItem><FormLabel>Rate</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                     <FormField control={form.control} name="addProduct.discountPercent" render={({ field }) => (<FormItem><FormLabel>Discount%</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                     <FormField control={form.control} name="addProduct.discAmt" render={({ field }) => (<FormItem><FormLabel>Disc Amt</FormLabel><div className="flex items-center gap-2"><FormControl><Input {...field} /></FormControl><FormField control={form.control} name="addProduct.value" render={({ field }) => (<FormItem className="flex items-center gap-1"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><Label className="font-normal">Value</Label></FormItem>)} /></div><FormMessage /></FormItem>)} />
+                </div>
+                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <FormField control={form.control} name="addProduct.noOfPcs" render={({ field }) => (<FormItem><FormLabel>No of Pcs</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.remark" render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.info1" render={({ field }) => (<FormItem><FormLabel>Info 1</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.info2" render={({ field }) => (<FormItem><FormLabel>Info 2</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                </div>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField control={form.control} name="addProduct.stitchingType" render={({ field }) => (<FormItem><FormLabel>Stitching Type</FormLabel><FormControl><RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex items-center gap-4"><FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="in" /></FormControl><FormLabel className="font-normal">IN</FormLabel></FormItem><FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="out" /></FormControl><FormLabel className="font-normal">OUT</FormLabel></FormItem></RadioGroup></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.file" render={({ field }) => (<FormItem><FormLabel>Upload file</FormLabel><FormControl><Input type="file" /></FormControl><FormMessage /></FormItem>)} />
+                 </div>
+                 <div className="flex gap-2">
+                    <Button type="button" className="bg-teal-600 hover:bg-teal-700">Add</Button>
+                    <Button type="button" variant="outline">Clear</Button>
+                 </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+              <FormField control={form.control} name="orderRemark" render={({ field }) => (<FormItem><FormLabel>Order Remark</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+              <FormField control={form.control} name="billingName" render={({ field }) => (<FormItem><FormLabel>Billing Name</FormLabel><Select onValueChange={field.onChange}><FormControl><SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger></FormControl><SelectContent><SelectItem value="placeholder">Placeholder</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
+              <FormField control={form.control} name="addVas" render={({ field }) => (<FormItem className="flex items-center gap-2"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><Label className="font-normal">Add VAS</Label></FormItem>)} />
+          </div>
+
           <div className="flex gap-2">
-            <Button type="submit">Create</Button>
-            <Button variant="outline" type="button" asChild><Link href={`/dashboard/customers/${customerId}/${dealId}`}>Back</Link></Button>
+            <Button type="submit">Proceed</Button>
           </div>
         </form>
-      </Form>
+      </FormProvider>
     </div>
   );
 }
 
-export default function CreateInvoicePage() {
+export default function ConvertToOrderPage() {
     return (
-        <Suspense fallback={<div>Loading...</div>}>
-            <CreateInvoicePageContent />
+        <Suspense fallback={<Skeleton className="h-screen w-full" />}>
+            <ConvertToOrderContent />
         </Suspense>
     )
 }
