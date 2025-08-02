@@ -260,6 +260,8 @@ const roomOptions = [
     { value: "purnima-bed-room", label: "PURNIMA BED ROOM" },
     { value: "office-intry", label: "OFFICE INTRY" },
     { value: "arch-window", label: "ARCH WINDOW" },
+    { value: "besment", label: "BESMENT" },
+    { value: "t.v-lounge", label: "T.V LOUNGE" },
     { value: "master-bedroom-entrance-door", label: "MASTER BEDROOM ENTRANCE DOOR" },
     { value: "ground-floor-staircase", label: "GROUND FLOOR STAIRCASE" },
     { value: "big-window-curtain", label: "BIG WINDOW CURTAIN" },
@@ -568,7 +570,7 @@ const VasForm = ({ control }: { control: Control<FormValues> }) => {
 const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormReturn<FormValues>, onBack: () => void, onSubmit: () => void, loading: boolean }) => {
     const values = form.getValues();
 
-    const itemsWithCalculations = useMemo(() => {
+    const calculatedItems = useMemo(() => {
         return values.items.map(item => {
             const quantity = Number(item.quantity) || 0;
             const rate = Number(item.rate) || 0;
@@ -579,7 +581,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
             const cgst = taxableAmt * 0.025;
             const sgst = taxableAmt * 0.025;
             const igst = 0; // Assuming IGST is 0 for now
-            return { ...item, subtotal, discount, taxableAmt, cgst, sgst, igst };
+            return { ...item, discountPercent, subtotal, discount, taxableAmt, cgst, sgst, igst };
         });
     }, [values.items]);
 
@@ -596,7 +598,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
     }, [values.vasDetails]);
 
     const totals = useMemo(() => {
-        const itemTotals = itemsWithCalculations.reduce((acc, item) => {
+        const itemTotals = calculatedItems.reduce((acc, item) => {
             acc.quantity += item.quantity;
             acc.subtotal += item.subtotal;
             acc.discount += item.discount;
@@ -619,7 +621,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
         const quotationAmount = itemTotals.taxableAmt + vasTotals.taxableAmt + itemTotals.cgst + vasTotals.cgst + itemTotals.sgst + vasTotals.sgst;
 
         return { itemTotals, vasTotals, quotationAmount };
-    }, [itemsWithCalculations, vasWithCalculations]);
+    }, [calculatedItems, vasWithCalculations]);
 
     return (
         <div className="space-y-6">
@@ -662,7 +664,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {itemsWithCalculations.map((item, index) => (
+                            {calculatedItems.map((item, index) => (
                                 <TableRow key={item.id}>
                                     <TableCell>{index + 1}</TableCell>
                                     <TableCell>{item.collectionBrand}</TableCell>
@@ -670,7 +672,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
                                     <TableCell>{item.quantity.toFixed(2)}</TableCell>
                                     <TableCell>{item.rate.toFixed(2)}</TableCell>
                                     <TableCell>{item.subtotal.toFixed(2)}</TableCell>
-                                    <TableCell>{item.discount.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@{item.discountPercent?.toFixed(2)}%</span></TableCell>
+                                    <TableCell>{item.discount.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@{item.discountPercent.toFixed(2)}%</span></TableCell>
                                     <TableCell>{item.room}</TableCell>
                                     <TableCell>{item.noOfPcs}</TableCell>
                                     <TableCell>{item.taxableAmt.toFixed(2)}</TableCell>
