@@ -2,9 +2,9 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
-import { VisitFormValues } from './page';
+import { VisitFormValues, MeasurementFormValues } from './page';
 
 export async function getDealById(customerId: string, dealId: string): Promise<Deal | null> {
     try {
@@ -160,6 +160,61 @@ export async function getVisitsForDeal(customerId: string, dealId: string): Prom
         return JSON.parse(JSON.stringify(visits));
     } catch (error) {
         console.error("Error fetching visits:", error);
+        return [];
+    }
+}
+
+export async function addMeasurementAction(
+    customerId: string,
+    dealId: string,
+    measurementData: MeasurementFormValues,
+    creatorName: string
+): Promise<{ success: boolean; message: string; measurement?: DealMeasurement }> {
+    try {
+        const measurementsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('measurements');
+        const newMeasurementRef = measurementsRef.doc();
+        
+        // Note: Real file upload would happen client-side to get a URL.
+        // Here we just simulate it for the database record.
+        const fileUrl = measurementData.file ? `https://placehold.co/100x100.png` : undefined;
+
+        const newMeasurement: DealMeasurement = {
+            id: newMeasurementRef.id,
+            ...measurementData,
+            fileUrl,
+            createdAt: new Date().toISOString(),
+            createdBy: creatorName,
+        };
+
+        await newMeasurementRef.set(newMeasurement);
+
+        return { success: true, message: "Measurement added successfully.", measurement: JSON.parse(JSON.stringify(newMeasurement)) };
+    } catch (error: any) {
+        console.error("Error adding measurement:", error);
+        return { success: false, message: `Server error: ${error.message}` };
+    }
+}
+
+
+export async function getMeasurementsForDeal(customerId: string, dealId: string): Promise<DealMeasurement[]> {
+    try {
+        const snapshot = await adminDb
+            .collection('customers')
+            .doc(customerId)
+            .collection('deals')
+            .doc(dealId)
+            .collection('measurements')
+            .orderBy('createdAt', 'desc')
+            .get();
+
+        if (snapshot.empty) {
+            return [];
+        }
+
+        const measurements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DealMeasurement));
+        return JSON.parse(JSON.stringify(measurements));
+    } catch (error) {
+        console.error("Error fetching measurements:", error);
         return [];
     }
 }

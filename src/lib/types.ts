@@ -260,6 +260,18 @@ export interface DealVisit {
     createdBy: string;
 }
 
+export interface DealMeasurement {
+    id: string;
+    room: string;
+    measurementReference: string;
+    noOfUnits: string;
+    measurement: string;
+    fileUrl?: string; // URL to the uploaded file in storage
+    createdAt: string; // ISO string
+    createdBy: string;
+}
+
+
 export interface Deal {
     id: string;
     dealName: string;
@@ -269,6 +281,7 @@ export interface Deal {
     createdAt: string; // ISO string
     products?: DealProduct[];
     visits?: DealVisit[];
+    measurements?: DealMeasurement[];
 }
 
 export interface QuotationItem {

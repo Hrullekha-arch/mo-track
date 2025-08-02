@@ -6,7 +6,8 @@ import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormR
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
-import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit } from "@/lib/types";
+import Image from "next/image";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -43,7 +44,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal, addVisitAction, getVisitsForDeal } from "./actions";
+import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal, addVisitAction, getVisitsForDeal, addMeasurementAction, getMeasurementsForDeal } from "./actions";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -85,7 +86,7 @@ const measurementSchema = z.object({
     file: z.any().optional(),
 });
 
-type MeasurementFormValues = z.infer<typeof measurementSchema>;
+export type MeasurementFormValues = z.infer<typeof measurementSchema>;
 
 const productSchema = z.object({
     id: z.string().optional(),
@@ -348,6 +349,8 @@ const roomOptions = [
     { value: "purnima-bed-room", label: "PURNIMA BED ROOM" },
     { value: "office-intry", label: "OFFICE INTRY" },
     { value: "arch-window", label: "ARCH WINDOW" },
+    { value: "besment", label: "BESMENT" },
+    { value: "t.v-lounge", label: "T.V LOUNGE" },
     { value: "master-bedroom-entrance-door", label: "MASTER BEDROOM ENTRANCE DOOR" },
     { value: "ground-floor-staircase", label: "GROUND FLOOR STAIRCASE" },
     { value: "big-window-curtain", label: "BIG WINDOW CURTAIN" },
@@ -591,10 +594,11 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
     )
 }
 
-function MeasurementForm() {
+function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasurementAdded: (measurement: DealMeasurement) => void, customerId: string, dealId: string }) {
     const [loading, setLoading] = useState(false);
     const { toast } = useToast();
-
+    const { user } = useAuth();
+    
     const form = useForm<MeasurementFormValues>({
         resolver: zodResolver(measurementSchema),
         defaultValues: {
@@ -602,17 +606,30 @@ function MeasurementForm() {
             measurementReference: "",
             noOfUnits: "1",
             measurement: "",
+            file: null,
         },
     });
 
-    const onSubmit = (data: MeasurementFormValues) => {
+    const onSubmit = async (data: MeasurementFormValues) => {
+        if (!user) {
+            toast({ variant: "destructive", title: "Authentication Error", description: "You must be logged in." });
+            return;
+        }
         setLoading(true);
-        console.log("Measurement Data:", data);
-        setTimeout(() => {
+        try {
+            const result = await addMeasurementAction(customerId, dealId, data, user.name);
+            if (result.success && result.measurement) {
+                toast({ title: "Measurement Added", description: "The new measurement has been saved." });
+                onMeasurementAdded(result.measurement);
+                form.reset();
+            } else {
+                 toast({ variant: "destructive", title: "Error", description: result.message });
+            }
+        } catch (e) {
+            toast({ variant: "destructive", title: "Error", description: "An unexpected error occurred." });
+        } finally {
             setLoading(false);
-            toast({ title: "Measurement Added", description: "The new measurement has been saved." });
-            form.reset();
-        }, 1500);
+        }
     }
 
     return (
@@ -659,7 +676,7 @@ function MeasurementForm() {
                                         <FormItem>
                                             <FormLabel>Upload file</FormLabel>
                                             <FormControl>
-                                                <Input type="file" {...field} />
+                                                <Input type="file" onChange={(e) => field.onChange(e.target.files ? e.target.files[0] : null)} />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
@@ -1265,7 +1282,83 @@ function VisitsTab({ customerId, dealId, salesmen }: { customerId: string, dealI
     );
 }
 
+function MeasurementsTab({ customerId, dealId }: { customerId: string; dealId: string }) {
+    const [measurements, setMeasurements] = useState<DealMeasurement[]>([]);
+    const [loading, setLoading] = useState(true);
 
+    const fetchMeasurements = useCallback(async () => {
+        setLoading(true);
+        const data = await getMeasurementsForDeal(customerId, dealId);
+        setMeasurements(data);
+        setLoading(false);
+    }, [customerId, dealId]);
+
+    useEffect(() => {
+        fetchMeasurements();
+    }, [fetchMeasurements]);
+
+    const handleMeasurementAdded = (newMeasurement: DealMeasurement) => {
+        setMeasurements(prev => [newMeasurement, ...prev]);
+    };
+
+    return (
+        <div>
+            <MeasurementForm onMeasurementAdded={handleMeasurementAdded} customerId={customerId} dealId={dealId} />
+             <Card className="mt-6">
+                <CardHeader>
+                    <CardTitle>Measurement History</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {loading ? (
+                        <Skeleton className="h-24 w-full" />
+                    ) : measurements.length > 0 ? (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>#</TableHead>
+                                    <TableHead>Room</TableHead>
+                                    <TableHead>Reference</TableHead>
+                                    <TableHead>Units</TableHead>
+                                    <TableHead>Measurement</TableHead>
+                                    <TableHead>Attachment</TableHead>
+                                    <TableHead>Created</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {measurements.map((m, i) => (
+                                    <TableRow key={m.id}>
+                                        <TableCell>{i + 1}</TableCell>
+                                        <TableCell>{m.room}</TableCell>
+                                        <TableCell>{m.measurementReference}</TableCell>
+                                        <TableCell>{m.noOfUnits}</TableCell>
+                                        <TableCell><p className="max-w-xs truncate">{m.measurement}</p></TableCell>
+                                        <TableCell>
+                                            {m.fileUrl && (
+                                                <a href={m.fileUrl} target="_blank" rel="noopener noreferrer">
+                                                    <Image src={m.fileUrl} alt="Thumbnail" width={40} height={40} className="rounded-md object-cover" data-ai-hint="measurement document" />
+                                                </a>
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="text-xs">
+                                                <p>{m.createdBy}</p>
+                                                <p className="text-muted-foreground">{format(new Date(m.createdAt), 'dd/MM/yy')}</p>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    ) : (
+                        <div className="text-center py-10 text-muted-foreground">
+                            No measurements have been logged for this deal yet.
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    );
+}
 
 function CrmActivitySkeleton() {
   return (
@@ -1435,7 +1528,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
           
           <TabsContent value="measurement">
-            <MeasurementForm />
+            <MeasurementsTab customerId={customerId} dealId={dealId} />
           </TabsContent>
           
           <TabsContent value="products">
