@@ -92,7 +92,26 @@ function ConvertToOrderContent() {
     resolver: zodResolver(convertToOrderSchema),
     defaultValues: {
       products: [],
-      addProduct: {},
+      addProduct: {
+          productCategory: "",
+          collectionBrand: "",
+          serialNo: "",
+          description: "",
+          quantity: "",
+          rate: "",
+          discountPercent: "",
+          discAmt: "",
+          value: false,
+          room: "",
+          noOfPcs: "",
+          remark: "",
+          info1: "",
+          info2: "",
+          file: undefined,
+      },
+      orderRemark: "",
+      billingName: "",
+      addVas: false,
     }
   });
 
