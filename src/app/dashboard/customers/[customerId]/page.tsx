@@ -152,11 +152,11 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"><Trash2 className="h-4 w-4"/></Button>
                                                 </div>
                                             </CardTitle>
-                                            <CardDescription>
+                                            <div className="text-sm text-muted-foreground">
                                                 <Badge variant="secondary">
                                                     {getSalesmanName(deal.representativeId)}
                                                 </Badge>
-                                            </CardDescription>
+                                            </div>
                                         </CardHeader>
                                         <CardContent>
                                             <p className="text-2xl font-bold text-primary">₹{Number(deal.dealAmount).toLocaleString('en-IN')}</p>
