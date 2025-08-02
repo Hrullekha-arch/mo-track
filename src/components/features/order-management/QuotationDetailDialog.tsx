@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react";
@@ -16,7 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { FileText, Printer, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { PrintableQuotation } from "./PrintableQuotation";
+import { PrintableQuotationProfessional } from "./PrintableQuotationProfessional";
 
 interface QuotationDetailDialogProps {
   isOpen: boolean;
@@ -46,9 +47,10 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
     return new Date(); // Fallback
   }
 
-  const handlePrint = () => {
+  const handlePrint = (arrangement: 'default' | 'vas-first' = 'default') => {
+    const printId = `print-quotation-dialog-${quotation.id}-${arrangement}`;
     const printWindow = window.open('', '_blank');
-    const content = document.getElementById(`print-quotation-dialog-${quotation.id}`);
+    const content = document.getElementById(printId);
     if (printWindow && content) {
         const printDocument = printWindow.document;
         printDocument.write('<html><head><title>Print Quotation</title></head><body>');
@@ -92,8 +94,10 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="outline" size="icon" onClick={handlePrint}><Printer className="h-4 w-4" /></Button>
-                    <Button variant="outline" size="icon"><FileText className="h-4 w-4" /></Button>
+                    <Button variant="outline" onClick={() => handlePrint('default')}><Printer className="mr-2 h-4 w-4" />Print</Button>
+                    {(quotation.vasDetails && quotation.vasDetails.length > 0) && (
+                      <Button variant="outline" onClick={() => handlePrint('vas-first')}><FileText className="mr-2 h-4 w-4" />VAS Print</Button>
+                    )}
                 </div>
             </DialogHeader>
 
@@ -184,8 +188,11 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
             )}
         </div>
         <div className="hidden">
-            <div id={`print-quotation-dialog-${quotation.id}`}>
-                <PrintableQuotation values={quotation as any} />
+            <div id={`print-quotation-dialog-${quotation.id}-default`}>
+                <PrintableQuotationProfessional values={quotation} creatorName={deal?.representativeId} salesmanName={salesmen.find(s => s.id === deal?.representativeId)?.name} itemArrangement="default" />
+            </div>
+             <div id={`print-quotation-dialog-${quotation.id}-vas-first`}>
+                <PrintableQuotationProfessional values={quotation} creatorName={deal?.representativeId} salesmanName={salesmen.find(s => s.id === deal?.representativeId)?.name} itemArrangement="vas-first" />
             </div>
         </div>
         <DialogFooter className="bg-muted p-4">
