@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
-import { Quotation, Customer, Deal, DealProduct } from "@/lib/types";
+import { Quotation, Customer, Deal, DealProduct, Stock } from "@/lib/types";
 import React, { useEffect, useState } from "react";
 import { getCustomerById } from "@/app/dashboard/customers/actions";
 import { getDealById, getQuotationsForDeal } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
@@ -25,6 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
+import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 
 const productSchema = z.object({
   id: z.string().optional(),
@@ -81,6 +82,11 @@ function ConvertToOrderContent() {
   const [quotation, setQuotation] = useState<Quotation | null>(null);
 
   const { toast } = useToast();
+  
+  // State for BCN search in "Add More Product"
+  const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
+  const [isSearchingBcn, setIsSearchingBcn] = useState(false);
+
 
   const form = useForm<ConvertToOrderFormValues>({
     resolver: zodResolver(convertToOrderSchema),
@@ -124,10 +130,10 @@ function ConvertToOrderContent() {
               mrp: item.rate,
               discountPercent: item.discountPercent || 0,
               quotationRate: quotationRate,
-              orderRate: quotationRate,
+              orderRate: item.rate, // Set Order Rate to MRP
               room: item.room || '',
               noOfPcs: 1, // Placeholder
-              amount: quotationRate * item.quantity,
+              amount: item.rate * item.quantity, // Calculate amount based on MRP (Order Rate)
               description: item.salesDescription,
               remark: item.remark || ''
             };
@@ -145,6 +151,30 @@ function ConvertToOrderContent() {
     fetchData();
   }, [customerId, dealId, quotationId, toast, form]);
   
+  const handleBcnSearch = async (query: string) => {
+    if (query.length < 2) { setBcnOptions([]); return; }
+    setIsSearchingBcn(true);
+    try {
+        const results = await searchStockByBcn(query);
+        setBcnOptions(results.map(stock => ({ value: stock.bcn || stock.id, label: stock.bcn || stock.id, stockItem: stock })));
+    } catch (error) {
+        console.error("Error searching BCN:", error);
+        toast({ variant: 'destructive', title: 'Search failed' });
+    } finally {
+        setIsSearchingBcn(false);
+    }
+  };
+
+  const handleBcnSelect = (value: string) => {
+    const selectedOption = bcnOptions.find(opt => opt.value === value);
+    if (selectedOption) {
+        const stockItem = selectedOption.stockItem;
+        form.setValue('addProduct.collectionBrand', stockItem.bcn || stockItem.id);
+        form.setValue('addProduct.serialNo', stockItem.serialNo || '');
+        form.setValue('addProduct.rate', (stockItem.mrp || 0).toString());
+    }
+  };
+
   const onSubmit = (data: ConvertToOrderFormValues) => {
     console.log(data);
     toast({ title: "Order Proceeding...", description: "Order has been processed for the next step." });
@@ -218,13 +248,13 @@ function ConvertToOrderContent() {
             <div className="p-4 border rounded-lg space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <FormField control={form.control} name="addProduct.productCategory" render={({ field }) => (<FormItem><FormLabel>Product Category</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger></FormControl><SelectContent><SelectItem value="fabric">Fabric</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name="addProduct.collectionBrand" render={({ field }) => (<FormItem><FormLabel>Collection / Brand</FormLabel><Combobox options={[]} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name="addProduct.serialNo" render={({ field }) => (<FormItem><FormLabel>Serial No*</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger></FormControl><SelectContent><SelectItem value="234">234</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.collectionBrand" render={({ field }) => (<FormItem><FormLabel>Collection / Brand (BCN)*</FormLabel><Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} onSearch={handleBcnSearch} placeholder="Search BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearchingBcn ? 'Searching...' : 'No BCN found.'} /><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.serialNo" render={({ field }) => (<FormItem><FormLabel>Serial No*</FormLabel><FormControl><Input {...field} readOnly /></FormControl><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="addProduct.description" render={({ field }) => (<FormItem><FormLabel>Description</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger></FormControl><SelectContent><SelectItem value="curtain">Curtain</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                      <FormField control={form.control} name="addProduct.quantity" render={({ field }) => (<FormItem><FormLabel>Quantity*</FormLabel><div className="flex items-center"><FormControl><Input {...field} /></FormControl><Button type="button" variant="ghost" size="icon"><Calculator className="h-5 w-5"/></Button></div><FormMessage /></FormItem>)} />
-                     <FormField control={form.control} name="addProduct.rate" render={({ field }) => (<FormItem><FormLabel>Rate</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                     <FormField control={form.control} name="addProduct.rate" render={({ field }) => (<FormItem><FormLabel>Rate</FormLabel><FormControl><Input {...field} readOnly /></FormControl><FormMessage /></FormItem>)} />
                      <FormField control={form.control} name="addProduct.discountPercent" render={({ field }) => (<FormItem><FormLabel>Discount%</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                      <FormField control={form.control} name="addProduct.discAmt" render={({ field }) => (<FormItem><FormLabel>Disc Amt</FormLabel><div className="flex items-center gap-2"><FormControl><Input {...field} /></FormControl><FormField control={form.control} name="addProduct.value" render={({ field }) => (<FormItem className="flex items-center gap-1"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><Label className="font-normal">Value</Label></FormItem>)} /></div><FormMessage /></FormItem>)} />
                 </div>
