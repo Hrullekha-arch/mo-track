@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react";
@@ -17,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { FileText, Printer, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { QuotationPreview } from "./QuotationPreview";
+import { PrintableQuotation } from "./PrintableQuotation";
 
 interface QuotationDetailDialogProps {
   isOpen: boolean;
