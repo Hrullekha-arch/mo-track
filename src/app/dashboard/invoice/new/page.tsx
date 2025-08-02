@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator } from "lucide-react";
+import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
 import { Quotation, Customer, Deal, DealProduct } from "@/lib/types";
