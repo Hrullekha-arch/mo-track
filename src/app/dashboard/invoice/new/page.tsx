@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit } from "lucide-react";
+import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Quotation, Customer, Deal, DealProduct, Stock } from "@/lib/types";
 import React, { useEffect, useState } from "react";
@@ -241,7 +241,7 @@ function ConvertToOrderContent() {
 
       if (result.success) {
         toast({ title: "Order Created!", description: "The sales order has been saved successfully." });
-        router.push(`/dashboard/customers/${customerId}/${dealId}`);
+        router.push(`/dashboard/customers/${customerId}/${dealId}?tab=orders`);
       } else {
         toast({ variant: 'destructive', title: 'Creation Failed', description: result.message });
       }
@@ -259,6 +259,16 @@ function ConvertToOrderContent() {
 
   return (
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+            <Button asChild variant="outline" size="icon">
+                <Link href={`/dashboard/customers/${customerId}/${dealId}`}>
+                    <ArrowLeft className="h-4 w-4" />
+                </Link>
+            </Button>
+            <h1 className="text-2xl font-bold">Convert Quotation to Order</h1>
+        </div>
+      </div>
       <FormProvider {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
           <div>
