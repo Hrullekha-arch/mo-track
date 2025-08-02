@@ -47,8 +47,8 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
     return new Date(); // Fallback
   }
 
-  const handlePrint = (arrangement: 'default' | 'vas-first' = 'default') => {
-    const printId = `print-quotation-dialog-${quotation.id}-${arrangement}`;
+  const handlePrint = (printType: 'default' | 'vas') => {
+    const printId = `print-quotation-dialog-${quotation.id}-${printType}`;
     const printWindow = window.open('', '_blank');
     const content = document.getElementById(printId);
     if (printWindow && content) {
@@ -76,6 +76,16 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
     item.vasName?.toLowerCase().includes(vasSearch.toLowerCase())
   );
 
+  const productOnlyQuotation: Quotation = {
+      ...quotation,
+      vasDetails: [] // Exclude VAS details
+  };
+
+  const vasOnlyQuotation: Quotation = {
+      ...quotation,
+      items: [] // Exclude product items
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-7xl p-0">
@@ -96,7 +106,7 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={() => handlePrint('default')}><Printer className="mr-2 h-4 w-4" />Print</Button>
                     {(quotation.vasDetails && quotation.vasDetails.length > 0) && (
-                      <Button variant="outline" onClick={() => handlePrint('vas-first')}><FileText className="mr-2 h-4 w-4" />VAS Print</Button>
+                      <Button variant="outline" onClick={() => handlePrint('vas')}><FileText className="mr-2 h-4 w-4" />VAS Print</Button>
                     )}
                 </div>
             </DialogHeader>
@@ -188,11 +198,13 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
             )}
         </div>
         <div className="hidden">
+             {/* For the default print (only products) */}
             <div id={`print-quotation-dialog-${quotation.id}-default`}>
-                <PrintableQuotationProfessional values={quotation} creatorName={deal?.representativeId} salesmanName={salesmen.find(s => s.id === deal?.representativeId)?.name} itemArrangement="default" />
+                <PrintableQuotationProfessional values={productOnlyQuotation} creatorName={deal?.representativeId} salesmanName={salesmen.find(s => s.id === deal?.representativeId)?.name} />
             </div>
-             <div id={`print-quotation-dialog-${quotation.id}-vas-first`}>
-                <PrintableQuotationProfessional values={quotation} creatorName={deal?.representativeId} salesmanName={salesmen.find(s => s.id === deal?.representativeId)?.name} itemArrangement="vas-first" />
+             {/* For the VAS print (only VAS) */}
+             <div id={`print-quotation-dialog-${quotation.id}-vas`}>
+                <PrintableQuotationProfessional values={vasOnlyQuotation} creatorName={deal?.representativeId} salesmanName={salesmen.find(s => s.id === deal?.representativeId)?.name} />
             </div>
         </div>
         <DialogFooter className="bg-muted p-4">

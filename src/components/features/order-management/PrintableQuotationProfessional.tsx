@@ -10,7 +10,6 @@ interface PrintableQuotationProps {
     values: Quotation;
     creatorName?: string;
     salesmanName?: string;
-    itemArrangement?: 'default' | 'vas-first';
 }
 
 const parseDate = (date: any): Date => {
@@ -52,7 +51,7 @@ interface CalculatedVas extends VasDetail {
     taxRate: number;
 }
 
-export function PrintableQuotationProfessional({ values, creatorName, salesmanName, itemArrangement = 'default' }: PrintableQuotationProps) {
+export function PrintableQuotationProfessional({ values, creatorName, salesmanName }: PrintableQuotationProps) {
     const validDate = parseDate(values.date);
 
     const calculatedItems = (values.items || []).map(item => {
@@ -75,16 +74,6 @@ export function PrintableQuotationProfessional({ values, creatorName, salesmanNa
     });
     
     const allItems = [...calculatedItems, ...calculatedVas];
-    
-    if (itemArrangement === 'vas-first') {
-        allItems.sort((a, b) => {
-            const isAVas = 'vasName' in a;
-            const isBVas = 'vasName' in b;
-            if (isAVas && !isBVas) return -1;
-            if (!isAVas && isBVas) return 1;
-            return 0;
-        });
-    }
 
     const groupedItems = allItems.reduce((acc, item) => {
         const room = item.room || 'General Items';
@@ -160,12 +149,12 @@ export function PrintableQuotationProfessional({ values, creatorName, salesmanNa
                         </tr>
                     </thead>
                     <tbody>
-                        {Object.entries(groupedItems).map(([room, items], roomIndex) => (
+                        {Object.entries(groupedItems).map(([room, itemsInRoom], roomIndex) => (
                             <React.Fragment key={room}>
                                 <tr style={{ backgroundColor: '#e9e9e9' }}>
                                     <td colSpan={10} style={{ padding: '4px 6px', fontWeight: 'bold' }}>{roomIndex + 1}. {room.toUpperCase()}</td>
                                 </tr>
-                                {items.map((item, itemIndex) => (
+                                {itemsInRoom.map((item, itemIndex) => (
                                      <tr key={item.id || `vas-${itemIndex}`}>
                                         <td style={{ padding: '6px', border: '1px solid #ddd' }}>{itemIndex + 1}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd' }}>{/* HSN Placeholder */}</td>
