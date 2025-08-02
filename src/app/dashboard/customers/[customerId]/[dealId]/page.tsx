@@ -61,9 +61,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 import { CreateQuotationDialog } from "@/components/features/order-management/CreateQuotationDialog";
 import { Badge } from "@/components/ui/badge";
-import { QuotationPreview } from "@/components/features/order-management/QuotationPreview";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
+import { PrintableQuotation } from "@/components/features/order-management/PrintableQuotation";
 
 
 const visitSchema = z.object({
@@ -808,7 +808,7 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
                                             </Button>
                                             <div className="hidden">
                                                 <div id={`print-quotation-${q.id}`}>
-                                                    <QuotationPreview values={q as any} />
+                                                    <PrintableQuotation values={q} />
                                                 </div>
                                             </div>
                                         </TableCell>
