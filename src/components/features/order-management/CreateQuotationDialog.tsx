@@ -16,7 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Combobox } from "@/components/ui/combobox";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter as TableFooterComponent } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { createQuotationAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -108,6 +108,22 @@ const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Co
     const { fields, remove } = useFieldArray({ control, name: "items" });
     
     const items = useWatch({ control, name: 'items' });
+
+    useEffect(() => {
+        items.forEach((item, index) => {
+            const quantity = Number(item.quantity) || 0;
+            const rate = Number(item.rate) || 0;
+            const subtotal = quantity * rate;
+            const discountPercent = Number(item.discountPercent) || 0;
+            const discount = subtotal * (discountPercent / 100);
+            const taxableAmt = subtotal - discount;
+
+            // To avoid re-rendering loop, check if values are different before setting
+            if (getValues(`items.${index}.taxableAmt`) !== taxableAmt) {
+                setValue(`items.${index}.taxableAmt`, taxableAmt);
+            }
+        });
+    }, [items, setValue, getValues]);
 
     return (
         <div className="space-y-4">
