@@ -2,10 +2,10 @@
 "use client";
 
 import { useState, useEffect, ReactNode, useMemo } from "react";
-import { useForm, useFieldArray, useWatch, Control, UseFormReturn } from "react-hook-form";
+import { useForm, useFieldArray, useWatch, Control, UseFormReturn, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,7 @@ import { createQuotationAction } from "@/app/dashboard/customers/[customerId]/[d
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
-import { PrintableQuotation } from "./PrintableQuotation";
+import { Checkbox } from "@/components/ui/checkbox";
 
 
 // Placeholder options for comboboxes
@@ -32,7 +32,6 @@ const billingOptions = [{ value: "billing-1", label: "Billing 1" }];
 const descriptionOptions = [{ value: "curtain", label: "Curtain" }, { value: "sofa-fabric", label: "Sofa Fabric" }];
 const roomOptions = [{ value: "living-room", label: "Living Room" }, { value: "bed-room", label: "Bed Room" }];
 const vasOptions = [{ value: "stitching", label: "Stitching" }, { value: "installation", label: "Installation" }];
-
 
 const itemDetailSchema = z.object({
   id: z.string().optional(),
@@ -47,13 +46,20 @@ const itemDetailSchema = z.object({
     (val) => (typeof val === "string" ? parseFloat(val) : val),
     z.number().min(0, "Rate must be non-negative")
   ),
+  subtotal: z.number().optional(),
   discountPercent: z.preprocess(
     (val) => (val === '' ? 0 : typeof val === "string" ? parseFloat(val) : val),
     z.number().min(0).max(100).optional()
   ),
-  amount: z.number().optional(),
+  discount: z.number().optional(),
+  taxableAmt: z.number().optional(),
+  cgst: z.number().optional(),
+  sgst: z.number().optional(),
+  igst: z.number().optional(),
   room: z.string().optional(),
+  noOfPcs: z.string().optional(),
   remark: z.string().optional(),
+  stitchingType: z.string().optional(),
 });
 
 const vasDetailSchema = z.object({
@@ -61,16 +67,25 @@ const vasDetailSchema = z.object({
     rate: z.string().min(1, "Rate is required"),
     quantity: z.string().min(1, "Quantity is required"),
     room: z.string().optional(),
+    taxableAmt: z.number().optional(),
+    cgst: z.number().optional(),
+    sgst: z.number().optional(),
+    igst: z.number().optional(),
 });
 
 const formSchema = z.object({
+  company: z.string().optional(),
   store: z.string().min(1, "Store is required"),
   date: z.date({ required_error: "Date is required." }),
   validTillDate: z.date().optional(),
   customerName: z.string().min(1, "Customer name is required"),
+  billingName: z.string().optional(),
+  billingAddress: z.string().optional(),
   dealName: z.string().min(1, "Deal name is required"),
   items: z.array(itemDetailSchema),
   vasDetails: z.array(vasDetailSchema).optional(),
+  sendEmail: z.boolean().default(false),
+  sendSms: z.boolean().default(false),
 });
 
 export type FormValues = z.infer<typeof formSchema>;
@@ -89,42 +104,10 @@ interface CreateQuotationDialogProps {
 }
 
 
-const TotalsRow = ({ control }: { control: Control<FormValues> }) => {
-    const items = useWatch({ control, name: 'items' });
-    const totalQuantity = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
-    const totalAmount = items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  
-    return (
-      <TableRow className="bg-muted font-semibold">
-        <TableCell colSpan={3} className="text-right">Total</TableCell>
-        <TableCell>{totalQuantity.toFixed(2)}</TableCell>
-        <TableCell></TableCell>
-        <TableCell></TableCell>
-        <TableCell>{totalAmount.toFixed(2)}</TableCell>
-        <TableCell colSpan={4}></TableCell>
-      </TableRow>
-    );
-};
-
-
 const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Control<FormValues>, setValue: UseFormReturn<FormValues>['setValue'], getValues: UseFormReturn<FormValues>['getValues'] }) => {
     const { fields, remove } = useFieldArray({ control, name: "items" });
     
     const items = useWatch({ control, name: 'items' });
-
-    useEffect(() => {
-        items.forEach((item, index) => {
-            const quantity = Number(item.quantity) || 0;
-            const rate = Number(item.rate) || 0;
-            const discount = Number(item.discountPercent) || 0;
-            const newAmount = quantity * rate * (1 - discount / 100);
-            
-            if (newAmount !== getValues(`items.${index}.amount`)) {
-                setValue(`items.${index}.amount`, newAmount, { shouldValidate: true });
-            }
-        });
-    }, [items, setValue, getValues]);
-
 
     return (
         <div className="space-y-4">
@@ -165,7 +148,7 @@ const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Co
                                  <FormField control={control} name={`items.${index}.discountPercent`} render={({ field }) => (<Input type="number" {...field} />)} />
                             </TableCell>
                              <TableCell>
-                                <FormField control={control} name={`items.${index}.amount`} render={({ field }) => (<Input readOnly disabled value={Number(field.value || 0).toFixed(2)} />)} />
+                                <FormField control={control} name={`items.${index}.taxableAmt`} render={({ field }) => (<Input readOnly disabled value={Number(field.value || 0).toFixed(2)} />)} />
                             </TableCell>
                              <TableCell>
                                 <FormField control={control} name={`items.${index}.room`} render={({ field }) => (<Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" />)} />
@@ -197,12 +180,215 @@ const VasForm = ({ control }: { control: Control<FormValues> }) => {
                 </div>
             ))}
             <div className="flex gap-2">
-                <Button type="button" variant="default" onClick={() => append({ vasName: '', quantity: '', rate: '' })}>Add</Button>
+                <Button type="button" variant="default" onClick={() => append({ vasName: '', quantity: '1', rate: '0', room: '' })}>Add</Button>
                 <Button type="button" variant="outline" onClick={() => remove()}>Reset</Button>
             </div>
         </div>
     );
 };
+
+const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormReturn<FormValues>, onBack: () => void, onSubmit: () => void, loading: boolean }) => {
+    const values = form.getValues();
+
+    const itemsWithCalculations = useMemo(() => {
+        return values.items.map(item => {
+            const quantity = Number(item.quantity) || 0;
+            const rate = Number(item.rate) || 0;
+            const subtotal = quantity * rate;
+            const discountPercent = Number(item.discountPercent) || 0;
+            const discount = subtotal * (discountPercent / 100);
+            const taxableAmt = subtotal - discount;
+            const cgst = taxableAmt * 0.025;
+            const sgst = taxableAmt * 0.025;
+            const igst = 0; // Assuming IGST is 0 for now
+            return { ...item, subtotal, discount, taxableAmt, cgst, sgst, igst };
+        });
+    }, [values.items]);
+
+    const vasWithCalculations = useMemo(() => {
+        return (values.vasDetails || []).map(vas => {
+            const quantity = Number(vas.quantity) || 0;
+            const rate = Number(vas.rate) || 0;
+            const taxableAmt = quantity * rate;
+            const cgst = taxableAmt * 0.025;
+            const sgst = taxableAmt * 0.025;
+            const igst = 0;
+            return { ...vas, taxableAmt, cgst, sgst, igst };
+        });
+    }, [values.vasDetails]);
+
+    const totals = useMemo(() => {
+        const itemTotals = itemsWithCalculations.reduce((acc, item) => {
+            acc.quantity += item.quantity;
+            acc.subtotal += item.subtotal;
+            acc.discount += item.discount;
+            acc.taxableAmt += item.taxableAmt;
+            acc.cgst += item.cgst;
+            acc.sgst += item.sgst;
+            acc.igst += item.igst;
+            return acc;
+        }, { quantity: 0, subtotal: 0, discount: 0, taxableAmt: 0, cgst: 0, sgst: 0, igst: 0 });
+
+        const vasTotals = vasWithCalculations.reduce((acc, vas) => {
+            acc.quantity += Number(vas.quantity);
+            acc.taxableAmt += vas.taxableAmt;
+            acc.cgst += vas.cgst;
+            acc.sgst += vas.sgst;
+            acc.igst += vas.igst;
+            return acc;
+        }, { quantity: 0, taxableAmt: 0, cgst: 0, sgst: 0, igst: 0 });
+
+        const quotationAmount = itemTotals.taxableAmt + vasTotals.taxableAmt + itemTotals.cgst + vasTotals.cgst + itemTotals.sgst + vasTotals.sgst;
+
+        return { itemTotals, vasTotals, quotationAmount };
+    }, [itemsWithCalculations, vasWithCalculations]);
+
+    return (
+        <div className="space-y-6">
+            <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold">Confirm & Create Quotation</h2>
+                <Button variant="ghost" onClick={onBack}><ArrowLeft className="mr-2 h-4 w-4"/> Back</Button>
+            </div>
+
+            <div className="grid grid-cols-4 gap-x-8 gap-y-4 text-sm">
+                <div className="space-y-1"><p className="text-muted-foreground">Company</p><p className="font-semibold">{values.company || 'MO DESIGNS PRIVATE LIMITED'}</p></div>
+                <div className="space-y-1"><p className="text-muted-foreground">Store</p><p className="font-semibold">{values.store}</p></div>
+                <div className="space-y-1"><p className="text-muted-foreground">Quotation Date</p><p className="font-semibold">{format(values.date, 'dd/MM/yyyy')}</p></div>
+                <div className="space-y-1"><p className="text-muted-foreground">Valid Till Date</p><p className="font-semibold">{values.validTillDate ? format(values.validTillDate, 'dd/MM/yyyy') : '-'}</p></div>
+                <div className="space-y-1"><p className="text-muted-foreground">Customer Name</p><p className="font-semibold">{values.customerName}</p></div>
+                <div className="space-y-1"><p className="text-muted-foreground">Billing Name</p><p className="font-semibold">{values.billingName || values.customerName}</p></div>
+                <div className="space-y-1 col-span-2"><p className="text-muted-foreground">Billing Address</p><p className="font-semibold">{values.billingAddress || '-'}</p></div>
+            </div>
+            
+            {/* Item Details */}
+            <div className="space-y-2">
+                <h3 className="text-lg font-semibold">Item Details</h3>
+                <div className="border rounded-md overflow-x-auto">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>#</TableHead>
+                                <TableHead>Collection / Brand</TableHead>
+                                <TableHead>Serial No</TableHead>
+                                <TableHead>Quantity</TableHead>
+                                <TableHead>Rate</TableHead>
+                                <TableHead>Subtotal</TableHead>
+                                <TableHead>Discount</TableHead>
+                                <TableHead>Room</TableHead>
+                                <TableHead>No of Pcs</TableHead>
+                                <TableHead>Taxable Amt</TableHead>
+                                <TableHead>CGST</TableHead>
+                                <TableHead>SGST</TableHead>
+                                <TableHead>IGST</TableHead>
+                                <TableHead>Description</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {itemsWithCalculations.map((item, index) => (
+                                <TableRow key={item.id}>
+                                    <TableCell>{index + 1}</TableCell>
+                                    <TableCell>{item.collectionBrand}</TableCell>
+                                    <TableCell>{item.serialNo}</TableCell>
+                                    <TableCell>{item.quantity.toFixed(2)}</TableCell>
+                                    <TableCell>{item.rate.toFixed(2)}</TableCell>
+                                    <TableCell>{item.subtotal.toFixed(2)}</TableCell>
+                                    <TableCell>{item.discount.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@{item.discountPercent?.toFixed(2)}%</span></TableCell>
+                                    <TableCell>{item.room}</TableCell>
+                                    <TableCell>{item.noOfPcs}</TableCell>
+                                    <TableCell>{item.taxableAmt.toFixed(2)}</TableCell>
+                                    <TableCell>{item.cgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.50%</span></TableCell>
+                                    <TableCell>{item.sgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.50%</span></TableCell>
+                                    <TableCell>{item.igst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@0.00%</span></TableCell>
+                                    <TableCell>{item.salesDescription}</TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                        <TableFooter>
+                            <TableRow>
+                                <TableCell colSpan={3} className="font-bold text-right">Total</TableCell>
+                                <TableCell className="font-bold">{totals.itemTotals.quantity.toFixed(2)}</TableCell>
+                                <TableCell></TableCell>
+                                <TableCell className="font-bold">{totals.itemTotals.subtotal.toFixed(2)}</TableCell>
+                                <TableCell className="font-bold">{totals.itemTotals.discount.toFixed(2)}</TableCell>
+                                <TableCell colSpan={2}></TableCell>
+                                <TableCell className="font-bold">{totals.itemTotals.taxableAmt.toFixed(2)}</TableCell>
+                                <TableCell className="font-bold">{totals.itemTotals.cgst.toFixed(2)}</TableCell>
+                                <TableCell className="font-bold">{totals.itemTotals.sgst.toFixed(2)}</TableCell>
+                                <TableCell className="font-bold">{totals.itemTotals.igst.toFixed(2)}</TableCell>
+                                <TableCell></TableCell>
+                            </TableRow>
+                        </TableFooter>
+                    </Table>
+                </div>
+            </div>
+
+            {/* VAS Details */}
+            {vasWithCalculations.length > 0 && (
+                 <div className="space-y-2">
+                    <h3 className="text-lg font-semibold">VAS Details (Value Added Services)</h3>
+                    <div className="border rounded-md overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>#</TableHead>
+                                    <TableHead>VAS Name</TableHead>
+                                    <TableHead>Quantity</TableHead>
+                                    <TableHead>Rate</TableHead>
+                                    <TableHead>Room</TableHead>
+                                    <TableHead>Taxable Amt</TableHead>
+                                    <TableHead>CGST</TableHead>
+                                    <TableHead>SGST</TableHead>
+                                    <TableHead>IGST</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {vasWithCalculations.map((vas, index) => (
+                                    <TableRow key={index}>
+                                        <TableCell>{index + 1}</TableCell>
+                                        <TableCell>{vas.vasName}</TableCell>
+                                        <TableCell>{vas.quantity}</TableCell>
+                                        <TableCell>{vas.rate}</TableCell>
+                                        <TableCell>{vas.room}</TableCell>
+                                        <TableCell>{vas.taxableAmt.toFixed(2)}</TableCell>
+                                        <TableCell>{vas.cgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
+                                        <TableCell>{vas.sgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
+                                        <TableCell>{vas.igst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@0.00%</span></TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                            <TableFooter>
+                                <TableRow>
+                                    <TableCell colSpan={2} className="font-bold text-right">Total</TableCell>
+                                    <TableCell className="font-bold">{totals.vasTotals.quantity.toFixed(2)}</TableCell>
+                                    <TableCell colSpan={2}></TableCell>
+                                    <TableCell className="font-bold">{totals.vasTotals.taxableAmt.toFixed(2)}</TableCell>
+                                    <TableCell className="font-bold">{totals.vasTotals.cgst.toFixed(2)}</TableCell>
+                                    <TableCell className="font-bold">{totals.vasTotals.sgst.toFixed(2)}</TableCell>
+                                    <TableCell className="font-bold">{totals.vasTotals.igst.toFixed(2)}</TableCell>
+                                </TableRow>
+                            </TableFooter>
+                        </Table>
+                    </div>
+                </div>
+            )}
+            
+            <div className="flex justify-between items-center pt-4">
+                <div className="flex items-center gap-8">
+                    <p className="font-bold text-lg">Quotation Amount: {totals.quotationAmount.toFixed(2)}</p>
+                    <FormField control={form.control} name="sendEmail" render={({ field }) => (<FormItem className="flex items-center gap-2"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel>Send Email</FormLabel></FormItem>)} />
+                    <FormField control={form.control} name="sendSms" render={({ field }) => (<FormItem className="flex items-center gap-2"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel>Send SMS</FormLabel></FormItem>)} />
+                </div>
+                 <div className="flex gap-2">
+                    <Button type="button" onClick={onSubmit} disabled={loading} className="bg-cyan-600 hover:bg-cyan-700">
+                        {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Create Quotation
+                    </Button>
+                    <Button type="button" variant="outline" onClick={onBack}>Cancel</Button>
+                 </div>
+            </div>
+        </div>
+    )
+}
 
 export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, customer, initialItems }: CreateQuotationDialogProps) {
   const [loading, setLoading] = useState(false);
@@ -214,64 +400,77 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
     resolver: zodResolver(formSchema),
     defaultValues: {
       store: "mo-gcr-branch",
+      company: 'MO DESIGNS PRIVATE LIMITED',
       date: new Date(),
       items: [],
       vasDetails: [],
     },
   });
   
-  const itemsWatch = useWatch({ control: form.control, name: 'items' });
-  const vasWatch = useWatch({ control: form.control, name: 'vasDetails' });
-
-  const totalAmount = useMemo(() => {
-    const itemsTotal = itemsWatch.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    const vasTotal = (vasWatch || []).reduce((sum, vas) => sum + ((Number(vas.rate) || 0) * (Number(vas.quantity) || 0)), 0);
-    return itemsTotal + vasTotal;
-  }, [itemsWatch, vasWatch]);
-
-
   useEffect(() => {
     if (isOpen) {
       if (deal && customer) {
         const itemsForForm: any[] = initialItems.map(item => {
           const description = `${item.collectionBrand || ''} - ${item.salesDescription || ''}`.trim();
           return {
-              id: item.collectionBrand + item.serialNo, // Create a unique-ish ID
+              id: item.id || item.collectionBrand,
               collectionBrand: item.collectionBrand || '',
               serialNo: item.serialNo || '',
               salesDescription: description,
               quantity: parseFloat(item.quantity) || 0,
               rate: item.rate || 0,
               discountPercent: 0,
-              amount: 0,
               room: item.room || '',
-              remarks: item.remarks || '',
+              noOfPcs: item.noOfPcs || '1',
+              remark: item.remarks || '',
+              stitchingType: item.stitchingType || '',
           };
         });
 
         form.reset({
           store: "mo-gcr-branch",
+          company: 'MO DESIGNS PRIVATE LIMITED',
           date: new Date(),
           validTillDate: undefined,
           customerName: customer.name,
+          billingName: customer.name,
+          billingAddress: customer.addressPinCode,
           dealName: deal.dealName,
           items: itemsForForm,
           vasDetails: [],
+          sendEmail: false,
+          sendSms: false,
         });
       }
-      setView('edit'); // Reset to edit view when dialog opens
+      setView('edit'); 
     }
   }, [isOpen, deal, customer, initialItems, form]);
 
 
-  async function createQuotation(values: FormValues) {
+  async function createQuotation() {
+    const values = form.getValues();
     if (!user) {
         toast({ variant: "destructive", title: "Not authenticated." });
         return;
     }
+
+    const totalAmount = values.items.reduce((sum, item) => {
+        const subtotal = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
+        const discount = subtotal * ((Number(item.discountPercent) || 0) / 100);
+        const taxableAmt = subtotal - discount;
+        const tax = taxableAmt * 0.05; // 2.5% CGST + 2.5% SGST
+        return sum + taxableAmt + tax;
+    }, 0);
+
+    const vasTotal = (values.vasDetails || []).reduce((sum, vas) => {
+        const taxableAmt = (Number(vas.rate) || 0) * (Number(vas.quantity) || 0);
+        const tax = taxableAmt * 0.05;
+        return sum + taxableAmt + tax;
+    }, 0);
+
     setLoading(true);
     try {
-        const result = await createQuotationAction(customer.id, deal.id, values, totalAmount);
+        const result = await createQuotationAction(customer.id, deal.id, values, totalAmount + vasTotal);
 
         if (result.success) {
             toast({ title: "Quotation Created", description: "The new quotation has been saved." });
@@ -301,16 +500,17 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-[90vw]">
+      <DialogContent className="max-w-[90vw] h-[95vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>
-            {view === 'edit' ? 'Create Quotation' : 'Quotation Preview'}
+            {view === 'edit' ? 'Create Quotation' : ''}
           </DialogTitle>
         </DialogHeader>
         
-        {view === 'edit' && (
-            <Form {...form}>
-            <form className="space-y-6 py-4 max-h-[85vh] overflow-y-auto pr-4">
+        <div className="flex-grow overflow-y-auto pr-4">
+        {view === 'edit' ? (
+            <FormProvider {...form}>
+            <form className="space-y-6 py-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     <FormField control={form.control} name="store" render={({ field }) => (<FormItem><FormLabel>Store*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="date" render={({ field }) => (<FormItem><FormLabel>Date*</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className="w-full justify-start text-left font-normal"><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
@@ -326,31 +526,20 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
                 <Separator />
 
                 <VasForm control={form.control} />
-                
-                <DialogFooter>
-                    <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-                    <Button type="button" onClick={handleProceed}>
-                        Proceed
-                    </Button>
-                </DialogFooter>
             </form>
-            </Form>
+            </FormProvider>
+        ) : (
+            <QuotationPreview form={form} onBack={() => setView('edit')} onSubmit={createQuotation} loading={loading} />
         )}
+        </div>
         
-        {view === 'preview' && (
-            <div className="space-y-4 py-4 max-h-[85vh] overflow-y-auto pr-4">
-                <PrintableQuotation values={form.getValues()} />
-                <DialogFooter>
-                    <Button type="button" variant="ghost" onClick={() => setView('edit')}>
-                        <ArrowLeft className="mr-2 h-4 w-4" />
-                        Back to Edit
-                    </Button>
-                    <Button type="button" onClick={form.handleSubmit(createQuotation)} disabled={loading}>
-                        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-                        Confirm & Create Quotation
-                    </Button>
-                </DialogFooter>
-            </div>
+        {view === 'edit' && (
+             <DialogFooter>
+                <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+                <Button type="button" onClick={handleProceed}>
+                    Proceed to Preview
+                </Button>
+            </DialogFooter>
         )}
 
       </DialogContent>
