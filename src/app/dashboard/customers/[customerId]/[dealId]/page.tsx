@@ -706,7 +706,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     )
 }
 
-function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: string }) {
+function QuotationsTab({ customerId, dealId, deal, salesmen }: { customerId: string, dealId: string, deal: Deal, salesmen: User[] }) {
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
@@ -833,6 +833,8 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
                     isOpen={!!selectedQuotation}
                     onClose={() => setSelectedQuotation(null)}
                     quotation={selectedQuotation}
+                    deal={deal}
+                    salesmen={salesmen}
                 />
             )}
         </>
@@ -1101,7 +1103,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
 
           <TabsContent value="quotations">
-             <QuotationsTab customerId={customerId} dealId={dealId} />
+             <QuotationsTab customerId={customerId} dealId={dealId} deal={deal} salesmen={salesmen} />
           </TabsContent>
 
           <TabsContent value="orders">

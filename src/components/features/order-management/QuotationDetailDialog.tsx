@@ -10,7 +10,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Quotation } from "@/lib/types";
+import { Quotation, Deal, User } from "@/lib/types";
 import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -22,9 +22,11 @@ interface QuotationDetailDialogProps {
   isOpen: boolean;
   onClose: () => void;
   quotation: Quotation | null;
+  deal: Deal | null;
+  salesmen: User[];
 }
 
-export function QuotationDetailDialog({ isOpen, onClose, quotation }: QuotationDetailDialogProps) {
+export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesmen }: QuotationDetailDialogProps) {
   if (!quotation) return null;
 
   const parseDate = (date: any): Date => {
@@ -57,6 +59,8 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation }: QuotationD
         }, 250);
     }
   };
+  
+  const representativeName = salesmen.find(s => s.id === deal?.representativeId)?.name || "N/A";
 
 
   return (
@@ -70,7 +74,7 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation }: QuotationD
                         <p><span className="font-semibold text-foreground">Quotation No:</span> {quotation.quotationNo}</p>
                         <p><span className="font-semibold text-foreground">Quotation Date:</span> {format(parseDate(quotation.date), "dd/MM/yyyy")}</p>
                         <p><span className="font-semibold text-foreground">Customer Name:</span> {quotation.customerName}</p>
-                        <p><span className="font-semibold text-foreground">Representative:</span> {quotation.items[0]?.collectionBrand || 'N/A'}</p> {/* Placeholder for Representative */}
+                        <p><span className="font-semibold text-foreground">Representative:</span> {representativeName}</p>
                         <p><span className="font-semibold text-foreground">DealName:</span> {quotation.dealName}</p>
                         <p><span className="font-semibold text-foreground">Store Name:</span> {quotation.store}</p>
                         <p><span className="font-semibold text-foreground">Order No:</span> {quotation.id.substring(0, 4)}</p>
@@ -114,6 +118,16 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation }: QuotationD
                                     <TableCell>{item.room}</TableCell>
                                     <TableCell>{item.salesDescription}</TableCell>
                                     <TableCell><Badge variant="secondary">NEW</Badge></TableCell>
+                                </TableRow>
+                            ))}
+                             {(quotation.vasDetails || []).map((vas, index) => (
+                                <TableRow key={`vas-${index}`} className="bg-muted/50">
+                                    <TableCell>{quotation.items.length + index + 1}</TableCell>
+                                    <TableCell colSpan={2}>{vas.vasName} (VAS)</TableCell>
+                                    <TableCell>{vas.quantity}</TableCell>
+                                    <TableCell>{vas.room || '-'}</TableCell>
+                                    <TableCell>Rate: {vas.rate}</TableCell>
+                                    <TableCell><Badge variant="outline">SERVICE</Badge></TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>
