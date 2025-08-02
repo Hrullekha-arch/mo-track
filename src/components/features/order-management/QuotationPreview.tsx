@@ -21,6 +21,23 @@ const formatToINR = (amount: number) => {
     }).format(amount);
 };
 
+const parseDate = (date: any): Date => {
+    if (date instanceof Date) return date;
+    // Handle Firestore Timestamps which get serialized to objects with _seconds
+    if (date && date._seconds) { 
+        return new Date(date._seconds * 1000 + (date._nanoseconds || 0) / 1000000);
+    }
+    // Handle ISO strings or numbers
+    if (typeof date === 'string' || typeof date === 'number') {
+        const parsed = new Date(date);
+        if (!isNaN(parsed.getTime())) {
+            return parsed;
+        }
+    }
+    // Return a default date if parsing fails, to avoid crashes
+    return new Date();
+}
+
 export function QuotationPreview({ values }: QuotationPreviewProps) {
     
     const calculation = values.items.reduce((acc, item) => {
@@ -38,6 +55,8 @@ export function QuotationPreview({ values }: QuotationPreviewProps) {
     const cgst = calculation.totalTaxableAmount * 0.025; // 2.5%
     const sgst = calculation.totalTaxableAmount * 0.025; // 2.5%
     const grandTotal = calculation.totalTaxableAmount + cgst + sgst;
+    
+    const validDate = parseDate(values.date);
 
     return (
         <div className="p-8 bg-white text-black font-sans text-sm">
@@ -55,7 +74,7 @@ export function QuotationPreview({ values }: QuotationPreviewProps) {
                 </div>
                  <div className="text-right">
                     <p><span className="font-bold">Quotation No:</span> {/* Placeholder */}</p>
-                    <p><span className="font-bold">Date:</span> {format(values.date, "PPP")}</p>
+                    <p><span className="font-bold">Date:</span> {format(validDate, "PPP")}</p>
                     <p><span className="font-bold">Store:</span> {values.store}</p>
                 </div>
             </div>
