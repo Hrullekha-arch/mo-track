@@ -89,6 +89,10 @@ export interface VasDetail {
     rate: string;
     quantity: string;
     room?: string;
+    taxableAmt?: number;
+    cgst?: number;
+    sgst?: number;
+    igst?: number;
 }
 
 
@@ -243,6 +247,19 @@ export interface DealProduct {
     file?: any;
 }
 
+export interface DealVisit {
+    id: string;
+    representative: string;
+    typeOfVisit: string;
+    notes?: string;
+    dueDate: string; // ISO string
+    happyCodeRequired: 'yes' | 'no';
+    sendVisitEmail: boolean;
+    sendVisitSms: boolean;
+    createdAt: string; // ISO string
+    createdBy: string;
+}
+
 export interface Deal {
     id: string;
     dealName: string;
@@ -251,6 +268,7 @@ export interface Deal {
     description: string;
     createdAt: string; // ISO string
     products?: DealProduct[];
+    visits?: DealVisit[];
 }
 
 export interface QuotationItem {

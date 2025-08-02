@@ -2,9 +2,9 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder } from '@/lib/types';
-import { FormValues } from '@/components/features/order-management/CreateQuotationDialog';
-import { FieldValue } from 'firebase-admin/firestore';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit } from '@/lib/types';
+import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
+import { VisitFormValues } from './page';
 
 export async function getDealById(customerId: string, dealId: string): Promise<Deal | null> {
     try {
@@ -42,7 +42,7 @@ export async function updateDealProducts(customerId: string, dealId: string, pro
 }
 
 
-export async function createQuotationAction(customerId: string, dealId: string, values: FormValues, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string }> {
+export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormValues, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string }> {
   try {
     const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
     
@@ -108,6 +108,58 @@ export async function getOrdersForDeal(customerId: string, dealId: string): Prom
         return JSON.parse(JSON.stringify(orders));
     } catch (error) {
         console.error("Error fetching orders:", error);
+        return [];
+    }
+}
+
+
+export async function addVisitAction(
+  customerId: string,
+  dealId: string,
+  visitData: VisitFormValues,
+  creatorName: string
+): Promise<{ success: boolean; message: string; visit?: DealVisit }> {
+    try {
+        const visitsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('visits');
+        const newVisitRef = visitsRef.doc();
+
+        const newVisit: DealVisit = {
+            id: newVisitRef.id,
+            ...visitData,
+            dueDate: visitData.dueDate.toISOString(),
+            createdAt: new Date().toISOString(),
+            createdBy: creatorName,
+        };
+
+        await newVisitRef.set(newVisit);
+
+        return { success: true, message: "Visit added successfully.", visit: JSON.parse(JSON.stringify(newVisit)) };
+    } catch (error: any) {
+        console.error("Error adding visit:", error);
+        return { success: false, message: `Server error: ${error.message}` };
+    }
+}
+
+
+export async function getVisitsForDeal(customerId: string, dealId: string): Promise<DealVisit[]> {
+    try {
+        const snapshot = await adminDb
+            .collection('customers')
+            .doc(customerId)
+            .collection('deals')
+            .doc(dealId)
+            .collection('visits')
+            .orderBy('dueDate', 'desc')
+            .get();
+
+        if (snapshot.empty) {
+            return [];
+        }
+
+        const visits = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DealVisit));
+        return JSON.parse(JSON.stringify(visits));
+    } catch (error) {
+        console.error("Error fetching visits:", error);
         return [];
     }
 }

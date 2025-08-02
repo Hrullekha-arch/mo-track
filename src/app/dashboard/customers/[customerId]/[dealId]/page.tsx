@@ -6,9 +6,7 @@ import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormR
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -45,7 +43,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal } from "./actions";
+import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal, addVisitAction, getVisitsForDeal } from "./actions";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -64,6 +62,7 @@ import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
 import { PrintableQuotation } from "@/components/features/order-management/PrintableQuotation";
+import { useAuth } from "@/context/AuthContext";
 
 
 const visitSchema = z.object({
@@ -76,7 +75,7 @@ const visitSchema = z.object({
   sendVisitSms: z.boolean().default(false),
 });
 
-type VisitFormValues = z.infer<typeof visitSchema>;
+export type VisitFormValues = z.infer<typeof visitSchema>;
 
 const measurementSchema = z.object({
     room: z.string().min(1, "Room is required."),
@@ -383,9 +382,19 @@ const roomOptions = [
     { value: "bed-room-3-wall-1", label: "BED ROOM 3 WALL 1" },
 ];
 
-function VisitForm({ salesmen }: { salesmen: User[] }) {
+const visitTypeOptions = [
+    { value: "measurements", label: "Measurements" },
+    { value: "fittings", label: "Fittings" },
+    { value: "complaint", label: "Complaint" },
+    { value: "tempo", label: "Tempo" },
+    { value: "selection", label: "Selection" },
+    { value: "other", label: "Other" },
+];
+
+function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void }) {
     const [loading, setLoading] = useState(false);
     const { toast } = useToast();
+    const { user } = useAuth();
 
     const form = useForm<VisitFormValues>({
         resolver: zodResolver(visitSchema),
@@ -399,18 +408,26 @@ function VisitForm({ salesmen }: { salesmen: User[] }) {
         }
     });
 
-    function onSubmit(data: VisitFormValues) {
+    async function onSubmit(data: VisitFormValues) {
+        if (!user) {
+            toast({ variant: "destructive", title: "Authentication Error", description: "You must be logged in." });
+            return;
+        }
         setLoading(true);
-        console.log(data);
-        // Simulate API call
-        setTimeout(() => {
-            toast({
-                title: "Activity Updated",
-                description: "The new visit has been added to the activity log.",
-            });
+        try {
+            const result = await addVisitAction(customerId, dealId, data, user.name);
+            if (result.success && result.visit) {
+                toast({ title: "Activity Updated", description: "The new visit has been added to the activity log." });
+                onVisitAdded(result.visit);
+                form.reset();
+            } else {
+                 toast({ variant: "destructive", title: "Error", description: result.message });
+            }
+        } catch (e) {
+             toast({ variant: "destructive", title: "Error", description: "An unexpected error occurred." });
+        } finally {
             setLoading(false);
-            form.reset();
-        }, 1500);
+        }
     }
 
     return (
@@ -465,9 +482,9 @@ function VisitForm({ salesmen }: { salesmen: User[] }) {
                                                     <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
                                                 </FormControl>
                                                 <SelectContent>
-                                                    <SelectItem value="initial-consultation">Initial Consultation</SelectItem>
-                                                    <SelectItem value="measurement">Measurement</SelectItem>
-                                                    <SelectItem value="follow-up">Follow-up</SelectItem>
+                                                    {visitTypeOptions.map(option => (
+                                                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                                                    ))}
                                                 </SelectContent>
                                             </Select>
                                             <FormMessage />
@@ -1183,6 +1200,72 @@ function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string 
     )
 }
 
+function VisitsTab({ customerId, dealId, salesmen }: { customerId: string, dealId: string, salesmen: User[] }) {
+    const [visits, setVisits] = useState<DealVisit[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const fetchVisits = useCallback(async () => {
+        setLoading(true);
+        const data = await getVisitsForDeal(customerId, dealId);
+        setVisits(data);
+        setLoading(false);
+    }, [customerId, dealId]);
+    
+    useEffect(() => {
+        fetchVisits();
+    }, [fetchVisits]);
+
+    const handleVisitAdded = (newVisit: DealVisit) => {
+        setVisits(prev => [newVisit, ...prev]);
+    };
+
+    return (
+        <div>
+            <VisitForm salesmen={salesmen} customerId={customerId} dealId={dealId} onVisitAdded={handleVisitAdded} />
+            <Card className="mt-6">
+                <CardHeader>
+                    <CardTitle>Visit History</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {loading ? (
+                        <Skeleton className="h-24 w-full" />
+                    ) : visits.length > 0 ? (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>#</TableHead>
+                                    <TableHead>Type</TableHead>
+                                    <TableHead>Due Date</TableHead>
+                                    <TableHead>Representative</TableHead>
+                                    <TableHead>Created By</TableHead>
+                                    <TableHead>Created At</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {visits.map((visit, i) => (
+                                    <TableRow key={visit.id}>
+                                        <TableCell>{i + 1}</TableCell>
+                                        <TableCell className="capitalize">{visit.typeOfVisit}</TableCell>
+                                        <TableCell>{format(new Date(visit.dueDate), 'PPP')}</TableCell>
+                                        <TableCell>{salesmen.find(s => s.id === visit.representative)?.name || visit.representative}</TableCell>
+                                        <TableCell>{visit.createdBy}</TableCell>
+                                        <TableCell>{format(new Date(visit.createdAt), 'dd/MM/yyyy')}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    ) : (
+                        <div className="text-center py-10 text-muted-foreground">
+                            No visits have been logged for this deal yet.
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    );
+}
+
+
 
 function CrmActivitySkeleton() {
   return (
@@ -1334,7 +1417,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </Button>
         </div>
 
-        <Tabs defaultValue="products">
+        <Tabs defaultValue="visits">
           <TabsList className="mb-4">
             <TabsTrigger value="visits"><Home className="mr-2 h-4 w-4" />Visits</TabsTrigger>
             <TabsTrigger value="measurement"><GanttChartSquare className="mr-2 h-4 w-4"/>Measurement</TabsTrigger>
@@ -1348,7 +1431,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsList>
           
           <TabsContent value="visits">
-            <VisitForm salesmen={salesmen} />
+            <VisitsTab customerId={customerId} dealId={dealId} salesmen={salesmen} />
           </TabsContent>
           
           <TabsContent value="measurement">
