@@ -2,7 +2,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder } from '@/lib/types';
 import { FormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -85,6 +85,29 @@ export async function getQuotationsForDeal(customerId: string, dealId: string): 
         return JSON.parse(JSON.stringify(quotations));
     } catch (error) {
         console.error("Error fetching quotations:", error);
+        return [];
+    }
+}
+
+export async function getOrdersForDeal(customerId: string, dealId: string): Promise<DealOrder[]> {
+    try {
+        const snapshot = await adminDb
+            .collection('customers')
+            .doc(customerId)
+            .collection('deals')
+            .doc(dealId)
+            .collection('orders')
+            .orderBy('orderDate', 'desc')
+            .get();
+
+        if (snapshot.empty) {
+            return [];
+        }
+
+        const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DealOrder));
+        return JSON.parse(JSON.stringify(orders));
+    } catch (error) {
+        console.error("Error fetching orders:", error);
         return [];
     }
 }

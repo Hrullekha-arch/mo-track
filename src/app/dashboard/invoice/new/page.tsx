@@ -2,7 +2,7 @@
 "use client";
 
 import { use, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useForm, useFieldArray, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,7 +13,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useRouter } from 'next/navigation';
 import { Quotation, Customer, Deal, DealProduct, Stock } from "@/lib/types";
 import React, { useEffect, useState } from "react";
 import { getCustomerById } from "@/app/dashboard/customers/actions";
@@ -26,6 +25,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { createDealOrderAction } from "./actions";
+import { useAuth } from "@/context/AuthContext";
 
 const productSchema = z.object({
   id: z.string().optional(),
@@ -74,16 +76,18 @@ type ConvertToOrderFormValues = z.infer<typeof convertToOrderSchema>;
 
 function ConvertToOrderContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const customerId = searchParams.get('customerId');
   const dealId = searchParams.get('dealId');
   const quotationId = searchParams.get('quotationId');
+  const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [quotation, setQuotation] = useState<Quotation | null>(null);
 
   const { toast } = useToast();
   
-  // State for BCN search in "Add More Product"
   const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
   const [isSearchingBcn, setIsSearchingBcn] = useState(false);
 
@@ -149,10 +153,10 @@ function ConvertToOrderContent() {
               mrp: item.rate,
               discountPercent: item.discountPercent || 0,
               quotationRate: quotationRate,
-              orderRate: item.rate, // Set Order Rate to MRP
+              orderRate: item.rate, 
               room: item.room || '',
-              noOfPcs: 1, // Placeholder
-              amount: item.rate * item.quantity, // Calculate amount based on MRP (Order Rate)
+              noOfPcs: 1, 
+              amount: item.rate * item.quantity, 
               description: item.salesDescription,
               remark: item.remark || ''
             };
@@ -194,9 +198,59 @@ function ConvertToOrderContent() {
     }
   };
 
-  const onSubmit = (data: ConvertToOrderFormValues) => {
-    console.log(data);
-    toast({ title: "Order Proceeding...", description: "Order has been processed for the next step." });
+   const handleAddProduct = () => {
+    const productData = form.getValues("addProduct");
+    if (!productData.collectionBrand || !productData.quantity) {
+      toast({ variant: 'destructive', title: 'Missing Information', description: 'Please provide at least a brand and quantity.' });
+      return;
+    }
+    const rate = parseFloat(productData.rate || '0');
+    const quantity = parseFloat(productData.quantity);
+    const amount = rate * quantity;
+    
+    append({
+      collectionBrand: productData.collectionBrand,
+      serialNo: productData.serialNo,
+      quantity: quantity,
+      mrp: rate,
+      discountPercent: parseFloat(productData.discountPercent || '0'),
+      quotationRate: rate,
+      orderRate: rate,
+      room: productData.room,
+      noOfPcs: parseInt(productData.noOfPcs || '1', 10),
+      amount: amount,
+      description: productData.description,
+      remark: productData.remark
+    });
+
+    form.reset({ ...form.getValues(), addProduct: { collectionBrand: "", serialNo: "", description: "", quantity: "", rate: "", discountPercent: "", discAmt: "", value: false, room: "", noOfPcs: "", remark: "", info1: "", info2: "" } });
+  };
+
+  const onSubmit = async (data: ConvertToOrderFormValues) => {
+    if (!customerId || !dealId || !user) return;
+    setIsSubmitting(true);
+    try {
+      const orderData = {
+        orderDate: new Date().toISOString(),
+        items: data.products,
+        remark: data.orderRemark || "",
+        createdBy: user.name,
+      };
+      
+      const result = await createDealOrderAction(customerId, dealId, orderData);
+
+      if (result.success) {
+        toast({ title: "Order Created!", description: "The sales order has been saved successfully." });
+        router.push(`/dashboard/customers/${customerId}/${dealId}`);
+      } else {
+        toast({ variant: 'destructive', title: 'Creation Failed', description: result.message });
+      }
+
+    } catch(e) {
+      toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred.' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (loading) {
@@ -288,7 +342,7 @@ function ConvertToOrderContent() {
                     <FormField control={form.control} name="addProduct.file" render={({ field }) => (<FormItem><FormLabel>Upload file</FormLabel><FormControl><Input type="file" /></FormControl><FormMessage /></FormItem>)} />
                  </div>
                  <div className="flex gap-2">
-                    <Button type="button" className="bg-teal-600 hover:bg-teal-700">Add</Button>
+                    <Button type="button" className="bg-teal-600 hover:bg-teal-700" onClick={handleAddProduct}>Add</Button>
                     <Button type="button" variant="outline">Clear</Button>
                  </div>
             </div>
@@ -301,7 +355,26 @@ function ConvertToOrderContent() {
           </div>
 
           <div className="flex gap-2">
-            <Button type="submit">Proceed</Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button">Proceed</Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will create a new order based on the items listed. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={form.handleSubmit(onSubmit)} disabled={isSubmitting}>
+                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Confirm & Create
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </form>
       </FormProvider>

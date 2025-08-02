@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Customer, Deal, User, Stock, DealProduct, Quotation } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -44,7 +44,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, updateDealProducts, getQuotationsForDeal } from "./actions";
+import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal } from "./actions";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -772,7 +772,19 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
                                                     <Button variant="ghost" size="icon" className="h-6 w-6"><MoreVertical className="h-4 w-4" /></Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent>
-                                                    <DropdownMenuItem><Printer className="mr-2 h-4 w-4"/> Print</DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => {
+                                                        const printWindow = window.open('', '_blank');
+                                                        const content = document.getElementById(`print-quotation-${q.id}`);
+                                                        if (printWindow && content) {
+                                                            printWindow.document.write('<html><head><title>Print Quotation</title></head><body>');
+                                                            printWindow.document.write(content.innerHTML);
+                                                            printWindow.document.write('</body></html>');
+                                                            printWindow.document.close();
+                                                            printWindow.print();
+                                                        }
+                                                    }}>
+                                                        <Printer className="mr-2 h-4 w-4"/> Print
+                                                    </DropdownMenuItem>
                                                     <DropdownMenuItem><Copy className="mr-2 h-4 w-4"/> Office Copy Print</DropdownMenuItem>
                                                     <DropdownMenuItem><FileDown className="mr-2 h-4 w-4"/> Clone Quotation</DropdownMenuItem>
                                                     <DropdownMenuItem asChild>
@@ -785,6 +797,11 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
                                             <Button variant="link" className="p-0 h-auto" onClick={() => setSelectedQuotation(q)}>
                                                 {q.quotationNo}
                                             </Button>
+                                            <div className="hidden">
+                                                <div id={`print-quotation-${q.id}`}>
+                                                    <QuotationPreview values={q as FormValues} />
+                                                </div>
+                                            </div>
                                         </TableCell>
                                         <TableCell>{format(parseDate(q.date), 'dd/MM/yyyy')}</TableCell>
                                         <TableCell>{q.customerName}</TableCell>
@@ -811,6 +828,70 @@ function QuotationsTab({ customerId, dealId }: { customerId: string, dealId: str
             )}
         </>
     );
+}
+
+function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string }) {
+    const [orders, setOrders] = useState<DealOrder[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchOrders = async () => {
+            setLoading(true);
+            const data = await getOrdersForDeal(customerId, dealId);
+            setOrders(data);
+            setLoading(false);
+        };
+        fetchOrders();
+    }, [customerId, dealId]);
+
+    if (loading) {
+        return (
+            <div className="mt-6">
+                <Skeleton className="h-32 w-full" />
+            </div>
+        );
+    }
+    
+    return (
+         <Card className="mt-6">
+            <CardHeader>
+                <CardTitle>Orders Details</CardTitle>
+            </CardHeader>
+            <CardContent>
+                {orders.length > 0 ? (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>#</TableHead>
+                                <TableHead>Order No</TableHead>
+                                <TableHead>Order Remark</TableHead>
+                                <TableHead>Order Date</TableHead>
+                                <TableHead>Created By</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {orders.map((order, i) => (
+                                <TableRow key={order.id}>
+                                    <TableCell>{i + 1}</TableCell>
+                                    <TableCell className="flex items-center gap-2">
+                                        <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                                        <Button variant="link" className="p-0 h-auto">{order.orderNo}</Button>
+                                    </TableCell>
+                                    <TableCell>{order.remark || '-'}</TableCell>
+                                    <TableCell>{format(new Date(order.orderDate), 'dd/MM/yyyy')}</TableCell>
+                                    <TableCell>{order.createdBy}</TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                ) : (
+                    <div className="text-center py-10 text-muted-foreground">
+                        No orders have been generated for this deal yet.
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    )
 }
 
 
@@ -998,6 +1079,10 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
 
           <TabsContent value="quotations">
              <QuotationsTab customerId={customerId} dealId={dealId} />
+          </TabsContent>
+
+          <TabsContent value="orders">
+             <OrdersTab customerId={customerId} dealId={dealId} />
           </TabsContent>
 
         </Tabs>

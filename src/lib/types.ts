@@ -1,4 +1,5 @@
 
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -240,7 +241,6 @@ export interface DealProduct {
     info2?: string;
     stitchingType?: "in" | "out";
     file?: any;
-    pushToMeasurement?: boolean;
 }
 
 export interface Deal {
@@ -283,4 +283,13 @@ export interface Quotation {
     applyTax?: boolean;
     billingName?: string;
     vasDetails?: VasDetail[];
+}
+
+export interface DealOrder {
+    id: string;
+    orderNo: string;
+    orderDate: string; // ISO string
+    createdBy: string;
+    remark?: string;
+    items: QuotationItem[];
 }
