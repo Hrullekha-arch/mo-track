@@ -1,6 +1,7 @@
 
 "use client"
 
+import * as React from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,7 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Quotation, Deal, User } from "@/lib/types";
+import { Quotation, Deal, User, QuotationItem, VasDetail } from "@/lib/types";
 import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,9 @@ interface QuotationDetailDialogProps {
 }
 
 export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesmen }: QuotationDetailDialogProps) {
+  const [lineItemSearch, setLineItemSearch] = React.useState("");
+  const [vasSearch, setVasSearch] = React.useState("");
+
   if (!quotation) return null;
 
   const parseDate = (date: any): Date => {
@@ -52,7 +56,6 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
         printDocument.write(content.innerHTML);
         printDocument.write('</body></html>');
         printDocument.close();
-        // Use a timeout to ensure the content is fully loaded before printing
         setTimeout(() => {
             printWindow.print();
             printWindow.close();
@@ -61,29 +64,37 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
   };
   
   const representativeName = salesmen.find(s => s.id === deal?.representativeId)?.name || "N/A";
+  
+  const filteredLineItems = (quotation.items || []).filter(item => 
+    item.collectionBrand?.toLowerCase().includes(lineItemSearch.toLowerCase()) ||
+    item.salesDescription?.toLowerCase().includes(lineItemSearch.toLowerCase()) ||
+    item.serialNo?.toLowerCase().includes(lineItemSearch.toLowerCase())
+  );
 
+  const filteredVasItems = (quotation.vasDetails || []).filter(item => 
+    item.vasName?.toLowerCase().includes(vasSearch.toLowerCase())
+  );
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl p-0">
+      <DialogContent className="max-w-7xl p-0">
         <div className="p-6">
             <DialogHeader className="flex flex-row justify-between items-start">
                 <div>
                     <DialogTitle className="text-2xl">Quotation Details</DialogTitle>
-                    <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm text-muted-foreground mt-4">
-                        <p><span className="font-semibold text-foreground">Quotation No:</span> {quotation.quotationNo}</p>
-                        <p><span className="font-semibold text-foreground">Quotation Date:</span> {format(parseDate(quotation.date), "dd/MM/yyyy")}</p>
-                        <p><span className="font-semibold text-foreground">Customer Name:</span> {quotation.customerName}</p>
-                        <p><span className="font-semibold text-foreground">Representative:</span> {representativeName}</p>
-                        <p><span className="font-semibold text-foreground">DealName:</span> {quotation.dealName}</p>
-                        <p><span className="font-semibold text-foreground">Store Name:</span> {quotation.store}</p>
-                        <p><span className="font-semibold text-foreground">Order No:</span> {quotation.id.substring(0, 4)}</p>
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm mt-4">
+                        <p className="text-muted-foreground"><span className="font-semibold text-foreground">Quotation No:</span> {quotation.quotationNo}</p>
+                        <p className="text-muted-foreground"><span className="font-semibold text-foreground">Quotation Date:</span> {format(parseDate(quotation.date), "dd/MM/yyyy")}</p>
+                        <p className="text-muted-foreground"><span className="font-semibold text-foreground">Customer Name:</span> {quotation.customerName}</p>
+                        <p className="text-muted-foreground"><span className="font-semibold text-foreground">Representative:</span> {representativeName}</p>
+                        <p className="text-muted-foreground"><span className="font-semibold text-foreground">DealName:</span> {quotation.dealName}</p>
+                        <p className="text-muted-foreground"><span className="font-semibold text-foreground">Store Name:</span> {quotation.store}</p>
+                        <p className="text-muted-foreground"><span className="font-semibold text-foreground">Order No:</span> <span className="text-primary font-bold">{quotation.id.substring(0, 4)}</span></p>
                     </div>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="outline" size="icon" onClick={handlePrint}><Printer className="h-4 w-4" /></Button>
                     <Button variant="outline" size="icon"><FileText className="h-4 w-4" /></Button>
-                    {/* Add other icons as needed */}
                 </div>
             </DialogHeader>
 
@@ -92,7 +103,7 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
                     <h3 className="text-lg font-semibold">Line Item Details</h3>
                     <div className="w-1/4 relative">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input placeholder="Search..." className="pl-8" />
+                        <Input placeholder="Search..." className="pl-8" value={lineItemSearch} onChange={e => setLineItemSearch(e.target.value)} />
                     </div>
                 </div>
                 <div className="border rounded-md">
@@ -109,35 +120,73 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {quotation.items.map((item, index) => (
+                            {filteredLineItems.map((item, index) => (
                                 <TableRow key={item.id || index}>
                                     <TableCell>{index + 1}</TableCell>
                                     <TableCell>{item.collectionBrand}</TableCell>
-                                    <TableCell>{item.serialNo}</TableCell>
-                                    <TableCell>{item.quantity}</TableCell>
+                                    <TableCell>{item.serialNo || 'NA'}</TableCell>
+                                    <TableCell>{item.quantity?.toFixed(2)}</TableCell>
                                     <TableCell>{item.room}</TableCell>
                                     <TableCell>{item.salesDescription}</TableCell>
                                     <TableCell><Badge variant="secondary">NEW</Badge></TableCell>
-                                </TableRow>
-                            ))}
-                             {(quotation.vasDetails || []).map((vas, index) => (
-                                <TableRow key={`vas-${index}`} className="bg-muted/50">
-                                    <TableCell>{quotation.items.length + index + 1}</TableCell>
-                                    <TableCell colSpan={2}>{vas.vasName} (VAS)</TableCell>
-                                    <TableCell>{vas.quantity}</TableCell>
-                                    <TableCell>{vas.room || '-'}</TableCell>
-                                    <TableCell>Rate: {vas.rate}</TableCell>
-                                    <TableCell><Badge variant="outline">SERVICE</Badge></TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>
                     </Table>
                 </div>
             </div>
+
+            {quotation.vasDetails && quotation.vasDetails.length > 0 && (
+                 <div className="mt-6">
+                    <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-lg font-semibold">Vas Details</h3>
+                        <div className="w-1/4 relative">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input placeholder="Search..." className="pl-8" value={vasSearch} onChange={e => setVasSearch(e.target.value)} />
+                        </div>
+                    </div>
+                    <div className="border rounded-md">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>#</TableHead>
+                                    <TableHead>Vas Name</TableHead>
+                                    <TableHead>Hsn</TableHead>
+                                    <TableHead>Qty</TableHead>
+                                    <TableHead>Rate</TableHead>
+                                    <TableHead>Room</TableHead>
+                                    <TableHead>Amt</TableHead>
+                                    <TableHead>Discount</TableHead>
+                                    <TableHead>Tax Amt</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {filteredVasItems.map((vas, index) => {
+                                     const amount = (Number(vas.rate) || 0) * (Number(vas.quantity) || 0);
+                                     const taxAmount = amount * 0.05; // Assuming 5% tax
+                                     return (
+                                        <TableRow key={`vas-${index}`}>
+                                            <TableCell>{index + 1}</TableCell>
+                                            <TableCell>{vas.vasName}</TableCell>
+                                            <TableCell>NA</TableCell>
+                                            <TableCell>{Number(vas.quantity).toFixed(2)}</TableCell>
+                                            <TableCell>{Number(vas.rate).toFixed(2)}</TableCell>
+                                            <TableCell>{vas.room || '-'}</TableCell>
+                                            <TableCell>{amount.toFixed(2)}</TableCell>
+                                            <TableCell>0.00</TableCell>
+                                            <TableCell>{taxAmount.toFixed(2)}</TableCell>
+                                        </TableRow>
+                                     );
+                                })}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </div>
+            )}
         </div>
         <div className="hidden">
             <div id={`print-quotation-dialog-${quotation.id}`}>
-                <QuotationPreview values={quotation as any} />
+                <PrintableQuotation values={quotation as any} />
             </div>
         </div>
         <DialogFooter className="bg-muted p-4">
