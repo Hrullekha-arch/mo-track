@@ -116,11 +116,12 @@ export function PrintableQuotation({ values }: PrintableQuotationProps) {
                              const taxableValue = itemAmount - discountAmount;
                              const tax = taxableValue * 0.05; // Assuming 5% tax
                              const finalAmount = taxableValue + tax;
+                             const description = `${item.collectionBrand} - ${item.salesDescription}`;
                             return (
                                 <tr key={index}>
                                     <td style={{ border: '1px solid #ddd', padding: '6px' }}>{index + 1}</td>
                                     <td style={{ border: '1px solid #ddd', padding: '6px' }}>{/* HSN Placeholder */}</td>
-                                    <td style={{ border: '1px solid #ddd', padding: '6px' }}>{item.salesDescription}</td>
+                                    <td style={{ border: '1px solid #ddd', padding: '6px' }}>{description}</td>
                                     <td style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'right' }}>{Number(item.quantity).toFixed(2)}</td>
                                     <td style={{ border: '1px solid #ddd', padding: '6px' }}>MTRS</td>
                                     <td style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'right' }}>{formatToINR(item.rate || 0)}</td>
@@ -188,4 +189,3 @@ export function PrintableQuotation({ values }: PrintableQuotationProps) {
         </div>
     );
 }
-

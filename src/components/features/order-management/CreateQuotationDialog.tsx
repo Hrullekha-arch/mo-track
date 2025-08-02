@@ -5,30 +5,23 @@ import { useState, useEffect, ReactNode, useMemo } from "react";
 import { useForm, useFieldArray, useWatch, Control, UseFormReturn } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { doc, setDoc, collection } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Customer, Deal, DealProduct, Quotation } from "@/lib/types";
+import { Customer, Deal, DealProduct, Quotation, VasDetail } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, Edit, Check, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { cn } from "@/lib/utils";
-import { format } from "date-fns";
-import { Checkbox } from "@/components/ui/checkbox";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter as TableFooterComponent } from "@/components/ui/table";
 import { QuotationPreview } from "./QuotationPreview";
 import { createQuotationAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
 
 
 // Placeholder options for comboboxes
@@ -36,9 +29,9 @@ const companyOptions = [{ value: "mo-design", label: "Mo Design" }];
 const storeOptions = [{ value: "mo-gcr-branch", label: "MO GCR BRANCH" }];
 const dealOptions = [{ value: "deal-1", label: "Deal 1" }, { value: "deal-2", label: "Deal 2" }];
 const billingOptions = [{ value: "billing-1", label: "Billing 1" }];
-const descriptionOptions = [{ value: "desc-1", label: "Description 1" }, { value: "desc-2", label: "Description 2" }];
+const descriptionOptions = [{ value: "curtain", label: "Curtain" }, { value: "sofa-fabric", label: "Sofa Fabric" }];
 const roomOptions = [{ value: "living-room", label: "Living Room" }, { value: "bed-room", label: "Bed Room" }];
-const vasOptions = [{ value: "vas-1", label: "VAS 1" }, { value: "vas-2", label: "VAS 2" }];
+const vasOptions = [{ value: "stitching", label: "Stitching" }, { value: "installation", label: "Installation" }];
 
 
 const itemDetailSchema = z.object({
@@ -71,15 +64,11 @@ const vasDetailSchema = z.object({
 });
 
 const formSchema = z.object({
-  company: z.string().optional(),
   store: z.string().min(1, "Store is required"),
   date: z.date({ required_error: "Date is required." }),
   validTillDate: z.date().optional(),
   customerName: z.string().min(1, "Customer name is required"),
   dealName: z.string().min(1, "Deal name is required"),
-  discountPercent: z.string().optional(),
-  applyTax: z.boolean().default(false),
-  billingName: z.string().optional(),
   items: z.array(itemDetailSchema),
   vasDetails: z.array(vasDetailSchema).optional(),
 });
@@ -144,8 +133,7 @@ const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Co
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-10">#</TableHead>
-                            <TableHead>Collection / Brand - Serial No</TableHead>
-                            <TableHead className="w-48">Description</TableHead>
+                            <TableHead>Description</TableHead>
                             <TableHead>Quantity</TableHead>
                             <TableHead>Rate</TableHead>
                             <TableHead>Discount %</TableHead>
@@ -162,10 +150,9 @@ const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Co
                              <TableCell>{index + 1}</TableCell>
                              <TableCell>
                                 <p className="font-medium text-primary cursor-pointer hover:underline">{getValues(`items.${index}.collectionBrand`)}</p>
-                                <p className="text-xs text-muted-foreground">{getValues(`items.${index}.serialNo`)}</p>
-                            </TableCell>
-                            <TableCell>
-                                <FormField control={control} name={`items.${index}.salesDescription`} render={({ field }) => (<Combobox options={descriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" />)} />
+                                <FormField control={control} name={`items.${index}.salesDescription`} render={({ field }) => (
+                                    <Combobox options={descriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" />
+                                )} />
                             </TableCell>
                             <TableCell>
                                  <FormField control={control} name={`items.${index}.quantity`} render={({ field }) => (<Input type="number" {...field} />)} />
@@ -182,38 +169,35 @@ const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Co
                              <TableCell>
                                 <FormField control={control} name={`items.${index}.room`} render={({ field }) => (<Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" />)} />
                             </TableCell>
-                            <TableCell><Button variant="ghost" size="icon" className="text-blue-500"><Edit className="h-4 w-4"/></Button></TableCell>
-                            <TableCell><Button variant="ghost" size="icon" className="text-blue-500"><PlusCircle className="h-4 w-4"/></Button></TableCell>
-                            <TableCell><Button variant="ghost" size="icon" className="text-destructive" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button></TableCell>
+                            <TableCell><Button type="button" variant="ghost" size="icon" className="text-blue-500"><Edit className="h-4 w-4"/></Button></TableCell>
+                            <TableCell><Button type="button" variant="ghost" size="icon" className="text-blue-500"><PlusCircle className="h-4 w-4"/></Button></TableCell>
+                            <TableCell><Button type="button" variant="ghost" size="icon" className="text-destructive" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button></TableCell>
                            </TableRow>
                         ))}
                     </TableBody>
-                    <TableFooterComponent>
-                        <TotalsRow control={control} />
-                    </TableFooterComponent>
                  </Table>
              </div>
         </div>
     );
 };
   
-const VasForm = ({ form }: { form: any }) => {
-    const { fields, append, remove } = useFieldArray({ control: form.control, name: "vasDetails" });
+const VasForm = ({ control }: { control: Control<FormValues> }) => {
+    const { fields, append, remove } = useFieldArray({ control, name: "vasDetails" });
     return (
         <div className="space-y-4">
              <h3 className="text-lg font-semibold border-b pb-2">Add VAS Details (Value Added Services)</h3>
             {fields.map((field, index) => (
-                <Card key={field.id} className="p-4 flex items-end gap-4">
-                    <FormField control={form.control} name={`vasDetails.${index}.vasName`} render={({ field }) => (<FormItem className="flex-grow"><FormLabel>VAS*</FormLabel><Combobox options={vasOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name={`vasDetails.${index}.quantity`} render={({ field }) => (<FormItem><FormLabel>Quantity*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name={`vasDetails.${index}.rate`} render={({ field }) => (<FormItem><FormLabel>Rate*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name={`vasDetails.${index}.room`} render={({ field }) => (<FormItem className="flex-grow"><FormLabel>Room</FormLabel><Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                <div key={field.id} className="p-4 border rounded-lg flex items-end gap-4">
+                    <FormField control={control} name={`vasDetails.${index}.vasName`} render={({ field }) => (<FormItem className="flex-grow"><FormLabel>VAS*</FormLabel><Combobox options={vasOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                    <FormField control={control} name={`vasDetails.${index}.quantity`} render={({ field }) => (<FormItem><FormLabel>Quantity*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={control} name={`vasDetails.${index}.rate`} render={({ field }) => (<FormItem><FormLabel>Rate*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={control} name={`vasDetails.${index}.room`} render={({ field }) => (<FormItem className="flex-grow"><FormLabel>Room</FormLabel><Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
                     <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button>
-                </Card>
+                </div>
             ))}
             <div className="flex gap-2">
                 <Button type="button" variant="default" onClick={() => append({ vasName: '', quantity: '', rate: '' })}>Add</Button>
-                <Button type="button" variant="outline" onClick={() => form.reset({ ...form.getValues(), vasDetails: [] })}>Reset</Button>
+                <Button type="button" variant="outline" onClick={() => remove()}>Reset</Button>
             </div>
         </div>
     );
@@ -236,12 +220,13 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
   });
   
   const itemsWatch = useWatch({ control: form.control, name: 'items' });
+  const vasWatch = useWatch({ control: form.control, name: 'vasDetails' });
+
   const totalAmount = useMemo(() => {
-    const totalTaxableAmount = itemsWatch.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    const cgst = totalTaxableAmount * 0.025;
-    const sgst = totalTaxableAmount * 0.025;
-    return totalTaxableAmount + cgst + sgst;
-  }, [itemsWatch]);
+    const itemsTotal = itemsWatch.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const vasTotal = (vasWatch || []).reduce((sum, vas) => sum + ((Number(vas.rate) || 0) * (Number(vas.quantity) || 0)), 0);
+    return itemsTotal + vasTotal;
+  }, [itemsWatch, vasWatch]);
 
 
   useEffect(() => {
@@ -251,7 +236,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
           id: item.collectionBrand + item.serialNo, // Create a unique-ish ID
           collectionBrand: item.collectionBrand || '',
           serialNo: item.serialNo || '',
-          salesDescription: item.salesDescription || 'Default Description',
+          salesDescription: `${item.collectionBrand} - ${item.salesDescription}`,
           quantity: parseFloat(item.quantity) || 0,
           rate: item.rate || 0,
           discountPercent: 0,
@@ -261,15 +246,11 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
         }));
 
         form.reset({
-          company: '',
           store: "mo-gcr-branch",
           date: new Date(),
           validTillDate: undefined,
           customerName: customer.name,
           dealName: deal.dealName,
-          discountPercent: '',
-          applyTax: false,
-          billingName: '',
           items: itemsForForm,
           vasDetails: [],
         });
@@ -326,28 +307,21 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
         {view === 'edit' && (
             <Form {...form}>
             <form className="space-y-6 py-4 max-h-[85vh] overflow-y-auto pr-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <FormField control={form.control} name="company" render={({ field }) => (<FormItem><FormLabel>Company</FormLabel><Combobox options={companyOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     <FormField control={form.control} name="store" render={({ field }) => (<FormItem><FormLabel>Store*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name="date" render={({ field }) => (<FormItem><FormLabel>Date*</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name="validTillDate" render={({ field }) => (<FormItem><FormLabel>Valid Till Date</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="date" render={({ field }) => (<FormItem><FormLabel>Date*</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className="w-full justify-start text-left font-normal"}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="validTillDate" render={({ field }) => (<FormItem><FormLabel>Valid Till Date</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className="w-full justify-start text-left font-normal"}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="customerName" render={({ field }) => (<FormItem><FormLabel>Customer Name*</FormLabel><FormControl><Input {...field} readOnly /></FormControl><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="dealName" render={({ field }) => (<FormItem><FormLabel>Deal Name*</FormLabel><Combobox options={[{value: deal.dealName, label: deal.dealName}]} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
-                    <FormField control={form.control} name="discountPercent" render={({ field }) => (<FormItem><FormLabel>Discount(%)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name="applyTax" render={({ field }) => (<FormItem className="flex flex-row items-center space-x-2 pt-4"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel>Apply Tax</FormLabel></FormItem>)} />
-                    <FormField control={form.control} name="billingName" render={({ field }) => (<FormItem className="col-span-2"><FormLabel>Billing Name <Button variant="link" type="button" className="p-0 h-auto ml-2">CRM Details</Button></FormLabel><Combobox options={billingOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
-                </div>
-                
                 <Separator />
                 
                 <PreviouslySelectedItems control={form.control} setValue={form.setValue} getValues={form.getValues} />
                 
                 <Separator />
 
-                <VasForm form={form} />
+                <VasForm control={form.control} />
                 
                 <DialogFooter>
                     <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
