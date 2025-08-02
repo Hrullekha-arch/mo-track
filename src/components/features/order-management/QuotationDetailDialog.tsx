@@ -26,6 +26,20 @@ interface QuotationDetailDialogProps {
 export function QuotationDetailDialog({ isOpen, onClose, quotation }: QuotationDetailDialogProps) {
   if (!quotation) return null;
 
+  const parseDate = (date: any): Date => {
+    if (date instanceof Date) return date;
+    if (date && date._seconds) { // Handle Firestore Timestamps
+        return new Date(date._seconds * 1000 + (date._nanoseconds || 0) / 1000000);
+    }
+    if (typeof date === 'string' || typeof date === 'number') {
+        const parsed = new Date(date);
+        if (!isNaN(parsed.getTime())) {
+            return parsed;
+        }
+    }
+    return new Date(); // Fallback
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl p-0">
@@ -35,7 +49,7 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation }: QuotationD
                     <DialogTitle className="text-2xl">Quotation Details</DialogTitle>
                     <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm text-muted-foreground mt-4">
                         <p><span className="font-semibold text-foreground">Quotation No:</span> {quotation.quotationNo}</p>
-                        <p><span className="font-semibold text-foreground">Quotation Date:</span> {format(new Date(quotation.date), "dd/MM/yyyy")}</p>
+                        <p><span className="font-semibold text-foreground">Quotation Date:</span> {format(parseDate(quotation.date), "dd/MM/yyyy")}</p>
                         <p><span className="font-semibold text-foreground">Customer Name:</span> {quotation.customerName}</p>
                         <p><span className="font-semibold text-foreground">Representative:</span> {quotation.items[0]?.collectionBrand || 'N/A'}</p> {/* Placeholder for Representative */}
                         <p><span className="font-semibold text-foreground">DealName:</span> {quotation.dealName}</p>
