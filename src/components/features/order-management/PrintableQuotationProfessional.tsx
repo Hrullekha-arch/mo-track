@@ -1,6 +1,7 @@
 
 "use client";
 
+import * as React from "react";
 import { Quotation, QuotationItem, VasDetail } from "@/lib/types";
 import { format } from "date-fns";
 import Image from 'next/image';
@@ -234,4 +235,3 @@ export function PrintableQuotationProfessional({ values, creatorName, salesmanNa
         </div>
     );
 }
-
