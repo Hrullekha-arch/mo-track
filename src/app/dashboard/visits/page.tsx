@@ -25,9 +25,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collectionGroup, onSnapshot, query } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, collectionGroup } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { DealVisit } from "@/lib/types";
+import { DealVisit, Customer, Deal } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
@@ -36,6 +36,7 @@ import Link from 'next/link';
 
 interface EnrichedDealVisit extends DealVisit {
     customerName: string;
+    dealName: string;
     dealId: string;
     customerId: string;
 }
@@ -49,51 +50,64 @@ export default function AllVisitsPage() {
 
   React.useEffect(() => {
     setLoading(true);
-    const visitsQuery = query(collectionGroup(db, "visits"));
 
-    const unsubscribe = onSnapshot(visitsQuery, (snapshot) => {
-        const visitsData = snapshot.docs.map(doc => {
-            const pathSegments = doc.ref.path.split('/');
-            // customers/{customerId}/deals/{dealId}/visits/{visitId}
-            const customerId = pathSegments[1];
-            const dealId = pathSegments[3];
-            
-            // This is a simplified way to get customer name.
-            // In a real app, you might fetch the customer doc, but this avoids many reads.
-            // We assume the deal page will provide the full context.
-            const customerName = "Customer"; // Placeholder, real data might need another query.
-            
-            return {
-                ...doc.data() as DealVisit,
-                id: doc.id,
-                customerId,
-                dealId,
-                customerName: `Customer of Deal ${dealId.substring(0,5)}` // Temporary name
+    const fetchAllVisits = async () => {
+        try {
+            const customersQuery = query(collection(db, "customers"));
+            const customersSnapshot = await getDocs(customersQuery);
+            const allVisits: EnrichedDealVisit[] = [];
+
+            for (const customerDoc of customersSnapshot.docs) {
+                const customer = { id: customerDoc.id, ...customerDoc.data() } as Customer;
+                const dealsQuery = query(collection(db, `customers/${customer.id}/deals`));
+                const dealsSnapshot = await getDocs(dealsQuery);
+
+                for (const dealDoc of dealsSnapshot.docs) {
+                    const deal = { id: dealDoc.id, ...dealDoc.data() } as Deal;
+                    const visitsQuery = query(collection(db, `customers/${customer.id}/deals/${deal.id}/visits`));
+                    const visitsSnapshot = await getDocs(visitsQuery);
+                    
+                    visitsSnapshot.forEach(visitDoc => {
+                        allVisits.push({
+                            ...(visitDoc.data() as DealVisit),
+                            id: visitDoc.id,
+                            customerId: customer.id,
+                            customerName: customer.name,
+                            dealId: deal.id,
+                            dealName: deal.dealName,
+                        });
+                    });
+                }
             }
-        });
-      setVisits(visitsData);
-      setLoading(false);
-    }, (error) => {
-        console.error("Error fetching all visits:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not load visit data." });
-        setLoading(false);
-    });
+            setVisits(allVisits);
+        } catch (error) {
+            console.error("Error fetching all visits:", error);
+            toast({ variant: "destructive", title: "Error", description: "Could not load visit data. Please check Firestore permissions." });
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    fetchAllVisits();
 
-    return () => unsubscribe();
   }, [toast]);
 
 
   const columns: ColumnDef<EnrichedDealVisit>[] = [
     {
-      accessorKey: "dealId",
-      header: "Deal ID",
+      accessorKey: "dealName",
+      header: "Deal Name",
       cell: ({ row }) => (
           <Button asChild variant="link" className="p-0 h-auto">
              <Link href={`/dashboard/customers/${row.original.customerId}/${row.original.dealId}`}>
-                {row.original.dealId}
+                {row.original.dealName}
              </Link>
           </Button>
       )
+    },
+    {
+      accessorKey: "customerName",
+      header: "Customer",
     },
     {
       accessorKey: "typeOfVisit",
@@ -166,10 +180,10 @@ export default function AllVisitsPage() {
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder="Filter by Deal ID..."
-                            value={(table.getColumn("dealId")?.getFilterValue() as string) ?? ""}
+                            placeholder="Filter by customer..."
+                            value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
                             onChange={(event) =>
-                                table.getColumn("dealId")?.setFilterValue(event.target.value)
+                                table.getColumn("customerName")?.setFilterValue(event.target.value)
                             }
                             className="max-w-sm pl-9"
                         />
@@ -248,4 +262,3 @@ export default function AllVisitsPage() {
     </div>
   );
 }
-
