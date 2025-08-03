@@ -80,6 +80,7 @@ export default function AllVisitsPage() {
                         allVisits.push({
                             ...(visitDoc.data() as DealVisit),
                             id: visitDoc.id,
+                            dealId: deal.dealId, // This was missing
                             customerId: customer.id,
                             customerName: customer.name || 'Unknown',
                             dealDocId: deal.id,
