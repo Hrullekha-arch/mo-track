@@ -51,51 +51,48 @@ export default function AllVisitsPage() {
   React.useEffect(() => {
     setLoading(true);
 
-    const visitsQuery = query(collectionGroup(db, "visits"));
-    
-    const unsubscribe = onSnapshot(visitsQuery, async (snapshot) => {
-        const allVisits: EnrichedDealVisit[] = [];
+    const fetchAllVisits = async () => {
+        try {
+            const customersQuery = query(collection(db, "customers"));
+            const customersSnapshot = await getDocs(customersQuery);
+            const allVisits: EnrichedDealVisit[] = [];
 
-        for (const visitDoc of snapshot.docs) {
-            const visitData = visitDoc.data() as DealVisit;
-            const dealRef = visitDoc.ref.parent.parent; // Path: customers/{cid}/deals/{did}
-            
-            if (dealRef) {
-                const customerRef = dealRef.parent.parent; // Path: customers/{cid}
-                if (customerRef) {
-                    const [dealSnap, customerSnap] = await Promise.all([
-                        getDocs(query(collection(db, dealRef.path))),
-                        getDocs(query(collection(db, customerRef.path)))
-                    ]);
+            for (const customerDoc of customersSnapshot.docs) {
+                const customer = { id: customerDoc.id, ...customerDoc.data() } as Customer;
+                const dealsQuery = query(collection(db, `customers/${customerDoc.id}/deals`));
+                const dealsSnapshot = await getDocs(dealsQuery);
 
-                    const deal = { id: dealRef.id, ...dealSnap.docs[0]?.data() } as Deal;
-                    const customer = { id: customerRef.id, ...customerSnap.docs[0]?.data() } as Customer;
+                for (const dealDoc of dealsSnapshot.docs) {
+                    const deal = { id: dealDoc.id, ...dealDoc.data() } as Deal;
+                    const visitsQuery = query(collection(db, `customers/${customerDoc.id}/deals/${dealDoc.id}/visits`));
+                    const visitsSnapshot = await getDocs(visitsQuery);
                     
-                    allVisits.push({
-                        ...visitData,
-                        id: visitDoc.id,
-                        customerId: customerRef.id,
-                        customerName: customer.name || 'Unknown',
-                        dealId: dealRef.id,
-                        dealName: deal.dealName || 'Unknown',
+                    visitsSnapshot.forEach(visitDoc => {
+                        allVisits.push({
+                            ...(visitDoc.data() as DealVisit),
+                            id: visitDoc.id,
+                            customerId: customer.id,
+                            customerName: customer.name || 'Unknown',
+                            dealId: deal.id,
+                            dealName: deal.dealName || 'Unknown',
+                        });
                     });
                 }
             }
+            setVisits(allVisits);
+        } catch (error) {
+            console.error("Error fetching visits:", error);
+            toast({
+                variant: "destructive",
+                title: "Permission Error",
+                description: "Could not load visit data. Please check Firestore security rules."
+            });
+        } finally {
+            setLoading(false);
         }
-        
-        setVisits(allVisits);
-        setLoading(false);
-    }, (error) => {
-        console.error("Error fetching visits with collectionGroup:", error);
-        toast({ 
-            variant: "destructive", 
-            title: "Permission Error", 
-            description: "Could not load visit data. Please check Firestore permissions for collection group queries on 'visits'." 
-        });
-        setLoading(false);
-    });
-
-    return () => unsubscribe();
+    };
+    
+    fetchAllVisits();
 
   }, [toast]);
 
