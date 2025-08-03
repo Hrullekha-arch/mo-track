@@ -65,7 +65,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
 import { PrintableQuotation } from "@/components/features/order-management/PrintableQuotation";
 import { useAuth } from "@/context/AuthContext";
-import { Dialog, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 
 const visitSchema = z.object({
