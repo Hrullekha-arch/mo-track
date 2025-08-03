@@ -1,11 +1,19 @@
 
 import { Card, CardDescription, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle, Warehouse, Contact } from "lucide-react";
+import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle, Warehouse, Contact, HomeIcon } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 const dashboardItems = [
+    {
+        href: "/dashboard",
+        title: "Home",
+        description: "Overview of all modules.",
+        icon: HomeIcon,
+        color: "bg-blue-500",
+        id: "home"
+    },
     {
         href: "/dashboard/orders",
         title: "Orders",
@@ -21,6 +29,14 @@ const dashboardItems = [
         icon: Contact,
         color: "bg-pink-500",
         id: "customers"
+    },
+    {
+        href: "/dashboard/visits",
+        title: "Visits",
+        description: "Manage all customer visits and appointments.",
+        icon: Users,
+        color: "bg-indigo-500",
+        id: "visits"
     },
     {
         href: "/dashboard/purchase",

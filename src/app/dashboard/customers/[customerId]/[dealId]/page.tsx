@@ -39,6 +39,7 @@ import {
   Printer,
   Copy,
   FileDown,
+  Eye,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -64,11 +65,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
 import { PrintableQuotation } from "@/components/features/order-management/PrintableQuotation";
 import { useAuth } from "@/context/AuthContext";
+import { Dialog, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 
 const visitSchema = z.object({
     representative: z.string().min(1, "Representative is required."),
     date: z.date({ required_error: "A date is required." }),
+    time: z.string({ required_error: "A time is required." }),
     measurements: z.array(z.string()).optional(),
     blinds: z.array(z.string()).optional(),
     curtain: z.array(z.string()).optional(),
@@ -429,6 +432,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
         defaultValues: {
             representative: "",
             date: new Date(),
+            time: format(new Date(), "HH:mm"),
             measurements: [],
             blinds: [],
             curtain: [],
@@ -445,12 +449,14 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
         }
         setLoading(true);
         try {
-            // Here you would transform the form data to fit your DealVisit structure
-            // For now, we'll just log it and add it to the list.
-            const visitDataForDb: any = {
+            const [hours, minutes] = data.time.split(':').map(Number);
+            const combinedDateTime = new Date(data.date);
+            combinedDateTime.setHours(hours, minutes);
+
+            const visitDataForDb = {
                 ...data,
                 typeOfVisit: activeTab,
-                dueDate: data.date,
+                dueDate: combinedDateTime,
             };
 
             const result = await addVisitAction(customerId, dealId, visitDataForDb, user.name);
@@ -487,7 +493,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
                             <div className="p-6 space-y-6">
                                 {activeTab === 'measurement' ? (
                                     <>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                             <FormField
                                                 control={form.control}
                                                 name="representative"
@@ -517,7 +523,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
                                                                 <FormControl>
                                                                     <Button variant={"outline"} className="w-full justify-start text-left font-normal">
                                                                         <Calendar className="mr-2 h-4 w-4" />
-                                                                        {field.value ? format(field.value, "dd/MM/yyyy HH:mm:ss") : <span>Pick a date</span>}
+                                                                        {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
                                                                     </Button>
                                                                 </FormControl>
                                                             </PopoverTrigger>
@@ -525,6 +531,19 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
                                                                 <CalendarPicker mode="single" selected={field.value} onSelect={field.onChange} />
                                                             </PopoverContent>
                                                         </Popover>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                             <FormField
+                                                control={form.control}
+                                                name="time"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Time</FormLabel>
+                                                        <FormControl>
+                                                            <Input type="time" {...field} />
+                                                        </FormControl>
                                                         <FormMessage />
                                                     </FormItem>
                                                 )}
@@ -1255,6 +1274,7 @@ function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string 
 function VisitsTab({ customerId, dealId, salesmen }: { customerId: string, dealId: string, salesmen: User[] }) {
     const [visits, setVisits] = useState<DealVisit[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedVisit, setSelectedVisit] = useState<DealVisit | null>(null);
 
     const fetchVisits = useCallback(async () => {
         setLoading(true);
@@ -1291,6 +1311,7 @@ function VisitsTab({ customerId, dealId, salesmen }: { customerId: string, dealI
                                     <TableHead>Representative</TableHead>
                                     <TableHead>Created By</TableHead>
                                     <TableHead>Created At</TableHead>
+                                    <TableHead>Details</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -1298,10 +1319,15 @@ function VisitsTab({ customerId, dealId, salesmen }: { customerId: string, dealI
                                     <TableRow key={visit.id}>
                                         <TableCell>{i + 1}</TableCell>
                                         <TableCell className="capitalize">{visit.typeOfVisit}</TableCell>
-                                        <TableCell>{format(new Date(visit.dueDate), 'PPP')}</TableCell>
+                                        <TableCell>{format(new Date(visit.dueDate), 'PPP p')}</TableCell>
                                         <TableCell>{salesmen.find(s => s.id === visit.representative)?.name || visit.representative}</TableCell>
                                         <TableCell>{visit.createdBy}</TableCell>
                                         <TableCell>{format(new Date(visit.createdAt), 'dd/MM/yyyy')}</TableCell>
+                                        <TableCell>
+                                            <Button variant="ghost" size="icon" onClick={() => setSelectedVisit(visit)}>
+                                                <Eye className="h-4 w-4" />
+                                            </Button>
+                                        </TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
@@ -1313,6 +1339,43 @@ function VisitsTab({ customerId, dealId, salesmen }: { customerId: string, dealI
                     )}
                 </CardContent>
             </Card>
+             {selectedVisit && (
+                <Dialog open={!!selectedVisit} onOpenChange={() => setSelectedVisit(null)}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Visit Details</DialogTitle>
+                            <DialogDescription>
+                                Details for visit on {format(new Date(selectedVisit.dueDate), 'PPP p')}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="py-4 space-y-4">
+                            <div>
+                                <h4 className="font-semibold">Measurements Selected:</h4>
+                                <ul className="list-disc list-inside text-muted-foreground">
+                                    {(selectedVisit.measurements && selectedVisit.measurements.length > 0) ? selectedVisit.measurements.map(m => <li key={m}>{measurementItems.find(mi => mi.id === m)?.label || m}</li>) : <li>None</li>}
+                                </ul>
+                            </div>
+                             {selectedVisit.blinds && selectedVisit.blinds.length > 0 && (
+                                <div>
+                                    <h4 className="font-semibold">Blind Types:</h4>
+                                    <ul className="list-disc list-inside text-muted-foreground">
+                                        {selectedVisit.blinds.map(b => <li key={b}>{subMeasurementBlinds.find(s => s.id === b)?.label || b}</li>)}
+                                    </ul>
+                                </div>
+                            )}
+                             {selectedVisit.curtain && selectedVisit.curtain.length > 0 && (
+                                <div>
+                                    <h4 className="font-semibold">Curtain Types:</h4>
+                                    <ul className="list-disc list-inside text-muted-foreground">
+                                       {selectedVisit.curtain.map(c => <li key={c}>{subMeasurementCurtain.find(s => s.id === c)?.label || c}</li>)}
+                                       {selectedVisit.otherCurtain && <li>Other: {selectedVisit.otherCurtain}</li>}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            )}
         </div>
     );
 }
