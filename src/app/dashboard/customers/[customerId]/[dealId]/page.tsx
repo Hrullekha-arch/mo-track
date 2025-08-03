@@ -537,31 +537,32 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                     </FormItem>
                                 )}
                             />
-                            <FormField
-                                control={form.control}
-                                name={`deliveryInstallations.${deliveryInstallationItems.findIndex(d => d.id === item.id)}.noOfPcs`}
-                                render={({ field }) => (
-                                     <FormControl>
-                                        <Input
-                                            type="number"
-                                            className="h-7 w-20"
-                                            placeholder="Pcs"
-                                            {...field}
-                                            disabled={!form.getValues('deliveryInstallations')?.some(v => v.id === item.id)}
-                                            onChange={(e) => {
-                                                const currentValues = form.getValues('deliveryInstallations') || [];
-                                                const itemIndex = currentValues.findIndex(v => v.id === item.id);
-                                                if (itemIndex > -1) {
-                                                    const newValues = [...currentValues];
-                                                    newValues[itemIndex] = { ...newValues[itemIndex], noOfPcs: e.target.value };
-                                                    form.setValue('deliveryInstallations', newValues);
-                                                }
-                                            }}
-                                            value={form.getValues('deliveryInstallations')?.find(v => v.id === item.id)?.noOfPcs || ''}
-                                        />
-                                    </FormControl>
-                                )}
-                            />
+                           {item.id !== 'blind-installation' && (
+                                <FormField
+                                    control={form.control}
+                                    name={`deliveryInstallations.${deliveryInstallationItems.findIndex(d => d.id === item.id)}.noOfPcs`}
+                                    render={({ field }) => (
+                                        <FormControl>
+                                            <Input
+                                                type="number"
+                                                className="h-7 w-20"
+                                                placeholder="Pcs"
+                                                disabled={!form.watch('deliveryInstallations')?.some(v => v.id === item.id)}
+                                                onChange={(e) => {
+                                                    const currentValues = form.getValues('deliveryInstallations') || [];
+                                                    const itemIndex = currentValues.findIndex(v => v.id === item.id);
+                                                    if (itemIndex > -1) {
+                                                        const newValues = [...currentValues];
+                                                        newValues[itemIndex] = { ...newValues[itemIndex], noOfPcs: e.target.value };
+                                                        form.setValue('deliveryInstallations', newValues);
+                                                    }
+                                                }}
+                                                value={form.getValues('deliveryInstallations')?.find(v => v.id === item.id)?.noOfPcs || ''}
+                                            />
+                                        </FormControl>
+                                    )}
+                                />
+                            )}
                         </div>
                     ))}
                     {form.watch('deliveryInstallations')?.some(v => v.id === 'other') && (
@@ -599,14 +600,13 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                 <FormField
                                     control={form.control}
                                     name={`subDeliveryInstallations.${subDeliveryInstallationItems.findIndex(d => d.id === item.id)}.noOfPcs`}
-                                    render={({ field }) => (
-                                         <FormControl>
+                                    render={({ field: { onChange, value, ...rest } }) => (
+                                        <FormControl>
                                             <Input
                                                 type="number"
                                                 className="h-7 w-20"
                                                 placeholder="Pcs"
-                                                {...field}
-                                                disabled={!form.getValues('subDeliveryInstallations')?.some(v => v.id === item.id)}
+                                                disabled={!form.watch('subDeliveryInstallations')?.some(v => v.id === item.id)}
                                                 onChange={(e) => {
                                                     const currentValues = form.getValues('subDeliveryInstallations') || [];
                                                     const itemIndex = currentValues.findIndex(v => v.id === item.id);
@@ -617,6 +617,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                                     }
                                                 }}
                                                 value={form.getValues('subDeliveryInstallations')?.find(v => v.id === item.id)?.noOfPcs || ''}
+                                                {...rest}
                                             />
                                         </FormControl>
                                     )}
