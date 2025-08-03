@@ -2,7 +2,7 @@
 "use client";
 
 import { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
-import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormReturn } from "react-hook-form";
+import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormReturn, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
@@ -85,8 +85,8 @@ const visitSchema = z.object({
     curtain: z.array(z.string()).optional(),
     otherCurtain: z.string().optional(),
     // Delivery fields
-    deliveryInstallations: z.array(deliveryInstallationItemSchema).optional(),
-    subDeliveryInstallations: z.array(deliveryInstallationItemSchema).optional(),
+    deliveryInstallations: z.array(deliveryInstallationItemSchema.nullable()).optional(),
+    subDeliveryInstallations: z.array(deliveryInstallationItemSchema.nullable()).optional(),
     otherDelivery: z.string().optional(),
 });
 
@@ -474,6 +474,18 @@ const cpdSchema = z.object({
 
 type CpdFormValues = z.infer<typeof cpdSchema>;
 
+const productTypeOptions = [
+    { value: "fabric", label: "Fabric" },
+    { value: "rod", label: "Rod" },
+    { value: "channel", label: "Channel" },
+    { value: "roman-channel", label: "Roman Channel" },
+    { value: "wooden-blind", label: "Wooden Blind" },
+    { value: "tesal", label: "Tesal" },
+    { value: "stick", label: "Stick" },
+    { value: "knobs", label: "Knobs" },
+    { value: "accessorise", label: "Accessorise" },
+];
+
 function CpdForm({ customer, salesmen }: { customer: Customer, salesmen: User[] }) {
     const form = useForm<CpdFormValues>({
         resolver: zodResolver(cpdSchema),
@@ -553,7 +565,7 @@ function CpdForm({ customer, salesmen }: { customer: Customer, salesmen: User[] 
                         {/* Rooms Section */}
                         <div className="space-y-4">
                             {fields.map((field, index) => (
-                                <RoomFields key={field.id} roomIndex={index} onRemoveRoom={() => remove(index)} />
+                                <RoomFields key={field.id} roomIndex={index} control={form.control} onRemoveRoom={() => remove(index)} />
                             ))}
                         </div>
 
@@ -567,12 +579,29 @@ function CpdForm({ customer, salesmen }: { customer: Customer, salesmen: User[] 
     )
 }
 
-function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRoom: () => void }) {
-    const { control } = useForm<CpdFormValues>();
+function RoomFields({ roomIndex, control, onRemoveRoom }: { roomIndex: number, control: Control<CpdFormValues>, onRemoveRoom: () => void }) {
     const { fields, append, remove } = useFieldArray({
         control,
         name: `rooms.${roomIndex}.items`
     });
+    
+    const { toast } = useToast();
+    const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
+    const [isSearchingBcn, setIsSearchingBcn] = useState(false);
+
+    const handleBcnSearch = async (query: string) => {
+        if (query.length < 2) { setBcnOptions([]); return; }
+        setIsSearchingBcn(true);
+        try {
+            const results = await searchStockByBcn(query);
+            setBcnOptions(results.map(stock => ({ value: stock.bcn || stock.id, label: stock.bcn || stock.id, stockItem: stock })));
+        } catch (error) {
+            console.error("Error searching BCN:", error);
+            toast({ variant: 'destructive', title: 'Search failed' });
+        } finally {
+            setIsSearchingBcn(false);
+        }
+    };
 
     return (
         <Card className="p-4 bg-muted/30">
@@ -601,13 +630,27 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                 {fields.map((item, itemIndex) => (
                     <div key={item.id} className="p-3 border rounded-md bg-background flex items-end gap-2">
                         <div className="grid grid-cols-2 gap-2 flex-grow">
-                             <FormField
+                             <Controller
                                 control={control}
                                 name={`rooms.${roomIndex}.items.${itemIndex}.itemName`}
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-xs">Item Name</FormLabel>
-                                        <FormControl><Input {...field} /></FormControl>
+                                        <FormLabel className="text-xs">Item Name (BCN)</FormLabel>
+                                        <Combobox 
+                                            options={bcnOptions}
+                                            value={field.value}
+                                            onSelect={(value) => {
+                                                field.onChange(value);
+                                                const selectedOption = bcnOptions.find(opt => opt.value === value);
+                                                if (selectedOption) {
+                                                    const rate = selectedOption.stockItem.mrp?.toString() || '';
+                                                    const form = control._form;
+                                                    form.setValue(`rooms.${roomIndex}.items.${itemIndex}.rate`, rate);
+                                                }
+                                            }}
+                                            onSearch={handleBcnSearch}
+                                            placeholder="Search by BCN..."
+                                        />
                                     </FormItem>
                                 )}
                             />
@@ -617,7 +660,12 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel className="text-xs">Type</FormLabel>
-                                        <FormControl><Input {...field} /></FormControl>
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl>
+                                            <SelectContent>
+                                                {productTypeOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
                                     </FormItem>
                                 )}
                             />
@@ -766,7 +814,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                                 onChange={(e) => {
                                                     const currentValues = form.getValues('deliveryInstallations') || [];
                                                     const itemIndex = currentValues.findIndex(v => v?.id === item.id);
-                                                    if (itemIndex > -1) {
+                                                    if (itemIndex > -1 && currentValues[itemIndex]) {
                                                         const newValues = [...currentValues];
                                                         newValues[itemIndex] = { ...newValues[itemIndex]!, noOfPcs: e.target.value };
                                                         form.setValue('deliveryInstallations', newValues);
@@ -797,13 +845,13 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                         <FormItem className="flex items-center space-x-2 space-y-0">
                                             <FormControl>
                                                 <Checkbox
-                                                    checked={field.value?.some(v => v.id === item.id)}
+                                                    checked={field.value?.some(v => v?.id === item.id)}
                                                     onCheckedChange={(checked) => {
                                                         const currentValues = field.value || [];
                                                         if (checked) {
                                                             field.onChange([...currentValues, { id: item.id, noOfPcs: '1' }]);
                                                         } else {
-                                                            field.onChange(currentValues.filter(v => v.id !== item.id));
+                                                            field.onChange(currentValues.filter(v => v?.id !== item.id));
                                                         }
                                                     }}
                                                 />
@@ -814,18 +862,18 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                 />
                                 <FormField
                                     control={form.control}
-                                    name={`subDeliveryInstallations.${form.watch('subDeliveryInstallations')?.findIndex(d => d.id === item.id)}.noOfPcs`}
+                                    name={`subDeliveryInstallations.${form.watch('subDeliveryInstallations')?.findIndex(d => d?.id === item.id)}.noOfPcs`}
                                     render={({ field }) => (
                                         <FormControl>
                                             <Input
                                                 type="number"
                                                 className="h-7 w-20"
                                                 placeholder="Pcs"
-                                                disabled={!form.watch('subDeliveryInstallations')?.some(v => v.id === item.id)}
+                                                disabled={!form.watch('subDeliveryInstallations')?.some(v => v?.id === item.id)}
                                                 onChange={(e) => {
                                                     const currentValues = form.getValues('subDeliveryInstallations') || [];
                                                     const itemIndex = currentValues.findIndex(v => v?.id === item.id);
-                                                    if (itemIndex > -1) {
+                                                    if (itemIndex > -1 && currentValues[itemIndex]) {
                                                         const newValues = [...currentValues];
                                                         newValues[itemIndex] = { ...newValues[itemIndex]!, noOfPcs: e.target.value };
                                                         form.setValue('subDeliveryInstallations', newValues, { shouldValidate: true });
@@ -1169,7 +1217,6 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
     );
 }
 
-const productCategoryOptions = [{ value: "fabric", label: "Fabric" }, { value: "furniture", label: "Furniture" }];
 const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtain" }, { value: "sofa", label: "Sofa Fabric" }];
 
 const AddProductForm = ({ onAddProduct }: { onAddProduct: (data: ProductFormValues) => void }) => {
@@ -1206,8 +1253,12 @@ const AddProductForm = ({ onAddProduct }: { onAddProduct: (data: ProductFormValu
             addProductForm.setValue('collectionBrand', stockItem.bcn || stockItem.id);
             const category = stockItem.category?.toLowerCase() || '';
             let productCategoryValue = '';
-            if (category.includes('fabric')) productCategoryValue = 'fabric';
-            else if (category.includes('furniture')) productCategoryValue = 'furniture';
+            
+            const matchedOption = productTypeOptions.find(opt => category.includes(opt.value));
+            if (matchedOption) {
+                productCategoryValue = matchedOption.value;
+            }
+
             addProductForm.setValue('productCategory', productCategoryValue);
             addProductForm.setValue('serialNo', stockItem.serialNo || '');
         }
@@ -1231,7 +1282,7 @@ const AddProductForm = ({ onAddProduct }: { onAddProduct: (data: ProductFormValu
             <Card className="mb-4 p-4">
                 <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                        <FormField control={addProductForm.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/></FormLabel> <Combobox options={productCategoryOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                        <FormField control={addProductForm.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/></FormLabel> <Combobox options={productTypeOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN)* <span className="text-destructive">*</span><Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} onSearch={handleBcnSearch} placeholder="Search by any part of BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="serialNo" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} readOnly /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
@@ -1696,7 +1747,7 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded }: { cus
                 <h4 className="font-semibold">Delivery/Installation Selected:</h4>
                 <ul className="list-disc list-inside text-muted-foreground">
                     {(visit.deliveryInstallations && visit.deliveryInstallations.length > 0) ? 
-                        visit.deliveryInstallations.map(d => <li key={d.id}>{deliveryInstallationItems.find(di => di.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>) 
+                        visit.deliveryInstallations.map(d => d && <li key={d.id}>{deliveryInstallationItems.find(di => di.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>) 
                         : <li>None</li>}
                     {visit.otherDelivery && <li>Other: {visit.otherDelivery}</li>}
                 </ul>
@@ -1705,7 +1756,7 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded }: { cus
                 <div>
                     <h4 className="font-semibold">Sub-Delivery/Installation:</h4>
                     <ul className="list-disc list-inside text-muted-foreground">
-                        {visit.subDeliveryInstallations.map(d => <li key={d.id}>{subDeliveryInstallationItems.find(sdi => sdi.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>)}
+                        {visit.subDeliveryInstallations.map(d => d && <li key={d.id}>{subDeliveryInstallationItems.find(sdi => sdi.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>)}
                     </ul>
                 </div>
             )}
@@ -2067,3 +2118,4 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     </div>
   );
 }
+
