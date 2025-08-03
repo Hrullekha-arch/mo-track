@@ -126,7 +126,7 @@ const productListSchema = z.object({
 type ProductFormValues = z.infer<typeof productSchema>;
 type ProductListFormValues = z.infer<typeof productListSchema>;
 
-const roomOptions = [
+export const roomOptions = [
     { value: "kids-room", label: "KIDS ROOM" },
     { value: "bedroom", label: "BEDROOM" },
     { value: "master-bedroom", label: "MASTER BEDROOM" },
@@ -399,7 +399,7 @@ const roomOptions = [
     { value: "bed-room-3-wall-1", label: "BED ROOM 3 WALL 1" },
 ];
 
-const visitTypeOptions = [
+export const visitTypeOptions = [
     { value: "measurements", label: "Measurements" },
     { value: "fittings", label: "Fittings" },
     { value: "complaint", label: "Complaint" },
@@ -408,7 +408,7 @@ const visitTypeOptions = [
     { value: "other", label: "Other" },
 ];
 
-const measurementItems = [
+export const measurementItems = [
     { id: 'curtain-measurement', label: 'Curtain Measurement' },
     { id: 'sofa-measurement', label: 'Sofa Measurement' },
     { id: 'blind-measurement', label: 'Blind Measurement' },
@@ -421,19 +421,19 @@ const measurementItems = [
     { id: 're-measurement', label: 'Re-Measurement' },
 ];
 
-const subMeasurementBlinds = [
+export const subMeasurementBlinds = [
     { id: 'roman-blind', label: 'Roman Blind' },
     { id: 'roller-blind', label: 'Roller Blind' },
     { id: 'wooden-blind', label: 'Wooden Blind' },
 ];
 
-const subMeasurementCurtain = [
+export const subMeasurementCurtain = [
     { id: 'three-pleat', label: 'Three Pleat' },
     { id: 'eyelet', label: 'Eyelet' },
     { id: 'other', label: 'Other' },
 ];
 
-const deliveryInstallationItems = [
+export const deliveryInstallationItems = [
     { id: 'curtain-installation', label: 'Curtain Installation' },
     { id: 'blind-installation', label: 'Blind Installation' },
     { id: 'rod-channel-installation', label: 'Rod+Channel installation' },
@@ -442,7 +442,7 @@ const deliveryInstallationItems = [
     { id: 'other', label: 'Other' },
 ];
 
-const subDeliveryInstallationItems = [
+export const subDeliveryInstallationItems = [
     { id: 'roman-blind', label: 'Roman Blind' },
     { id: 'roller-blind', label: 'Roller Blind' },
     { id: 'wooden-blind', label: 'Wooden Blind' },
