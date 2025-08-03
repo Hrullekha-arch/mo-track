@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
@@ -541,7 +540,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                            {item.id !== 'blind-installation' && (
                                 <FormField
                                     control={form.control}
-                                    name={`deliveryInstallations.${deliveryInstallationItems.findIndex(d => d.id === item.id)}.noOfPcs`}
+                                    name={`deliveryInstallations.${form.watch('deliveryInstallations')?.findIndex(d => d.id === item.id)}.noOfPcs`}
                                     render={({ field }) => (
                                         <FormControl>
                                             <Input
@@ -551,7 +550,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                                 disabled={!form.watch('deliveryInstallations')?.some(v => v.id === item.id)}
                                                 onChange={(e) => {
                                                     const currentValues = form.getValues('deliveryInstallations') || [];
-                                                    const itemIndex = currentValues.findIndex(v => v.id === item.id);
+                                                    const itemIndex = currentValues.findIndex(v => v?.id === item.id);
                                                     if (itemIndex > -1) {
                                                         const newValues = [...currentValues];
                                                         newValues[itemIndex] = { ...newValues[itemIndex], noOfPcs: e.target.value };
@@ -566,12 +565,12 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                             )}
                         </div>
                     ))}
-                    {form.watch('deliveryInstallations')?.some(v => !!v && v.id === 'other') && (
+                    {form.watch('deliveryInstallations')?.some(v => v?.id === 'other') && (
                         <FormField control={form.control} name="otherDelivery" render={({ field }) => ( <FormControl><Input placeholder="Specify other" {...field} className="h-8" /></FormControl> )} />
                     )}
                 </div>
                  {/* Sub-Delivery/Installation Column */}
-                 {watchedDeliveryInstallations?.some(d => d.id === 'blind-installation') && (
+                 {watchedDeliveryInstallations?.some(d => d?.id === 'blind-installation') && (
                      <div className="space-y-3">
                          <FormLabel className="font-semibold">Sub-Delivery/Installation</FormLabel>
                           {subDeliveryInstallationItems.map((item) => (
@@ -600,8 +599,8 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                 />
                                 <FormField
                                     control={form.control}
-                                    name={`subDeliveryInstallations.${subDeliveryInstallationItems.findIndex(d => d.id === item.id)}.noOfPcs`}
-                                    render={({ field: { onChange, value, ...rest } }) => (
+                                    name={`subDeliveryInstallations.${form.watch('subDeliveryInstallations')?.findIndex(d => d.id === item.id)}.noOfPcs`}
+                                    render={({ field }) => (
                                         <FormControl>
                                             <Input
                                                 type="number"
@@ -610,7 +609,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                                 disabled={!form.watch('subDeliveryInstallations')?.some(v => v.id === item.id)}
                                                 onChange={(e) => {
                                                     const currentValues = form.getValues('subDeliveryInstallations') || [];
-                                                    const itemIndex = currentValues.findIndex(v => v.id === item.id);
+                                                    const itemIndex = currentValues.findIndex(v => v?.id === item.id);
                                                     if (itemIndex > -1) {
                                                         const newValues = [...currentValues];
                                                         newValues[itemIndex] = { ...newValues[itemIndex], noOfPcs: e.target.value };
@@ -618,7 +617,6 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                                     }
                                                 }}
                                                 value={form.getValues('subDeliveryInstallations')?.find(v => v?.id === item.id)?.noOfPcs || ''}
-                                                {...rest}
                                             />
                                         </FormControl>
                                     )}
@@ -1818,3 +1816,5 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     </div>
   );
 }
+
+    
