@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
@@ -557,7 +558,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                                         form.setValue('deliveryInstallations', newValues);
                                                     }
                                                 }}
-                                                value={form.getValues('deliveryInstallations')?.find(v => v.id === item.id)?.noOfPcs || ''}
+                                                value={form.getValues('deliveryInstallations')?.find(v => v?.id === item.id)?.noOfPcs || ''}
                                             />
                                         </FormControl>
                                     )}
@@ -613,10 +614,10 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                                     if (itemIndex > -1) {
                                                         const newValues = [...currentValues];
                                                         newValues[itemIndex] = { ...newValues[itemIndex], noOfPcs: e.target.value };
-                                                        form.setValue('subDeliveryInstallations', newValues);
+                                                        form.setValue('subDeliveryInstallations', newValues, { shouldValidate: true });
                                                     }
                                                 }}
-                                                value={form.getValues('subDeliveryInstallations')?.find(v => v.id === item.id)?.noOfPcs || ''}
+                                                value={form.getValues('subDeliveryInstallations')?.find(v => v?.id === item.id)?.noOfPcs || ''}
                                                 {...rest}
                                             />
                                         </FormControl>
