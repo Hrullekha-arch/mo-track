@@ -436,6 +436,8 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
         }
     });
 
+    const watchedMeasurements = form.watch("measurements");
+
     async function onSubmit(data: VisitFormValues) {
         if (!user) {
             toast({ variant: "destructive", title: "Authentication Error", description: "You must be logged in." });
@@ -557,47 +559,51 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
                                                 />
                                                 <div className="space-y-4">
                                                     <p className="font-medium text-sm">Sub-Measurements</p>
-                                                    <FormField
-                                                        control={form.control}
-                                                        name="blinds"
-                                                        render={() => (
-                                                            <FormItem className="space-y-3 pl-4">
-                                                                <FormLabel>Blinds</FormLabel>
-                                                                {subMeasurementBlinds.map((item) => (
-                                                                    <FormField key={item.id} control={form.control} name="blinds"
-                                                                        render={({ field }) => (
-                                                                            <FormItem key={item.id} className="flex flex-row items-start space-x-3 space-y-0">
-                                                                                <FormControl><Checkbox checked={field.value?.includes(item.id)} onCheckedChange={(checked) => { return checked ? field.onChange([...(field.value || []), item.id]) : field.onChange(field.value?.filter((value) => value !== item.id)) }} /></FormControl>
-                                                                                <FormLabel className="font-normal">{item.label}</FormLabel>
-                                                                            </FormItem>
-                                                                        )}
-                                                                    />
-                                                                ))}
-                                                            </FormItem>
-                                                        )}
-                                                    />
-                                                     <FormField
-                                                        control={form.control}
-                                                        name="curtain"
-                                                        render={() => (
-                                                            <FormItem className="space-y-3 pl-4">
-                                                                <FormLabel>Curtain</FormLabel>
-                                                                {subMeasurementCurtain.map((item) => (
-                                                                    <FormField key={item.id} control={form.control} name="curtain"
-                                                                        render={({ field }) => (
-                                                                            <FormItem key={item.id} className="flex flex-row items-center space-x-3 space-y-0">
-                                                                                <FormControl><Checkbox checked={field.value?.includes(item.id)} onCheckedChange={(checked) => { return checked ? field.onChange([...(field.value || []), item.id]) : field.onChange(field.value?.filter((value) => value !== item.id)) }} /></FormControl>
-                                                                                <FormLabel className="font-normal">{item.label}</FormLabel>
-                                                                                {item.id === 'other' && form.watch('curtain')?.includes('other') && (
-                                                                                     <FormField control={form.control} name="otherCurtain" render={({ field }) => ( <FormControl><Input {...field} className="h-7" /></FormControl> )} />
-                                                                                )}
-                                                                            </FormItem>
-                                                                        )}
-                                                                    />
-                                                                ))}
-                                                            </FormItem>
-                                                        )}
-                                                    />
+                                                    {watchedMeasurements?.includes('blind-measurement') && (
+                                                        <FormField
+                                                            control={form.control}
+                                                            name="blinds"
+                                                            render={() => (
+                                                                <FormItem className="space-y-3 pl-4">
+                                                                    <FormLabel>Blinds</FormLabel>
+                                                                    {subMeasurementBlinds.map((item) => (
+                                                                        <FormField key={item.id} control={form.control} name="blinds"
+                                                                            render={({ field }) => (
+                                                                                <FormItem key={item.id} className="flex flex-row items-start space-x-3 space-y-0">
+                                                                                    <FormControl><Checkbox checked={field.value?.includes(item.id)} onCheckedChange={(checked) => { return checked ? field.onChange([...(field.value || []), item.id]) : field.onChange(field.value?.filter((value) => value !== item.id)) }} /></FormControl>
+                                                                                    <FormLabel className="font-normal">{item.label}</FormLabel>
+                                                                                </FormItem>
+                                                                            )}
+                                                                        />
+                                                                    ))}
+                                                                </FormItem>
+                                                            )}
+                                                        />
+                                                    )}
+                                                     {watchedMeasurements?.includes('curtain-measurement') && (
+                                                        <FormField
+                                                            control={form.control}
+                                                            name="curtain"
+                                                            render={() => (
+                                                                <FormItem className="space-y-3 pl-4">
+                                                                    <FormLabel>Curtain</FormLabel>
+                                                                    {subMeasurementCurtain.map((item) => (
+                                                                        <FormField key={item.id} control={form.control} name="curtain"
+                                                                            render={({ field }) => (
+                                                                                <FormItem key={item.id} className="flex flex-row items-center space-x-3 space-y-0">
+                                                                                    <FormControl><Checkbox checked={field.value?.includes(item.id)} onCheckedChange={(checked) => { return checked ? field.onChange([...(field.value || []), item.id]) : field.onChange(field.value?.filter((value) => value !== item.id)) }} /></FormControl>
+                                                                                    <FormLabel className="font-normal">{item.label}</FormLabel>
+                                                                                    {item.id === 'other' && form.watch('curtain')?.includes('other') && (
+                                                                                        <FormField control={form.control} name="otherCurtain" render={({ field }) => ( <FormControl><Input {...field} className="h-7" /></FormControl> )} />
+                                                                                    )}
+                                                                                </FormItem>
+                                                                            )}
+                                                                        />
+                                                                    ))}
+                                                                </FormItem>
+                                                            )}
+                                                        />
+                                                     )}
                                                 </div>
                                             </div>
                                         </div>
