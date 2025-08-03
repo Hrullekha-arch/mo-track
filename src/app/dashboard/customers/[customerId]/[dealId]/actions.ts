@@ -2,7 +2,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { VisitFormValues, MeasurementFormValues } from './page';
 
@@ -133,6 +133,9 @@ export async function addVisitAction(
             blinds: visitData.blinds,
             curtain: visitData.curtain,
             otherCurtain: visitData.otherCurtain,
+            deliveryInstallations: visitData.deliveryInstallations,
+            subDeliveryInstallations: visitData.subDeliveryInstallations,
+            otherDelivery: visitData.otherDelivery,
         };
 
         await newVisitRef.set(newVisit);

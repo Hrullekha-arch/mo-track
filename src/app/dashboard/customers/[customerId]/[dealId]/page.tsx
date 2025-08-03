@@ -7,7 +7,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -66,17 +66,29 @@ import { QuotationDetailDialog } from "@/components/features/order-management/Qu
 import { PrintableQuotation } from "@/components/features/order-management/PrintableQuotation";
 import { useAuth } from "@/context/AuthContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
+
+const deliveryInstallationItemSchema = z.object({
+  id: z.string(),
+  noOfPcs: z.string().optional(),
+});
 
 const visitSchema = z.object({
     representative: z.string().min(1, "Representative is required."),
     date: z.date({ required_error: "A date is required." }),
     time: z.string({ required_error: "A time is required." }),
+    // Measurement fields
     measurements: z.array(z.string()).optional(),
     blinds: z.array(z.string()).optional(),
     curtain: z.array(z.string()).optional(),
     otherCurtain: z.string().optional(),
+    // Delivery fields
+    deliveryInstallations: z.array(deliveryInstallationItemSchema).optional(),
+    subDeliveryInstallations: z.array(deliveryInstallationItemSchema).optional(),
+    otherDelivery: z.string().optional(),
 });
+
 
 export type VisitFormValues = z.infer<typeof visitSchema>;
 
@@ -421,11 +433,28 @@ const subMeasurementCurtain = [
     { id: 'other', label: 'Other' },
 ];
 
-function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void }) {
+const deliveryInstallationItems = [
+    { id: 'curtain-installation', label: 'Curtain Installation' },
+    { id: 'blind-installation', label: 'Blind Installation' },
+    { id: 'rod-channel-installation', label: 'Rod+Channel installation' },
+    { id: 'motorize-channel-installation', label: 'Motorize Channel Installation' },
+    { id: 'delivery', label: 'Delivery' },
+    { id: 'other', label: 'Other' },
+];
+
+const subDeliveryInstallationItems = [
+    { id: 'roman-blind', label: 'Roman Blind' },
+    { id: 'roller-blind', label: 'Roller Blind' },
+    { id: 'wooden-blind', label: 'Wooden Blind' },
+];
+
+function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void, visits: DealVisit[] }) {
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('measurement');
     const { toast } = useToast();
     const { user } = useAuth();
+    
+    const hasMeasurementVisit = useMemo(() => visits.some(v => v.typeOfVisit === 'measurement'), [visits]);
 
     const form = useForm<VisitFormValues>({
         resolver: zodResolver(visitSchema),
@@ -437,10 +466,14 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
             blinds: [],
             curtain: [],
             otherCurtain: '',
+            deliveryInstallations: [],
+            subDeliveryInstallations: [],
+            otherDelivery: '',
         }
     });
 
     const watchedMeasurements = form.watch("measurements");
+    const watchedDeliveryInstallations = form.watch("deliveryInstallations");
 
     async function onSubmit(data: VisitFormValues) {
         if (!user) {
@@ -473,6 +506,128 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
             setLoading(false);
         }
     }
+    
+    const DeliveryVisitTabContent = (
+        <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Delivery/Installation Column */}
+                <div className="space-y-3">
+                    <FormLabel className="font-semibold">Delivery/Installation</FormLabel>
+                    {deliveryInstallationItems.map((item) => (
+                        <div key={item.id} className="flex items-center gap-2">
+                            <FormField
+                                control={form.control}
+                                name="deliveryInstallations"
+                                render={({ field }) => (
+                                    <FormItem className="flex items-center space-x-2 space-y-0">
+                                        <FormControl>
+                                            <Checkbox
+                                                checked={field.value?.some(v => v.id === item.id)}
+                                                onCheckedChange={(checked) => {
+                                                    const currentValues = field.value || [];
+                                                    if (checked) {
+                                                        field.onChange([...currentValues, { id: item.id, noOfPcs: '1' }]);
+                                                    } else {
+                                                        field.onChange(currentValues.filter(v => v.id !== item.id));
+                                                    }
+                                                }}
+                                            />
+                                        </FormControl>
+                                        <FormLabel className="font-normal">{item.label}</FormLabel>
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={form.control}
+                                name={`deliveryInstallations.${deliveryInstallationItems.findIndex(d => d.id === item.id)}.noOfPcs`}
+                                render={({ field }) => (
+                                     <FormControl>
+                                        <Input
+                                            type="number"
+                                            className="h-7 w-20"
+                                            placeholder="Pcs"
+                                            {...field}
+                                            disabled={!form.getValues('deliveryInstallations')?.some(v => v.id === item.id)}
+                                            onChange={(e) => {
+                                                const currentValues = form.getValues('deliveryInstallations') || [];
+                                                const itemIndex = currentValues.findIndex(v => v.id === item.id);
+                                                if (itemIndex > -1) {
+                                                    const newValues = [...currentValues];
+                                                    newValues[itemIndex] = { ...newValues[itemIndex], noOfPcs: e.target.value };
+                                                    form.setValue('deliveryInstallations', newValues);
+                                                }
+                                            }}
+                                            value={form.getValues('deliveryInstallations')?.find(v => v.id === item.id)?.noOfPcs || ''}
+                                        />
+                                    </FormControl>
+                                )}
+                            />
+                        </div>
+                    ))}
+                    {form.watch('deliveryInstallations')?.some(v => v.id === 'other') && (
+                        <FormField control={form.control} name="otherDelivery" render={({ field }) => ( <FormControl><Input placeholder="Specify other" {...field} className="h-8" /></FormControl> )} />
+                    )}
+                </div>
+                 {/* Sub-Delivery/Installation Column */}
+                 {watchedDeliveryInstallations?.some(d => d.id === 'blind-installation') && (
+                     <div className="space-y-3">
+                         <FormLabel className="font-semibold">Sub-Delivery/Installation</FormLabel>
+                          {subDeliveryInstallationItems.map((item) => (
+                            <div key={item.id} className="flex items-center gap-2">
+                                <FormField
+                                    control={form.control}
+                                    name="subDeliveryInstallations"
+                                    render={({ field }) => (
+                                        <FormItem className="flex items-center space-x-2 space-y-0">
+                                            <FormControl>
+                                                <Checkbox
+                                                    checked={field.value?.some(v => v.id === item.id)}
+                                                    onCheckedChange={(checked) => {
+                                                        const currentValues = field.value || [];
+                                                        if (checked) {
+                                                            field.onChange([...currentValues, { id: item.id, noOfPcs: '1' }]);
+                                                        } else {
+                                                            field.onChange(currentValues.filter(v => v.id !== item.id));
+                                                        }
+                                                    }}
+                                                />
+                                            </FormControl>
+                                            <FormLabel className="font-normal">{item.label}</FormLabel>
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name={`subDeliveryInstallations.${subDeliveryInstallationItems.findIndex(d => d.id === item.id)}.noOfPcs`}
+                                    render={({ field }) => (
+                                         <FormControl>
+                                            <Input
+                                                type="number"
+                                                className="h-7 w-20"
+                                                placeholder="Pcs"
+                                                {...field}
+                                                disabled={!form.getValues('subDeliveryInstallations')?.some(v => v.id === item.id)}
+                                                onChange={(e) => {
+                                                    const currentValues = form.getValues('subDeliveryInstallations') || [];
+                                                    const itemIndex = currentValues.findIndex(v => v.id === item.id);
+                                                    if (itemIndex > -1) {
+                                                        const newValues = [...currentValues];
+                                                        newValues[itemIndex] = { ...newValues[itemIndex], noOfPcs: e.target.value };
+                                                        form.setValue('subDeliveryInstallations', newValues);
+                                                    }
+                                                }}
+                                                value={form.getValues('subDeliveryInstallations')?.find(v => v.id === item.id)?.noOfPcs || ''}
+                                            />
+                                        </FormControl>
+                                    )}
+                                />
+                            </div>
+                         ))}
+                     </div>
+                )}
+            </div>
+        </div>
+    );
 
     return (
          <Card className="mt-6">
@@ -487,68 +642,86 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
                              <div className="flex">
                                 <button type="button" onClick={() => setActiveTab('measurement')} className={`flex-1 p-3 font-semibold text-center ${activeTab === 'measurement' ? 'bg-primary text-primary-foreground rounded-tl-md' : 'bg-muted/50'}`}>Measurement Visit</button>
                                 <Separator orientation="vertical" />
-                                <button type="button" onClick={() => setActiveTab('delivery')} className={`flex-1 p-3 font-semibold text-center ${activeTab === 'delivery' ? 'bg-primary text-primary-foreground rounded-tr-md' : 'bg-muted/50'}`}>Delivery Visit</button>
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => hasMeasurementVisit && setActiveTab('delivery')} 
+                                                className={`flex-1 p-3 font-semibold text-center ${activeTab === 'delivery' ? 'bg-primary text-primary-foreground rounded-tr-md' : 'bg-muted/50'} disabled:cursor-not-allowed disabled:opacity-50`}
+                                                disabled={!hasMeasurementVisit}
+                                            >
+                                                Delivery Visit
+                                            </button>
+                                        </TooltipTrigger>
+                                        {!hasMeasurementVisit && (
+                                            <TooltipContent>
+                                                <p>A measurement visit must be completed before creating a delivery visit.</p>
+                                            </TooltipContent>
+                                        )}
+                                    </Tooltip>
+                                </TooltipProvider>
                             </div>
 
                             <div className="p-6 space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    <FormField
+                                        control={form.control}
+                                        name="representative"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Representative</FormLabel>
+                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                    <FormControl>
+                                                        <SelectTrigger><SelectValue placeholder="All User" /></SelectTrigger>
+                                                    </FormControl>
+                                                    <SelectContent>
+                                                        {salesmen.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                                    </SelectContent>
+                                                </Select>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="date"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Date</FormLabel>
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <FormControl>
+                                                            <Button variant={"outline"} className="w-full justify-start text-left font-normal">
+                                                                <Calendar className="mr-2 h-4 w-4" />
+                                                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                                            </Button>
+                                                        </FormControl>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-auto p-0">
+                                                        <CalendarPicker mode="single" selected={field.value} onSelect={field.onChange} />
+                                                    </PopoverContent>
+                                                </Popover>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                        <FormField
+                                        control={form.control}
+                                        name="time"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Time</FormLabel>
+                                                <FormControl>
+                                                    <Input type="time" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
                                 {activeTab === 'measurement' ? (
                                     <>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                            <FormField
-                                                control={form.control}
-                                                name="representative"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Representative</FormLabel>
-                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                            <FormControl>
-                                                                <SelectTrigger><SelectValue placeholder="All User" /></SelectTrigger>
-                                                            </FormControl>
-                                                            <SelectContent>
-                                                                {salesmen.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}
-                                            />
-                                            <FormField
-                                                control={form.control}
-                                                name="date"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Date</FormLabel>
-                                                        <Popover>
-                                                            <PopoverTrigger asChild>
-                                                                <FormControl>
-                                                                    <Button variant={"outline"} className="w-full justify-start text-left font-normal">
-                                                                        <Calendar className="mr-2 h-4 w-4" />
-                                                                        {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                                                    </Button>
-                                                                </FormControl>
-                                                            </PopoverTrigger>
-                                                            <PopoverContent className="w-auto p-0">
-                                                                <CalendarPicker mode="single" selected={field.value} onSelect={field.onChange} />
-                                                            </PopoverContent>
-                                                        </Popover>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}
-                                            />
-                                             <FormField
-                                                control={form.control}
-                                                name="time"
-                                                render={({ field }) => (
-                                                    <FormItem>
-                                                        <FormLabel>Time</FormLabel>
-                                                        <FormControl>
-                                                            <Input type="time" {...field} />
-                                                        </FormControl>
-                                                        <FormMessage />
-                                                    </FormItem>
-                                                )}
-                                            />
-                                        </div>
                                         <div className="border rounded-lg p-4">
                                             <FormLabel className="mb-4 block font-semibold">Type Of Measurement</FormLabel>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -629,8 +802,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
                                     </>
                                 ) : (
                                     <div>
-                                        {/* Delivery Visit Form will go here */}
-                                        <p className="text-center text-muted-foreground p-8">Delivery visit form to be added.</p>
+                                        {DeliveryVisitTabContent}
                                     </div>
                                 )}
                             </div>
@@ -1271,29 +1443,13 @@ function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string 
     )
 }
 
-function VisitsTab({ customerId, dealId, salesmen }: { customerId: string, dealId: string, salesmen: User[] }) {
-    const [visits, setVisits] = useState<DealVisit[]>([]);
-    const [loading, setLoading] = useState(true);
+function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded }: { customerId: string, dealId: string, salesmen: User[], visits: DealVisit[], onVisitAdded: (visit: DealVisit) => void }) {
+    const [loading, setLoading] = useState(false);
     const [selectedVisit, setSelectedVisit] = useState<DealVisit | null>(null);
-
-    const fetchVisits = useCallback(async () => {
-        setLoading(true);
-        const data = await getVisitsForDeal(customerId, dealId);
-        setVisits(data);
-        setLoading(false);
-    }, [customerId, dealId]);
-    
-    useEffect(() => {
-        fetchVisits();
-    }, [fetchVisits]);
-
-    const handleVisitAdded = (newVisit: DealVisit) => {
-        setVisits(prev => [newVisit, ...prev]);
-    };
 
     return (
         <div>
-            <VisitForm salesmen={salesmen} customerId={customerId} dealId={dealId} onVisitAdded={handleVisitAdded} />
+            <VisitForm salesmen={salesmen} customerId={customerId} dealId={dealId} onVisitAdded={onVisitAdded} visits={visits} />
             <Card className="mt-6">
                 <CardHeader>
                     <CardTitle>Visit History</CardTitle>
@@ -1497,7 +1653,13 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [deal, setDeal] = useState<Deal | null>(null);
   const [salesmen, setSalesmen] = useState<User[]>([]);
+  const [visits, setVisits] = useState<DealVisit[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const fetchVisits = useCallback(async () => {
+    const data = await getVisitsForDeal(customerId, dealId);
+    setVisits(data);
+  }, [customerId, dealId]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -1530,7 +1692,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   useEffect(() => {
     if (!customerId || !dealId) return;
     fetchData();
-  }, [customerId, dealId, fetchData]);
+    fetchVisits();
+  }, [customerId, dealId, fetchData, fetchVisits]);
 
   if (loading) {
     return <CrmActivitySkeleton />;
@@ -1622,7 +1785,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsList>
           
           <TabsContent value="visits">
-            <VisitsTab customerId={customerId} dealId={dealId} salesmen={salesmen} />
+            <VisitsTab customerId={customerId} dealId={dealId} salesmen={salesmen} visits={visits} onVisitAdded={fetchVisits} />
           </TabsContent>
           
           <TabsContent value="measurement">

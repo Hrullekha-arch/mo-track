@@ -247,6 +247,11 @@ export interface DealProduct {
     file?: any;
 }
 
+export interface DeliveryInstallationItem {
+    id: string;
+    noOfPcs?: string;
+}
+
 export interface DealVisit {
     id: string;
     representative: string;
@@ -254,11 +259,17 @@ export interface DealVisit {
     dueDate: string; // ISO string
     createdAt: string; // ISO string
     createdBy: string;
+    // Measurement fields
     measurements?: string[];
     blinds?: string[];
     curtain?: string[];
     otherCurtain?: string;
+    // Delivery/Installation fields
+    deliveryInstallations?: DeliveryInstallationItem[];
+    subDeliveryInstallations?: DeliveryInstallationItem[];
+    otherDelivery?: string;
 }
+
 
 export interface DealMeasurement {
     id: string;
