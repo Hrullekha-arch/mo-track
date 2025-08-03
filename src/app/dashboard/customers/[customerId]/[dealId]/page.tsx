@@ -40,6 +40,7 @@ import {
   Copy,
   FileDown,
   Eye,
+  Contact2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -447,6 +448,220 @@ export const subDeliveryInstallationItems = [
     { id: 'roller-blind', label: 'Roller Blind' },
     { id: 'wooden-blind', label: 'Wooden Blind' },
 ];
+
+const itemSchema = z.object({
+  itemName: z.string().optional(),
+  type: z.string().optional(),
+  qty: z.string().optional(),
+  rate: z.string().optional(),
+  dis: z.string().optional(),
+  gst: z.string().optional(),
+  amount: z.string().optional(),
+});
+
+const roomSchema = z.object({
+  room: z.string().optional(),
+  items: z.array(itemSchema),
+});
+
+const cpdSchema = z.object({
+  representative: z.string().optional(),
+  customerName: z.string().optional(),
+  telNo: z.string().optional(),
+  date: z.string().optional(),
+  rooms: z.array(roomSchema),
+});
+
+type CpdFormValues = z.infer<typeof cpdSchema>;
+
+function CpdForm({ customer, salesmen }: { customer: Customer, salesmen: User[] }) {
+    const form = useForm<CpdFormValues>({
+        resolver: zodResolver(cpdSchema),
+        defaultValues: {
+            customerName: customer.name,
+            telNo: customer.mobileNo,
+            date: format(new Date(), "yyyy-MM-dd"),
+            rooms: [{ room: "", items: [{}] }],
+        }
+    });
+
+    const { fields, append, remove } = useFieldArray({
+        control: form.control,
+        name: "rooms"
+    });
+
+    return (
+        <Card>
+            <CardContent className="pt-6">
+                <FormProvider {...form}>
+                    <form className="space-y-6">
+                        {/* Top section */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                            <FormField
+                                control={form.control}
+                                name="representative"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Representative</FormLabel>
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select Salesman" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                {salesmen.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={form.control}
+                                name="customerName"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Customer Name</FormLabel>
+                                        <FormControl><Input {...field} readOnly /></FormControl>
+                                    </FormItem>
+                                )}
+                            />
+                             <FormField
+                                control={form.control}
+                                name="telNo"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Tele. No</FormLabel>
+                                        <FormControl><Input {...field} readOnly /></FormControl>
+                                    </FormItem>
+                                )}
+                            />
+                             <FormField
+                                control={form.control}
+                                name="date"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Date</FormLabel>
+                                        <FormControl><Input type="date" {...field} readOnly /></FormControl>
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
+
+                        <Separator />
+
+                        {/* Rooms Section */}
+                        <div className="space-y-4">
+                            {fields.map((field, index) => (
+                                <RoomFields key={field.id} roomIndex={index} onRemoveRoom={() => remove(index)} />
+                            ))}
+                        </div>
+
+                         <Button type="button" onClick={() => append({ room: "", items: [{}] })}>
+                            <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
+                        </Button>
+                    </form>
+                </FormProvider>
+            </CardContent>
+        </Card>
+    )
+}
+
+function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRoom: () => void }) {
+    const { control } = useForm<CpdFormValues>();
+    const { fields, append, remove } = useFieldArray({
+        control,
+        name: `rooms.${roomIndex}.items`
+    });
+
+    return (
+        <Card className="p-4 bg-muted/30">
+            <div className="flex justify-between items-center mb-4">
+                 <FormField
+                    control={control}
+                    name={`rooms.${roomIndex}.room`}
+                    render={({ field }) => (
+                        <FormItem className="w-1/3">
+                            <FormLabel>Room</FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl><SelectTrigger><SelectValue placeholder="Select Room" /></SelectTrigger></FormControl>
+                                <SelectContent>
+                                    {roomOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </FormItem>
+                    )}
+                />
+                 <Button type="button" variant="destructive" size="sm" onClick={onRemoveRoom}>
+                    <Trash2 className="mr-2 h-4 w-4" /> Remove Room
+                </Button>
+            </div>
+            
+             <div className="space-y-2">
+                {fields.map((item, itemIndex) => (
+                    <div key={item.id} className="p-3 border rounded-md bg-background flex items-end gap-2">
+                        <div className="grid grid-cols-2 gap-2 flex-grow">
+                             <FormField
+                                control={control}
+                                name={`rooms.${roomIndex}.items.${itemIndex}.itemName`}
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-xs">Item Name</FormLabel>
+                                        <FormControl><Input {...field} /></FormControl>
+                                    </FormItem>
+                                )}
+                            />
+                             <FormField
+                                control={control}
+                                name={`rooms.${roomIndex}.items.${itemIndex}.type`}
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-xs">Type</FormLabel>
+                                        <FormControl><Input {...field} /></FormControl>
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 gap-2 flex-grow">
+                             <FormField
+                                control={control}
+                                name={`rooms.${roomIndex}.items.${itemIndex}.qty`}
+                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Qty</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )}
+                            />
+                            <FormField
+                                control={control}
+                                name={`rooms.${roomIndex}.items.${itemIndex}.rate`}
+                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Rate</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )}
+                            />
+                            <FormField
+                                control={control}
+                                name={`rooms.${roomIndex}.items.${itemIndex}.dis`}
+                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Dis%</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )}
+                            />
+                            <FormField
+                                control={control}
+                                name={`rooms.${roomIndex}.items.${itemIndex}.gst`}
+                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Gst%</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )}
+                            />
+                        </div>
+                        <FormField
+                            control={control}
+                            name={`rooms.${roomIndex}.items.${itemIndex}.amount`}
+                            render={({ field }) => ( <FormItem><FormLabel className="text-xs">Amount</FormLabel><FormControl><Input {...field} readOnly /></FormControl></FormItem> )}
+                        />
+
+                         <Button type="button" size="icon" variant="ghost" className="text-destructive" onClick={() => remove(itemIndex)}>
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    </div>
+                ))}
+             </div>
+             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({})}>
+                <PlusCircle className="mr-2 h-4 w-4" /> Add Item
+            </Button>
+        </Card>
+    );
+}
 
 function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void, visits: DealVisit[] }) {
     const [loading, setLoading] = useState(false);
@@ -1806,6 +2021,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           <TabsList className="mb-4">
             <TabsTrigger value="visits"><Home className="mr-2 h-4 w-4" />Visits</TabsTrigger>
             <TabsTrigger value="measurement"><GanttChartSquare className="mr-2 h-4 w-4"/>Measurement</TabsTrigger>
+            <TabsTrigger value="cpd"><Contact2 className="mr-2 h-4 w-4" />CPD</TabsTrigger>
             <TabsTrigger value="products"><ShoppingCart className="mr-2 h-4 w-4"/>Products</TabsTrigger>
             <TabsTrigger value="reminder"><Calendar className="mr-2 h-4 w-4"/>Reminder/Notes</TabsTrigger>
             <TabsTrigger value="receipt"><Receipt className="mr-2 h-4 w-4"/>Receipt</TabsTrigger>
@@ -1821,6 +2037,10 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           
           <TabsContent value="measurement">
             <MeasurementsTab customerId={customerId} dealId={dealId} />
+          </TabsContent>
+
+          <TabsContent value="cpd">
+            <CpdForm customer={customer} salesmen={salesmen} />
           </TabsContent>
           
           <TabsContent value="products">
