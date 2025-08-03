@@ -522,13 +522,13 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                     <FormItem className="flex items-center space-x-2 space-y-0">
                                         <FormControl>
                                             <Checkbox
-                                                checked={field.value?.some(v => v.id === item.id)}
+                                                checked={field.value?.some(v => v?.id === item.id)}
                                                 onCheckedChange={(checked) => {
                                                     const currentValues = field.value || [];
                                                     if (checked) {
                                                         field.onChange([...currentValues, { id: item.id, noOfPcs: '1' }]);
                                                     } else {
-                                                        field.onChange(currentValues.filter(v => v.id !== item.id));
+                                                        field.onChange(currentValues.filter(v => v?.id !== item.id));
                                                     }
                                                 }}
                                             />
@@ -540,20 +540,20 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                            {item.id !== 'blind-installation' && (
                                 <FormField
                                     control={form.control}
-                                    name={`deliveryInstallations.${form.watch('deliveryInstallations')?.findIndex(d => d.id === item.id)}.noOfPcs`}
+                                    name={`deliveryInstallations.${form.watch('deliveryInstallations')?.findIndex(d => d?.id === item.id)}.noOfPcs`}
                                     render={({ field }) => (
                                         <FormControl>
                                             <Input
                                                 type="number"
                                                 className="h-7 w-20"
                                                 placeholder="Pcs"
-                                                disabled={!form.watch('deliveryInstallations')?.some(v => v.id === item.id)}
+                                                disabled={!form.watch('deliveryInstallations')?.some(v => v?.id === item.id)}
                                                 onChange={(e) => {
                                                     const currentValues = form.getValues('deliveryInstallations') || [];
                                                     const itemIndex = currentValues.findIndex(v => v?.id === item.id);
                                                     if (itemIndex > -1) {
                                                         const newValues = [...currentValues];
-                                                        newValues[itemIndex] = { ...newValues[itemIndex], noOfPcs: e.target.value };
+                                                        newValues[itemIndex] = { ...newValues[itemIndex]!, noOfPcs: e.target.value };
                                                         form.setValue('deliveryInstallations', newValues);
                                                     }
                                                 }}
@@ -612,7 +612,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                                                     const itemIndex = currentValues.findIndex(v => v?.id === item.id);
                                                     if (itemIndex > -1) {
                                                         const newValues = [...currentValues];
-                                                        newValues[itemIndex] = { ...newValues[itemIndex], noOfPcs: e.target.value };
+                                                        newValues[itemIndex] = { ...newValues[itemIndex]!, noOfPcs: e.target.value };
                                                         form.setValue('subDeliveryInstallations', newValues, { shouldValidate: true });
                                                     }
                                                 }}
@@ -1447,6 +1447,57 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded }: { cus
     const [loading, setLoading] = useState(false);
     const [selectedVisit, setSelectedVisit] = useState<DealVisit | null>(null);
 
+    const renderMeasurementDetails = (visit: DealVisit) => (
+        <div className="space-y-2">
+            <div>
+                <h4 className="font-semibold">Measurements Selected:</h4>
+                <ul className="list-disc list-inside text-muted-foreground">
+                    {(visit.measurements && visit.measurements.length > 0) ? visit.measurements.map(m => <li key={m}>{measurementItems.find(mi => mi.id === m)?.label || m}</li>) : <li>None</li>}
+                </ul>
+            </div>
+             {visit.blinds && visit.blinds.length > 0 && (
+                <div>
+                    <h4 className="font-semibold">Blind Types:</h4>
+                    <ul className="list-disc list-inside text-muted-foreground">
+                        {visit.blinds.map(b => <li key={b}>{subMeasurementBlinds.find(s => s.id === b)?.label || b}</li>)}
+                    </ul>
+                </div>
+            )}
+             {visit.curtain && visit.curtain.length > 0 && (
+                <div>
+                    <h4 className="font-semibold">Curtain Types:</h4>
+                    <ul className="list-disc list-inside text-muted-foreground">
+                       {visit.curtain.map(c => <li key={c}>{subMeasurementCurtain.find(s => s.id === c)?.label || c}</li>)}
+                       {visit.otherCurtain && <li>Other: {visit.otherCurtain}</li>}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+
+    const renderDeliveryDetails = (visit: DealVisit) => (
+        <div className="space-y-2">
+            <div>
+                <h4 className="font-semibold">Delivery/Installation Selected:</h4>
+                <ul className="list-disc list-inside text-muted-foreground">
+                    {(visit.deliveryInstallations && visit.deliveryInstallations.length > 0) ? 
+                        visit.deliveryInstallations.map(d => <li key={d.id}>{deliveryInstallationItems.find(di => di.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>) 
+                        : <li>None</li>}
+                    {visit.otherDelivery && <li>Other: {visit.otherDelivery}</li>}
+                </ul>
+            </div>
+             {visit.subDeliveryInstallations && visit.subDeliveryInstallations.length > 0 && (
+                <div>
+                    <h4 className="font-semibold">Sub-Delivery/Installation:</h4>
+                    <ul className="list-disc list-inside text-muted-foreground">
+                        {visit.subDeliveryInstallations.map(d => <li key={d.id}>{subDeliveryInstallationItems.find(sdi => sdi.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>)}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+
+
     return (
         <div>
             <VisitForm salesmen={salesmen} customerId={customerId} dealId={dealId} onVisitAdded={onVisitAdded} visits={visits} />
@@ -1505,29 +1556,9 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded }: { cus
                             </DialogDescription>
                         </DialogHeader>
                         <div className="py-4 space-y-4">
-                            <div>
-                                <h4 className="font-semibold">Measurements Selected:</h4>
-                                <ul className="list-disc list-inside text-muted-foreground">
-                                    {(selectedVisit.measurements && selectedVisit.measurements.length > 0) ? selectedVisit.measurements.map(m => <li key={m}>{measurementItems.find(mi => mi.id === m)?.label || m}</li>) : <li>None</li>}
-                                </ul>
-                            </div>
-                             {selectedVisit.blinds && selectedVisit.blinds.length > 0 && (
-                                <div>
-                                    <h4 className="font-semibold">Blind Types:</h4>
-                                    <ul className="list-disc list-inside text-muted-foreground">
-                                        {selectedVisit.blinds.map(b => <li key={b}>{subMeasurementBlinds.find(s => s.id === b)?.label || b}</li>)}
-                                    </ul>
-                                </div>
-                            )}
-                             {selectedVisit.curtain && selectedVisit.curtain.length > 0 && (
-                                <div>
-                                    <h4 className="font-semibold">Curtain Types:</h4>
-                                    <ul className="list-disc list-inside text-muted-foreground">
-                                       {selectedVisit.curtain.map(c => <li key={c}>{subMeasurementCurtain.find(s => s.id === c)?.label || c}</li>)}
-                                       {selectedVisit.otherCurtain && <li>Other: {selectedVisit.otherCurtain}</li>}
-                                    </ul>
-                                </div>
-                            )}
+                           {selectedVisit.typeOfVisit === 'measurement'
+                                ? renderMeasurementDetails(selectedVisit)
+                                : renderDeliveryDetails(selectedVisit)}
                         </div>
                     </DialogContent>
                 </Dialog>
@@ -1816,5 +1847,3 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     </div>
   );
 }
-
-    
