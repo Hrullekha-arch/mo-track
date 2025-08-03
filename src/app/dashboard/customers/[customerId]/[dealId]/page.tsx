@@ -566,7 +566,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
                             )}
                         </div>
                     ))}
-                    {form.watch('deliveryInstallations')?.some(v => v.id === 'other') && (
+                    {form.watch('deliveryInstallations')?.some(v => !!v && v.id === 'other') && (
                         <FormField control={form.control} name="otherDelivery" render={({ field }) => ( <FormControl><Input placeholder="Specify other" {...field} className="h-8" /></FormControl> )} />
                     )}
                 </div>
