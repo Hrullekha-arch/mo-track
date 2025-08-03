@@ -254,11 +254,13 @@ export interface DeliveryInstallationItem {
 
 export interface DealVisit {
     id: string;
+    dealId: string; // The 4-digit numeric deal ID
     representative: string;
     typeOfVisit: string;
     dueDate: string; // ISO string
     createdAt: string; // ISO string
     createdBy: string;
+    assignedTo?: string; // Installer User ID
     // Measurement fields
     measurements?: string[];
     blinds?: string[];
@@ -284,7 +286,8 @@ export interface DealMeasurement {
 
 
 export interface Deal {
-    id: string;
+    id: string; // Firestore document ID
+    dealId: string; // 4-digit numeric ID
     dealName: string;
     dealAmount: number;
     representativeId: string;

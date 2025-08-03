@@ -154,6 +154,9 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                                             </CardTitle>
                                             <div className="text-sm text-muted-foreground">
                                                 <Badge variant="secondary">
+                                                    ID: {deal.dealId}
+                                                </Badge>
+                                                 <Badge variant="outline" className="ml-2">
                                                     {getSalesmanName(deal.representativeId)}
                                                 </Badge>
                                             </div>

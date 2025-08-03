@@ -118,21 +118,36 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
   }
 }
 
-type AddDealInput = Omit<Deal, 'id' | 'createdAt'> & { customerId: string };
+type AddDealInput = Omit<Deal, 'id' | 'createdAt' | 'dealId'> & { customerId: string };
 
 export async function addDealAction(data: AddDealInput): Promise<{ success: boolean; message: string; deal?: Deal }> {
   try {
     const { customerId, ...dealData } = data;
     const dealsRef = adminDb.collection('customers').doc(customerId).collection('deals');
-    const newDealRef = dealsRef.doc();
+    
+    // Generate a unique 4-digit numeric dealId
+    let dealId: string;
+    let isUnique = false;
+    do {
+      dealId = Math.floor(1000 + Math.random() * 9000).toString();
+      const existingDealQuery = dealsRef.where('dealId', '==', dealId);
+      const snapshot = await existingDealQuery.get();
+      if (snapshot.empty) {
+        isUnique = true;
+      }
+    } while (!isUnique);
 
-    const newDeal: Omit<Deal, 'id'> = {
+    const newDealRef = dealsRef.doc(); // Firestore's auto-generated ID for the document
+
+    const newDeal: Deal = {
         ...dealData,
+        id: newDealRef.id,
+        dealId: dealId,
         createdAt: new Date().toISOString(),
     };
 
     await newDealRef.set(newDeal);
-    const savedDeal = { id: newDealRef.id, ...newDeal };
+    const savedDeal = { ...newDeal };
 
     return { success: true, message: "Deal created successfully.", deal: JSON.parse(JSON.stringify(savedDeal)) };
 
