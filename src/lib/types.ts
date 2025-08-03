@@ -251,13 +251,13 @@ export interface DealVisit {
     id: string;
     representative: string;
     typeOfVisit: string;
-    notes?: string;
     dueDate: string; // ISO string
-    happyCodeRequired: 'yes' | 'no';
-    sendVisitEmail: boolean;
-    sendVisitSms: boolean;
     createdAt: string; // ISO string
     createdBy: string;
+    measurements?: string[];
+    blinds?: string[];
+    curtain?: string[];
+    otherCurtain?: string;
 }
 
 export interface DealMeasurement {

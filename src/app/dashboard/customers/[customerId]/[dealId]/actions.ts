@@ -116,24 +116,30 @@ export async function getOrdersForDeal(customerId: string, dealId: string): Prom
 export async function addVisitAction(
   customerId: string,
   dealId: string,
-  visitData: VisitFormValues,
+  visitData: Omit<VisitFormValues, 'date'> & { dueDate: Date, typeOfVisit: string },
   creatorName: string
 ): Promise<{ success: boolean; message: string; visit?: DealVisit }> {
     try {
         const visitsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('visits');
         const newVisitRef = visitsRef.doc();
 
-        const newVisit: DealVisit = {
-            id: newVisitRef.id,
-            ...visitData,
+        const newVisit: Omit<DealVisit, 'id'> = {
+            representative: visitData.representative,
+            typeOfVisit: visitData.typeOfVisit,
             dueDate: visitData.dueDate.toISOString(),
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
+            measurements: visitData.measurements,
+            blinds: visitData.blinds,
+            curtain: visitData.curtain,
+            otherCurtain: visitData.otherCurtain,
         };
 
         await newVisitRef.set(newVisit);
+        
+        const savedVisit: DealVisit = { id: newVisitRef.id, ...newVisit };
 
-        return { success: true, message: "Visit added successfully.", visit: JSON.parse(JSON.stringify(newVisit)) };
+        return { success: true, message: "Visit added successfully.", visit: JSON.parse(JSON.stringify(savedVisit)) };
     } catch (error: any) {
         console.error("Error adding visit:", error);
         return { success: false, message: `Server error: ${error.message}` };

@@ -45,7 +45,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
 import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal, addVisitAction, getVisitsForDeal, addMeasurementAction, getMeasurementsForDeal } from "./actions";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -67,13 +67,12 @@ import { useAuth } from "@/context/AuthContext";
 
 
 const visitSchema = z.object({
-  representative: z.string().min(1, "Representative is required."),
-  typeOfVisit: z.string().min(1, "Type of visit is required."),
-  notes: z.string().max(2000, "Notes cannot exceed 2000 characters.").optional(),
-  dueDate: z.date({ required_error: "Due date is required." }),
-  happyCodeRequired: z.enum(["yes", "no"]).default("no"),
-  sendVisitEmail: z.boolean().default(false),
-  sendVisitSms: z.boolean().default(false),
+    representative: z.string().min(1, "Representative is required."),
+    date: z.date({ required_error: "A date is required." }),
+    measurements: z.array(z.string()).optional(),
+    blinds: z.array(z.string()).optional(),
+    curtain: z.array(z.string()).optional(),
+    otherCurtain: z.string().optional(),
 });
 
 export type VisitFormValues = z.infer<typeof visitSchema>;
@@ -394,8 +393,34 @@ const visitTypeOptions = [
     { value: "other", label: "Other" },
 ];
 
+const measurementItems = [
+    { id: 'curtain-measurement', label: 'Curtain Measurement' },
+    { id: 'sofa-measurement', label: 'Sofa Measurement' },
+    { id: 'blind-measurement', label: 'Blind Measurement' },
+    { id: 'rod-and-channel-measurement', label: 'Rod and Channel Measurement' },
+    { id: 'motorize-channel-measurement', label: 'Motorize Channel Measurement' },
+    { id: 'wallpaper-measurement', label: 'Wallpaper measurement' },
+    { id: 'furniture-measurement', label: 'Furniture Measurement' },
+    { id: 'mattress-measurement', label: 'Mattress Measurement' },
+    { id: 'wall-to-wall-measurement', label: 'Wall to Wall Measurement' },
+    { id: 're-measurement', label: 'Re-Measurement' },
+];
+
+const subMeasurementBlinds = [
+    { id: 'roman-blind', label: 'Roman Blind' },
+    { id: 'roller-blind', label: 'Roller Blind' },
+    { id: 'wooden-blind', label: 'Wooden Blind' },
+];
+
+const subMeasurementCurtain = [
+    { id: 'three-pleat', label: 'Three Pleat' },
+    { id: 'eyelet', label: 'Eyelet' },
+    { id: 'other', label: 'Other' },
+];
+
 function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void }) {
     const [loading, setLoading] = useState(false);
+    const [activeTab, setActiveTab] = useState('measurement');
     const { toast } = useToast();
     const { user } = useAuth();
 
@@ -403,11 +428,11 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
         resolver: zodResolver(visitSchema),
         defaultValues: {
             representative: "",
-            typeOfVisit: "",
-            notes: "",
-            happyCodeRequired: "no",
-            sendVisitEmail: false,
-            sendVisitSms: false,
+            date: new Date(),
+            measurements: [],
+            blinds: [],
+            curtain: [],
+            otherCurtain: '',
         }
     });
 
@@ -418,7 +443,15 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
         }
         setLoading(true);
         try {
-            const result = await addVisitAction(customerId, dealId, data, user.name);
+            // Here you would transform the form data to fit your DealVisit structure
+            // For now, we'll just log it and add it to the list.
+            const visitDataForDb: any = {
+                ...data,
+                typeOfVisit: activeTab,
+                dueDate: data.date,
+            };
+
+            const result = await addVisitAction(customerId, dealId, visitDataForDb, user.name);
             if (result.success && result.visit) {
                 toast({ title: "Activity Updated", description: "The new visit has been added to the activity log." });
                 onVisitAdded(result.visit);
@@ -435,154 +468,150 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded }: { salesmen: U
 
     return (
          <Card className="mt-6">
+            <CardHeader className="flex flex-row justify-between items-center">
+                <CardTitle>Add Visit</CardTitle>
+                <Button variant="outline">Add Visit</Button>
+            </CardHeader>
             <CardContent className="p-6">
-                 <h3 className="text-xl font-semibold mb-6">Add More Visit</h3>
                  <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div className="space-y-8">
-                                <FormField
-                                    control={form.control}
-                                    name="representative"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="flex items-center gap-1">Representative <span className="text-destructive">*</span> <Info className="h-3 w-3 text-muted-foreground" /></FormLabel>
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                <FormControl>
-                                                    <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
-                                                </FormControl>
-                                                <SelectContent>
-                                                    {salesmen.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                                                </SelectContent>
-                                            </Select>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="notes"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Notes <span className="text-destructive">* (Upto 2000 characters)</span></FormLabel>
-                                            <FormControl>
-                                                <Textarea rows={5} maxLength={2000} {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                        <div className="border rounded-lg">
+                             <div className="flex">
+                                <button type="button" onClick={() => setActiveTab('measurement')} className={`flex-1 p-3 font-semibold text-center ${activeTab === 'measurement' ? 'bg-primary text-primary-foreground rounded-tl-md' : 'bg-muted/50'}`}>Measurement Visit</button>
+                                <Separator orientation="vertical" />
+                                <button type="button" onClick={() => setActiveTab('delivery')} className={`flex-1 p-3 font-semibold text-center ${activeTab === 'delivery' ? 'bg-primary text-primary-foreground rounded-tr-md' : 'bg-muted/50'}`}>Delivery Visit</button>
                             </div>
-                             <div className="space-y-8">
-                                <FormField
-                                    control={form.control}
-                                    name="typeOfVisit"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Type of Visit</FormLabel>
-                                             <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                <FormControl>
-                                                    <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
-                                                </FormControl>
-                                                <SelectContent>
-                                                    {visitTypeOptions.map(option => (
-                                                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                 <FormField
-                                    control={form.control}
-                                    name="dueDate"
-                                    render={({ field }) => (
-                                        <FormItem className="flex flex-col">
-                                            <FormLabel>Due Date <span className="text-destructive">*</span></FormLabel>
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                    <FormControl>
-                                                        <Button
-                                                            variant={"outline"}
-                                                            className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                                                        >
-                                                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                                            <Clock className="ml-auto h-4 w-4 opacity-50" />
-                                                        </Button>
-                                                    </FormControl>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-0" align="start">
-                                                    <CalendarPicker
-                                                        mode="single"
-                                                        selected={field.value}
-                                                        onSelect={field.onChange}
-                                                        disabled={(date) => date < new Date() || date < new Date("1900-01-01")}
-                                                        initialFocus
+
+                            <div className="p-6 space-y-6">
+                                {activeTab === 'measurement' ? (
+                                    <>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <FormField
+                                                control={form.control}
+                                                name="representative"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Representative</FormLabel>
+                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                            <FormControl>
+                                                                <SelectTrigger><SelectValue placeholder="All User" /></SelectTrigger>
+                                                            </FormControl>
+                                                            <SelectContent>
+                                                                {salesmen.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                            <FormField
+                                                control={form.control}
+                                                name="date"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel>Date</FormLabel>
+                                                        <Popover>
+                                                            <PopoverTrigger asChild>
+                                                                <FormControl>
+                                                                    <Button variant={"outline"} className="w-full justify-start text-left font-normal">
+                                                                        <Calendar className="mr-2 h-4 w-4" />
+                                                                        {field.value ? format(field.value, "dd/MM/yyyy HH:mm:ss") : <span>Pick a date</span>}
+                                                                    </Button>
+                                                                </FormControl>
+                                                            </PopoverTrigger>
+                                                            <PopoverContent className="w-auto p-0">
+                                                                <CalendarPicker mode="single" selected={field.value} onSelect={field.onChange} />
+                                                            </PopoverContent>
+                                                        </Popover>
+                                                        <FormMessage />
+                                                    </FormItem>
+                                                )}
+                                            />
+                                        </div>
+                                        <div className="border rounded-lg p-4">
+                                            <FormLabel className="mb-4 block font-semibold">Type Of Measurement</FormLabel>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <FormField
+                                                    control={form.control}
+                                                    name="measurements"
+                                                    render={() => (
+                                                        <FormItem className="space-y-3">
+                                                            <FormLabel>Measurements</FormLabel>
+                                                            {measurementItems.map((item) => (
+                                                                <FormField
+                                                                    key={item.id}
+                                                                    control={form.control}
+                                                                    name="measurements"
+                                                                    render={({ field }) => {
+                                                                        return (
+                                                                            <FormItem key={item.id} className="flex flex-row items-start space-x-3 space-y-0">
+                                                                                <FormControl><Checkbox checked={field.value?.includes(item.id)} onCheckedChange={(checked) => { return checked ? field.onChange([...(field.value || []), item.id]) : field.onChange(field.value?.filter((value) => value !== item.id)) }} /></FormControl>
+                                                                                <FormLabel className="font-normal">{item.label}</FormLabel>
+                                                                            </FormItem>
+                                                                        )
+                                                                    }}
+                                                                />
+                                                            ))}
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                                <div className="space-y-4">
+                                                    <p className="font-medium text-sm">Sub-Measurements</p>
+                                                    <FormField
+                                                        control={form.control}
+                                                        name="blinds"
+                                                        render={() => (
+                                                            <FormItem className="space-y-3 pl-4">
+                                                                <FormLabel>Blinds</FormLabel>
+                                                                {subMeasurementBlinds.map((item) => (
+                                                                    <FormField key={item.id} control={form.control} name="blinds"
+                                                                        render={({ field }) => (
+                                                                            <FormItem key={item.id} className="flex flex-row items-start space-x-3 space-y-0">
+                                                                                <FormControl><Checkbox checked={field.value?.includes(item.id)} onCheckedChange={(checked) => { return checked ? field.onChange([...(field.value || []), item.id]) : field.onChange(field.value?.filter((value) => value !== item.id)) }} /></FormControl>
+                                                                                <FormLabel className="font-normal">{item.label}</FormLabel>
+                                                                            </FormItem>
+                                                                        )}
+                                                                    />
+                                                                ))}
+                                                            </FormItem>
+                                                        )}
                                                     />
-                                                </PopoverContent>
-                                            </Popover>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="happyCodeRequired"
-                                    render={({ field }) => (
-                                        <FormItem className="space-y-3">
-                                            <FormLabel>Happy code Required</FormLabel>
-                                            <FormControl>
-                                                <RadioGroup
-                                                    onValueChange={field.onChange}
-                                                    defaultValue={field.value}
-                                                    className="flex items-center space-x-4"
-                                                >
-                                                    <FormItem className="flex items-center space-x-2">
-                                                        <FormControl><RadioGroupItem value="yes" /></FormControl>
-                                                        <FormLabel className="font-normal">YES</FormLabel>
-                                                    </FormItem>
-                                                    <FormItem className="flex items-center space-x-2">
-                                                        <FormControl><RadioGroupItem value="no" /></FormControl>
-                                                        <FormLabel className="font-normal">NO</FormLabel>
-                                                    </FormItem>
-                                                </RadioGroup>
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+                                                     <FormField
+                                                        control={form.control}
+                                                        name="curtain"
+                                                        render={() => (
+                                                            <FormItem className="space-y-3 pl-4">
+                                                                <FormLabel>Curtain</FormLabel>
+                                                                {subMeasurementCurtain.map((item) => (
+                                                                    <FormField key={item.id} control={form.control} name="curtain"
+                                                                        render={({ field }) => (
+                                                                            <FormItem key={item.id} className="flex flex-row items-center space-x-3 space-y-0">
+                                                                                <FormControl><Checkbox checked={field.value?.includes(item.id)} onCheckedChange={(checked) => { return checked ? field.onChange([...(field.value || []), item.id]) : field.onChange(field.value?.filter((value) => value !== item.id)) }} /></FormControl>
+                                                                                <FormLabel className="font-normal">{item.label}</FormLabel>
+                                                                                {item.id === 'other' && form.watch('curtain')?.includes('other') && (
+                                                                                     <FormField control={form.control} name="otherCurtain" render={({ field }) => ( <FormControl><Input {...field} className="h-7" /></FormControl> )} />
+                                                                                )}
+                                                                            </FormItem>
+                                                                        )}
+                                                                    />
+                                                                ))}
+                                                            </FormItem>
+                                                        )}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div>
+                                        {/* Delivery Visit Form will go here */}
+                                        <p className="text-center text-muted-foreground p-8">Delivery visit form to be added.</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <FormField
-                                control={form.control}
-                                name="sendVisitEmail"
-                                render={({ field }) => (
-                                    <FormItem className="flex flex-row items-center space-x-2">
-                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                                        <div className="space-y-1 leading-none">
-                                            <FormLabel>Send Visit Email</FormLabel>
-                                        </div>
-                                    </FormItem>
-                                )}
-                            />
-                             <FormField
-                                control={form.control}
-                                name="sendVisitSms"
-                                render={({ field }) => (
-                                    <FormItem className="flex flex-row items-center space-x-2">
-                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                                        <div className="space-y-1 leading-none">
-                                            <FormLabel>Send Visit SMS</FormLabel>
-                                        </div>
-                                    </FormItem>
-                                )}
-                            />
-                        </div>
-                         <div className="mt-8 flex items-center gap-4">
-                            <p className="text-sm text-destructive">Please click on Update Activity if you have updated any changes.</p>
-                            <Button type="submit" disabled={loading} className="bg-cyan-600 hover:bg-cyan-700">
+                        <div className="mt-8 flex">
+                            <Button type="submit" disabled={loading}>
                                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 Update Activity
                             </Button>
