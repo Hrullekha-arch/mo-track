@@ -163,7 +163,7 @@ export function PrintableQuotationProfessional({ values, creatorName, salesmanNa
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'left' }}>MTRS</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(Number(item.rate))}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(item.amount)}</td>
-                                        <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR((item as CalculatedItem).discountAmount || 0)}<br/>@{((item as CalculatedItem).discountPercent || 0).toFixed(2)}%</td>
+                                        <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR((item as CalculatedItem).discountAmount || 0)}<br/>@{(Number((item as CalculatedItem).discountPercent) || 0).toFixed(2)}%</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{item.taxRate.toFixed(2)}%</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(item.finalAmount)}</td>
                                     </tr>
