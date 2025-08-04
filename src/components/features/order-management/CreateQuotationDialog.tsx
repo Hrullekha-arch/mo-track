@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Customer, Deal, DealProduct, Quotation, VasDetail, Cpd } from "@/lib/types";
+import { Customer, Deal, DealProduct, Quotation, VasDetail, Cpd, QuotationItem } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, Edit, Check, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -796,7 +796,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
     },
   });
   
-  const { fields: itemsFields, append: appendItem, remove: removeItem, replace: replaceItems } = useFieldArray({
+  const { replace: replaceItems } = useFieldArray({
     control: form.control,
     name: "items"
   });
@@ -809,9 +809,9 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
     const selectedCpd = cpds.find(c => c.id === cpdId);
     if (!selectedCpd) return;
 
-    const newItems = selectedCpd.rooms.flatMap(room => 
-      room.items.map(item => ({
-        id: item.itemName, // Use a unique identifier if possible
+    const newItems: QuotationItem[] = selectedCpd.rooms.flatMap(room => 
+      (room.items || []).map(item => ({
+        id: new Date().toISOString() + Math.random(), // Add a unique ID for react-hook-form
         collectionBrand: item.itemName || '',
         serialNo: '', // Not available in CPD
         salesDescription: item.type || '',
@@ -891,7 +891,8 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
 
     setLoading(true);
     try {
-        const result = await createQuotationAction(customer.id, deal.id, values, totalAmount + vasTotal);
+        const quotationPayload = { ...values, cpdId: values.selectedCpdId };
+        const result = await createQuotationAction(customer.id, deal.id, quotationPayload, totalAmount + vasTotal);
 
         if (result.success) {
             toast({ title: "Quotation Created", description: "The new quotation has been saved." });

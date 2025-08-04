@@ -363,6 +363,7 @@ export interface Quotation {
     validTillDate?: string | Date;
     customerName: string;
     dealName: string;
+    cpdId?: string;
     items: QuotationItem[];
     totalAmount: number;
     status: 'Generated' | 'Converted to Order';

@@ -42,7 +42,7 @@ export async function updateDealProducts(customerId: string, dealId: string, pro
 }
 
 
-export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormValues, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string }> {
+export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormValues & { cpdId?: string }, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string }> {
   try {
     const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
     
