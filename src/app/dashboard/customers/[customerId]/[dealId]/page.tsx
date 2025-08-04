@@ -1,7 +1,8 @@
 
+
 "use client";
 
-import React, { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
+import React, { useEffect, useState, useMemo, useCallback, ReactNode } from "react";
 import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormReturn, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -612,13 +613,11 @@ function CpdForm({ customer, salesmen, dealId }: { customer: Customer, salesmen:
 }
 
 function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRoom: () => void }) {
-    const { control, watch } = useFormContext<CpdFormValues>();
+    const { control, watch, setValue } = useFormContext<CpdFormValues>();
     const { fields, append, remove } = useFieldArray({
         control,
         name: `rooms.${roomIndex}.items`
     });
-
-    const { setValue } = useFormContext(); // Correct way to get setValue
     
     const itemsData = watch(`rooms.${roomIndex}.items`);
 
