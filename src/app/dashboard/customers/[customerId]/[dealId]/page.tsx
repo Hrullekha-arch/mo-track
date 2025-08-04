@@ -2,7 +2,7 @@
 
 "use client";
 
-import React, { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
+import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
 import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormReturn, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -487,7 +487,7 @@ export const productTypeOptions = [
     { value: "accessorise", label: "Accessorise" },
 ];
 
-function CpdForm({ customer, salesmen, dealId }: { customer: Customer, salesmen: User[], dealId: string }) {
+function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Customer, salesmen: User[], dealId: string, onCpdAdded: () => void }) {
     const { user } = useAuth();
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
@@ -497,7 +497,7 @@ function CpdForm({ customer, salesmen, dealId }: { customer: Customer, salesmen:
             customerName: customer.name,
             telNo: customer.mobileNo,
             date: format(new Date(), "yyyy-MM-dd"),
-            rooms: [{ room: "", items: [{}] }],
+            rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '', dis: '', gst: '', amount: '' }] }],
         }
     });
 
@@ -516,7 +516,8 @@ function CpdForm({ customer, salesmen, dealId }: { customer: Customer, salesmen:
             const result = await addCpdAction(customer.id, dealId, data, user.name);
             if (result.success) {
                 toast({ title: 'Success', description: 'CPD has been saved.' });
-                form.reset(); // Optionally reset form
+                form.reset();
+                onCpdAdded();
             } else {
                 toast({ variant: 'destructive', title: 'Error', description: result.message });
             }
@@ -594,7 +595,7 @@ function CpdForm({ customer, salesmen, dealId }: { customer: Customer, salesmen:
                             ))}
                         </div>
 
-                         <Button type="button" onClick={() => append({ room: "", items: [{}] })}>
+                         <Button type="button" onClick={() => append({ room: "", items: [{ itemName: '', type: '', qty: '', rate: '', dis: '', gst: '', amount: '' }] })}>
                             <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
                         </Button>
                         
@@ -757,7 +758,7 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                     </div>
                 ))}
              </div>
-             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({})}>
+             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({ itemName: '', type: '', qty: '', rate: '', dis: '', gst: '', amount: '' })}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Add Item
             </Button>
         </Card>
@@ -2010,6 +2011,12 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     const data = await getVisitsForDeal(customerId, dealId);
     setVisits(data);
   }, [customerId, dealId]);
+  
+  const handleCpdAdded = useCallback(() => {
+    // This function will re-fetch the CPDs. 
+    // We can add the fetch logic for CPDs here when we build that component.
+    // For now, it's a placeholder.
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -2196,7 +2203,7 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
 
     return (
         <div className="space-y-6">
-            <CpdForm customer={customer} salesmen={salesmen} dealId={dealId} />
+            <CpdForm customer={customer} salesmen={salesmen} dealId={dealId} onCpdAdded={fetchCpds} />
             <Card>
                 <CardHeader>
                     <CardTitle>Saved CPDs</CardTitle>
@@ -2278,7 +2285,7 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
                                         <TableCell>{item.rate}</TableCell>
                                         <TableCell>{item.dis}</TableCell>
                                         <TableCell>{item.gst}</TableCell>
-                                        <TableCell>{item.amount}</TableCell>
+                                        <TableCell>{Number(item.amount || 0).toFixed(2)}</TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
@@ -2289,5 +2296,3 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
         </div>
     )
 }
-
-    
