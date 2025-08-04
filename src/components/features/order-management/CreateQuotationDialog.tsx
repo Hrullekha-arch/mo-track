@@ -727,19 +727,23 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {vasWithCalculations.map((vas, index) => (
-                                    <TableRow key={index}>
-                                        <TableCell>{index + 1}</TableCell>
-                                        <TableCell>{vas.vasName}</TableCell>
-                                        <TableCell>{vas.quantity}</TableCell>
-                                        <TableCell>{vas.rate}</TableCell>
-                                        <TableCell>{vas.room || '-'}</TableCell>
-                                        <TableCell>{vas.taxableAmt.toFixed(2)}</TableCell>
-                                        <TableCell>{vas.cgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
-                                        <TableCell>{vas.sgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
-                                        <TableCell>{vas.igst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@0.00%</span></TableCell>
-                                    </TableRow>
-                                ))}
+                                {vasWithCalculations.map((vas, index) => {
+                                     const amount = (Number(vas.rate) || 0) * (Number(vas.quantity) || 0);
+                                     const taxAmount = amount * 0.05; // Assuming 5% tax
+                                     return (
+                                        <TableRow key={`vas-${index}`}>
+                                            <TableCell>{index + 1}</TableCell>
+                                            <TableCell>{vas.vasName}</TableCell>
+                                            <TableCell>{vas.quantity}</TableCell>
+                                            <TableCell>{vas.rate}</TableCell>
+                                            <TableCell>{vas.room || '-'}</TableCell>
+                                            <TableCell>{vas.taxableAmt.toFixed(2)}</TableCell>
+                                            <TableCell>{vas.cgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
+                                            <TableCell>{vas.sgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
+                                            <TableCell>{vas.igst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@0.00%</span></TableCell>
+                                        </TableRow>
+                                     );
+                                })}
                             </TableBody>
                             <TableFooter>
                                 <TableRow>
@@ -798,6 +802,10 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
   });
 
   const handleCpdSelect = (cpdId: string) => {
+    if (cpdId === "none") {
+      replaceItems([]); // Clear items if "None" is selected
+      return;
+    }
     const selectedCpd = cpds.find(c => c.id === cpdId);
     if (!selectedCpd) return;
 
@@ -946,7 +954,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
-                                        <SelectItem value="">None</SelectItem>
+                                        <SelectItem value="none">None</SelectItem>
                                         {cpds.map(cpd => <SelectItem key={cpd.id} value={cpd.id}>{cpd.cpdId}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
