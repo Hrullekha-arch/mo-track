@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
@@ -453,11 +452,11 @@ export const subDeliveryInstallationItems = [
 const cpdItemSchema = z.object({
   itemName: z.string().optional(),
   type: z.string().optional(),
-  qty: z.string().optional(),
-  rate: z.string().optional(),
-  dis: z.string().optional(),
-  gst: z.string().optional(),
-  amount: z.string().optional(),
+  qty: z.string().optional().default('0'),
+  rate: z.string().optional().default('0'),
+  dis: z.string().optional().default('0'),
+  gst: z.string().optional().default('0'),
+  amount: z.string().optional().default('0'),
 });
 
 const cpdRoomSchema = z.object({
@@ -516,7 +515,10 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
             const result = await addCpdAction(customer.id, dealId, data, user.name);
             if (result.success) {
                 toast({ title: 'Success', description: 'CPD has been saved.' });
-                form.reset();
+                form.reset({
+                    ...form.getValues(),
+                    rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '0', rate: '0', dis: '0', gst: '0', amount: '0' }] }],
+                });
                 onCpdAdded();
             } else {
                 toast({ variant: 'destructive', title: 'Error', description: result.message });
@@ -635,7 +637,7 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                 const taxableAmount = subtotal - discountAmount;
                 const gstAmount = taxableAmount * (gst / 100);
                 const finalAmount = taxableAmount + gstAmount;
-                setValue(`rooms.${roomIndex}.items.${itemIndex}.amount`, finalAmount.toFixed(2));
+                setValue(`rooms.${roomIndex}.items.${itemIndex}.amount`, finalAmount.toFixed(2), { shouldValidate: true });
             }
         });
     }, [itemsData, roomIndex, setValue]);
@@ -698,7 +700,7 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                                                 field.onChange(value);
                                                 const selectedOption = bcnOptions.find(opt => opt.value === value);
                                                 if (selectedOption) {
-                                                    const rate = selectedOption.stockItem.mrp?.toString() || '';
+                                                    const rate = selectedOption.stockItem.mrp?.toString() || '0';
                                                     setValue(`rooms.${roomIndex}.items.${itemIndex}.rate`, rate);
                                                 }
                                             }}
@@ -2011,12 +2013,6 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     const data = await getVisitsForDeal(customerId, dealId);
     setVisits(data);
   }, [customerId, dealId]);
-  
-  const handleCpdAdded = useCallback(() => {
-    // This function will re-fetch the CPDs. 
-    // We can add the fetch logic for CPDs here when we build that component.
-    // For now, it's a placeholder.
-  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -2183,6 +2179,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
 function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: User[], dealId: string }) {
     const [cpds, setCpds] = useState<Cpd[]>([]);
     const [loading, setLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [selectedCpd, setSelectedCpd] = useState<Cpd | null>(null);
 
     const fetchCpds = useCallback(async () => {
@@ -2197,6 +2194,12 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
         }
     }, [customer.id, dealId]);
 
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        await fetchCpds();
+        setIsRefreshing(false);
+    };
+
     useEffect(() => {
         fetchCpds();
     }, [fetchCpds]);
@@ -2205,8 +2208,15 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
         <div className="space-y-6">
             <CpdForm customer={customer} salesmen={salesmen} dealId={dealId} onCpdAdded={fetchCpds} />
             <Card>
-                <CardHeader>
-                    <CardTitle>Saved CPDs</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                        <CardTitle>Saved CPDs</CardTitle>
+                        <CardDescription>Previously saved Customer Product Details for this deal.</CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+                        {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        Refresh
+                    </Button>
                 </CardHeader>
                 <CardContent>
                     {loading ? <Skeleton className="h-24 w-full" /> : (
@@ -2229,7 +2239,7 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
                                         </TableCell>
                                         <TableCell>{cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</TableCell>
                                         <TableCell>{cpd.createdBy}</TableCell>
-                                        <TableCell>{salesmen.find(s => s.id === cpd.representative)?.name || cpd.representative || 'N/A'}</TableCell>
+                                        <TableCell>{salesmen.find(s => s.id === cpd.representative)?.name || 'N/A'}</TableCell>
                                     </TableRow>
                                 )) : (
                                     <TableRow>
@@ -2302,3 +2312,5 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
         </div>
     )
 }
+
+    
