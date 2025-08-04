@@ -511,7 +511,11 @@ function RoomFields({ roomIndex, onRemoveRoom, roomOptions, productTypeOptions, 
                                 name={`rooms.${roomIndex}.items.${itemIndex}.itemName`}
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-xs flex items-center gap-1">Item Name (BCN) <span className="text-destructive">*</span></FormLabel>
+                                        <FormLabel className="text-xs flex items-center gap-1">Item Name (BCN) <span className="text-destructive">*</span>
+                                            <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('type', (newValue) => field.onChange(newValue))}>
+                                                <PlusCircle className="h-4 w-4 text-primary" />
+                                            </Button>
+                                        </FormLabel>
                                         <Combobox 
                                             options={bcnOptions}
                                             value={field.value}

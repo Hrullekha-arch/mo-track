@@ -21,7 +21,7 @@ import { getCustomerById, getDealsForCustomer, getSalesmen } from '../actions';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { roomOptions } from "./[dealId]/page";
+import { roomOptions } from "@/lib/constants";
 
 
 const itemSchema = z.object({
@@ -437,4 +437,8 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
         />
         </>
     );
+    
+
+
+
     

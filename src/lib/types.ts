@@ -1,5 +1,7 @@
 
 
+import { ComboboxOption } from "@/components/ui/combobox";
+
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
 export interface User {
@@ -364,3 +366,5 @@ export interface DealOrder {
     remark?: string;
     items: QuotationItem[];
 }
+
+export { type ComboboxOption };
