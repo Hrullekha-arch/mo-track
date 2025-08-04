@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
@@ -7,7 +8,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -197,6 +198,22 @@ export const subDeliveryInstallationItems = [
     { id: 'wooden-blind', label: 'Wooden Blind' },
 ];
 
+
+const advanceDetailSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().min(1, "Name is required"),
+  pcs: z.string().min(1, "Pcs is required"),
+  img: z.any().optional(),
+});
+
+const dimensionSchema = z.object({
+  id: z.string().optional(),
+  length: z.string().optional(),
+  width: z.string().optional(),
+  type: z.array(z.string()).optional(),
+  advanceDetails: z.array(advanceDetailSchema).optional(),
+});
+
 const cpdItemSchema = z.object({
   itemName: z.string().min(1, "Item Name (BCN) is required."),
   type: z.string().min(1, "Type is required."),
@@ -205,6 +222,8 @@ const cpdItemSchema = z.object({
   dis: z.string().optional().default('0'),
   gst: z.string().optional().default('0'),
   amount: z.string().optional().default('0'),
+  hasDimension: z.boolean().optional(),
+  dimensions: z.array(dimensionSchema).optional(),
 });
 
 const cpdRoomSchema = z.object({
@@ -221,6 +240,7 @@ const cpdSchema = z.object({
 });
 
 export type CpdFormValues = z.infer<typeof cpdSchema>;
+export type AdvanceDetailFormValues = z.infer<typeof advanceDetailSchema>;
 
 function AddOptionDialog({ isOpen, onClose, onSave, fieldName }: { isOpen: boolean, onClose: () => void, onSave: (value: string) => void, fieldName: string }) {
     const [value, setValue] = useState("");
@@ -252,6 +272,90 @@ function AddOptionDialog({ isOpen, onClose, onSave, fieldName }: { isOpen: boole
             </DialogContent>
         </Dialog>
     );
+}
+
+function AddAdvanceDetailsDialog({
+  isOpen,
+  onClose,
+  onSave,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (data: AdvanceDetailFormValues) => void;
+}) {
+  const form = useForm<AdvanceDetailFormValues>({
+    resolver: zodResolver(advanceDetailSchema),
+    defaultValues: { name: "", pcs: "", img: null },
+  });
+
+  const onSubmit = (data: AdvanceDetailFormValues) => {
+    onSave({ ...data, id: new Date().toISOString() });
+    onClose();
+    form.reset();
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add Advance Details</DialogTitle>
+        </DialogHeader>
+        <FormProvider {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Enter name" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="pcs"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Pcs</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Enter pieces" type="number" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="img"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Image</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => field.onChange(e.target.files ? e.target.files[0] : null)}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter className="pt-4">
+              <Button type="button" variant="ghost" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit">Add</Button>
+            </DialogFooter>
+          </form>
+        </FormProvider>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 
@@ -286,7 +390,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
             customerName: customer.name,
             telNo: customer.mobileNo,
             date: format(new Date(), "yyyy-MM-dd"),
-            rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0' }] }],
+            rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0', hasDimension: false, dimensions: [] }] }],
         }
     });
 
@@ -307,7 +411,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                 toast({ title: 'Success', description: 'CPD has been saved.' });
                 form.reset({
                     ...form.getValues(),
-                    rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0' }] }],
+                    rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0', hasDimension: false, dimensions: [] }] }],
                 });
                 onCpdAdded();
             } else {
@@ -395,7 +499,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                             ))}
                         </div>
 
-                         <Button type="button" onClick={() => append({ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0' }] })}>
+                         <Button type="button" onClick={() => append({ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0', hasDimension: false, dimensions: [] }] })}>
                             <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
                         </Button>
                         
@@ -504,96 +608,253 @@ function RoomFields({ roomIndex, onRemoveRoom, roomOptions, productTypeOptions, 
             
              <div className="space-y-2">
                 {fields.map((item, itemIndex) => (
-                    <div key={item.id} className="p-3 border rounded-md bg-background flex items-end gap-2">
-                        <div className="grid grid-cols-2 gap-2 flex-grow">
-                             <Controller
-                                control={control}
-                                name={`rooms.${roomIndex}.items.${itemIndex}.itemName`}
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-xs flex items-center gap-1">Item Name (BCN) <span className="text-destructive">*</span>
-                                            <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('type', (newValue) => field.onChange(newValue))}>
-                                                <PlusCircle className="h-4 w-4 text-primary" />
-                                            </Button>
-                                        </FormLabel>
-                                        <Combobox 
-                                            options={bcnOptions}
-                                            value={field.value}
-                                            onSelect={(value) => {
-                                                field.onChange(value);
-                                                const selectedOption = bcnOptions.find(opt => opt.value === value);
-                                                if (selectedOption) {
-                                                    const rate = selectedOption.stockItem.mrp?.toString() || '0';
-                                                    setValue(`rooms.${roomIndex}.items.${itemIndex}.rate`, rate);
-                                                }
-                                            }}
-                                            onSearch={handleBcnSearch}
-                                            placeholder="Search by BCN..."
-                                        />
-                                         <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                             <FormField
-                                control={control}
-                                name={`rooms.${roomIndex}.items.${itemIndex}.type`}
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-xs flex items-center gap-1">Type <span className="text-destructive">*</span>
-                                        <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('type', (newValue) => field.onChange(newValue))}>
-                                            <PlusCircle className="h-4 w-4 text-primary" />
-                                        </Button>
-                                        </FormLabel>
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                            <FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl>
-                                            <SelectContent>
-                                                {productTypeOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
-                                            </SelectContent>
-                                        </Select>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                        </div>
-                        <div className="grid grid-cols-4 gap-2 flex-grow">
-                             <FormField
-                                control={control}
-                                name={`rooms.${roomIndex}.items.${itemIndex}.qty`}
-                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Qty <span className="text-destructive">*</span></FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
-                            />
-                            <FormField
-                                control={control}
-                                name={`rooms.${roomIndex}.items.${itemIndex}.rate`}
-                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Rate</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
-                            />
-                            <FormField
-                                control={control}
-                                name={`rooms.${roomIndex}.items.${itemIndex}.dis`}
-                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Dis%</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
-                            />
-                            <FormField
-                                control={control}
-                                name={`rooms.${roomIndex}.items.${itemIndex}.gst`}
-                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Gst%</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
-                            />
-                        </div>
-                        <FormField
-                            control={control}
-                            name={`rooms.${roomIndex}.items.${itemIndex}.amount`}
-                            render={({ field }) => ( <FormItem><FormLabel className="text-xs">Amount</FormLabel><FormControl><Input {...field} readOnly /></FormControl><FormMessage /></FormItem> )}
-                        />
-
-                         <Button type="button" size="icon" variant="ghost" className="text-destructive" onClick={() => remove(itemIndex)}>
-                            <Trash2 className="h-4 w-4" />
-                        </Button>
-                    </div>
+                    <ItemFields
+                        key={item.id}
+                        roomIndex={roomIndex}
+                        itemIndex={itemIndex}
+                        onRemoveItem={() => remove(itemIndex)}
+                        productTypeOptions={productTypeOptions}
+                        openAddOptionDialog={openAddOptionDialog}
+                    />
                 ))}
              </div>
-             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0' })}>
+             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0', hasDimension: false, dimensions: [] })}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Add Item
             </Button>
         </Card>
     );
+}
+
+function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, openAddOptionDialog }: { roomIndex: number, itemIndex: number, onRemoveItem: () => void, productTypeOptions: ComboboxOption[], openAddOptionDialog: (field: 'room' | 'type', onSave: (value: string) => void) => void }) {
+    const { control, watch, setValue } = useFormContext<CpdFormValues>();
+    const hasDimension = watch(`rooms.${roomIndex}.items.${itemIndex}.hasDimension`);
+    const { toast } = useToast();
+    const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
+    const [isSearchingBcn, setIsSearchingBcn] = useState(false);
+
+    const handleBcnSearch = async (query: string) => {
+        if (query.length < 2) { setBcnOptions([]); return; }
+        setIsSearchingBcn(true);
+        try {
+            const results = await searchStockByBcn(query);
+            setBcnOptions(results.map(stock => ({ value: stock.bcn || stock.id, label: stock.bcn || stock.id, stockItem: stock })));
+        } catch (error) {
+            console.error("Error searching BCN:", error);
+            toast({ variant: 'destructive', title: 'Search failed' });
+        } finally {
+            setIsSearchingBcn(false);
+        }
+    };
+    
+     const { fields: dimensionFields, append: appendDimension, remove: removeDimension } = useFieldArray({
+        control,
+        name: `rooms.${roomIndex}.items.${itemIndex}.dimensions`,
+    });
+
+    const handleHasDimensionChange = (checked: boolean) => {
+        setValue(`rooms.${roomIndex}.items.${itemIndex}.hasDimension`, checked);
+        if (checked && dimensionFields.length === 0) {
+            appendDimension({ id: new Date().toISOString(), length: '', width: '', type: [], advanceDetails: [] });
+        } else if (!checked) {
+            // Optional: clear dimensions when unchecked
+            const dimensions = watch(`rooms.${roomIndex}.items.${itemIndex}.dimensions`);
+            if (dimensions) {
+                for (let i = dimensions.length - 1; i >= 0; i--) {
+                    removeDimension(i);
+                }
+            }
+        }
+    };
+
+    return (
+        <div className="p-3 border rounded-md bg-background space-y-3">
+             <div className="flex items-end gap-2">
+                <div className="grid grid-cols-2 gap-2 flex-grow">
+                     <Controller
+                        control={control}
+                        name={`rooms.${roomIndex}.items.${itemIndex}.itemName`}
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="text-xs flex items-center gap-1">Item Name (BCN) <span className="text-destructive">*</span>
+                                    <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('type', (newValue) => field.onChange(newValue))}>
+                                        <PlusCircle className="h-4 w-4 text-primary" />
+                                    </Button>
+                                </FormLabel>
+                                <Combobox 
+                                    options={bcnOptions}
+                                    value={field.value}
+                                    onSelect={(value) => {
+                                        field.onChange(value);
+                                        const selectedOption = bcnOptions.find(opt => opt.value === value);
+                                        if (selectedOption) {
+                                            const rate = selectedOption.stockItem.mrp?.toString() || '0';
+                                            setValue(`rooms.${roomIndex}.items.${itemIndex}.rate`, rate);
+                                        }
+                                    }}
+                                    onSearch={handleBcnSearch}
+                                    placeholder="Search by BCN..."
+                                />
+                                 <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                     <FormField
+                        control={control}
+                        name={`rooms.${roomIndex}.items.${itemIndex}.type`}
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="text-xs flex items-center gap-1">Type <span className="text-destructive">*</span>
+                                <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('type', (newValue) => field.onChange(newValue))}>
+                                    <PlusCircle className="h-4 w-4 text-primary" />
+                                </Button>
+                                </FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl>
+                                    <SelectContent>
+                                        {productTypeOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                </div>
+                <div className="grid grid-cols-4 gap-2 flex-grow">
+                     <FormField
+                        control={control}
+                        name={`rooms.${roomIndex}.items.${itemIndex}.qty`}
+                        render={({ field }) => ( <FormItem><FormLabel className="text-xs">Qty <span className="text-destructive">*</span></FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
+                    />
+                    <FormField
+                        control={control}
+                        name={`rooms.${roomIndex}.items.${itemIndex}.rate`}
+                        render={({ field }) => ( <FormItem><FormLabel className="text-xs">Rate</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
+                    />
+                    <FormField
+                        control={control}
+                        name={`rooms.${roomIndex}.items.${itemIndex}.dis`}
+                        render={({ field }) => ( <FormItem><FormLabel className="text-xs">Dis%</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
+                    />
+                    <FormField
+                        control={control}
+                        name={`rooms.${roomIndex}.items.${itemIndex}.gst`}
+                        render={({ field }) => ( <FormItem><FormLabel className="text-xs">Gst%</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
+                    />
+                </div>
+                <FormField
+                    control={control}
+                    name={`rooms.${roomIndex}.items.${itemIndex}.amount`}
+                    render={({ field }) => ( <FormItem><FormLabel className="text-xs">Amount</FormLabel><FormControl><Input {...field} readOnly /></FormControl><FormMessage /></FormItem> )}
+                />
+                 <Button type="button" size="icon" variant="ghost" className="text-destructive" onClick={onRemoveItem}>
+                    <Trash2 className="h-4 w-4" />
+                </Button>
+            </div>
+            
+             <FormField
+                control={control}
+                name={`rooms.${roomIndex}.items.${itemIndex}.hasDimension`}
+                render={({ field }) => (
+                    <FormItem className="flex flex-row items-center space-x-2 space-y-0 pt-2">
+                        <FormControl>
+                            <Checkbox checked={field.value} onCheckedChange={handleHasDimensionChange} />
+                        </FormControl>
+                        <FormLabel className="font-medium">Dimension</FormLabel>
+                    </FormItem>
+                )}
+            />
+
+            {hasDimension && (
+                <div className="pl-4 space-y-3">
+                    {dimensionFields.map((dimField, dimIndex) => (
+                        <DimensionFields key={dimField.id} roomIndex={roomIndex} itemIndex={itemIndex} dimensionIndex={dimIndex} onRemoveDimension={() => removeDimension(dimIndex)} />
+                    ))}
+                    <Button type="button" size="sm" variant="outline" onClick={() => appendDimension({ id: new Date().toISOString(), length: '', width: '', type: [], advanceDetails: [] })}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Dimension
+                    </Button>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function DimensionFields({ roomIndex, itemIndex, dimensionIndex, onRemoveDimension }: { roomIndex: number; itemIndex: number; dimensionIndex: number; onRemoveDimension: () => void; }) {
+  const { control, watch, setValue } = useFormContext<CpdFormValues>();
+  const [isAdvanceDetailsOpen, setIsAdvanceDetailsOpen] = useState(false);
+  const { fields, append } = useFieldArray({
+    control,
+    name: `rooms.${roomIndex}.items.${itemIndex}.dimensions.${dimensionIndex}.advanceDetails`,
+  });
+
+  const handleSaveAdvanceDetail = (data: AdvanceDetailFormValues) => {
+    // Here, you would handle image upload and get a URL, for now, we'll use a placeholder
+    const newDetail: AdvanceDetail = {
+      id: data.id || new Date().toISOString(),
+      name: data.name,
+      pcs: data.pcs,
+      imageUrl: data.img ? 'https://placehold.co/100x100.png' : undefined,
+    };
+    append(newDetail);
+  };
+    
+  return (
+    <div className="p-3 border rounded-lg bg-gray-50/50 space-y-3">
+        <div className="flex items-end gap-3">
+             <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.dimensions.${dimensionIndex}.length`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Length</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+             <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.dimensions.${dimensionIndex}.width`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+            <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.dimensions.${dimensionIndex}.type`}
+                render={() => (
+                    <FormItem>
+                         <FormLabel className="text-xs">Type</FormLabel>
+                         <div className="flex gap-2 items-center h-10">
+                            {['Wall to Wall', 'Celling to Wall', 'Other'].map(type => (
+                                <FormField key={type} control={control} name={`rooms.${roomIndex}.items.${itemIndex}.dimensions.${dimensionIndex}.type`}
+                                    render={({ field }) => (
+                                        <FormItem className="flex items-center space-x-2 space-y-0">
+                                            <FormControl><Checkbox checked={field.value?.includes(type)} onCheckedChange={checked => { return checked ? field.onChange([...field.value || [], type]) : field.onChange(field.value?.filter(v => v !== type)) }} /></FormControl>
+                                            <FormLabel className="font-normal text-xs">{type}</FormLabel>
+                                        </FormItem>
+                                    )}
+                                />
+                            ))}
+                         </div>
+                    </FormItem>
+                )}
+            />
+             <Separator orientation="vertical" className="h-10 mx-2" />
+             <Button type="button" size="sm" variant="outline" onClick={() => setIsAdvanceDetailsOpen(true)}>Add Advance details</Button>
+            <Button type="button" size="icon" variant="ghost" className="text-destructive self-center" onClick={onRemoveDimension}>
+                <Trash2 className="h-4 w-4" />
+            </Button>
+        </div>
+        {fields.length > 0 && (
+            <div className="space-y-2 pt-2">
+                <h4 className="text-xs font-semibold">Advance Details:</h4>
+                 <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead className="h-8 text-xs">Name</TableHead>
+                            <TableHead className="h-8 text-xs">Pcs</TableHead>
+                            <TableHead className="h-8 text-xs">Img</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {fields.map((advField: any, advIndex) => (
+                           <TableRow key={advField.id}>
+                                <TableCell className="py-1 text-xs">{advField.name}</TableCell>
+                                <TableCell className="py-1 text-xs">{advField.pcs}</TableCell>
+                                <TableCell className="py-1 text-xs">
+                                     {advField.imageUrl && <Image src={advField.imageUrl} alt="thumbnail" width={24} height={24} className="rounded" data-ai-hint="detail image" />}
+                                </TableCell>
+                           </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
+        )}
+        <AddAdvanceDetailsDialog isOpen={isAdvanceDetailsOpen} onClose={() => setIsAdvanceDetailsOpen(false)} onSave={handleSaveAdvanceDetail} />
+    </div>
+  )
 }
 
 function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void, visits: DealVisit[] }) {

@@ -97,7 +97,6 @@ export interface VasDetail {
     igst?: number;
 }
 
-
 export interface Order {
   id: string; // This can also be the tracking code
   crmOrderNo: string;
@@ -286,6 +285,21 @@ export interface DealMeasurement {
     createdBy: string;
 }
 
+export interface AdvanceDetail {
+    id: string;
+    name: string;
+    pcs: string;
+    imageUrl?: string;
+}
+
+export interface Dimension {
+    id: string;
+    length: string;
+    width: string;
+    type: string[];
+    advanceDetails?: AdvanceDetail[];
+}
+
 export interface CpdItem {
   itemName?: string;
   type?: string;
@@ -294,6 +308,8 @@ export interface CpdItem {
   dis?: string;
   gst?: string;
   amount?: string;
+  hasDimension?: boolean;
+  dimensions?: Dimension[];
 }
 
 export interface CpdRoom {
