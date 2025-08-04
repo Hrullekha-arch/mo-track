@@ -2,7 +2,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback, ReactNode } from "react";
+import React, { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
 import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormReturn, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -622,7 +622,7 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
     const itemsData = watch(`rooms.${roomIndex}.items`);
 
     useEffect(() => {
-        itemsData.forEach((item, itemIndex) => {
+        itemsData?.forEach((item, itemIndex) => {
             const qty = parseFloat(item.qty || '0');
             const rate = parseFloat(item.rate || '0');
             const dis = parseFloat(item.dis || '0');
