@@ -796,35 +796,9 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
     },
   });
   
-  const { replace: replaceItems } = useFieldArray({
-    control: form.control,
-    name: "items"
-  });
-
   const handleCpdSelect = (cpdId: string) => {
-    if (cpdId === "none") {
-      replaceItems([]); // Clear items if "None" is selected
-      return;
-    }
-    const selectedCpd = cpds.find(c => c.id === cpdId);
-    if (!selectedCpd) return;
-
-    const newItems: QuotationItem[] = selectedCpd.rooms.flatMap(room => 
-      (room.items || []).map(item => ({
-        id: new Date().toISOString() + Math.random(), // Add a unique ID for react-hook-form
-        collectionBrand: item.itemName || '',
-        serialNo: '', // Not available in CPD
-        salesDescription: item.type || '',
-        quantity: parseFloat(item.qty || '0'),
-        rate: parseFloat(item.rate || '0'),
-        discountPercent: parseFloat(item.dis || '0'),
-        room: room.room || '',
-        noOfPcs: '1', // Default value
-        remark: '',
-        stitchingType: 'in', // Default value
-      }))
-    );
-    replaceItems(newItems);
+    // Only set the ID for reference. Do not auto-populate.
+    form.setValue("selectedCpdId", cpdId === "none" ? undefined : cpdId);
   };
   
   useEffect(() => {
@@ -944,7 +918,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
                         name="selectedCpdId"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Select CPD</FormLabel>
+                                <FormLabel>Select CPD (for reference)</FormLabel>
                                 <Select onValueChange={(value) => {
                                     field.onChange(value);
                                     handleCpdSelect(value);
@@ -959,7 +933,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
                                         {cpds.map(cpd => <SelectItem key={cpd.id} value={cpd.id}>{cpd.cpdId}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
-                                <FormDescription>Selecting a CPD will replace the current items.</FormDescription>
+                                <FormDescription>Selecting a CPD is for reference only and will not change the item list.</FormDescription>
                             </FormItem>
                         )}
                     />
