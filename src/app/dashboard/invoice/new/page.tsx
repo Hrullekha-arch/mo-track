@@ -29,6 +29,7 @@ import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { createDealOrderAction } from "./actions";
 import { useAuth } from "@/context/AuthContext";
+import { DialogFooter } from "@/components/ui/dialog";
 
 const productSchema = z.object({
   id: z.string().optional(),
