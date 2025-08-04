@@ -7,7 +7,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -46,7 +46,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal, addVisitAction, getVisitsForDeal, addMeasurementAction, getMeasurementsForDeal } from "./actions";
+import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal, addVisitAction, getVisitsForDeal, addMeasurementAction, getMeasurementsForDeal, addCpdAction, getCpdsForDeal } from "./actions";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -449,7 +449,7 @@ export const subDeliveryInstallationItems = [
     { id: 'wooden-blind', label: 'Wooden Blind' },
 ];
 
-const itemSchema = z.object({
+const cpdItemSchema = z.object({
   itemName: z.string().optional(),
   type: z.string().optional(),
   qty: z.string().optional(),
@@ -459,9 +459,9 @@ const itemSchema = z.object({
   amount: z.string().optional(),
 });
 
-const roomSchema = z.object({
+const cpdRoomSchema = z.object({
   room: z.string().optional(),
-  items: z.array(itemSchema),
+  items: z.array(cpdItemSchema),
 });
 
 const cpdSchema = z.object({
@@ -469,12 +469,12 @@ const cpdSchema = z.object({
   customerName: z.string().optional(),
   telNo: z.string().optional(),
   date: z.string().optional(),
-  rooms: z.array(roomSchema),
+  rooms: z.array(cpdRoomSchema),
 });
 
-type CpdFormValues = z.infer<typeof cpdSchema>;
+export type CpdFormValues = z.infer<typeof cpdSchema>;
 
-const productTypeOptions = [
+export const productTypeOptions = [
     { value: "fabric", label: "Fabric" },
     { value: "rod", label: "Rod" },
     { value: "channel", label: "Channel" },
@@ -486,7 +486,10 @@ const productTypeOptions = [
     { value: "accessorise", label: "Accessorise" },
 ];
 
-function CpdForm({ customer, salesmen }: { customer: Customer, salesmen: User[] }) {
+function CpdForm({ customer, salesmen, dealId }: { customer: Customer, salesmen: User[], dealId: string }) {
+    const { user } = useAuth();
+    const { toast } = useToast();
+    const [loading, setLoading] = useState(false);
     const form = useForm<CpdFormValues>({
         resolver: zodResolver(cpdSchema),
         defaultValues: {
@@ -501,12 +504,33 @@ function CpdForm({ customer, salesmen }: { customer: Customer, salesmen: User[] 
         control: form.control,
         name: "rooms"
     });
+    
+    const onSubmit = async (data: CpdFormValues) => {
+        if (!user) {
+            toast({ variant: 'destructive', title: 'Authentication Error' });
+            return;
+        }
+        setLoading(true);
+        try {
+            const result = await addCpdAction(customer.id, dealId, data, user.name);
+            if (result.success) {
+                toast({ title: 'Success', description: 'CPD has been saved.' });
+                form.reset(); // Optionally reset form
+            } else {
+                toast({ variant: 'destructive', title: 'Error', description: result.message });
+            }
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred.' });
+        } finally {
+            setLoading(false);
+        }
+    }
 
     return (
         <Card>
             <CardContent className="pt-6">
                 <FormProvider {...form}>
-                    <form className="space-y-6">
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                         {/* Top section */}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                             <FormField
@@ -565,13 +589,21 @@ function CpdForm({ customer, salesmen }: { customer: Customer, salesmen: User[] 
                         {/* Rooms Section */}
                         <div className="space-y-4">
                             {fields.map((field, index) => (
-                                <RoomFields key={field.id} roomIndex={index} control={form.control} onRemoveRoom={() => remove(index)} />
+                                <RoomFields key={field.id} roomIndex={index} onRemoveRoom={() => remove(index)} />
                             ))}
                         </div>
 
                          <Button type="button" onClick={() => append({ room: "", items: [{}] })}>
                             <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
                         </Button>
+                        
+                         <div className="form-footer flex justify-end items-center gap-4 pt-4 border-t">
+                            <p className="text-sm text-destructive mr-auto">Please click on Update Activity if you have updated any changes.</p>
+                            <Button type="submit" disabled={loading} className="bg-cyan-600 hover:bg-cyan-700">
+                                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Update Activity
+                            </Button>
+                        </div>
                     </form>
                 </FormProvider>
             </CardContent>
@@ -579,8 +611,8 @@ function CpdForm({ customer, salesmen }: { customer: Customer, salesmen: User[] 
     )
 }
 
-function RoomFields({ roomIndex, control, onRemoveRoom }: { roomIndex: number, control: Control<CpdFormValues>, onRemoveRoom: () => void }) {
-    const { setValue } = useFormContext<CpdFormValues>();
+function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRoom: () => void }) {
+    const { control, setValue } = useFormContext<CpdFormValues>();
     const { fields, append, remove } = useFieldArray({
         control,
         name: `rooms.${roomIndex}.items`
@@ -2091,7 +2123,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
 
           <TabsContent value="cpd">
-            <CpdForm customer={customer} salesmen={salesmen} />
+            <CpdTab customer={customer} salesmen={salesmen} dealId={dealId} />
           </TabsContent>
           
           <TabsContent value="products">
@@ -2119,3 +2151,116 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   );
 }
 
+// CPD Tab Component
+function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: User[], dealId: string }) {
+    const [cpds, setCpds] = useState<Cpd[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedCpd, setSelectedCpd] = useState<Cpd | null>(null);
+
+    const fetchCpds = useCallback(async () => {
+        setLoading(true);
+        try {
+            const data = await getCpdsForDeal(customer.id, dealId);
+            setCpds(data);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
+    }, [customer.id, dealId]);
+
+    useEffect(() => {
+        fetchCpds();
+    }, [fetchCpds]);
+
+    return (
+        <div className="space-y-6">
+            <CpdForm customer={customer} salesmen={salesmen} dealId={dealId} />
+            <Card>
+                <CardHeader>
+                    <CardTitle>Saved CPDs</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {loading ? <Skeleton className="h-24 w-full" /> : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>CPD ID</TableHead>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Created By</TableHead>
+                                    <TableHead>Representative</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {cpds.length > 0 ? cpds.map(cpd => (
+                                    <TableRow key={cpd.id}>
+                                        <TableCell>
+                                            <Button variant="link" className="p-0" onClick={() => setSelectedCpd(cpd)}>
+                                                {cpd.cpdId}
+                                            </Button>
+                                        </TableCell>
+                                        <TableCell>{cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</TableCell>
+                                        <TableCell>{cpd.createdBy}</TableCell>
+                                        <TableCell>{salesmen.find(s => s.id === cpd.representative)?.name || 'N/A'}</TableCell>
+                                    </TableRow>
+                                )) : (
+                                    <TableRow>
+                                        <TableCell colSpan={4} className="h-24 text-center">No CPDs saved for this deal yet.</TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    )}
+                </CardContent>
+            </Card>
+            <Dialog open={!!selectedCpd} onOpenChange={() => setSelectedCpd(null)}>
+                <DialogContent className="max-w-[800px] h-[90vh]">
+                    {selectedCpd && <PrintableCpd cpd={selectedCpd} />}
+                </DialogContent>
+            </Dialog>
+        </div>
+    )
+}
+
+function PrintableCpd({ cpd }: { cpd: Cpd }) {
+    return (
+        <div className="p-4 bg-white text-black font-sans text-xs">
+            <h1 className="text-2xl font-bold text-center mb-4">Customer Product Details</h1>
+            <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                <p><strong>CPD No:</strong> {cpd.cpdId}</p>
+                <p><strong>Date:</strong> {cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</p>
+                <p><strong>Customer:</strong> {cpd.customerName}</p>
+                <p><strong>Tel No:</strong> {cpd.telNo}</p>
+            </div>
+            <div className="space-y-4">
+                {cpd.rooms.map((room, roomIndex) => (
+                    <div key={roomIndex}>
+                        <h3 className="font-bold bg-muted p-2 rounded-t-md">{room.room || 'General Items'}</h3>
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Item</TableHead>
+                                    <TableHead>Type</TableHead>
+                                    <TableHead>Qty</TableHead>
+                                    <TableHead>Rate</TableHead>
+                                    <TableHead>Dis%</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {room.items.map((item, itemIndex) => (
+                                    <TableRow key={itemIndex}>
+                                        <TableCell>{item.itemName}</TableCell>
+                                        <TableCell>{item.type}</TableCell>
+                                        <TableCell>{item.qty}</TableCell>
+                                        <TableCell>{item.rate}</TableCell>
+                                        <TableCell>{item.dis}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}

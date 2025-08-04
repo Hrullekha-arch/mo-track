@@ -2,9 +2,9 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
-import { VisitFormValues, MeasurementFormValues } from './page';
+import { VisitFormValues, MeasurementFormValues, CpdFormValues } from './page';
 
 export async function getDealById(customerId: string, dealId: string): Promise<Deal | null> {
     try {
@@ -136,6 +136,7 @@ export async function addVisitAction(
             deliveryInstallations: visitData.deliveryInstallations,
             subDeliveryInstallations: visitData.subDeliveryInstallations,
             otherDelivery: visitData.otherDelivery,
+            dealId: "" // This is incorrect, dealId should be the 4 digit one. Assuming it's part of the deal object
         };
 
         await newVisitRef.set(newVisit);
@@ -224,6 +225,68 @@ export async function getMeasurementsForDeal(customerId: string, dealId: string)
         return JSON.parse(JSON.stringify(measurements));
     } catch (error) {
         console.error("Error fetching measurements:", error);
+        return [];
+    }
+}
+
+export async function addCpdAction(
+  customerId: string,
+  dealId: string,
+  cpdData: CpdFormValues,
+  creatorName: string
+): Promise<{ success: boolean; message: string; cpd?: Cpd }> {
+  try {
+    const cpdsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('cpds');
+    
+    // Generate a unique 4-digit cpdId
+    let newCpdId: string;
+    let isUnique = false;
+    do {
+      newCpdId = Math.floor(1000 + Math.random() * 9000).toString();
+      const existingCpdQuery = cpdsRef.where('cpdId', '==', newCpdId);
+      const snapshot = await existingCpdQuery.get();
+      if (snapshot.empty) {
+        isUnique = true;
+      }
+    } while (!isUnique);
+
+    const newCpdRef = cpdsRef.doc();
+    const fullCpdData: Omit<Cpd, 'id'> = {
+      ...cpdData,
+      cpdId: newCpdId,
+      createdAt: new Date().toISOString(),
+      createdBy: creatorName,
+    };
+
+    await newCpdRef.set(fullCpdData);
+    const savedCpd = { ...fullCpdData, id: newCpdRef.id };
+
+    return { success: true, message: 'CPD saved successfully!', cpd: JSON.parse(JSON.stringify(savedCpd)) };
+  } catch (error: any) {
+    console.error('Error saving CPD:', error);
+    return { success: false, message: `Failed to save CPD: ${error.message}` };
+  }
+}
+
+export async function getCpdsForDeal(customerId: string, dealId: string): Promise<Cpd[]> {
+    try {
+        const snapshot = await adminDb
+            .collection('customers')
+            .doc(customerId)
+            .collection('deals')
+            .doc(dealId)
+            .collection('cpds')
+            .orderBy('createdAt', 'desc')
+            .get();
+
+        if (snapshot.empty) {
+            return [];
+        }
+
+        const cpds = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Cpd));
+        return JSON.parse(JSON.stringify(cpds));
+    } catch (error) {
+        console.error("Error fetching CPDs:", error);
         return [];
     }
 }

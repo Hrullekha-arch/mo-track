@@ -284,6 +284,32 @@ export interface DealMeasurement {
     createdBy: string;
 }
 
+export interface CpdItem {
+  itemName?: string;
+  type?: string;
+  qty?: string;
+  rate?: string;
+  dis?: string;
+  gst?: string;
+  amount?: string;
+}
+
+export interface CpdRoom {
+  room?: string;
+  items: CpdItem[];
+}
+
+export interface Cpd {
+  id: string; // firestore doc id
+  cpdId: string; // 4 digit id
+  representative?: string;
+  customerName?: string;
+  telNo?: string;
+  date?: string;
+  rooms: CpdRoom[];
+  createdAt: string;
+  createdBy: string;
+}
 
 export interface Deal {
     id: string; // Firestore document ID
