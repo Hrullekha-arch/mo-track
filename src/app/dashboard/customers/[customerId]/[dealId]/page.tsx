@@ -450,9 +450,9 @@ export const subDeliveryInstallationItems = [
 ];
 
 const cpdItemSchema = z.object({
-  itemName: z.string().optional(),
-  type: z.string().optional(),
-  qty: z.string().optional().default('0'),
+  itemName: z.string().min(1, "Item Name (BCN) is required."),
+  type: z.string().min(1, "Type is required."),
+  qty: z.string().min(1, "Qty is required."),
   rate: z.string().optional().default('0'),
   dis: z.string().optional().default('0'),
   gst: z.string().optional().default('0'),
@@ -460,7 +460,7 @@ const cpdItemSchema = z.object({
 });
 
 const cpdRoomSchema = z.object({
-  room: z.string().optional(),
+  room: z.string().min(1, "Room is required."),
   items: z.array(cpdItemSchema),
 });
 
@@ -496,7 +496,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
             customerName: customer.name,
             telNo: customer.mobileNo,
             date: format(new Date(), "yyyy-MM-dd"),
-            rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '0', rate: '0', dis: '0', gst: '0', amount: '0' }] }],
+            rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0' }] }],
         }
     });
 
@@ -517,7 +517,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                 toast({ title: 'Success', description: 'CPD has been saved.' });
                 form.reset({
                     ...form.getValues(),
-                    rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '0', rate: '0', dis: '0', gst: '0', amount: '0' }] }],
+                    rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0' }] }],
                 });
                 onCpdAdded();
             } else {
@@ -597,7 +597,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                             ))}
                         </div>
 
-                         <Button type="button" onClick={() => append({ room: "", items: [{ itemName: '', type: '', qty: '0', rate: '0', dis: '0', gst: '0', amount: '0' }] })}>
+                         <Button type="button" onClick={() => append({ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0' }] })}>
                             <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
                         </Button>
                         
@@ -616,7 +616,8 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
 }
 
 function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRoom: () => void }) {
-    const { control, watch, setValue } = useFormContext<CpdFormValues>();
+    const { control, watch, setValue, getValues, formState: { errors } } = useFormContext<CpdFormValues>();
+    
     const { fields, append, remove } = useFieldArray({
         control,
         name: `rooms.${roomIndex}.items`
@@ -637,10 +638,14 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                 const taxableAmount = subtotal - discountAmount;
                 const gstAmount = taxableAmount * (gst / 100);
                 const finalAmount = taxableAmount + gstAmount;
-                setValue(`rooms.${roomIndex}.items.${itemIndex}.amount`, finalAmount.toFixed(2), { shouldValidate: true });
+
+                const currentAmount = getValues(`rooms.${roomIndex}.items.${itemIndex}.amount`);
+                if (currentAmount !== finalAmount.toFixed(2)) {
+                   setValue(`rooms.${roomIndex}.items.${itemIndex}.amount`, finalAmount.toFixed(2), { shouldValidate: true });
+                }
             }
         });
-    }, [itemsData, roomIndex, setValue]);
+    }, [itemsData, roomIndex, setValue, getValues]);
     
     const { toast } = useToast();
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
@@ -668,13 +673,14 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                     name={`rooms.${roomIndex}.room`}
                     render={({ field }) => (
                         <FormItem className="w-1/3">
-                            <FormLabel>Room</FormLabel>
+                            <FormLabel>Room <span className="text-destructive">*</span></FormLabel>
                             <Select onValueChange={field.onChange} defaultValue={field.value}>
                                 <FormControl><SelectTrigger><SelectValue placeholder="Select Room" /></SelectTrigger></FormControl>
                                 <SelectContent>
                                     {roomOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
                                 </SelectContent>
                             </Select>
+                             <FormMessage />
                         </FormItem>
                     )}
                 />
@@ -692,7 +698,7 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                                 name={`rooms.${roomIndex}.items.${itemIndex}.itemName`}
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-xs">Item Name (BCN)</FormLabel>
+                                        <FormLabel className="text-xs">Item Name (BCN) <span className="text-destructive">*</span></FormLabel>
                                         <Combobox 
                                             options={bcnOptions}
                                             value={field.value}
@@ -707,6 +713,7 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                                             onSearch={handleBcnSearch}
                                             placeholder="Search by BCN..."
                                         />
+                                         <FormMessage />
                                     </FormItem>
                                 )}
                             />
@@ -715,13 +722,14 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                                 name={`rooms.${roomIndex}.items.${itemIndex}.type`}
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-xs">Type</FormLabel>
+                                        <FormLabel className="text-xs">Type <span className="text-destructive">*</span></FormLabel>
                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                             <FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl>
                                             <SelectContent>
                                                 {productTypeOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
                                             </SelectContent>
                                         </Select>
+                                        <FormMessage />
                                     </FormItem>
                                 )}
                             />
@@ -730,28 +738,28 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                              <FormField
                                 control={control}
                                 name={`rooms.${roomIndex}.items.${itemIndex}.qty`}
-                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Qty</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )}
+                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Qty <span className="text-destructive">*</span></FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
                             />
                             <FormField
                                 control={control}
                                 name={`rooms.${roomIndex}.items.${itemIndex}.rate`}
-                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Rate</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )}
+                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Rate</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
                             />
                             <FormField
                                 control={control}
                                 name={`rooms.${roomIndex}.items.${itemIndex}.dis`}
-                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Dis%</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )}
+                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Dis%</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
                             />
                             <FormField
                                 control={control}
                                 name={`rooms.${roomIndex}.items.${itemIndex}.gst`}
-                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Gst%</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )}
+                                render={({ field }) => ( <FormItem><FormLabel className="text-xs">Gst%</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
                             />
                         </div>
                         <FormField
                             control={control}
                             name={`rooms.${roomIndex}.items.${itemIndex}.amount`}
-                            render={({ field }) => ( <FormItem><FormLabel className="text-xs">Amount</FormLabel><FormControl><Input {...field} readOnly /></FormControl></FormItem> )}
+                            render={({ field }) => ( <FormItem><FormLabel className="text-xs">Amount</FormLabel><FormControl><Input {...field} readOnly /></FormControl><FormMessage /></FormItem> )}
                         />
 
                          <Button type="button" size="icon" variant="ghost" className="text-destructive" onClick={() => remove(itemIndex)}>
@@ -760,7 +768,7 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                     </div>
                 ))}
              </div>
-             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({ itemName: '', type: '', qty: '0', rate: '0', dis: '0', gst: '0', amount: '0' })}>
+             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0' })}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Add Item
             </Button>
         </Card>
@@ -2197,6 +2205,8 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
     const handleRefresh = async () => {
         setIsRefreshing(true);
         await fetchCpds();
+        // Add a small delay for user to perceive the refresh action
+        await new Promise(resolve => setTimeout(resolve, 500));
         setIsRefreshing(false);
     };
 
@@ -2252,12 +2262,10 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
                 </CardContent>
             </Card>
             <Dialog open={!!selectedCpd} onOpenChange={() => setSelectedCpd(null)}>
-                <DialogContent className="max-w-[800px] h-[90vh]">
+                <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
                      <DialogHeader>
                         <DialogTitle>CPD Details: {selectedCpd?.cpdId}</DialogTitle>
-                        <DialogDescription>
-                            A printable view of the Customer Product Details.
-                        </DialogDescription>
+                        <DialogDescription>A printable view of the Customer Product Details.</DialogDescription>
                     </DialogHeader>
                     {selectedCpd && <PrintableCpd cpd={selectedCpd} />}
                 </DialogContent>
@@ -2267,50 +2275,123 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
 }
 
 function PrintableCpd({ cpd }: { cpd: Cpd }) {
+    
+    const handlePrint = () => {
+        const printContent = document.getElementById('printable-cpd-content');
+        if (!printContent) return;
+
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) return;
+
+        printWindow.document.write('<html><head><title>Print CPD</title>');
+        // You might want to link an external stylesheet for printing if needed
+        printWindow.document.write('<style>@media print { body { -webkit-print-color-adjust: exact; } }</style>');
+        printWindow.document.write('</head><body>');
+        printWindow.document.write(printContent.innerHTML);
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        setTimeout(() => {
+            printWindow.focus();
+            printWindow.print();
+            printWindow.close();
+        }, 250);
+    };
+
+    const totals = useMemo(() => {
+        let totalItems = 0;
+        let totalQty = 0;
+        let grossAmount = 0;
+        let totalDiscount = 0;
+        let totalGst = 0;
+
+        cpd.rooms.forEach(room => {
+            room.items.forEach(item => {
+                totalItems += 1;
+                const qty = parseFloat(item.qty || '0');
+                const rate = parseFloat(item.rate || '0');
+                const dis = parseFloat(item.dis || '0');
+                const gst = parseFloat(item.gst || '0');
+
+                totalQty += qty;
+                const subtotal = qty * rate;
+                grossAmount += subtotal;
+                const discountAmount = subtotal * (dis / 100);
+                totalDiscount += discountAmount;
+                const taxableAmount = subtotal - discountAmount;
+                const gstAmount = taxableAmount * (gst / 100);
+                totalGst += gstAmount;
+            });
+        });
+        
+        const netAmount = grossAmount - totalDiscount + totalGst;
+        const cgst = totalGst / 2;
+        const sgst = totalGst / 2;
+
+        return { totalItems, totalQty, grossAmount, totalDiscount, totalGst, netAmount, cgst, sgst };
+    }, [cpd]);
+
     return (
-        <div className="p-4 bg-white text-black font-sans text-xs">
-            <h1 className="text-2xl font-bold text-center mb-4">Customer Product Details</h1>
-            <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
-                <p><strong>CPD No:</strong> {cpd.cpdId}</p>
-                <p><strong>Date:</strong> {cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</p>
-                <p><strong>Customer:</strong> {cpd.customerName}</p>
-                <p><strong>Tel No:</strong> {cpd.telNo}</p>
+        <div className="flex-grow overflow-y-auto">
+             <div className="flex justify-end p-4 border-b">
+                 <Button onClick={handlePrint}><Printer className="mr-2 h-4 w-4" /> Print</Button>
             </div>
-            <div className="space-y-4">
-                {cpd.rooms.map((room, roomIndex) => (
-                    <div key={roomIndex}>
-                        <h3 className="font-bold bg-muted p-2 rounded-t-md">{room.room || 'General Items'}</h3>
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Item</TableHead>
-                                    <TableHead>Type</TableHead>
-                                    <TableHead>Qty</TableHead>
-                                    <TableHead>Rate</TableHead>
-                                    <TableHead>Dis%</TableHead>
-                                    <TableHead>GST%</TableHead>
-                                    <TableHead>Amount</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {room.items.map((item, itemIndex) => (
-                                    <TableRow key={itemIndex}>
-                                        <TableCell>{item.itemName}</TableCell>
-                                        <TableCell>{item.type}</TableCell>
-                                        <TableCell>{item.qty}</TableCell>
-                                        <TableCell>{item.rate}</TableCell>
-                                        <TableCell>{item.dis}</TableCell>
-                                        <TableCell>{item.gst}</TableCell>
-                                        <TableCell>{Number(item.amount || 0).toFixed(2)}</TableCell>
+            <div id="printable-cpd-content" className="p-4 bg-white text-black font-sans text-xs">
+                 <div className="flex justify-between items-center mb-4 border-b pb-2">
+                    <Image src="/logo.png" alt="MoTrack Logo" width={120} height={60} />
+                    <h1 className="text-2xl font-bold text-center">Customer Product Details</h1>
+                 </div>
+                <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                    <p><strong>CPD No:</strong> {cpd.cpdId}</p>
+                    <p><strong>Date:</strong> {cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</p>
+                    <p><strong>Customer:</strong> {cpd.customerName}</p>
+                    <p><strong>Tel No:</strong> {cpd.telNo}</p>
+                </div>
+                <div className="space-y-4">
+                    {cpd.rooms.map((room, roomIndex) => (
+                        <div key={roomIndex}>
+                            <h3 className="font-bold bg-gray-200 p-2 rounded-t-md">{room.room || 'General Items'}</h3>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Item</TableHead>
+                                        <TableHead>Type</TableHead>
+                                        <TableHead>Qty</TableHead>
+                                        <TableHead>Rate</TableHead>
+                                        <TableHead>Dis%</TableHead>
+                                        <TableHead>GST%</TableHead>
+                                        <TableHead>Amount</TableHead>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
+                                </TableHeader>
+                                <TableBody>
+                                    {room.items.map((item, itemIndex) => (
+                                        <TableRow key={itemIndex}>
+                                            <TableCell>{item.itemName}</TableCell>
+                                            <TableCell>{item.type}</TableCell>
+                                            <TableCell>{item.qty}</TableCell>
+                                            <TableCell>{item.rate}</TableCell>
+                                            <TableCell>{item.dis}</TableCell>
+                                            <TableCell>{item.gst}</TableCell>
+                                            <TableCell>{Number(item.amount || 0).toFixed(2)}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    ))}
+                </div>
+                 <div className="mt-6 p-4 border-t-2 border-gray-600">
+                    <h3 className="text-base font-bold mb-2">Summary</h3>
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
+                        <p><strong>Total No of Items:</strong> {totals.totalItems}</p>
+                        <p><strong>Total Quantity:</strong> {totals.totalQty.toFixed(2)}</p>
+                        <p><strong>Gross Amount:</strong> {totals.grossAmount.toFixed(2)}</p>
+                        <p><strong>Total Discount:</strong> {totals.totalDiscount.toFixed(2)}</p>
+                        <p><strong>CGST:</strong> {totals.cgst.toFixed(2)}</p>
+                        <p><strong>SGST:</strong> {totals.sgst.toFixed(2)}</p>
+                        <p className="col-span-2 font-bold text-sm pt-2 border-t mt-2"><strong>Net Amount:</strong> {totals.netAmount.toFixed(2)}</p>
                     </div>
-                ))}
+                </div>
             </div>
         </div>
     )
 }
-
-    
