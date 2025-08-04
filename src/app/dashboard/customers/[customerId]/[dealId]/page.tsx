@@ -497,7 +497,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
             customerName: customer.name,
             telNo: customer.mobileNo,
             date: format(new Date(), "yyyy-MM-dd"),
-            rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '', dis: '', gst: '', amount: '' }] }],
+            rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '0', rate: '0', dis: '0', gst: '0', amount: '0' }] }],
         }
     });
 
@@ -595,7 +595,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                             ))}
                         </div>
 
-                         <Button type="button" onClick={() => append({ room: "", items: [{ itemName: '', type: '', qty: '', rate: '', dis: '', gst: '', amount: '' }] })}>
+                         <Button type="button" onClick={() => append({ room: "", items: [{ itemName: '', type: '', qty: '0', rate: '0', dis: '0', gst: '0', amount: '0' }] })}>
                             <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
                         </Button>
                         
@@ -758,7 +758,7 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                     </div>
                 ))}
              </div>
-             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({ itemName: '', type: '', qty: '', rate: '', dis: '', gst: '', amount: '' })}>
+             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({ itemName: '', type: '', qty: '0', rate: '0', dis: '0', gst: '0', amount: '0' })}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Add Item
             </Button>
         </Card>
@@ -2229,7 +2229,7 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
                                         </TableCell>
                                         <TableCell>{cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</TableCell>
                                         <TableCell>{cpd.createdBy}</TableCell>
-                                        <TableCell>{salesmen.find(s => s.id === cpd.representative)?.name || 'N/A'}</TableCell>
+                                        <TableCell>{salesmen.find(s => s.id === cpd.representative)?.name || cpd.representative || 'N/A'}</TableCell>
                                     </TableRow>
                                 )) : (
                                     <TableRow>
@@ -2243,6 +2243,12 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
             </Card>
             <Dialog open={!!selectedCpd} onOpenChange={() => setSelectedCpd(null)}>
                 <DialogContent className="max-w-[800px] h-[90vh]">
+                     <DialogHeader>
+                        <DialogTitle>CPD Details: {selectedCpd?.cpdId}</DialogTitle>
+                        <DialogDescription>
+                            A printable view of the Customer Product Details.
+                        </DialogDescription>
+                    </DialogHeader>
                     {selectedCpd && <PrintableCpd cpd={selectedCpd} />}
                 </DialogContent>
             </Dialog>
