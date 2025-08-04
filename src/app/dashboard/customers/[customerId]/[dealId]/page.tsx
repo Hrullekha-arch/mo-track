@@ -70,7 +70,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 
-const deliveryInstallationItemSchema = z.object({
+export const deliveryInstallationItemSchema = z.object({
   id: z.string(),
   noOfPcs: z.string().optional(),
 });
@@ -580,6 +580,7 @@ function CpdForm({ customer, salesmen }: { customer: Customer, salesmen: User[] 
 }
 
 function RoomFields({ roomIndex, control, onRemoveRoom }: { roomIndex: number, control: Control<CpdFormValues>, onRemoveRoom: () => void }) {
+    const { setValue } = useFormContext<CpdFormValues>();
     const { fields, append, remove } = useFieldArray({
         control,
         name: `rooms.${roomIndex}.items`
@@ -644,8 +645,7 @@ function RoomFields({ roomIndex, control, onRemoveRoom }: { roomIndex: number, c
                                                 const selectedOption = bcnOptions.find(opt => opt.value === value);
                                                 if (selectedOption) {
                                                     const rate = selectedOption.stockItem.mrp?.toString() || '';
-                                                    const form = control._form;
-                                                    form.setValue(`rooms.${roomIndex}.items.${itemIndex}.rate`, rate);
+                                                    setValue(`rooms.${roomIndex}.items.${itemIndex}.rate`, rate);
                                                 }
                                             }}
                                             onSearch={handleBcnSearch}
