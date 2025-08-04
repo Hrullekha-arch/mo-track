@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, ReactNode, useMemo } from "react";
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Customer, Deal, DealProduct, Quotation, VasDetail } from "@/lib/types";
+import { Customer, Deal, DealProduct, Quotation, VasDetail, Cpd } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, Edit, Check, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,6 +23,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+
 
 const roomOptions = [
     { value: "kids-room", label: "KIDS ROOM" },
@@ -446,6 +449,7 @@ const formSchema = z.object({
   billingName: z.string().optional(),
   billingAddress: z.string().optional(),
   dealName: z.string().min(1, "Deal name is required"),
+  selectedCpdId: z.string().optional(),
   items: z.array(itemDetailSchema),
   vasDetails: z.array(vasDetailSchema).optional(),
   sendEmail: z.boolean().default(false),
@@ -465,6 +469,7 @@ interface CreateQuotationDialogProps {
   deal: Deal;
   customer: Customer;
   initialItems: ItemDetailValues[];
+  cpds: Cpd[];
 }
 
 
@@ -728,7 +733,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
                                         <TableCell>{vas.vasName}</TableCell>
                                         <TableCell>{vas.quantity}</TableCell>
                                         <TableCell>{vas.rate}</TableCell>
-                                        <TableCell>{vas.room}</TableCell>
+                                        <TableCell>{vas.room || '-'}</TableCell>
                                         <TableCell>{vas.taxableAmt.toFixed(2)}</TableCell>
                                         <TableCell>{vas.cgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
                                         <TableCell>{vas.sgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
@@ -770,7 +775,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
     )
 }
 
-export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, customer, initialItems }: CreateQuotationDialogProps) {
+export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, customer, initialItems, cpds }: CreateQuotationDialogProps) {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -786,6 +791,33 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
       vasDetails: [],
     },
   });
+  
+  const { fields: itemsFields, append: appendItem, remove: removeItem, replace: replaceItems } = useFieldArray({
+    control: form.control,
+    name: "items"
+  });
+
+  const handleCpdSelect = (cpdId: string) => {
+    const selectedCpd = cpds.find(c => c.id === cpdId);
+    if (!selectedCpd) return;
+
+    const newItems = selectedCpd.rooms.flatMap(room => 
+      room.items.map(item => ({
+        id: item.itemName, // Use a unique identifier if possible
+        collectionBrand: item.itemName || '',
+        serialNo: '', // Not available in CPD
+        salesDescription: item.type || '',
+        quantity: parseFloat(item.qty || '0'),
+        rate: parseFloat(item.rate || '0'),
+        discountPercent: parseFloat(item.dis || '0'),
+        room: room.room || '',
+        noOfPcs: '1', // Default value
+        remark: '',
+        stitchingType: 'in', // Default value
+      }))
+    );
+    replaceItems(newItems);
+  };
   
   useEffect(() => {
     if (isOpen) {
@@ -816,6 +848,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
           billingName: customer.name,
           billingAddress: customer.addressPinCode,
           dealName: deal.dealName,
+          selectedCpdId: undefined,
           items: itemsForForm,
           vasDetails: [],
           sendEmail: false,
@@ -897,6 +930,30 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
                     <FormField control={form.control} name="validTillDate" render={({ field }) => (<FormItem><FormLabel>Valid Till Date</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className="w-full justify-start text-left font-normal"><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="customerName" render={({ field }) => (<FormItem><FormLabel>Customer Name*</FormLabel><FormControl><Input {...field} readOnly /></FormControl><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="dealName" render={({ field }) => (<FormItem><FormLabel>Deal Name*</FormLabel><Combobox options={[{value: deal.dealName, label: deal.dealName}]} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                     <FormField
+                        control={form.control}
+                        name="selectedCpdId"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Select CPD</FormLabel>
+                                <Select onValueChange={(value) => {
+                                    field.onChange(value);
+                                    handleCpdSelect(value);
+                                }} defaultValue={field.value}>
+                                    <FormControl>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Load items from a CPD" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="">None</SelectItem>
+                                        {cpds.map(cpd => <SelectItem key={cpd.id} value={cpd.id}>{cpd.cpdId}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                                <FormDescription>Selecting a CPD will replace the current items.</FormDescription>
+                            </FormItem>
+                        )}
+                    />
                 </div>
 
                 <Separator />

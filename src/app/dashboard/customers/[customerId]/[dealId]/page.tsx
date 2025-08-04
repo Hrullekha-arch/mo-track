@@ -1470,7 +1470,7 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
     );
 };
 
-function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, customer }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal, customer: Customer }) {
+function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, customer, cpds }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal, customer: Customer, cpds: Cpd[] }) {
     const [activityLoading, setActivityLoading] = useState(false);
     const { toast } = useToast();
     const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
@@ -1680,6 +1680,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
             deal={deal}
             customer={customer}
             initialItems={selectedProductsForQuotation}
+            cpds={cpds}
             onSuccess={onRefresh}
         />
         </FormProvider>
@@ -2152,12 +2153,19 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const [deal, setDeal] = useState<Deal | null>(null);
   const [salesmen, setSalesmen] = useState<User[]>([]);
   const [visits, setVisits] = useState<DealVisit[]>([]);
+  const [cpds, setCpds] = useState<Cpd[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchVisits = useCallback(async () => {
     const data = await getVisitsForDeal(customerId, dealId);
     setVisits(data);
   }, [customerId, dealId]);
+
+  const fetchCpds = useCallback(async () => {
+    const data = await getCpdsForDeal(customerId, dealId);
+    setCpds(data);
+  }, [customerId, dealId]);
+
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -2191,7 +2199,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     if (!customerId || !dealId) return;
     fetchData();
     fetchVisits();
-  }, [customerId, dealId, fetchData, fetchVisits]);
+    fetchCpds();
+  }, [customerId, dealId, fetchData, fetchVisits, fetchCpds]);
 
   if (loading) {
     return <CrmActivitySkeleton />;
@@ -2303,6 +2312,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 onRefresh={fetchData}
                 deal={deal}
                 customer={customer}
+                cpds={cpds}
             />
           </TabsContent>
 
