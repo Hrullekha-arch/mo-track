@@ -24,6 +24,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 
 const roomOptions = [
@@ -768,10 +769,26 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
                     <FormField control={form.control} name="sendSms" render={({ field }) => (<FormItem className="flex items-center gap-2"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel>Send SMS</FormLabel></FormItem>)} />
                 </div>
                  <div className="flex gap-2">
-                    <Button type="button" onClick={onSubmit} disabled={loading} className="bg-cyan-600 hover:bg-cyan-700">
-                        {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Create Quotation
-                    </Button>
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button type="button" disabled={loading} className="bg-cyan-600 hover:bg-cyan-700">
+                                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Create Quotation
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Confirm Quotation</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Have you selected the correct CPD for reference? This cannot be changed after creation.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={onSubmit}>Continue & Create</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                     <Button type="button" variant="outline" onClick={onBack}>Cancel</Button>
                  </div>
             </div>
@@ -933,7 +950,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
                                         {cpds.map(cpd => <SelectItem key={cpd.id} value={cpd.id}>{cpd.cpdId}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
-                                <FormDescription>Selecting a CPD is for reference only and will not change the item list.</FormDescription>
+                                <FormDescription>Selecting a CPD is for reference only.</FormDescription>
                             </FormItem>
                         )}
                     />
