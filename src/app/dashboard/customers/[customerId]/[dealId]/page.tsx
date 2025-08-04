@@ -612,11 +612,31 @@ function CpdForm({ customer, salesmen, dealId }: { customer: Customer, salesmen:
 }
 
 function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRoom: () => void }) {
-    const { control, setValue } = useFormContext<CpdFormValues>();
+    const { control, setValue, watch } = useFormContext<CpdFormValues>();
     const { fields, append, remove } = useFieldArray({
         control,
         name: `rooms.${roomIndex}.items`
     });
+    
+    const itemsData = watch(`rooms.${roomIndex}.items`);
+
+    React.useEffect(() => {
+        itemsData.forEach((item, itemIndex) => {
+            const qty = parseFloat(item.qty || '0');
+            const rate = parseFloat(item.rate || '0');
+            const dis = parseFloat(item.dis || '0');
+            const gst = parseFloat(item.gst || '0');
+
+            if (!isNaN(qty) && !isNaN(rate)) {
+                const subtotal = qty * rate;
+                const discountAmount = subtotal * (dis / 100);
+                const taxableAmount = subtotal - discountAmount;
+                const gstAmount = taxableAmount * (gst / 100);
+                const finalAmount = taxableAmount + gstAmount;
+                setValue(`rooms.${roomIndex}.items.${itemIndex}.amount`, finalAmount.toFixed(2));
+            }
+        });
+    }, [itemsData, roomIndex, setValue]);
     
     const { toast } = useToast();
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
@@ -2264,3 +2284,5 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
         </div>
     )
 }
+
+    
