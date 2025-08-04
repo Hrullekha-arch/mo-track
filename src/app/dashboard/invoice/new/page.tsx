@@ -233,12 +233,14 @@ function ConvertToOrderContent() {
     if (!customerId || !dealId || !user || !quotation) return;
     setIsSubmitting(true);
     try {
-      const updatedQuotation: Quotation = {
-        ...quotation,
-        items: data.products,
-        billingName: data.billingName,
-        // Any other fields from the form you want to update on the quotation
-      };
+        const updatedQuotation: Quotation = {
+            ...quotation,
+            items: data.products.map(p => ({
+                ...p,
+                discountPercent: Number(p.discountPercent) || 0,
+            })),
+            billingName: data.billingName,
+        };
 
       const result = await createDealOrderAction(customerId, dealId, updatedQuotation);
 
