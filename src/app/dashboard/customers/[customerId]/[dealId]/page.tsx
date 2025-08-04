@@ -1790,7 +1790,16 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem><Copy className="mr-2 h-4 w-4"/> Office Copy Print</DropdownMenuItem>
                                                     <DropdownMenuItem><FileDown className="mr-2 h-4 w-4"/> Clone Quotation</DropdownMenuItem>
-                                                    <DropdownMenuItem asChild>
+                                                    <DropdownMenuItem 
+                                                        asChild 
+                                                        disabled={q.status === 'Converted to Order'}
+                                                        onSelect={(e) => {
+                                                            if (q.status === 'Converted to Order') {
+                                                                e.preventDefault();
+                                                                toast({variant: 'destructive', title: 'Already Converted', description: 'This quotation has already been converted to an order.'})
+                                                            }
+                                                        }}
+                                                    >
                                                         <Link href={`/dashboard/invoice/new?customerId=${customerId}&dealId=${dealId}&quotationId=${q.id}`}>
                                                             Convert to Order
                                                         </Link>
@@ -1808,7 +1817,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
                                         </TableCell>
                                         <TableCell>{format(parseDate(q.date), 'dd/MM/yyyy')}</TableCell>
                                         <TableCell>{q.customerName}</TableCell>
-                                        <TableCell><Badge variant="secondary">{q.status}</Badge></TableCell>
+                                        <TableCell><Badge variant={q.status === 'Converted to Order' ? 'default' : 'secondary'}>{q.status}</Badge></TableCell>
                                         <TableCell className="text-right">{q.totalAmount.toFixed(2)}</TableCell>
                                         <TableCell>{q.store}</TableCell>
                                     </TableRow>
@@ -2578,4 +2587,3 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
         </div>
     )
 }
-

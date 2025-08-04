@@ -371,7 +371,7 @@ export interface Quotation {
     createdAt: string;
     createdBy?: string; // user id
     company?: string;
-    discountPercent?: string;
+    discountPercent?: number;
     applyTax?: boolean;
     billingName?: string;
     vasDetails?: VasDetail[];
