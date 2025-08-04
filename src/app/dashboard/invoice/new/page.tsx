@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { use, Suspense } from "react";
@@ -13,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Quotation, Customer, Deal, DealProduct, Stock } from "@/lib/types";
+import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem } from "@/lib/types";
 import React, { useEffect, useState } from "react";
 import { getCustomerById } from "@/app/dashboard/customers/actions";
 import { getDealById, getQuotationsForDeal } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
@@ -144,9 +145,10 @@ function ConvertToOrderContent() {
 
         if (specificQuotation) {
           setQuotation(specificQuotation);
-          const productsFromQuotation = specificQuotation.items.map(item => {
+          const productsFromQuotation = specificQuotation.items.map((item: QuotationItem) => {
             const quotationRate = item.rate * (1 - (item.discountPercent || 0) / 100);
             return {
+              id: item.id || undefined,
               collectionBrand: item.collectionBrand,
               serialNo: item.serialNo || '',
               quantity: item.quantity,
@@ -227,17 +229,17 @@ function ConvertToOrderContent() {
   };
 
   const onSubmit = async (data: ConvertToOrderFormValues) => {
-    if (!customerId || !dealId || !user) return;
+    if (!customerId || !dealId || !user || !quotation) return;
     setIsSubmitting(true);
     try {
-      const orderData = {
-        orderDate: new Date().toISOString(),
+      const updatedQuotation: Quotation = {
+        ...quotation,
         items: data.products,
-        remark: data.orderRemark || "",
-        createdBy: user.name,
+        billingName: data.billingName,
+        // Any other fields from the form you want to update on the quotation
       };
-      
-      const result = await createDealOrderAction(customerId, dealId, orderData);
+
+      const result = await createDealOrderAction(customerId, dealId, updatedQuotation);
 
       if (result.success) {
         toast({ title: "Order Created!", description: "The sales order has been saved successfully." });
@@ -347,52 +349,50 @@ function ConvertToOrderContent() {
                     <FormField control={form.control} name="addProduct.info1" render={({ field }) => (<FormItem><FormLabel>Info 1</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="addProduct.info2" render={({ field }) => (<FormItem><FormLabel>Info 2</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                 </div>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField control={form.control} name="addProduct.stitchingType" render={({ field }) => (<FormItem><FormLabel>Stitching Type</FormLabel><FormControl><RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex items-center gap-4"><FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="in" /></FormControl><FormLabel className="font-normal">IN</FormLabel></FormItem><FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="out" /></FormControl><FormLabel className="font-normal">OUT</FormLabel></FormItem></RadioGroup></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={form.control} name="addProduct.file" render={({ field }) => (<FormItem><FormLabel>Upload file</FormLabel><FormControl><Input type="file" /></FormControl><FormMessage /></FormItem>)} />
-                 </div>
-                 <div className="flex gap-2">
-                    <Button type="button" className="bg-teal-600 hover:bg-teal-700" onClick={handleAddProduct}>Add</Button>
-                    <Button type="button" variant="outline">Clear</Button>
-                 </div>
+                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <FormField control={form.control} name="addProduct.room" render={({ field }) => (<FormItem><FormLabel>Room</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.stitchingType" render={({ field }) => (<FormItem><FormLabel>Stitching</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger></FormControl><SelectContent><SelectItem value="in">In</SelectItem><SelectItem value="out">Out</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="addProduct.file" render={({ field }) => (<FormItem><FormLabel>Upload File</FormLabel><FormControl><Input type="file" onChange={(e) => field.onChange(e.target.files ? e.target.files[0] : null)} /></FormControl><FormMessage /></FormItem>)} />
+                </div>
+                 <Button type="button" variant="outline" onClick={handleAddProduct}><PlusCircle className="mr-2 h-4 w-4" />Add Product</Button>
             </div>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-              <FormField control={form.control} name="orderRemark" render={({ field }) => (<FormItem><FormLabel>Order Remark</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-              <FormField control={form.control} name="billingName" render={({ field }) => (<FormItem><FormLabel>Billing Name</FormLabel><Select onValueChange={field.onChange}><FormControl><SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger></FormControl><SelectContent><SelectItem value="placeholder">Placeholder</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
-              <FormField control={form.control} name="addVas" render={({ field }) => (<FormItem className="flex items-center gap-2"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><Label className="font-normal">Add VAS</Label></FormItem>)} />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField control={form.control} name="orderRemark" render={({ field }) => (<FormItem><FormLabel>Order Remark</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+            <FormField control={form.control} name="billingName" render={({ field }) => (<FormItem><FormLabel>Billing Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
           </div>
 
-          <div className="flex gap-2">
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button type="button">Proceed</Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will create a new order based on the items listed. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={form.handleSubmit(onSubmit)} disabled={isSubmitting}>
+          <FormField
+            control={form.control}
+            name="addVas"
+            render={({ field }) => (
+                <FormItem className="flex flex-row items-center space-x-3 space-y-0">
+                    <FormControl>
+                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                        <FormLabel>Add VAS</FormLabel>
+                    </div>
+                </FormItem>
+            )}
+            />
+            {form.watch('addVas') && <p>VAS form would go here.</p>}
+
+            <DialogFooter className="pt-4">
+                <Button type="button" variant="ghost" onClick={() => router.back()}>Cancel</Button>
+                <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Confirm & Create
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
+                    Convert to Order
+                </Button>
+            </DialogFooter>
         </form>
       </FormProvider>
     </div>
   );
 }
 
-export default function ConvertToOrderPage() {
+export default function NewInvoicePage() {
     return (
         <Suspense fallback={<Skeleton className="h-screen w-full" />}>
             <ConvertToOrderContent />

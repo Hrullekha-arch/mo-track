@@ -1,6 +1,6 @@
 
 
-"use client"
+"use client";
 
 import * as React from "react";
 import {
@@ -101,8 +101,8 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
                         <p className="text-muted-foreground"><span className="font-semibold text-foreground">Representative:</span> {representativeName}</p>
                         <p className="text-muted-foreground"><span className="font-semibold text-foreground">DealName:</span> {quotation.dealName}</p>
                         <p className="text-muted-foreground"><span className="font-semibold text-foreground">Store Name:</span> {quotation.store}</p>
-                        <p className="text-muted-foreground"><span className="font-semibold text-foreground">Order No:</span> <span className="text-primary font-bold">{quotation.id.substring(0, 4)}</span></p>
-                        {quotation.cpdId && <p className="text-muted-foreground"><span className="font-semibold text-foreground">From CPD ID:</span> <span className="text-primary font-bold">{quotation.cpdId.substring(0,4)}</span></p>}
+                        {quotation.status === 'Converted to Order' && <p className="text-muted-foreground"><span className="font-semibold text-foreground">Order No:</span> <span className="text-primary font-bold">{quotation.orderNo}</span></p>}
+                        {quotation.cpdId && <p className="text-muted-foreground"><span className="font-semibold text-foreground">From CPD ID:</span> <span className="text-primary font-bold">{quotation.cpdId}</span></p>}
                     </div>
                 </div>
                 <div className="flex gap-2">

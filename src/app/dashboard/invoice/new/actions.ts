@@ -1,14 +1,18 @@
+
 "use server";
 
 import { adminDb } from "@/lib/firebase-admin";
-import { DealOrder } from "@/lib/types";
+import { DealOrder, Quotation } from "@/lib/types";
 
 export async function createDealOrderAction(
   customerId: string,
   dealId: string,
-  orderData: Omit<DealOrder, "id" | "orderNo">
+  quotation: Quotation
 ): Promise<{ success: boolean; message: string; order?: DealOrder }> {
   try {
+    const batch = adminDb.batch();
+
+    // 1. Create the new order
     const ordersRef = adminDb
       .collection("customers")
       .doc(customerId)
@@ -19,12 +23,31 @@ export async function createDealOrderAction(
     const newOrderRef = ordersRef.doc();
 
     const newOrder: DealOrder = {
-      ...orderData,
-      id: newOrderRef.id,
       orderNo: Math.floor(1000 + Math.random() * 9000).toString(),
+      id: newOrderRef.id,
+      orderDate: new Date().toISOString(),
+      createdBy: quotation.createdBy || 'System',
+      remark: quotation.billingName || "",
+      items: quotation.items,
     };
 
-    await newOrderRef.set(newOrder);
+    batch.set(newOrderRef, newOrder);
+
+    // 2. Update the quotation status
+    const quotationRef = adminDb
+      .collection("customers")
+      .doc(customerId)
+      .collection("deals")
+      .doc(dealId)
+      .collection("quotations")
+      .doc(quotation.id);
+    
+    batch.update(quotationRef, { 
+      status: 'Converted to Order',
+      orderNo: newOrder.orderNo,
+    });
+
+    await batch.commit();
 
     return {
       success: true,

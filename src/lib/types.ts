@@ -367,7 +367,9 @@ export interface Quotation {
     items: QuotationItem[];
     totalAmount: number;
     status: 'Generated' | 'Converted to Order';
+    orderNo?: string;
     createdAt: string;
+    createdBy?: string; // user id
     company?: string;
     discountPercent?: string;
     applyTax?: boolean;
