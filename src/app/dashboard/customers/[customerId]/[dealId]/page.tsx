@@ -2474,7 +2474,7 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
             </div>
             <div id="printable-cpd-content" className="p-4 bg-white text-black font-sans text-xs">
                  <div className="flex justify-between items-center mb-4 border-b pb-2">
-                    <Image src="/logo.png" alt="MoTrack Logo" width={120} height={60} />
+                    <Image src="/logo.png" alt="MoTrack Logo" width={120} height={60} data-ai-hint="logo" />
                     <h1 className="text-2xl font-bold text-center">Customer Product Details</h1>
                  </div>
                 <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
@@ -2486,7 +2486,7 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
                 <div className="space-y-4">
                     {cpd.rooms.map((room, roomIndex) => (
                         <div key={roomIndex}>
-                            <h3 className="font-bold bg-gray-200 p-2 rounded-t-md">{room.room || 'General Items'}</h3>
+                            <h3 className="font-bold bg-gray-200 p-2 rounded-t-md">{room.room?.toUpperCase().replace(/-/g, ' ') || 'General Items'}</h3>
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -2501,15 +2501,48 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
                                 </TableHeader>
                                 <TableBody>
                                     {room.items.map((item, itemIndex) => (
-                                        <TableRow key={itemIndex}>
-                                            <TableCell>{item.itemName}</TableCell>
-                                            <TableCell>{item.type}</TableCell>
-                                            <TableCell>{item.qty}</TableCell>
-                                            <TableCell>{item.rate}</TableCell>
-                                            <TableCell>{item.dis}</TableCell>
-                                            <TableCell>{item.gst}</TableCell>
-                                            <TableCell>{Number(item.amount || 0).toFixed(2)}</TableCell>
-                                        </TableRow>
+                                        <React.Fragment key={itemIndex}>
+                                            <TableRow>
+                                                <TableCell>{item.itemName}</TableCell>
+                                                <TableCell>{item.type}</TableCell>
+                                                <TableCell>{item.qty}</TableCell>
+                                                <TableCell>{item.rate}</TableCell>
+                                                <TableCell>{item.dis}</TableCell>
+                                                <TableCell>{item.gst}</TableCell>
+                                                <TableCell>{Number(item.amount || 0).toFixed(2)}</TableCell>
+                                            </TableRow>
+                                            {item.hasDimension && item.dimensions && item.dimensions.length > 0 && (
+                                                <TableRow>
+                                                    <TableCell colSpan={7} className="p-0">
+                                                        <div className="p-2 bg-gray-50">
+                                                            <h4 className="font-semibold text-xs mb-1 pl-2">Dimensions:</h4>
+                                                            {item.dimensions.map((dim, dimIndex) => (
+                                                                <div key={dim.id || dimIndex} className="pl-4 pr-2 py-1 border-l-2 ml-2">
+                                                                    <div className="flex justify-between items-center text-xs">
+                                                                        <span><strong>L:</strong> {dim.length || 'N/A'}</span>
+                                                                        <span><strong>W:</strong> {dim.width || 'N/A'}</span>
+                                                                        <span><strong>Type:</strong> {dim.type?.join(', ') || 'N/A'}</span>
+                                                                    </div>
+                                                                    {dim.advanceDetails && dim.advanceDetails.length > 0 && (
+                                                                        <div className="mt-1 pl-4">
+                                                                            <h5 className="font-semibold text-[10px]">Advance Details:</h5>
+                                                                            <ul className="list-disc list-inside text-[10px]">
+                                                                                {dim.advanceDetails.map(adv => (
+                                                                                    <li key={adv.id}>
+                                                                                        {adv.name}: {adv.pcs} pcs 
+                                                                                        {adv.imageUrl && <span className="text-blue-500 ml-1">(img)</span>}
+                                                                                    </li>
+                                                                                ))}
+                                                                            </ul>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </React.Fragment>
                                     ))}
                                 </TableBody>
                             </Table>
