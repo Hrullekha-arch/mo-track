@@ -1,7 +1,7 @@
 
 "use client";
 
-import { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
+import React, { use, useEffect, useState, useMemo, useCallback, ReactNode } from "react";
 import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormReturn, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -612,15 +612,17 @@ function CpdForm({ customer, salesmen, dealId }: { customer: Customer, salesmen:
 }
 
 function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRoom: () => void }) {
-    const { control, setValue, watch } = useFormContext<CpdFormValues>();
+    const { control, watch } = useFormContext<CpdFormValues>();
     const { fields, append, remove } = useFieldArray({
         control,
         name: `rooms.${roomIndex}.items`
     });
+
+    const { setValue } = useFormContext(); // Correct way to get setValue
     
     const itemsData = watch(`rooms.${roomIndex}.items`);
 
-    React.useEffect(() => {
+    useEffect(() => {
         itemsData.forEach((item, itemIndex) => {
             const qty = parseFloat(item.qty || '0');
             const rate = parseFloat(item.rate || '0');
@@ -2264,6 +2266,8 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
                                     <TableHead>Qty</TableHead>
                                     <TableHead>Rate</TableHead>
                                     <TableHead>Dis%</TableHead>
+                                    <TableHead>GST%</TableHead>
+                                    <TableHead>Amount</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -2274,6 +2278,8 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
                                         <TableCell>{item.qty}</TableCell>
                                         <TableCell>{item.rate}</TableCell>
                                         <TableCell>{item.dis}</TableCell>
+                                        <TableCell>{item.gst}</TableCell>
+                                        <TableCell>{item.amount}</TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
