@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -11,7 +12,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Quotation, Deal, User, QuotationItem, VasDetail } from "@/lib/types";
+import { Quotation, Deal, User, QuotationItem, VasDetail, Cpd } from "@/lib/types";
 import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -25,9 +26,10 @@ interface QuotationDetailDialogProps {
   quotation: Quotation | null;
   deal: Deal | null;
   salesmen: User[];
+  cpds: Cpd[];
 }
 
-export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesmen }: QuotationDetailDialogProps) {
+export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesmen, cpds }: QuotationDetailDialogProps) {
   const [lineItemSearch, setLineItemSearch] = React.useState("");
   const [vasSearch, setVasSearch] = React.useState("");
 
@@ -86,6 +88,8 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
       items: [] // Exclude product items
   };
 
+  const cpdReference = cpds.find(cpd => cpd.id === quotation.cpdId);
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-7xl p-0">
@@ -101,7 +105,7 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
                         <p className="text-muted-foreground"><span className="font-semibold text-foreground">DealName:</span> {quotation.dealName}</p>
                         <p className="text-muted-foreground"><span className="font-semibold text-foreground">Store Name:</span> {quotation.store}</p>
                         {quotation.status === 'Converted to Order' && quotation.orderNo && <p className="text-muted-foreground"><span className="font-semibold text-foreground">Order No:</span> <span className="text-primary font-bold">{quotation.orderNo}</span></p>}
-                        {quotation.cpdId && <p className="text-muted-foreground"><span className="font-semibold text-foreground">From CPD ID:</span> <span className="text-primary font-bold">{quotation.cpdId}</span></p>}
+                        {cpdReference && <p className="text-muted-foreground"><span className="font-semibold text-foreground">From CPD ID:</span> <span className="text-primary font-bold">{cpdReference.cpdId}</span></p>}
                     </div>
                 </div>
                 <div className="flex gap-2">

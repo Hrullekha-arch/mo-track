@@ -65,7 +65,7 @@ import { CreateQuotationDialog } from "@/components/features/order-management/Cr
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
-import { PrintableQuotation } from "@/components/features/order-management/PrintableQuotation";
+import { PrintableQuotationProfessional } from "@/components/features/order-management/PrintableQuotationProfessional";
 import { useAuth } from "@/context/AuthContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -1449,7 +1449,7 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
                 <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <FormField control={addProductForm.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('type', (newValue) => field.onChange(newValue))}><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={productTypeOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
-                        <FormField control={addProductForm.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN)* <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} onSearch={handleBcnSearch} placeholder="Search by any part of BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /> <FormMessage /> </FormItem> )} />
+                        <FormField control={addProductForm.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN)* <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} onSearch={handleBcnSearch} placeholder="Search by BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="serialNo" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} readOnly /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                     </div>
@@ -1698,7 +1698,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     )
 }
 
-function QuotationsTab({ customerId, dealId, deal, salesmen }: { customerId: string, dealId: string, deal: Deal, salesmen: User[] }) {
+function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[] }) {
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
@@ -1718,8 +1718,10 @@ function QuotationsTab({ customerId, dealId, deal, salesmen }: { customerId: str
     }
     
     const handlePrint = (quotation: Quotation) => {
+        const printType = 'default';
+        const printId = `print-quotation-dialog-${quotation.id}-${printType}`;
         const printWindow = window.open('', '_blank');
-        const content = document.getElementById(`print-quotation-${quotation.id}`);
+        const content = document.getElementById(printId);
         if (printWindow && content) {
             const printDocument = printWindow.document;
             printDocument.write('<html><head><title>Print Quotation</title></head><body>');
@@ -1799,8 +1801,8 @@ function QuotationsTab({ customerId, dealId, deal, salesmen }: { customerId: str
                                                 {q.quotationNo}
                                             </Button>
                                             <div className="hidden">
-                                                <div id={`print-quotation-${q.id}`}>
-                                                    <PrintableQuotation values={q} />
+                                                <div id={`print-quotation-dialog-${q.id}-default`}>
+                                                    <PrintableQuotationProfessional values={q} creatorName={salesmen.find(u => u.id === q.createdBy)?.name} salesmanName={salesmen.find(s => s.id === deal.representativeId)?.name} />
                                                 </div>
                                             </div>
                                         </TableCell>
@@ -1827,6 +1829,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen }: { customerId: str
                     quotation={selectedQuotation}
                     deal={deal}
                     salesmen={salesmen}
+                    cpds={cpds}
                 />
             )}
         </>
@@ -2301,7 +2304,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
 
           <TabsContent value="cpd">
-            <CpdTab customer={customer} salesmen={salesmen} dealId={dealId} />
+            <CpdTab customer={customer} salesmen={salesmen} deal={deal} />
           </TabsContent>
           
           <TabsContent value="products">
@@ -2317,7 +2320,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
 
           <TabsContent value="quotations">
-             <QuotationsTab customerId={customerId} dealId={dealId} deal={deal} salesmen={salesmen} />
+             <QuotationsTab customerId={customerId} dealId={dealId} deal={deal} salesmen={salesmen} cpds={cpds} />
           </TabsContent>
 
           <TabsContent value="orders">
@@ -2331,7 +2334,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
 }
 
 // CPD Tab Component
-function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: User[], dealId: string }) {
+function CpdTab({ customer, salesmen, deal }: { customer: Customer, salesmen: User[], deal: Deal }) {
     const [cpds, setCpds] = useState<Cpd[]>([]);
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -2340,14 +2343,14 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
     const fetchCpds = useCallback(async () => {
         setLoading(true);
         try {
-            const data = await getCpdsForDeal(customer.id, dealId);
+            const data = await getCpdsForDeal(customer.id, deal.id);
             setCpds(data);
         } catch (error) {
             console.error(error);
         } finally {
             setLoading(false);
         }
-    }, [customer.id, dealId]);
+    }, [customer.id, deal.id]);
 
     const handleRefresh = async () => {
         setIsRefreshing(true);
@@ -2363,7 +2366,7 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
 
     return (
         <div className="space-y-6">
-            <CpdForm customer={customer} salesmen={salesmen} dealId={dealId} onCpdAdded={fetchCpds} />
+            <CpdForm customer={customer} salesmen={salesmen} dealId={deal.id} onCpdAdded={fetchCpds} />
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                     <div>
@@ -2414,14 +2417,14 @@ function CpdTab({ customer, salesmen, dealId }: { customer: Customer, salesmen: 
                         <DialogTitle>CPD Details: {selectedCpd?.cpdId}</DialogTitle>
                         <DialogDescription>A printable view of the Customer Product Details.</DialogDescription>
                     </DialogHeader>
-                    {selectedCpd && <PrintableCpd cpd={selectedCpd} />}
+                    {selectedCpd && <PrintableCpd cpd={selectedCpd} customer={customer} deal={deal} salesmen={salesmen} />}
                 </DialogContent>
             </Dialog>
         </div>
     )
 }
 
-function PrintableCpd({ cpd }: { cpd: Cpd }) {
+function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: Customer, deal: Deal, salesmen: User[] }) {
     
     const handlePrint = () => {
         const printContent = document.getElementById('printable-cpd-content');
@@ -2575,3 +2578,4 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
         </div>
     )
 }
+
