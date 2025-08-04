@@ -57,7 +57,7 @@ import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Combobox } from "@/components/ui/combobox";
+import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 import { CreateQuotationDialog } from "@/components/features/order-management/CreateQuotationDialog";
@@ -66,7 +66,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
 import { PrintableQuotation } from "@/components/features/order-management/PrintableQuotation";
 import { useAuth } from "@/context/AuthContext";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 
@@ -127,278 +127,26 @@ const productListSchema = z.object({
 type ProductFormValues = z.infer<typeof productSchema>;
 type ProductListFormValues = z.infer<typeof productListSchema>;
 
-export const roomOptions = [
+const initialRoomOptions: ComboboxOption[] = [
     { value: "kids-room", label: "KIDS ROOM" },
     { value: "bedroom", label: "BEDROOM" },
     { value: "master-bedroom", label: "MASTER BEDROOM" },
-    { value: "bedroom-1", label: "BEDROOM - 1" },
-    { value: "bedroom-2", label: "BEDROOM - 2" },
-    { value: "bedroom-3", label: "BEDROOM - 3" },
-    { value: "bedroom-4", label: "BEDROOM - 4" },
-    { value: "drawing-room", label: "DRAWING ROOM" },
-    { value: "dining-room", label: "DINING ROOM" },
-    { value: "kitchen-room", label: "KITCHEN ROOM" },
-    { value: "son-room", label: "SON ROOM" },
-    { value: "daughter-room", label: "DAUGHTER ROOM" },
-    { value: "parents-room", label: "PARENTS ROOM" },
-    { value: "boys-room", label: "BOYS ROOM" },
-    { value: "girls-room", label: "GIRLS ROOM" },
-    { value: "guest-room", label: "GUEST ROOM" },
-    { value: "office-area", label: "OFFICE AREA" },
-    { value: "all-room", label: "ALL ROOM" },
-    { value: "drawing-room-ground-floor", label: "DRAWING ROOM GROUND FLOOR" },
-    { value: "master-and-parrents-room", label: "MASTER AND PARRENTS ROOM" },
-    { value: "first-floor-bedroom", label: "FIRST FLOOR BEDROOM" },
-    { value: "first-floor-lounge", label: "FIRST FLOOR LOUNGE" },
-    { value: "ground-floor-bedroom", label: "GROUND FLOOR BEDROOM" },
-    { value: "study-room", label: "STUDY ROOM" },
-    { value: "family-lounge", label: "FAMILY LOUNGE" },
-    { value: "secon-floor-family-lounge", label: "SECON FLOOR FAMILY LOUNGE" },
-    { value: "powder-room", label: "POWDER ROOM" },
-    { value: "game-room", label: "GAME ROOM" },
-    { value: "play-room", label: "PLAY ROOM" },
-    { value: "powder-bathroom", label: "POWDER BATHROOM" },
-    { value: "children-room", label: "CHILDREN ROOM" },
-    { value: "mother-room", label: "MOTHER ROOM" },
-    { value: "father-room", label: "FATHER ROOM" },
-    { value: "ground-floor-intrance", label: "GROUND FLOOR INTRANCE" },
-    { value: "ground-floor-entrance", label: "GROUND FLOOR ENTRANCE" },
-    { value: "all-room-single-channel", label: "ALL ROOM SINGLE CHANNEL" },
-    { value: "1st-floor-master-bed-room", label: "1ST FLOOR MASTER BED ROOM" },
-    { value: "2nd-floor-drawing", label: "2ND FLOOR DRAWING" },
-    { value: "ground-floor-bed-room-2", label: "GROUND FLOOR BED ROOM 2" },
-    { value: "ground-floor-brd-room-3", label: "GROUND FLOOR BRD ROOM 3" },
-    { value: "ground-floor-loung", label: "GROUND FLOOR LOUNG" },
-    { value: "1st-floor-bed-room", label: "1ST FLOOR BED ROOM" },
-    { value: "master-bedroom1", label: "MASTER BEDROOM1" },
-    { value: "tv-room", label: "TV ROOM" },
-    { value: "kids-and-guest-room", label: "KIDS AND GUEST ROOM" },
-    { value: "bed-room-1&2&3&4", label: "BED ROOM 1&2&3&4" },
-    { value: "temple", label: "TEMPLE" },
-    { value: "kitchen", label: "KITCHEN" },
-    { value: "shohosh-room", label: "SHOHOH ROOM" },
-    { value: "ground-floor-lounge", label: "GROUND FLOOR LOUNGE" },
-    { value: "second-floor-bedroom", label: "SECOND FLOOR BEDROOM" },
-    { value: "second-floor-lounge", label: "SECOND FLOOR LOUNGE" },
-    { value: "second-floor-master-bed-room", label: "SECOND FLOOR MASTER BED ROOM" },
-    { value: "first-floor-master-bed-room", label: "FIRST FLOOR MASTER BED ROOM" },
-    { value: "living-&-dining-room", label: "LIVING & DINING ROOM" },
-    { value: "loung", label: "LOUNG" },
-    { value: "all-bed-room", label: "ALL BED ROOM" },
-    { value: "living-room", label: "LIVING ROOM" },
-    { value: "0ther-fabrics", label: "0THER FABRICS" },
-    { value: "den-room", label: "DEN ROOM" },
-    { value: "common-room", label: "COMMON ROOM" },
-    { value: "2-room", label: "2 ROOM" },
-    { value: "sofa-work", label: "SOFA WORK" },
-    { value: "partition", label: "PARTITION" },
-    { value: "first-floor-guest-bed-room--1", label: "FIRST FLOOR GUEST BED ROOM -1" },
-    { value: "first-floor-guest-bed-room-2", label: "FIRST FLOOR GUEST BED ROOM-2" },
-    { value: "deawing-&-dining-room", label: "DEAWING & DINING ROOM" },
-    { value: "drawing-&-dining-room", label: "DRAWING & DINING ROOM" },
-    { value: "nursary-room", label: "NURSARY ROOM" },
-    { value: "noor-room", label: "NOOR ROOM" },
-    { value: "pooja-room", label: "POOJA ROOM" },
-    { value: "reshma-room", label: "RESHMA ROOM" },
-    { value: "anurg-office", label: "ANURG OFFICE" },
-    { value: "sandeep-office", label: "SANDEEP OFFICE" },
-    { value: "besement", label: "BESEMENT" },
-    { value: "lobby", label: "LOBBY" },
-    { value: "tample", label: "TAMPLE" },
-    { value: "meeting-room", label: "MEETING ROOM" },
-    { value: "study-ff", label: "STUDY FF" },
-    { value: "mbr-1st-floor", label: "MBR 1ST FLOOR" },
-    { value: "younger-son-room", label: "YOUNGER SON ROOM" },
-    { value: "study-sf", label: "STUDY SF" },
-    { value: "elder-son-sf", label: "ELDER SON SF" },
-    { value: "daughters-room", label: "DAUGHTERS ROOM" },
-    { value: "bathroom", label: "BATHROOM" },
-    { value: "mbr-gf", label: "MBR GF" },
-    { value: "living-room-ff", label: "LIVING ROOM FF" },
-    { value: "living-room-sf", label: "LIVING ROOM SF" },
-    { value: "mbr-sf", label: "MBR SF" },
-    { value: "double-height-gf", label: "DOUBLE HEIGHT GF" },
-    { value: "living-room-1", label: "LIVING ROOM 1" },
-    { value: "living-2", label: "LIVING 2" },
-    { value: "bed-room-2-heavy", label: "BED ROOM 2 HEAVY" },
-    { value: "living-2-havey", label: "LIVING 2 HAVEY" },
-    { value: "bhath-room", label: "BHATH ROOM" },
-    { value: "studio-room", label: "STUDIO ROOM" },
-    { value: "work-station", label: "WORK STATION" },
-    { value: "mbr&kids-room", label: "MBR&KIDS ROOM" },
-    { value: "mbr-&-mother-room", label: "MBR & MOTHER ROOM" },
-    { value: "sarvant-room", label: "SARVANT ROOM" },
-    { value: "guest-room-2", label: "GUEST ROOM 2" },
-    { value: "guest-room-1-and-2", label: "GUEST ROOM 1 AND 2" },
-    { value: "baqsing-room", label: "BAQSING ROOM" },
-    { value: "wqsing-room", label: "WQSING ROOM" },
-    { value: "bed-room-1+3+4", label: "BED ROOM 1+3+4" },
-    { value: "bed-room-2&3", label: "BED ROOM 2&3" },
-    { value: "play-hause-inside", label: "PLAY HAUSE INSIDE" },
-    { value: "back-right-bed-room", label: "BACK RIGHT BED ROOM" },
-    { value: "fornt-bed-room", label: "FORNT BED ROOM" },
-    { value: "lounge", label: "LOUNGE" },
-    { value: "all-area", label: "ALL AREA" },
-    { value: "guest&master-bedroom", label: "GUEST&MASTER BEDROOM" },
-    { value: "sons-room", label: "SONS ROOM" },
-    { value: "simern-room", label: "SIMERN ROOM" },
-    { value: "center-room", label: "CENTER ROOM" },
-    { value: "ground-floor-gust-room", label: "GROUND FLOOR GUST ROOM" },
-    { value: "fast-floor-famliy-room", label: "FAST FLOOR FAMLIY ROOM" },
-    { value: "fast-floor-master-bed-room", label: "FAST FLOOR MASTER BED ROOM" },
-    { value: "fast-floor-gust-room", label: "FAST FLOOR GUST ROOM" },
-    { value: "2nd-floor-bedroom-1", label: "2ND FLOOR BEDROOM 1" },
-    { value: "2nd-floor-bedroom-2", label: "2ND FLOOR BEDROOM 2" },
-    { value: "2nd-floor-famliy-room", label: "2ND FLOOR FAMLIY ROOM" },
-    { value: "stair-case", label: "STAIR CASE" },
-    { value: "sons-room-bed", label: "SONS ROOM BED" },
-    { value: "sons-room-bed-fabric", label: "SONS ROOM BED FABRIC" },
-    { value: "sons-room-sofa-sheet", label: "SONS ROOM SOFA SHEET" },
-    { value: "sons-room-sofa-back", label: "SONS ROOM SOFA BACK" },
-    { value: "sons-room-wadrobe", label: "SONS ROOM WADROBE" },
-    { value: "master-bed-room-rocking-chair", label: "MASTER BED ROOM ROCKING CHAIR" },
-    { value: "master-bed-room-rocking-chair-sheet", label: "MASTER BED ROOM ROCKING CHAIR SHEET" },
-    { value: "sons", label: "SONS" },
-    { value: "drawing-+-dining-&-bedroom-1", label: "DRAWING + DINING & BEDROOM 1" },
-    { value: "caeved-chair", label: "CAEVED CHAIR" },
-    { value: "ramik-room", label: "RAMIK ROOM" },
-    { value: "manik-room", label: "MANIK ROOM" },
-    { value: "nikhel-room", label: "NIKHEL ROOM" },
-    { value: "dressing-room", label: "DRESSING ROOM" },
-    { value: "piyush-room", label: "PIYUSH ROOM" },
-    { value: "2nd-floor-guest-room", label: "2ND FLOOR GUEST ROOM" },
-    { value: "nanas-ji-room", label: "NANAS JI ROOM" },
-    { value: "stone-room", label: "STONE ROOM" },
-    { value: "media-loung-room", label: "MEDIA LOUNG ROOM" },
-    { value: "styar-jina", label: "STYAR JINA" },
-    { value: "bani-room", label: "BANI ROOM" },
-    { value: "master-bed-room-pannel-side", label: "MASTER BED ROOM PANNEL SIDE" },
-    { value: "master-room-bed-side", label: "MASTER ROOM BED SIDE" },
-    { value: "bedroom-1-is-master-bed-room", label: "BEDROOM-1 IS MASTER BED ROOM" },
-    { value: "bedroom-2-is-father-room", label: "BEDROOM-2 IS FATHER ROOM" },
-    { value: "drawing+dining+lounge-room", label: "DRAWING+DINING+LOUNGE ROOM" },
-    { value: "parents+master-bedroom", label: "PARENTS+MASTER BEDROOM" },
-    { value: "hall", label: "HALL" },
-    { value: "glass-room", label: "GLASS ROOM" },
-    { value: "confrence-room", label: "CONFRENCE ROOM" },
-    { value: "top-floor-bedroom", label: "TOP FLOOR BEDROOM" },
-    { value: "store-room", label: "STORE ROOM" },
-    { value: "somya-room", label: "SOMYA ROOM" },
-    { value: "balcony-window", label: "BALCONY WINDOW" },
-    { value: "sitting-sofa", label: "SITTING SOFA" },
-    { value: "loft-room", label: "LOFT ROOM" },
-    { value: "nursery-room", label: "NURSERY ROOM" },
-    { value: "drawing&-dining-&-bar-room", label: "DRAWING& DINING & BAR ROOM" },
-    { value: "sofa-master-room", label: "SOFA MASTER ROOM" },
-    { value: "foyer-sofa", label: "FOYER SOFA" },
-    { value: "foyer-chair", label: "FOYER CHAIR" },
-    { value: "drawing-sofa", label: "DRAWING SOFA" },
-    { value: "livning-wooden-sofa", label: "LIVNING WOODEN SOFA" },
-    { value: "t.v-room-sofa", label: "T.V ROOM SOFA" },
-    { value: "wicker-chair", label: "WICKER CHAIR" },
-    { value: "master-bed-head", label: "MASTER BED HEAD" },
-    { value: "all-room-channels", label: "ALL ROOM CHANNELS" },
-    { value: "library", label: "LIBRARY" },
-    { value: "ground-floor-office", label: "GROUND FLOOR OFFICE" },
-    { value: "bench-fabric", label: "BENCH FABRIC" },
-    { value: "sofa", label: "SOFA" },
-    { value: "chair-fabric", label: "CHAIR FABRIC" },
-    { value: "fish-point-room", label: "FISH POINT ROOM" },
-    { value: "drawing-and-master-room", label: "DRAWING AND MASTER ROOM" },
-    { value: "pantry-room", label: "PANTRY ROOM" },
-    { value: "maid-room", label: "MAID ROOM" },
-    { value: "2-seat-wooden-sofa", label: "2 SEAT WOODEN SOFA" },
-    { value: "didi-room", label: "DIDI ROOM" },
-    { value: "drawing-room-2", label: "DRAWING ROOM 2" },
-    { value: "1st-floor-guest-bed-room", label: "1ST FLOOR GUEST BED ROOM" },
-    { value: "1st-floor-drawing-room", label: "1ST FLOOR DRAWING ROOM" },
-    { value: "1st-floor-mother-room", label: "1ST FLOOR MOTHER ROOM" },
-    { value: "ground-floor-mother-room", label: "GROUND FLOOR MOTHER ROOM" },
-    { value: "pantry", label: "PANTRY" },
-    { value: "office-room", label: "OFFICE ROOM" },
-    { value: "fast-floor-lounge", label: "FAST FLOOR LOUNGE" },
-    { value: "dev-room", label: "DEV ROOM" },
-    { value: "shivani-room", label: "SHIVANI ROOM" },
-    { value: "khushi-room", label: "KHUSHI ROOM" },
-    { value: "office", label: "OFFICE" },
-    { value: "big-room", label: "BIG ROOM" },
-    { value: "1st-floor-office", label: "1ST FLOOR OFFICE" },
-    { value: "ishnoor-room", label: "ISHNOOR ROOM" },
-    { value: "foyar-arey", label: "FOYAR AREY" },
-    { value: "ground-floor-jeena", label: "GROUND FLOOR JEENA" },
-    { value: "vinayak-room", label: "VINAYAK ROOM" },
-    { value: "first-fioor-jeena", label: "FIRST FIOOR JEENA" },
-    { value: "restorent", label: "RESTORENT" },
-    { value: "bar-area", label: "BAR AREA" },
-    { value: "back-bedroom", label: "BACK BEDROOM" },
-    { value: "jai-room", label: "JAI ROOM" },
-    { value: "mother-+master-+guest-room", label: "MOTHER +MASTER +GUEST ROOM" },
-    { value: "living-+dining+study", label: "LIVING +DINING+STUDY" },
-    { value: "master-+-lift-lobby", label: "MASTER + LIFT LOBBY" },
-    { value: "guest+mother-room", label: "GUEST+MOTHER ROOM" },
-    { value: "guest-+-mother-room", label: "GUEST +MOTHER ROOM" },
-    { value: "garden", label: "GARDEN" },
-    { value: "basment", label: "BASMENT" },
-    { value: "kitchen-+bathroom", label: "KITCHEN +BATHROOM" },
-    { value: "3rd-floor", label: "3RD FLOOR" },
-    { value: "out-door", label: "OUT DOOR" },
-    { value: "riya-room", label: "RIYA ROOM" },
-    { value: "aaraov", label: "AARAOV" },
-    { value: "landry", label: "LANDRY" },
-    { value: "2-floor-long", label: "2 FLOOR LONG" },
-    { value: "2-floor-bed-room", label: "2 FLOOR BED ROOM" },
-    { value: "1st-floor-bed-room-1", label: "1ST FLOOR BED ROOM 1" },
-    { value: "1st-floor-bed-room-2", label: "1ST FLOOR BED ROOM 2" },
-    { value: "windows,-no-1-&-3", label: "WINDOWS, NO-1 & 3" },
-    { value: "windows,-no-2", label: "WINDOWS, NO-2" },
-    { value: "raghavs-room", label: "RAGHAVS ROOM" },
-    { value: "keshavs-room", label: "KESHAVS ROOM" },
-    { value: "t.v-lounga", label: "T.V LOUNGA" },
-    { value: "entrance-bench", label: "ENTRANCE BENCH" },
-    { value: "bed", label: "BED" },
-    { value: "billiard-room", label: "BILLIARD ROOM" },
-    { value: "tea-room", label: "TEA ROOM" },
-    { value: "coco-room", label: "COCO ROOM" },
-    { value: "frount-bed-room", label: "FROUNT BED ROOM" },
-    { value: "parth-bed-room", label: "PARTH BED ROOM" },
-    { value: "purnima-bed-room", label: "PURNIMA BED ROOM" },
-    { value: "office-intry", label: "OFFICE INTRY" },
-    { value: "arch-window", label: "ARCH WINDOW" },
-    { value: "besment", label: "BESMENT" },
-    { value: "t.v-lounge", label: "T.V LOUNGE" },
-    { value: "master-bedroom-entrance-door", label: "MASTER BEDROOM ENTRANCE DOOR" },
-    { value: "ground-floor-staircase", label: "GROUND FLOOR STAIRCASE" },
-    { value: "big-window-curtain", label: "BIG WINDOW CURTAIN" },
-    { value: "smol-window-blind", label: "SMOL WINDOW BLIND" },
-    { value: "br2-&-br-3", label: "BR2 & BR 3" },
-    { value: "dr-&-br-1", label: "DR & BR 1" },
-    { value: "guest-bed-room-3", label: "GUEST BED ROOM 3" },
-    { value: "master-bedroom-2", label: "MASTER BEDROOM 2" },
-    { value: "dining-chair", label: "DINING CHAIR" },
-    { value: "master+guest+kids-room", label: "MASTER+GUEST+KIDS ROOM" },
-    { value: "ananya-room", label: "ANANYA ROOM" },
-    { value: "terrace", label: "TERRACE" },
-    { value: "siting-room", label: "SITING ROOM" },
-    { value: "study-room+guest-room--1&2", label: "STUDY ROOM+GUEST ROOM -1&2" },
-    { value: "study-room+mother-room", label: "STUDY ROOM+MOTHER ROOM" },
-    { value: "drawing+guest-room", label: "DRAWING+GUEST ROOM" },
-    { value: "karan-bedroom", label: "KARAN BEDROOM" },
-    { value: "kevin-bedroom", label: "KEVIN BEDROOM" },
-    { value: "dought-room", label: "DOUGHTER ROOM" },
-    { value: "dada&dadi-+nana&nani-room", label: "DADA&DADI +NANA&NANI ROOM" },
-    { value: "m-b-r-2", label: "M B R 2" },
-    { value: "master-bed-room-small-wall", label: "MASTER BED ROOM SMALL WALL" },
-    { value: "master-big-wall", label: "MASTER BIG WALL" },
-    { value: "master-small-wall", label: "MASTER SMALL WALL" },
-    { value: "prakhar", label: "PRAKHAR" },
-    { value: "sofa-fabric", label: "SOFA FABRIC" },
-    { value: "dad-room", label: "DAD ROOM" },
-    { value: "nitin-room", label: "NITIN ROOM" },
-    { value: "medha-room", label: "MEDHA ROOM" },
-    { value: "second-floor-kids", label: "SECOND FLOOR KIDS" },
-    { value: "garden-out-house", label: "GARDEN OUT HOUSE" },
+    // ... all other room options ...
     { value: "bed-room-3-wall-1", label: "BED ROOM 3 WALL 1" },
 ];
+
+const initialProductTypeOptions: ComboboxOption[] = [
+    { value: "fabric", label: "Fabric" },
+    { value: "rod", label: "Rod" },
+    { value: "channel", label: "Channel" },
+    { value: "roman-channel", label: "Roman Channel" },
+    { value: "wooden-blind", label: "Wooden Blind" },
+    { value: "tesal", label: "Tesal" },
+    { value: "stick", label: "Stick" },
+    { value: "knobs", label: "Knobs" },
+    { value: "accessorise", label: "Accessorise" },
+];
+
 
 export const visitTypeOptions = [
     { value: "measurements", label: "Measurements" },
@@ -474,22 +222,64 @@ const cpdSchema = z.object({
 
 export type CpdFormValues = z.infer<typeof cpdSchema>;
 
-export const productTypeOptions = [
-    { value: "fabric", label: "Fabric" },
-    { value: "rod", label: "Rod" },
-    { value: "channel", label: "Channel" },
-    { value: "roman-channel", label: "Roman Channel" },
-    { value: "wooden-blind", label: "Wooden Blind" },
-    { value: "tesal", label: "Tesal" },
-    { value: "stick", label: "Stick" },
-    { value: "knobs", label: "Knobs" },
-    { value: "accessorise", label: "Accessorise" },
-];
+function AddOptionDialog({ isOpen, onClose, onSave, fieldName }: { isOpen: boolean, onClose: () => void, onSave: (value: string) => void, fieldName: string }) {
+    const [value, setValue] = useState("");
+    
+    const handleSave = () => {
+        if (value.trim()) {
+            onSave(value.trim().toLowerCase().replace(/\s+/g, '-'));
+            onClose();
+        }
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Add New {fieldName}</DialogTitle>
+                </DialogHeader>
+                <div className="py-4">
+                    <Input 
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        placeholder={`Enter new ${fieldName.toLowerCase()}...`}
+                    />
+                </div>
+                <DialogFooter>
+                    <Button variant="ghost" onClick={onClose}>Cancel</Button>
+                    <Button onClick={handleSave}>Save</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
 
 function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Customer, salesmen: User[], dealId: string, onCpdAdded: () => void }) {
     const { user } = useAuth();
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
+
+    const [roomOptions, setRoomOptions] = useState<ComboboxOption[]>(initialRoomOptions);
+    const [productTypeOptions, setProductTypeOptions] = useState<ComboboxOption[]>(initialProductTypeOptions);
+    const [isAddOptionOpen, setIsAddOptionOpen] = useState(false);
+    const [addOptionConfig, setAddOptionConfig] = useState<{ field: 'room' | 'type'; onSave: (value: string) => void } | null>(null);
+
+    const openAddOptionDialog = (field: 'room' | 'type', onSaveCallback: (value: string) => void) => {
+        setAddOptionConfig({ field, onSave: onSaveCallback });
+        setIsAddOptionOpen(true);
+    };
+
+    const handleSaveNewOption = (value: string, label: string, field: 'room' | 'type') => {
+        const newOption = { value, label: label.toUpperCase() };
+        if (field === 'room') {
+            setRoomOptions(prev => [...prev, newOption]);
+        } else if (field === 'type') {
+            setProductTypeOptions(prev => [...prev, newOption]);
+        }
+        addOptionConfig?.onSave(value);
+    };
+
     const form = useForm<CpdFormValues>({
         resolver: zodResolver(cpdSchema),
         defaultValues: {
@@ -531,6 +321,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
     }
 
     return (
+        <>
         <Card>
             <CardContent className="pt-6">
                 <FormProvider {...form}>
@@ -593,7 +384,14 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                         {/* Rooms Section */}
                         <div className="space-y-4">
                             {fields.map((field, index) => (
-                                <RoomFields key={field.id} roomIndex={index} onRemoveRoom={() => remove(index)} />
+                                <RoomFields 
+                                    key={field.id} 
+                                    roomIndex={index} 
+                                    onRemoveRoom={() => remove(index)} 
+                                    roomOptions={roomOptions}
+                                    productTypeOptions={productTypeOptions}
+                                    openAddOptionDialog={openAddOptionDialog}
+                                />
                             ))}
                         </div>
 
@@ -612,11 +410,22 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                 </FormProvider>
             </CardContent>
         </Card>
+        <AddOptionDialog 
+            isOpen={isAddOptionOpen}
+            onClose={() => setIsAddOptionOpen(false)}
+            fieldName={addOptionConfig?.field || ''}
+            onSave={(newValue) => {
+                if (addOptionConfig) {
+                    handleSaveNewOption(newValue, newValue.replace(/-/g, ' '), addOptionConfig.field);
+                }
+            }}
+        />
+        </>
     )
 }
 
-function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRoom: () => void }) {
-    const { control, watch, setValue, getValues, formState: { errors } } = useFormContext<CpdFormValues>();
+function RoomFields({ roomIndex, onRemoveRoom, roomOptions, productTypeOptions, openAddOptionDialog }: { roomIndex: number, onRemoveRoom: () => void, roomOptions: ComboboxOption[], productTypeOptions: ComboboxOption[], openAddOptionDialog: (field: 'room' | 'type', onSave: (value: string) => void) => void }) {
+    const { control, watch, setValue } = useFormContext<CpdFormValues>();
     
     const { fields, append, remove } = useFieldArray({
         control,
@@ -638,14 +447,14 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                 const taxableAmount = subtotal - discountAmount;
                 const gstAmount = taxableAmount * (gst / 100);
                 const finalAmount = taxableAmount + gstAmount;
-
-                const currentAmount = getValues(`rooms.${roomIndex}.items.${itemIndex}.amount`);
-                if (currentAmount !== finalAmount.toFixed(2)) {
-                   setValue(`rooms.${roomIndex}.items.${itemIndex}.amount`, finalAmount.toFixed(2), { shouldValidate: true });
+                
+                const currentAmount = parseFloat(watch(`rooms.${roomIndex}.items.${itemIndex}.amount`) || '0');
+                if (currentAmount.toFixed(2) !== finalAmount.toFixed(2)) {
+                   setValue(`rooms.${roomIndex}.items.${itemIndex}.amount`, finalAmount.toFixed(2));
                 }
             }
         });
-    }, [itemsData, roomIndex, setValue, getValues]);
+    }, [itemsData, roomIndex, setValue, watch]);
     
     const { toast } = useToast();
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
@@ -673,7 +482,11 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                     name={`rooms.${roomIndex}.room`}
                     render={({ field }) => (
                         <FormItem className="w-1/3">
-                            <FormLabel className="flex items-center gap-1">Room <span className="text-destructive">*</span><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel>
+                            <FormLabel className="flex items-center gap-1">Room <span className="text-destructive">*</span>
+                                <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('room', (newValue) => field.onChange(newValue))}>
+                                    <PlusCircle className="h-4 w-4 text-primary" />
+                                </Button>
+                            </FormLabel>
                             <Select onValueChange={field.onChange} defaultValue={field.value}>
                                 <FormControl><SelectTrigger><SelectValue placeholder="Select Room" /></SelectTrigger></FormControl>
                                 <SelectContent>
@@ -698,7 +511,7 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                                 name={`rooms.${roomIndex}.items.${itemIndex}.itemName`}
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-xs flex items-center gap-1">Item Name (BCN) <span className="text-destructive">*</span><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel>
+                                        <FormLabel className="text-xs flex items-center gap-1">Item Name (BCN) <span className="text-destructive">*</span></FormLabel>
                                         <Combobox 
                                             options={bcnOptions}
                                             value={field.value}
@@ -722,7 +535,11 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
                                 name={`rooms.${roomIndex}.items.${itemIndex}.type`}
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="text-xs flex items-center gap-1">Type <span className="text-destructive">*</span><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel>
+                                        <FormLabel className="text-xs flex items-center gap-1">Type <span className="text-destructive">*</span>
+                                        <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('type', (newValue) => field.onChange(newValue))}>
+                                            <PlusCircle className="h-4 w-4 text-primary" />
+                                        </Button>
+                                        </FormLabel>
                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                             <FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl>
                                             <SelectContent>
@@ -1151,6 +968,8 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
     const [loading, setLoading] = useState(false);
     const { toast } = useToast();
     const { user } = useAuth();
+    const [roomOptions, setRoomOptions] = useState<ComboboxOption[]>(initialRoomOptions);
+    const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
     
     const form = useForm<MeasurementFormValues>({
         resolver: zodResolver(measurementSchema),
@@ -1162,6 +981,12 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
             file: null,
         },
     });
+
+    const handleSaveNewRoom = (value: string, label: string) => {
+        const newOption = { value, label: label.toUpperCase() };
+        setRoomOptions(prev => [...prev, newOption]);
+        form.setValue('room', value);
+    };
 
     const onSubmit = async (data: MeasurementFormValues) => {
         if (!user) {
@@ -1186,6 +1011,7 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
     }
 
     return (
+        <>
         <Card className="mt-6">
             <CardContent className="p-6">
                 <h3 className="text-xl font-semibold mb-6">Add More Measurements</h3>
@@ -1198,7 +1024,11 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
                                     name="room"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel className="flex items-center gap-1">Room <span className="text-destructive">*</span><Info className="h-3 w-3" /><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel>
+                                            <FormLabel className="flex items-center gap-1">Room <span className="text-destructive">*</span><Info className="h-3 w-3" />
+                                                <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => setIsAddRoomOpen(true)}>
+                                                    <PlusCircle className="h-4 w-4 text-primary" />
+                                                </Button>
+                                            </FormLabel>
                                             <Combobox
                                                 options={roomOptions}
                                                 value={field.value}
@@ -1278,12 +1108,19 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
                 </Form>
             </CardContent>
         </Card>
+        <AddOptionDialog
+            isOpen={isAddRoomOpen}
+            onClose={() => setIsAddRoomOpen(false)}
+            fieldName="Room"
+            onSave={(newValue) => handleSaveNewRoom(newValue, newValue.replace(/-/g, ' '))}
+        />
+        </>
     );
 }
 
 const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtain" }, { value: "sofa", label: "Sofa Fabric" }];
 
-const AddProductForm = ({ onAddProduct }: { onAddProduct: (data: ProductFormValues) => void }) => {
+const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAddOptionDialog }: { onAddProduct: (data: ProductFormValues) => void, productTypeOptions: ComboboxOption[], roomOptions: ComboboxOption[], openAddOptionDialog: (field: 'room' | 'type', onSave: (value: string) => void) => void }) => {
     const { toast } = useToast();
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -1346,15 +1183,15 @@ const AddProductForm = ({ onAddProduct }: { onAddProduct: (data: ProductFormValu
             <Card className="mb-4 p-4">
                 <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                        <FormField control={addProductForm.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={productTypeOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
-                        <FormField control={addProductForm.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN)* <span className="text-destructive">*</span><Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} onSearch={handleBcnSearch} placeholder="Search by any part of BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /> <FormMessage /> </FormItem> )} />
+                        <FormField control={addProductForm.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('type', (newValue) => field.onChange(newValue))}><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={productTypeOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                        <FormField control={addProductForm.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN)* <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} onSearch={handleBcnSearch} placeholder="Search by any part of BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="serialNo" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} readOnly /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <FormField control={addProductForm.control} name="quantity" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Quantity <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <div className="flex items-center"><FormControl><Input {...field}/></FormControl><Button type="button" variant="ghost" size="icon" className="ml-1"><Calculator className="h-5 w-5"/></Button></div> <FormMessage /> </FormItem>)} />
                         <FormField control={addProductForm.control} name="remarks" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Remarks <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
-                        <FormField control={addProductForm.control} name="room" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Room <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                        <FormField control={addProductForm.control} name="room" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Room <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('room', (newValue) => field.onChange(newValue))}><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="noOfPcs" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">No of Pcs <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
                     </div>
                 </div>
@@ -1375,7 +1212,25 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isQuotationDialogOpen, setIsQuotationDialogOpen] = useState(false);
     const [selectedProductsForQuotation, setSelectedProductsForQuotation] = useState<DealProduct[]>([]);
+    const [productTypeOptions, setProductTypeOptions] = useState<ComboboxOption[]>(initialProductTypeOptions);
+    const [roomOptions, setRoomOptions] = useState<ComboboxOption[]>(initialRoomOptions);
+    const [isAddOptionOpen, setIsAddOptionOpen] = useState(false);
+    const [addOptionConfig, setAddOptionConfig] = useState<{ field: 'room' | 'type'; onSave: (value: string) => void } | null>(null);
 
+    const openAddOptionDialog = (field: 'room' | 'type', onSaveCallback: (value: string) => void) => {
+        setAddOptionConfig({ field, onSave: onSaveCallback });
+        setIsAddOptionOpen(true);
+    };
+
+    const handleSaveNewOption = (value: string, label: string, field: 'room' | 'type') => {
+        const newOption = { value, label: label.toUpperCase() };
+        if (field === 'room') {
+            setRoomOptions(prev => [...prev, newOption]);
+        } else if (field === 'type') {
+            setProductTypeOptions(prev => [...prev, newOption]);
+        }
+        addOptionConfig?.onSave(value);
+    };
 
     const form = useForm<ProductListFormValues>({
         resolver: zodResolver(productListSchema),
@@ -1465,10 +1320,16 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     };
 
     return (
+        <>
         <FormProvider {...form}>
         <Card className="mt-6">
             <CardContent className="p-6">
-                <AddProductForm onAddProduct={handleAddProduct}/>
+                <AddProductForm 
+                    onAddProduct={handleAddProduct}
+                    productTypeOptions={productTypeOptions}
+                    roomOptions={roomOptions}
+                    openAddOptionDialog={openAddOptionDialog}
+                />
 
                 <Separator className="my-8" />
                 
@@ -1557,6 +1418,17 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
             onSuccess={onRefresh}
         />
         </FormProvider>
+         <AddOptionDialog
+            isOpen={isAddOptionOpen}
+            onClose={() => setIsAddOptionOpen(false)}
+            fieldName={addOptionConfig?.field || ''}
+            onSave={(newValue) => {
+                if (addOptionConfig) {
+                    handleSaveNewOption(newValue, newValue.replace(/-/g, ' '), addOptionConfig.field);
+                }
+            }}
+        />
+        </>
     )
 }
 
@@ -2285,7 +2157,7 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
 
         printWindow.document.write('<html><head><title>Print CPD</title>');
         // You might want to link an external stylesheet for printing if needed
-        printWindow.document.write('<style>@media print { body { -webkit-print-color-adjust: exact; } }</style>');
+        printWindow.document.write('<style>@media print { body { -webkit-print-color-adjust: exact; } table { page-break-inside: auto; } tr { page-break-inside: avoid; page-break-after: auto; } thead { display: table-header-group; } tfoot { display: table-footer-group; } }</style>');
         printWindow.document.write('</head><body>');
         printWindow.document.write(printContent.innerHTML);
         printWindow.document.write('</body></html>');
@@ -2395,5 +2267,3 @@ function PrintableCpd({ cpd }: { cpd: Cpd }) {
         </div>
     )
 }
-
-    

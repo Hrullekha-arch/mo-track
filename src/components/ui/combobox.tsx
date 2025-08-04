@@ -32,7 +32,7 @@ interface ComboboxProps {
   placeholder?: string
   searchPlaceholder?: string
   emptyPlaceholder?: string
-  onSearch?: (query: string) => Promise<void>
+  onSearch?: (query: string) => Promise<void> | void
 }
 
 export function Combobox({
@@ -66,7 +66,7 @@ export function Combobox({
           className="w-full justify-between font-normal"
         >
           {value
-            ? selectedLabel || placeholder
+            ? selectedLabel || value
             : placeholder}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
