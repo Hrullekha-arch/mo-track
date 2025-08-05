@@ -1,11 +1,12 @@
 
+
 "use client";
 
 import { useEffect, useState, use } from "react";
 import { useForm, useFieldArray, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Customer, Deal, User } from "@/lib/types";
+import { Customer, Deal, User, Quotation } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, PlusCircle, Settings, Archive, Receipt, FileText, CircleDollarSign, Edit, Trash2, Loader2, Contact2 } from "lucide-react";
 import Link from "next/link";
@@ -17,7 +18,7 @@ import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { NewDealDialog } from "@/components/features/customer/NewDealDialog";
 import { useToast } from "@/hooks/use-toast";
-import { getCustomerById, getDealsForCustomer, getSalesmen } from '../actions';
+import { getCustomerById, getDealsForCustomer, getSalesmen, getQuotationsForDeal as getQuotationsForDealAction } from '../actions';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -244,6 +245,7 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
     const { customerId } = params;
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [deals, setDeals] = useState<Deal[]>([]);
+    const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [salesmen, setSalesmen] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [isNewDealOpen, setIsNewDealOpen] = useState(false);
@@ -263,6 +265,13 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                     setCustomer(customerData);
                     setDeals(dealsData);
                     setSalesmen(salesmenData);
+                    // Also fetch all quotations for all deals of this customer
+                    const allQuotations: Quotation[] = [];
+                    for (const deal of dealsData) {
+                        const dealQuotations = await getQuotationsForDealAction(customerId, deal.id);
+                        allQuotations.push(...dealQuotations);
+                    }
+                    setQuotations(allQuotations);
                 } else {
                     setCustomer(null);
                     toast({
@@ -322,6 +331,12 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
     }
 
     const getSalesmanName = (id?: string) => salesmen.find(s => s.id === id)?.name || "N/A";
+    
+    const calculateTotalApprovedQuotationAmount = (dealId: string) => {
+        return quotations
+            .filter(q => q.status === 'Approved' && deals.find(d => d.id === dealId))
+            .reduce((total, q) => total + q.totalAmount, 0);
+    };
 
     return (
         <>
@@ -383,7 +398,7 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                                             </div>
                                         </CardHeader>
                                         <CardContent>
-                                            <p className="text-2xl font-bold text-primary">₹{Number(deal.dealAmount).toLocaleString('en-IN')}</p>
+                                            <p className="text-2xl font-bold text-primary">₹{calculateTotalApprovedQuotationAmount(deal.id).toLocaleString('en-IN')}</p>
                                             <p className="text-sm text-muted-foreground">{deal.description}</p>
                                         </CardContent>
                                     </Card>
@@ -437,8 +452,4 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
         />
         </>
     );
-    
-
-
-
-    
+}

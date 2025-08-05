@@ -24,7 +24,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogTrigger, AlertDialogFooter } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
 
 
 const roomOptions = [
@@ -717,7 +717,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>#</TableHead>
-                                    <TableHead>VAS Name</TableHead>
+                                    <TableHead>Vas Name</TableHead>
                                     <TableHead>Quantity</TableHead>
                                     <TableHead>Rate</TableHead>
                                     <TableHead>Room</TableHead>
@@ -882,11 +882,11 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
 
     setLoading(true);
     try {
-        const quotationPayload = { ...values, cpdId: values.selectedCpdId };
+        const quotationPayload = { ...values, cpdId: values.selectedCpdId, status: 'Pending Approval' };
         const result = await createQuotationAction(customer.id, deal.id, quotationPayload, totalAmount + vasTotal);
 
         if (result.success) {
-            toast({ title: "Quotation Created", description: "The new quotation has been saved." });
+            toast({ title: "Quotation Created", description: "The new quotation is now pending approval." });
             form.reset();
             onSuccess();
             onClose();

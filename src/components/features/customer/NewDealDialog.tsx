@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState } from "react";
@@ -21,7 +22,6 @@ const dealSchema = z.object({
   dealAmount: z.preprocess(
     (a) => {
         if (typeof a === 'string' && a.trim() === '') return undefined;
-        // Allows empty string, which will be converted to undefined
         if (a === '') return undefined;
         const parsed = parseFloat(z.string().parse(a));
         return isNaN(parsed) ? undefined : parsed;
@@ -30,6 +30,7 @@ const dealSchema = z.object({
   ),
   representativeId: z.string().min(1, "A representative must be selected."),
   description: z.string().max(2000, "Description cannot exceed 2000 characters.").optional(),
+  advanceForMeasurement: z.enum(['Yes', 'No', 'Old'], { required_error: "This field is required." }),
 });
 
 type DealFormValues = z.infer<typeof dealSchema>;
@@ -65,6 +66,7 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
         dealAmount: data.dealAmount || 0,
         representativeId: data.representativeId,
         description: data.description || "",
+        advanceForMeasurement: data.advanceForMeasurement,
       });
 
       if (result.success && result.deal) {
@@ -131,6 +133,28 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
                       {salesmen.map(s => (
                         <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+             <FormField
+              control={form.control}
+              name="advanceForMeasurement"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Receive Advance for measurement <span className="text-destructive">*</span></FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="--SELECT--" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                        <SelectItem value="Yes">Yes</SelectItem>
+                        <SelectItem value="No">No</SelectItem>
+                        <SelectItem value="Old">Old</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />

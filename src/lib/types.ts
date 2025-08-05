@@ -132,6 +132,7 @@ export interface Order {
   completedAt?: string; // ISO Date string
   fabricDetails?: FabricDetail[];
   furnitureDetails?: FurnitureDetail[];
+  status?: 'Pending Approval' | 'Approved';
 }
 
 export interface SalesmanCrmAssignment {
@@ -340,6 +341,7 @@ export interface Deal {
     products?: DealProduct[];
     visits?: DealVisit[];
     measurements?: DealMeasurement[];
+    advanceForMeasurement?: 'Yes' | 'No' | 'Old';
 }
 
 export interface QuotationItem {
@@ -366,7 +368,7 @@ export interface Quotation {
     cpdId?: string;
     items: QuotationItem[];
     totalAmount: number;
-    status: 'Generated' | 'Converted to Order';
+    status: 'Pending Approval' | 'Approved' | 'Converted to Order';
     orderNo?: string;
     createdAt: string;
     createdBy?: string; // user id

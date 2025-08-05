@@ -1,6 +1,7 @@
 
+
 import { Card, CardDescription, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle, Warehouse, Contact, HomeIcon } from "lucide-react";
+import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle, Warehouse, Contact, HomeIcon, FileSignature, CheckSquare as CheckSquareIcon } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,22 @@ const dashboardItems = [
         icon: Users,
         color: "bg-indigo-500",
         id: "visits"
+    },
+     {
+        href: "/dashboard/approve-quotation",
+        title: "Approve Quotation",
+        description: "Approve quotations from accounts.",
+        icon: FileSignature,
+        color: "bg-yellow-600",
+        id: "approve-quotation"
+    },
+     {
+        href: "/dashboard/approve-order",
+        title: "Approve Order",
+        description: "Approve orders from accounts.",
+        icon: CheckSquareIcon,
+        color: "bg-green-600",
+        id: "approve-order"
     },
     {
         href: "/dashboard/purchase",

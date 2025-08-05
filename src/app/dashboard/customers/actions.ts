@@ -1,8 +1,9 @@
 
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Customer, Deal, User } from '@/lib/types';
+import { Customer, Deal, User, Quotation } from '@/lib/types';
 import { query, where } from 'firebase/firestore';
 
 export async function searchCustomersAction(filters: {
@@ -66,6 +67,29 @@ export async function getDealsForCustomer(customerId: string): Promise<Deal[]> {
         return JSON.parse(JSON.stringify(deals));
     } catch (error) {
         console.error(`Error fetching deals for customer ${customerId}:`, error);
+        return [];
+    }
+}
+
+export async function getQuotationsForDeal(customerId: string, dealId: string): Promise<Quotation[]> {
+    try {
+        const snapshot = await adminDb
+            .collection('customers')
+            .doc(customerId)
+            .collection('deals')
+            .doc(dealId)
+            .collection('quotations')
+            .orderBy('createdAt', 'desc')
+            .get();
+
+        if (snapshot.empty) {
+            return [];
+        }
+
+        const quotations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quotation));
+        return JSON.parse(JSON.stringify(quotations));
+    } catch (error) {
+        console.error("Error fetching quotations for deal:", error);
         return [];
     }
 }
