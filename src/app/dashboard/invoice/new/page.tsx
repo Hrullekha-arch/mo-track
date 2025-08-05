@@ -147,14 +147,14 @@ function ConvertToOrderContent() {
         if (specificQuotation) {
           setQuotation(specificQuotation);
           const productsFromQuotation = specificQuotation.items.map((item: QuotationItem) => {
-            const quotationRate = item.rate * (1 - (item.discountPercent || 0) / 100);
+            const quotationRate = item.rate * (1 - (Number(item.discountPercent) || 0) / 100);
             return {
               id: item.id || undefined,
               collectionBrand: item.collectionBrand,
               serialNo: item.serialNo || '',
               quantity: item.quantity,
               mrp: item.rate,
-              discountPercent: item.discountPercent || 0,
+              discountPercent: Number(item.discountPercent) || 0,
               quotationRate: quotationRate,
               orderRate: item.rate, 
               room: item.room || '',
