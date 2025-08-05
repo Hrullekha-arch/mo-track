@@ -3,7 +3,6 @@
 
 import { adminDb } from "@/lib/firebase-admin";
 import { DealOrder, Quotation } from "@/lib/types";
-import { getDoc } from "firebase-admin/firestore";
 
 export async function createDealOrderAction(
   customerId: string,
@@ -20,7 +19,7 @@ export async function createDealOrderAction(
       .doc(quotation.id);
 
     // Server-side check to prevent multiple conversions
-    const currentQuotationSnap = await getDoc(quotationRef);
+    const currentQuotationSnap = await quotationRef.get();
     if (currentQuotationSnap.exists() && currentQuotationSnap.data()?.status === 'Converted to Order') {
       return { success: false, message: "This quotation has already been converted to an order." };
     }
