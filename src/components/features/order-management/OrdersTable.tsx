@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -178,13 +179,17 @@ export function OrdersTable() {
         </Button>
       ),
       cell: ({ row }) => {
-        const lastCompleted = row.original.milestones.slice().reverse().find(m => m.completed);
-        const status = lastCompleted?.name || "Order Received";
-        let badgeText = 'NEW';
-        if (status) {
-            badgeText = status.toUpperCase();
+        const order = row.original;
+        let status = "NEW";
+        if (order.status === 'Pending Approval') {
+            status = 'PENDING APPROVAL';
+        } else {
+             const lastCompleted = order.milestones.slice().reverse().find(m => m.completed);
+             if (lastCompleted) {
+                status = lastCompleted.name.toUpperCase();
+             }
         }
-        return <Badge variant="secondary">{badgeText}</Badge>;
+        return <Badge variant="secondary">{status}</Badge>;
       }
     },
     {
@@ -563,7 +568,6 @@ export function OrdersTable() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <CreateQuotationDialog isOpen={isQuotationDialogOpen} onClose={() => setIsQuotationDialogOpen(false)} />
     </>
   );
 }

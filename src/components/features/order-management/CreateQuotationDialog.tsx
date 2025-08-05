@@ -882,7 +882,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
 
     setLoading(true);
     try {
-        const quotationPayload = { ...values, cpdId: values.selectedCpdId, status: 'Pending Approval' };
+        const quotationPayload = { ...values, status: 'Pending Approval' };
         const result = await createQuotationAction(customer.id, deal.id, quotationPayload, totalAmount + vasTotal);
 
         if (result.success) {
