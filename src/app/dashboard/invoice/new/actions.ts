@@ -20,7 +20,7 @@ export async function createDealOrderAction(
 
     // Server-side check to prevent multiple conversions
     const currentQuotationSnap = await quotationRef.get();
-    if (currentQuotationSnap.exists() && currentQuotationSnap.data()?.status === 'Converted to Order') {
+    if (currentQuotationSnap.exists && currentQuotationSnap.data()?.status === 'Converted to Order') {
       return { success: false, message: "This quotation has already been converted to an order." };
     }
 
