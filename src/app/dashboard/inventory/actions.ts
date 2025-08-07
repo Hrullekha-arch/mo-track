@@ -137,7 +137,8 @@ export async function updateStockQuantityAction(stockId: string, quantityChange:
         throw new Error("Stock item not found.");
       }
 
-      const newQuantity = (stockDoc.data()?.quantity || 0) + quantityChange;
+      const currentQuantity = stockDoc.data()?.quantity || 0;
+      const newQuantity = currentQuantity + quantityChange;
 
       t.update(stockRef, { 
           quantity: newQuantity,
@@ -155,3 +156,5 @@ export async function updateStockQuantityAction(stockId: string, quantityChange:
     return { success: false, message: `Failed to update stock: ${error.message}` };
   }
 }
+
+    
