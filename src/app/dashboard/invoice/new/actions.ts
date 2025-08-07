@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { DealOrder, Order, Quotation, Customer, Deal } from '@/lib/types';
+import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, FurnitureDetail } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
 import { getAuth } from 'firebase-admin/auth';
 
@@ -50,7 +50,6 @@ export async function createDealOrderAction(
         }
     }
 
-
     const batch = adminDb.batch();
     
     // Create the DealOrder subcollection document first to get its ID
@@ -60,6 +59,26 @@ export async function createDealOrderAction(
     // 1. Create the new order in the main orders collection
     const orderId = `MOTRACK-${Math.floor(1000 + Math.random() * 9000)}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
+
+    const fabricDetails: FabricDetail[] = [];
+    const furnitureDetails: FurnitureDetail[] = [];
+
+    quotation.items.forEach(item => {
+      // Simple logic to differentiate items. This can be improved if more item data is available.
+      const isFabric = item.salesDescription.toLowerCase().includes('fabric') || item.salesDescription.toLowerCase().includes('curtain');
+      
+      if(isFabric) {
+        fabricDetails.push({
+          fabricName: item.collectionBrand,
+          quantity: item.quantity.toString(),
+        });
+      } else {
+        furnitureDetails.push({
+          furnitureName: item.collectionBrand,
+          quantity: item.quantity.toString(),
+        });
+      }
+    });
 
     const newOrder: Order = {
       id: orderId,
@@ -77,7 +96,9 @@ export async function createDealOrderAction(
       customerId: customerId,
       dealId: dealId,
       dealOrderDocId: newDealOrderRef.id,
-      storeName: quotation.store
+      storeName: quotation.store,
+      fabricDetails: fabricDetails,
+      furnitureDetails: furnitureDetails,
     };
 
     batch.set(newOrderRef, newOrder);
