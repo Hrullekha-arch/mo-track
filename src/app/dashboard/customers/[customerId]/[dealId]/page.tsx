@@ -1647,7 +1647,9 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                     <TableCell>{form.watch(`products.${index}.noOfPcs`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.salesDescription`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.remarks`)}</TableCell>
-                                    <TableCell>Order Created</TableCell>
+                                    <TableCell>
+                                        <Badge variant="secondary">New</Badge>
+                                    </TableCell>
                                 </TableRow>
                             )) : (
                                 <TableRow>
@@ -2608,4 +2610,3 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
     )
 }
 
-    
