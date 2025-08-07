@@ -1,8 +1,9 @@
 
+
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Stock, StockTransaction } from '@/lib/types';
+import { Order, Stock, StockTransaction } from '@/lib/types';
 import { FieldValue } from 'firebase-admin/firestore';
 
 
@@ -93,6 +94,42 @@ export async function allocateStockToAction(
             transaction.set(stockSoldRef, stockSoldData);
         });
 
+        // After successful transaction, check if all items are allocated
+        const updatedOrderDoc = await orderRef.get();
+        const orderData = updatedOrderDoc.data() as Order;
+        
+        const allItems = [
+            ...(orderData.fabricDetails || []).map(d => ({ ...d, type: 'Fabric' })),
+            ...(orderData.furnitureDetails || []).map(d => ({ ...d, type: 'Furniture' }))
+        ];
+
+        const allAllocationsSnapshot = await orderRef.collection('allocations').get();
+        const allAllocations = allAllocationsSnapshot.docs.map(d => d.data());
+
+        const isAllAllocated = allItems.every(item => {
+            const requiredQty = parseFloat((item as any).quantity || '0');
+            const itemName = (item as any).fabricName || (item as any).furnitureName;
+            const totalAllocated = allAllocations
+                .filter(alloc => alloc.itemName === itemName)
+                .reduce((sum, alloc) => sum + alloc.quantityAllocated, 0);
+            return totalAllocated >= requiredQty;
+        });
+
+        if (isAllAllocated) {
+            const fabricMilestone = orderData.milestones.find(m => m.id === 2);
+            if (fabricMilestone && !fabricMilestone.completed) {
+                const updatedMilestones = orderData.milestones.map(m =>
+                    m.id === 2 ? {
+                        ...m,
+                        completed: true,
+                        completedAt: new Date().toISOString(),
+                        completedBy: userName
+                    } : m
+                );
+                await orderRef.update({ milestones: updatedMilestones });
+            }
+        }
+
         return { success: true, message: 'Stock allocated successfully.' };
     } catch (error: any) {
         console.error("Error in allocateStockToAction:", error);
@@ -112,4 +149,3 @@ export async function getOrderAllocations(orderId: string): Promise<any[]> {
         return [];
     }
 }
-

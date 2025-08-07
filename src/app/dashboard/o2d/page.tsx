@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
@@ -483,23 +484,21 @@ export default function O2DPage() {
                 o2dMilestones: arrayUnion(newStatus),
                 isAcknowledged: true,
             };
+            
+            const orderDoc = await getDoc(orderRef);
+            const orderData = orderDoc.data() as Order;
+            
+            let milestonesToUpdate = orderData.milestones;
 
             // If order type has changed, update it and the main milestones
             if (order.orderType !== newOrderType) {
                 updatePayload.orderType = newOrderType;
-                updatePayload.milestones = getMilestonesForOrder(newOrderType);
+                milestonesToUpdate = getMilestonesForOrder(newOrderType);
             }
 
-            const orderDoc = await getDoc(orderRef);
-            const orderData = orderDoc.data() as Order;
-
             // Update the first main milestone of the (potentially new) milestone set
-            const firstMilestoneIndex = updatePayload.milestones ? 
-                updatePayload.milestones.findIndex((m: { id: number; }) => m.id === 1) : 
-                orderData.milestones.findIndex(m => m.id === 1);
+            const firstMilestoneIndex = milestonesToUpdate.findIndex((m: { id: number; }) => m.id === 1);
             
-            const milestonesToUpdate = updatePayload.milestones ? [...updatePayload.milestones] : [...orderData.milestones];
-
             if (firstMilestoneIndex !== -1 && !milestonesToUpdate[firstMilestoneIndex].completed) {
                 milestonesToUpdate[firstMilestoneIndex] = {
                     ...milestonesToUpdate[firstMilestoneIndex],
@@ -508,9 +507,9 @@ export default function O2DPage() {
                     completedBy: "System (O2D Complete)",
                     location: null
                 };
-                updatePayload.milestones = milestonesToUpdate;
             }
-            
+            updatePayload.milestones = milestonesToUpdate;
+
             await updateDoc(orderRef, updatePayload);
             toast({ title: "Order Moved!", description: `${order.id} has been moved to the main dashboard.` });
 
