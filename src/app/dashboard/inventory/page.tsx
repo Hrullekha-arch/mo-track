@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StockTable } from "@/components/features/inventory/StockTable";
 import { getStockData } from "./actions";
 import { Stock } from "@/lib/types";
+import { StockManagement } from "@/components/features/inventory/StockManagement";
 
 
 export default async function InventoryPage() {
@@ -21,12 +22,18 @@ export default async function InventoryPage() {
                 </p>
             </header>
             <Tabs defaultValue="stock" className="w-full">
-                <TabsList>
-                    <TabsTrigger value="stock">Stock</TabsTrigger>
+                <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="stock">Stock List</TabsTrigger>
+                    <TabsTrigger value="stock-management">Stock Management</TabsTrigger>
                 </TabsList>
                 <TabsContent value="stock">
                     <Suspense fallback={<InventorySkeleton />}>
                         <StockTable initialData={stockData} />
+                    </Suspense>
+                </TabsContent>
+                <TabsContent value="stock-management">
+                     <Suspense fallback={<InventorySkeleton />}>
+                        <StockManagement />
                     </Suspense>
                 </TabsContent>
             </Tabs>
