@@ -1,20 +1,19 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper functions to check user roles and designations
+    // Helper function to check for admin or specific employee roles
     function isAppAdmin() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
-    
-    function isRole(role) {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
-    }
 
-    function isDesignation(designation) {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == designation;
+    function isCrm() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == 'CRM';
+    }
+    
+    function isEmployee() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'employee';
     }
 
     // Default: Deny all reads/writes unless explicitly allowed
@@ -22,93 +21,100 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Users Collection: Users can read profiles, but only update their own or be managed by an admin.
+    // Users Collection
+    // Allow users to read other user profiles (for names, etc.)
+    // Allow users to create their own profile, and admins to create any
+    // Allow users to update their own profile, and admins to update any
+    // Allow only admins to delete users
     match /users/{userId} {
       allow read: if request.auth != null;
-      allow create: if isAppAdmin(); // Only admin can create new users via the panel
+      allow create: if request.auth.uid == userId || isAppAdmin();
       allow update: if request.auth.uid == userId || isAppAdmin();
       allow delete: if isAppAdmin();
     }
     
-    // Salesman to CRM Assignments: Only admins or employees with 'PC' designation can manage.
+    // Salesman to CRM Assignments
+    // Only admins and designated employees (PC) should be able to manage assignments.
     match /salesmanCrmAssignments/{salesmanId} {
       allow read: if request.auth != null;
-      allow write: if isAppAdmin() || isDesignation('PC');
+      allow write: if isAppAdmin() || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == 'PC';
     }
 
-    // Orders Collection: Granular access based on role and assignment.
+    // Orders Collection
     match /orders/{orderId} {
-      // Admins and PCs can read all orders.
-      // CRMs can read orders assigned to them.
-      // Installers can read orders assigned to them.
-      allow read: if isAppAdmin() 
-                  || isDesignation('PC') 
-                  || (isDesignation('CRM') && resource.data.handledByCrm == request.auth.uid)
-                  || (isRole('installer') && resource.data.assignedTo == request.auth.uid);
+      // Read access for admin, assigned installer, or assigned CRM employee. Other employees cannot read all orders.
+      allow read: if isAppAdmin() || resource.data.assignedTo == request.auth.uid || resource.data.handledByCrm == request.auth.uid;
       
-      // Admins or PCs can create orders.
-      allow create: if isAppAdmin() || isDesignation('PC');
+      // Allow creation by admins or employees (PC)
+      allow create: if isAppAdmin() || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == 'PC';
       
-      // Admin/PC/CRM can update their assigned orders. Installers can update their assigned orders.
-      allow update: if isAppAdmin() 
-                  || isDesignation('PC')
-                  || (isDesignation('CRM') && resource.data.handledByCrm == request.auth.uid)
-                  || (isRole('installer') && resource.data.assignedTo == request.auth.uid);
+      // Allow updates by admin, employee (who is assigned as CRM), or assigned installer
+      allow update: if isAppAdmin() || (isEmployee() && resource.data.handledByCrm == request.auth.uid) || resource.data.assignedTo == request.auth.uid;
       
-      // Only admins can delete.
+      // Allow deletion only by admin
       allow delete: if isAppAdmin();
     }
     
-    // Purchase Requests Collection: Accessible by admins and employees (PC, CRM, etc).
-    match /purchaseRequests/{requestId} {
-      allow read, write: if isAppAdmin() || isRole('employee');
+    // Approved Orders and Quotations (for logging purposes)
+    match /approvedOrders/{orderId} {
+        allow write: if request.auth != null; // Allow any authenticated user to log an approval
+        allow read: if isAppAdmin() || isEmployee();
+    }
+    
+    match /approvedQuotations/{quotationId} {
+        allow write: if request.auth != null; // Allow any authenticated user to log an approval
+        allow read: if isAppAdmin() || isEmployee();
     }
 
-    // Stock Collection: Read-only for authenticated users, writeable only by admin.
+    // Purchase Requests Collection
+    match /purchaseRequests/{requestId} {
+      allow read, write: if isAppAdmin() || isEmployee();
+    }
+
+    // Stock Collection
     match /stocks/{stockId} {
       allow read: if request.auth != null;
-      allow write: if isAppAdmin();
+      allow write: if isAppAdmin(); // Only admins can import/modify stock
     }
 
-    // Customer data is generally managed by employees and admins.
+    // Customer and their subcollections
     match /customers/{customerId} {
-      allow read, write: if isAppAdmin() || isRole('employee');
+      // Allow read/write for admins and employees
+      allow read, write: if isAppAdmin() || isEmployee();
 
+      // Deals subcollection
       match /deals/{dealId} {
-        allow read, write: if isAppAdmin() || isRole('employee');
+        allow read, write: if isAppAdmin() || isEmployee();
 
+        // Quotations and Orders subcollections within a deal
         match /quotations/{quotationId} {
-           allow read, write: if isAppAdmin() || isRole('employee');
+          allow read, write: if isAppAdmin() || isEmployee();
         }
         
         match /orders/{dealOrderId} {
-           allow read, write: if isAppAdmin() || isRole('employee');
+           allow read, write: if isAppAdmin() || isEmployee();
         }
 
-        // Installers also need to access visit data for their assigned tasks.
         match /visits/{visitId} {
-           allow read, write: if request.auth != null;
+           allow read, write: if request.auth != null; // Allow installers to read/write their assigned visits as well
         }
         
         match /measurements/{measurementId} {
-           allow read, write: if isAppAdmin() || isRole('employee');
+           allow read, write: if isAppAdmin() || isEmployee();
         }
 
         match /cpds/{cpdId} {
-           allow read, write: if isAppAdmin() || isRole('employee');
+           allow read, write: if isAppAdmin() || isEmployee();
         }
       }
     }
     
-    // Collection Group Queries
-    // Allows querying 'quotations' across all customers for the approval page.
+    // Rule for Collection Group Query used in /approve-quotation and /approve-order
     match /{path=**}/quotations/{quotationId} {
-      allow read: if isAppAdmin() || isRole('employee');
-    }
-
-    // Allows querying 'visits' across all customers for the installer's visit list.
-     match /{path=**}/visits/{visitId} {
       allow read: if request.auth != null;
+    }
+     match /{path=**}/visits/{visitId} {
+      allow read: if request.auth.uid != null;
     }
   }
 }
