@@ -40,20 +40,12 @@ const dashboardItems = [
         id: "visits"
     },
      {
-        href: "/dashboard/approve-quotation",
-        title: "Approve Quotation",
-        description: "Approve quotations from accounts.",
+        href: "/dashboard/approvals",
+        title: "Approvals",
+        description: "Approve quotations and orders.",
         icon: FileSignature,
         color: "bg-yellow-600",
-        id: "approve-quotation"
-    },
-     {
-        href: "/dashboard/approve-order",
-        title: "Approve Order",
-        description: "Approve orders from accounts.",
-        icon: CheckSquareIcon,
-        color: "bg-green-600",
-        id: "approve-order"
+        id: "approvals"
     },
     {
         href: "/dashboard/purchase",
