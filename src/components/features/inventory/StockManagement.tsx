@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -7,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Stock, StockTransaction } from "@/lib/types";
-import { searchStockByBcn, updateStockQuantityAction, getStockTransactions } from "@/app/dashboard/inventory/actions";
+import { searchStockByBcn, updateStockQuantityAction, getStockTransactions, getStockById } from "@/app/dashboard/inventory/actions";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, PlusCircle, RefreshCw, Trash2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -180,40 +181,42 @@ export function StockManagement() {
     }
   };
 
-  const handleSelectStock = React.useCallback(async (value: string) => {
-    // Find from already loaded options, or fetch if needed (though current logic loads options on search)
-    const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
-    if (selectedOption) {
-      const stockItem = selectedOption.stockItem;
-      setSelectedStock(stockItem);
-      setIsLoadingTransactions(true);
-      try {
-        const fetchedTransactions = await getStockTransactions(stockItem.id);
-        setTransactions(fetchedTransactions);
-      } catch (error) {
-        toast({ variant: 'destructive', title: 'Error fetching history' });
-      } finally {
-        setIsLoadingTransactions(false);
-      }
-    } else {
-        // This case might happen if the value is set from an external source without options being loaded
-        setSelectedStock(null);
-        setTransactions([]);
+  const handleSelectStock = React.useCallback(async (stockItem: Stock) => {
+    setSelectedStock(stockItem);
+    setIsLoadingTransactions(true);
+    try {
+      const fetchedTransactions = await getStockTransactions(stockItem.id);
+      setTransactions(fetchedTransactions);
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Error fetching history' });
+    } finally {
+      setIsLoadingTransactions(false);
     }
-  }, [bcnOptions, toast]);
+  }, [toast]);
   
   const handleStockUpdated = (newStock: Stock) => {
       setSelectedStock(newStock);
-      // Refetch transactions after an update
-      handleSelectStock(newStock.id);
+      handleSelectStock(newStock);
   }
 
   const handleRefresh = async () => {
     if (!selectedStock) return;
     setIsRefreshing(true);
-    await handleSelectStock(selectedStock.id);
-    setIsRefreshing(false);
-    toast({ title: 'Data refreshed' });
+    try {
+        const freshStock = await getStockById(selectedStock.id);
+        if (freshStock) {
+            await handleSelectStock(freshStock);
+            toast({ title: 'Data refreshed' });
+        } else {
+            toast({ variant: 'destructive', title: 'Refresh Failed', description: 'Could not find the stock item.' });
+            setSelectedStock(null);
+            setTransactions([]);
+        }
+    } catch (error) {
+        toast({ variant: 'destructive', title: 'Refresh Failed' });
+    } finally {
+        setIsRefreshing(false);
+    }
   };
   
   const stockAddedTransactions = transactions.filter(t => t.type === 'addition');
@@ -231,7 +234,12 @@ export function StockManagement() {
                 <Combobox
                     options={bcnOptions}
                     value={selectedStock?.id}
-                    onSelect={handleSelectStock}
+                    onSelect={(value) => {
+                        const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
+                        if (selectedOption) {
+                            handleSelectStock(selectedOption.stockItem);
+                        }
+                    }}
                     placeholder="Search by BCN or Item Name..."
                     searchPlaceholder="Type to search..."
                     emptyPlaceholder={isSearching ? "Searching..." : "No stock found."}

@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -32,6 +33,23 @@ export async function getStockData(): Promise<Stock[]> {
         return [];
     }
 }
+
+export async function getStockById(id: string): Promise<Stock | null> {
+    try {
+        const docRef = adminDb.collection("stocks").doc(id);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists) {
+            const stockData = { id: docSnap.id, ...docSnap.data() };
+            return JSON.parse(JSON.stringify(stockData)) as Stock;
+        }
+        return null;
+    } catch (error) {
+        console.error(`Error fetching stock by ID ${id}:`, error);
+        return null;
+    }
+}
+
 
 export async function importStockData(base64Data: string): Promise<{ success: boolean; message: string; count?: number }> {
     try {
