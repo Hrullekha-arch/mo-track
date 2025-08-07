@@ -17,6 +17,7 @@ import { Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PrintableQuotationProfessional } from '@/components/features/order-management/PrintableQuotationProfessional';
 import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
 
 interface EnrichedQuotation extends Quotation {
     dealId: string;
@@ -32,6 +33,7 @@ function ApproveQuotationTab() {
     const [allUsers, setAllUsers] = useState<User[]>([]);
 
     const { toast } = useToast();
+    const { user } = useAuth();
 
     useEffect(() => {
         const fetchRelatedData = async () => {
@@ -80,7 +82,7 @@ function ApproveQuotationTab() {
     }, []);
 
     const handleApprove = async () => {
-        if (!selectedQuotation) return;
+        if (!selectedQuotation || !user) return;
         setUpdatingId(selectedQuotation.id);
         try {
             const quotationRef = doc(db, 'customers', selectedQuotation.customerId, 'deals', selectedQuotation.dealId, 'quotations', selectedQuotation.id);
@@ -90,7 +92,15 @@ function ApproveQuotationTab() {
 
             // Save a copy to the approvedQuotations collection
             const approvedQuotationRef = doc(db, 'approvedQuotations', selectedQuotation.id);
-            await setDoc(approvedQuotationRef, { ...selectedQuotation, approvedAt: new Date().toISOString() });
+            await setDoc(approvedQuotationRef, { 
+                ...selectedQuotation, 
+                status: 'Approved',
+                approvedAt: new Date().toISOString(),
+                approvedBy: {
+                    id: user.id,
+                    name: user.name,
+                }
+            });
             
             toast({
                 title: 'Quotation Approved',
@@ -197,6 +207,7 @@ function ApproveOrderTab() {
     const [loading, setLoading] = useState(true);
     const [updatingId, setUpdatingId] = useState<string | null>(null);
     const { toast } = useToast();
+    const { user } = useAuth();
 
     useEffect(() => {
         const q = query(
@@ -222,6 +233,7 @@ function ApproveOrderTab() {
     }, [toast]);
 
     const handleApprove = async (order: Order) => {
+        if (!user) return;
         setUpdatingId(order.id);
         try {
             const orderRef = doc(db, 'orders', order.id);
@@ -230,7 +242,15 @@ function ApproveOrderTab() {
             });
 
             const approvedOrderRef = doc(db, 'approvedOrders', order.id);
-            await setDoc(approvedOrderRef, { ...order, status: 'Approved', approvedAt: new Date().toISOString() });
+            await setDoc(approvedOrderRef, { 
+                ...order, 
+                status: 'Approved', 
+                approvedAt: new Date().toISOString(),
+                approvedBy: {
+                    id: user.id,
+                    name: user.name,
+                }
+            });
 
             toast({
                 title: 'Order Approved',
