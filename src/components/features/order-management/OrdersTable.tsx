@@ -165,6 +165,7 @@ export function OrdersTable() {
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
+      cell: ({ row }) => row.original.remarks || '-',
     },
     {
       id: "status",
