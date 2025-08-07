@@ -157,4 +157,21 @@ export async function updateStockQuantityAction(stockId: string, quantityChange:
   }
 }
 
+export async function getStockTransactions(stockId: string): Promise<StockTransaction[]> {
+  try {
+    const transactionsRef = adminDb.collection('stockTransactions');
+    const q = transactionsRef.where('stockId', '==', stockId).orderBy('createdAt', 'desc');
+    const snapshot = await q.get();
+
+    if (snapshot.empty) {
+      return [];
+    }
+
+    const transactions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
+    return JSON.parse(JSON.stringify(transactions));
+  } catch (error) {
+    console.error(`Error fetching transactions for stock ${stockId}:`, error);
+    return [];
+  }
+}
     

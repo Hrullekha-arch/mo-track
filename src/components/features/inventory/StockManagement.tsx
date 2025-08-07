@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Stock, StockTransaction } from "@/lib/types";
-import { searchStockByBcn, updateStockQuantityAction } from "@/app/dashboard/inventory/actions";
+import { searchStockByBcn, updateStockQuantityAction, getStockTransactions } from "@/app/dashboard/inventory/actions";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, PlusCircle, Trash2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -152,7 +152,9 @@ function UpdateStockDialog({ stock, onStockUpdated }: { stock: Stock, onStockUpd
 export function StockManagement() {
   const [bcnOptions, setBcnOptions] = React.useState<ComboboxOption[]>([]);
   const [selectedStock, setSelectedStock] = React.useState<Stock | null>(null);
+  const [transactions, setTransactions] = React.useState<StockTransaction[]>([]);
   const [isSearching, setIsSearching] = React.useState(false);
+  const [isLoadingTransactions, setIsLoadingTransactions] = React.useState(false);
   const { toast } = useToast();
 
   const handleBcnSearch = async (query: string) => {
@@ -168,7 +170,6 @@ export function StockManagement() {
         label: `${stock.bcn} - ${stock.itemName}`,
         stockItem: stock
       }));
-      // A bit of a hack to get the full stock item into the combobox options
       setBcnOptions(options as any);
     } catch (error) {
       console.error("Error searching BCN:", error);
@@ -178,18 +179,34 @@ export function StockManagement() {
     }
   };
 
-  const handleSelectStock = (value: string) => {
+  const handleSelectStock = async (value: string) => {
     const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
     if (selectedOption) {
-      setSelectedStock(selectedOption.stockItem);
+      const stockItem = selectedOption.stockItem;
+      setSelectedStock(stockItem);
+      setIsLoadingTransactions(true);
+      try {
+        const fetchedTransactions = await getStockTransactions(stockItem.id);
+        setTransactions(fetchedTransactions);
+      } catch (error) {
+        toast({ variant: 'destructive', title: 'Error fetching history' });
+      } finally {
+        setIsLoadingTransactions(false);
+      }
     } else {
       setSelectedStock(null);
+      setTransactions([]);
     }
   };
   
   const handleStockUpdated = (newStock: Stock) => {
       setSelectedStock(newStock);
+      // Refetch transactions after an update
+      handleSelectStock(newStock.id);
   }
+  
+  const stockAddedTransactions = transactions.filter(t => t.type === 'addition');
+  const stockSoldTransactions = transactions.filter(t => t.type === 'deduction');
 
   return (
     <Card>
@@ -236,17 +253,30 @@ export function StockManagement() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Date</TableHead>
-                                    <TableHead>Added By</TableHead>
+                                    <TableHead>By</TableHead>
                                     <TableHead>Qty</TableHead>
-                                    <TableHead>Po Number</TableHead>
+                                    <TableHead>Order ID</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                 <TableRow>
-                                    <TableCell colSpan={4} className="h-24 text-center">
-                                        No sold data available.
-                                    </TableCell>
-                                </TableRow>
+                                 {isLoadingTransactions ? (
+                                    <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
+                                ) : stockSoldTransactions.length > 0 ? (
+                                    stockSoldTransactions.map(tx => (
+                                        <TableRow key={tx.id}>
+                                            <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
+                                            <TableCell>{tx.createdBy}</TableCell>
+                                            <TableCell>{tx.quantityChange}</TableCell>
+                                            <TableCell>{tx.orderId}</TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={4} className="h-24 text-center">
+                                            No sold data available.
+                                        </TableCell>
+                                    </TableRow>
+                                )}
                             </TableBody>
                         </Table>
                     </div>
@@ -264,11 +294,24 @@ export function StockManagement() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                <TableRow>
-                                    <TableCell colSpan={4} className="h-24 text-center">
-                                        No purchase data available.
-                                    </TableCell>
-                                </TableRow>
+                                {isLoadingTransactions ? (
+                                    <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
+                                ) : stockAddedTransactions.length > 0 ? (
+                                    stockAddedTransactions.map(tx => (
+                                        <TableRow key={tx.id}>
+                                            <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
+                                            <TableCell>{tx.createdBy}</TableCell>
+                                            <TableCell>{tx.quantityChange}</TableCell>
+                                            <TableCell>{tx.poNumber}</TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={4} className="h-24 text-center">
+                                            No purchase data available.
+                                        </TableCell>
+                                    </TableRow>
+                                )}
                             </TableBody>
                         </Table>
                     </div>
@@ -281,4 +324,3 @@ export function StockManagement() {
   );
 }
 
-    
