@@ -84,6 +84,18 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
         
         if (checked) {
             if (selectedIndex === -1) {
+                const currentTotal = form.getValues('selectedLengths').reduce((acc, curr) => acc + curr.length, 0);
+                if (currentTotal + length > itemRequiredQty) {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Allocation Limit Exceeded',
+                        description: `You cannot allocate more than the required quantity of ${itemRequiredQty.toFixed(2)}.`,
+                    });
+                    // Uncheck the box visually by not adding the value
+                    const checkbox = document.getElementById(`len-${transactionId}-${length}`) as HTMLInputElement;
+                    if (checkbox) checkbox.checked = false;
+                    return;
+                }
                 append({ length, transactionId });
             }
         } else {
@@ -144,11 +156,11 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
                                      {availableLengths.length > 0 ? availableLengths.map((l, i) => (
                                          <div key={`${l.transactionId}-${i}`} className="flex items-center gap-4 p-2 border rounded-md">
                                              <Checkbox 
-                                                id={`len-${i}`}
+                                                id={`len-${l.transactionId}-${l.length}`}
                                                 onCheckedChange={(checked) => handleCheckboxChange(!!checked, l.length, l.transactionId)}
                                                 checked={fields.some(f => f.transactionId === l.transactionId && f.length === l.length)}
                                              />
-                                             <Label htmlFor={`len-${i}`} className="flex-grow">
+                                             <Label htmlFor={`len-${l.transactionId}-${l.length}`} className="flex-grow">
                                                 Length: <span className="font-mono font-bold">{l.length.toFixed(2)}</span>
                                              </Label>
                                          </div>
@@ -162,7 +174,7 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
                                 <DialogFooter className="pt-4">
                                      <AlertDialog>
                                         <AlertDialogTrigger asChild>
-                                            <Button type="button" disabled={isSubmitting}>
+                                            <Button type="button" disabled={isSubmitting || selectedTotal > itemRequiredQty}>
                                                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                                 Allocate
                                             </Button>
@@ -207,14 +219,14 @@ function OrderItemRow({ item, index, orderId, onAllocationSuccess }: { item: Ord
                 
                 // Fetch allocation for this item
                 const allocations = await getOrderAllocations(orderId);
-                const itemAllocations = allocations.filter(a => a.stockId === stockId);
-                const totalAllocated = itemAllocations.reduce((sum, alloc) => sum + alloc.quantityChange, 0);
-                setAllocatedQty(Math.abs(totalAllocated)); // quantityChange is negative
+                const itemAllocations = allocations.filter(a => a.itemName === itemName);
+                const totalAllocated = itemAllocations.reduce((sum, alloc) => sum + alloc.quantityAllocated, 0);
+                setAllocatedQty(totalAllocated);
             }
             setLoading(false);
         };
         fetchItemData();
-    }, [item, orderId]);
+    }, [item, orderId, onAllocationSuccess]);
 
     const name = (item as any).fabricName || (item as any).furnitureName;
     const unit = item.type === 'Fabric' ? 'Mtr' : '';
