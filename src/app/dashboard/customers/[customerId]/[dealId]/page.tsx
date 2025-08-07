@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
@@ -1702,6 +1701,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
+    const { toast } = useToast();
 
     const parseDate = (date: any): Date => {
         if (date instanceof Date) return date;
@@ -1790,20 +1790,29 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem><Copy className="mr-2 h-4 w-4"/> Office Copy Print</DropdownMenuItem>
                                                     <DropdownMenuItem><FileDown className="mr-2 h-4 w-4"/> Clone Quotation</DropdownMenuItem>
-                                                    <DropdownMenuItem 
-                                                        asChild 
-                                                        disabled={q.status === 'Converted to Order'}
-                                                        onSelect={(e) => {
-                                                            if (q.status === 'Converted to Order') {
-                                                                e.preventDefault();
-                                                                toast({variant: 'destructive', title: 'Already Converted', description: 'This quotation has already been converted to an order.'})
-                                                            }
-                                                        }}
-                                                    >
-                                                        <Link href={`/dashboard/invoice/new?customerId=${customerId}&dealId=${dealId}&quotationId=${q.id}`}>
-                                                            Convert to Order
-                                                        </Link>
-                                                    </DropdownMenuItem>
+                                                    <TooltipProvider>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <DropdownMenuItem
+                                                                    disabled={q.status !== 'Approved'}
+                                                                    onSelect={(e) => {
+                                                                        if (q.status !== 'Approved') {
+                                                                            e.preventDefault();
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <Link href={q.status === 'Approved' ? `/dashboard/invoice/new?customerId=${customerId}&dealId=${dealId}&quotationId=${q.id}` : '#'} className={q.status !== 'Approved' ? 'pointer-events-none' : ''}>
+                                                                        Convert to Order
+                                                                    </Link>
+                                                                </DropdownMenuItem>
+                                                            </TooltipTrigger>
+                                                             {q.status !== 'Approved' && (
+                                                                <TooltipContent>
+                                                                    <p>Quotation must be approved to convert to an order.</p>
+                                                                </TooltipContent>
+                                                            )}
+                                                        </Tooltip>
+                                                    </TooltipProvider>
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
                                             <Button variant="link" className="p-0 h-auto" onClick={() => setSelectedQuotation(q)}>
@@ -1817,7 +1826,18 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
                                         </TableCell>
                                         <TableCell>{format(parseDate(q.date), 'dd/MM/yyyy')}</TableCell>
                                         <TableCell>{q.customerName}</TableCell>
-                                        <TableCell><Badge variant={q.status === 'Converted to Order' ? 'default' : 'secondary'}>{q.status}</Badge></TableCell>
+                                        <TableCell>
+                                            <Badge variant={
+                                                q.status === 'Approved' ? 'default' : 
+                                                q.status === 'Converted to Order' ? 'default' : 
+                                                'secondary'
+                                            } className={cn(
+                                                q.status === 'Approved' && 'bg-green-500',
+                                                q.status === 'Converted to Order' && 'bg-blue-500'
+                                            )}>
+                                                {q.status}
+                                            </Badge>
+                                        </TableCell>
                                         <TableCell className="text-right">{q.totalAmount.toFixed(2)}</TableCell>
                                         <TableCell>{q.store}</TableCell>
                                     </TableRow>
@@ -2587,3 +2607,5 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
         </div>
     )
 }
+
+    
