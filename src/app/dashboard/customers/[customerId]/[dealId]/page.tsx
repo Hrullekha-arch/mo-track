@@ -1812,12 +1812,12 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
                                                                     onSelect={(e) => {
                                                                         if (q.status !== 'Approved') {
                                                                             e.preventDefault();
+                                                                        } else {
+                                                                            router.push(`/dashboard/invoice/new?customerId=${customerId}&dealId=${dealId}&quotationId=${q.id}`);
                                                                         }
                                                                     }}
                                                                 >
-                                                                    <Link href={q.status === 'Approved' ? `/dashboard/invoice/new?customerId=${customerId}&dealId=${dealId}&quotationId=${q.id}` : '#'} className={q.status !== 'Approved' ? 'pointer-events-none' : ''}>
-                                                                        Convert to Order
-                                                                    </Link>
+                                                                    Convert to Order
                                                                 </DropdownMenuItem>
                                                             </TooltipTrigger>
                                                              {q.status !== 'Approved' && (
@@ -2196,6 +2196,7 @@ function CrmActivitySkeleton() {
 
 export default function CrmActivityTrackerPage({ params: paramsPromise }: { params: Promise<{ customerId: string, dealId: string }> }) {
   const params = use(paramsPromise);
+  const router = useRouter();
   const { customerId, dealId } = params;
   const { toast } = useToast();
   
@@ -2641,7 +2642,3 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
         </div>
     )
 }
-
-
-
-    

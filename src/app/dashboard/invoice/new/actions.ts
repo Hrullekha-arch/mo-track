@@ -4,6 +4,7 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import { DealOrder, Order, Quotation } from '@/lib/types';
+import { getMilestonesForOrder } from '@/lib/constants';
 
 export async function createDealOrderAction(
   customerId: string,
@@ -39,10 +40,10 @@ export async function createDealOrderAction(
       customerAddress: '', // This should be fetched from customer record if needed
       salesPerson: '', // This should be fetched from deal/salesman record
       orderType: 'stitching', // Default, should be determined
-      milestones: [], // This will be set based on order type
+      milestones: getMilestonesForOrder('stitching'), // Set default milestones
       createdAt: new Date().toISOString(),
       isAcknowledged: true, // It is now in the main workflow
-      status: 'Pending Approval',
+      status: 'Pending Approval', // Set correct initial status
     };
 
     batch.set(newOrderRef, newOrder);
@@ -64,7 +65,7 @@ export async function createDealOrderAction(
       createdBy: quotation.createdBy || 'System',
       remark: quotation.billingName || '',
       items: quotation.items,
-      status: 'Pending Approval'
+      status: 'Pending Approval' // Set correct initial status
     };
 
     batch.set(newDealOrderRef, newDealOrder);
@@ -87,5 +88,3 @@ export async function createDealOrderAction(
     return { success: false, message: `Server error: ${error.message}` };
   }
 }
-
-    

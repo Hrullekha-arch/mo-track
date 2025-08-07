@@ -32,10 +32,18 @@ export default function ApproveOrderPage() {
             const ordersData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
             setOrders(ordersData);
             setLoading(false);
+        }, (error) => {
+            console.error("Error fetching pending orders: ", error);
+            toast({
+                variant: 'destructive',
+                title: 'Error Loading Data',
+                description: 'Could not fetch orders pending approval. Please check permissions.'
+            });
+            setLoading(false);
         });
 
         return () => unsubscribe();
-    }, []);
+    }, [toast]);
 
     const handleApprove = async (order: Order) => {
         setUpdatingId(order.id);
@@ -131,5 +139,3 @@ export default function ApproveOrderPage() {
         </div>
     );
 }
-
-    
