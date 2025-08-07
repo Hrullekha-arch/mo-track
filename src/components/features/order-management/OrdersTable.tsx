@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -199,7 +198,7 @@ export function OrdersTable() {
           variant="ghost"
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
-          Created By
+          Salesman
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
@@ -234,7 +233,7 @@ export function OrdersTable() {
           variant="ghost"
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
-          Mobile No
+          Contact No
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
@@ -325,7 +324,7 @@ export function OrdersTable() {
     setColumnFilters([]);
   }
 
-  const uniqueStores = Array.from(new Set(orders.map(o => o.storeName).filter(Boolean)));
+  const uniqueStores = ["MO GCR BRANCH", "MO MG ROAD", "MO SULTANPUR"];
 
   if (loading) {
     return (
