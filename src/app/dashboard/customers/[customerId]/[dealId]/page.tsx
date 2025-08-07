@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
@@ -1469,7 +1470,7 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
     );
 };
 
-function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, customer, cpds }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal, customer: Customer, cpds: Cpd[] }) {
+function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, customer, cpds, quotations, orders }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal, customer: Customer, cpds: Cpd[], quotations: Quotation[], orders: DealOrder[] }) {
     const [activityLoading, setActivityLoading] = useState(false);
     const { toast } = useToast();
     const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
@@ -1583,6 +1584,17 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
         });
     };
 
+    const getProductStatus = (product: DealProduct) => {
+        const isInOrder = orders.some(order => order.items.some(item => item.collectionBrand === product.collectionBrand));
+        if (isInOrder) return <Badge variant="default" className="bg-green-500">Order Created</Badge>;
+
+        const isInQuotation = quotations.some(q => q.items.some(item => item.collectionBrand === product.collectionBrand));
+        if (isInQuotation) return <Badge variant="secondary">In Quotation</Badge>;
+
+        return <Badge variant="outline">New</Badge>;
+    };
+
+
     return (
         <>
         <FormProvider {...form}>
@@ -1648,7 +1660,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                     <TableCell>{form.watch(`products.${index}.salesDescription`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.remarks`)}</TableCell>
                                     <TableCell>
-                                        <Badge variant="secondary">New</Badge>
+                                        {getProductStatus(field as DealProduct)}
                                     </TableCell>
                                 </TableRow>
                             )) : (
@@ -1917,6 +1929,7 @@ function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string 
                                 <TableHead>Order No</TableHead>
                                 <TableHead>Order Remark</TableHead>
                                 <TableHead>Order Date</TableHead>
+                                <TableHead>Status</TableHead>
                                 <TableHead>Created By</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -1930,6 +1943,9 @@ function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string 
                                     </TableCell>
                                     <TableCell>{order.remark || '-'}</TableCell>
                                     <TableCell>{format(parseDate(order.orderDate), 'dd/MM/yyyy')}</TableCell>
+                                    <TableCell>
+                                        <Badge variant={order.status === 'Approved' ? 'default' : 'secondary'} className={cn(order.status === 'Approved' && 'bg-green-500')}>{order.status}</Badge>
+                                    </TableCell>
                                     <TableCell>{order.createdBy}</TableCell>
                                 </TableRow>
                             ))}
@@ -2188,6 +2204,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const [salesmen, setSalesmen] = useState<User[]>([]);
   const [visits, setVisits] = useState<DealVisit[]>([]);
   const [cpds, setCpds] = useState<Cpd[]>([]);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [orders, setOrders] = useState<DealOrder[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchVisits = useCallback(async () => {
@@ -2198,6 +2216,13 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const fetchCpds = useCallback(async () => {
     const data = await getCpdsForDeal(customerId, dealId);
     setCpds(data);
+  }, [customerId, dealId]);
+
+  const fetchQuotationsAndOrders = useCallback(async () => {
+      const quotationsData = await getQuotationsForDeal(customerId, dealId);
+      const ordersData = await getOrdersForDeal(customerId, dealId);
+      setQuotations(quotationsData);
+      setOrders(ordersData);
   }, [customerId, dealId]);
 
 
@@ -2229,12 +2254,17 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     }
   }, [customerId, dealId, toast]);
 
-  useEffect(() => {
-    if (!customerId || !dealId) return;
+  const handleRefresh = useCallback(() => {
     fetchData();
     fetchVisits();
     fetchCpds();
-  }, [customerId, dealId, fetchData, fetchVisits, fetchCpds]);
+    fetchQuotationsAndOrders();
+  }, [fetchData, fetchVisits, fetchCpds, fetchQuotationsAndOrders]);
+
+  useEffect(() => {
+    if (!customerId || !dealId) return;
+    handleRefresh();
+  }, [customerId, dealId, handleRefresh]);
 
   if (loading) {
     return <CrmActivitySkeleton />;
@@ -2343,10 +2373,12 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 initialProducts={deal.products || []}
                 customerId={customerId}
                 dealId={dealId}
-                onRefresh={fetchData}
+                onRefresh={handleRefresh}
                 deal={deal}
                 customer={customer}
                 cpds={cpds}
+                quotations={quotations}
+                orders={orders}
             />
           </TabsContent>
 
@@ -2610,3 +2642,6 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
     )
 }
 
+
+
+    

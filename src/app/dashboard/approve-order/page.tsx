@@ -1,8 +1,9 @@
 
+
 "use client";
 
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Order } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -43,6 +44,11 @@ export default function ApproveOrderPage() {
             await updateDoc(orderRef, {
                 status: 'Approved'
             });
+
+            // Save a copy to the approvedOrders collection
+            const approvedOrderRef = doc(db, 'approvedOrders', order.id);
+            await setDoc(approvedOrderRef, { ...order, status: 'Approved', approvedAt: new Date().toISOString() });
+
             toast({
                 title: 'Order Approved',
                 description: `Order #${order.id} has been approved.`
@@ -125,3 +131,5 @@ export default function ApproveOrderPage() {
         </div>
     );
 }
+
+    

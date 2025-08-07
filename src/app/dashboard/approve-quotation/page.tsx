@@ -1,8 +1,9 @@
 
+
 "use client";
 
 import { useState, useEffect } from 'react';
-import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDocs } from 'firebase/firestore';
+import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Quotation, Deal, Customer, User } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -85,6 +86,11 @@ export default function ApproveQuotationPage() {
             await updateDoc(quotationRef, {
                 status: 'Approved'
             });
+
+            // Save a copy to the approvedQuotations collection
+            const approvedQuotationRef = doc(db, 'approvedQuotations', selectedQuotation.id);
+            await setDoc(approvedQuotationRef, { ...selectedQuotation, approvedAt: new Date().toISOString() });
+            
             toast({
                 title: 'Quotation Approved',
                 description: `Quotation #${selectedQuotation.quotationNo} has been approved.`
@@ -191,3 +197,5 @@ export default function ApproveQuotationPage() {
         </div>
     );
 }
+
+    

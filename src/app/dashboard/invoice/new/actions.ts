@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -63,6 +64,7 @@ export async function createDealOrderAction(
       createdBy: quotation.createdBy || 'System',
       remark: quotation.billingName || '',
       items: quotation.items,
+      status: 'Pending Approval'
     };
 
     batch.set(newDealOrderRef, newDealOrder);
@@ -85,3 +87,5 @@ export async function createDealOrderAction(
     return { success: false, message: `Server error: ${error.message}` };
   }
 }
+
+    

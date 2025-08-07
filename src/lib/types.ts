@@ -1,5 +1,6 @@
 
 
+
 import { ComboboxOption } from "@/components/ui/combobox";
 
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
@@ -386,6 +387,9 @@ export interface DealOrder {
     createdBy: string;
     remark?: string;
     items: QuotationItem[];
+    status: 'Pending Approval' | 'Approved';
 }
 
 export { type ComboboxOption };
+
+    
