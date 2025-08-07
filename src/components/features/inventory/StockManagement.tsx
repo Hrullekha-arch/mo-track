@@ -9,7 +9,7 @@ import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Stock, StockTransaction } from "@/lib/types";
 import { searchStockByBcn, updateStockQuantityAction, getStockTransactions } from "@/app/dashboard/inventory/actions";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, PlusCircle, Trash2 } from "lucide-react";
+import { Loader2, PlusCircle, RefreshCw, Trash2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -155,6 +155,7 @@ export function StockManagement() {
   const [transactions, setTransactions] = React.useState<StockTransaction[]>([]);
   const [isSearching, setIsSearching] = React.useState(false);
   const [isLoadingTransactions, setIsLoadingTransactions] = React.useState(false);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
   const { toast } = useToast();
 
   const handleBcnSearch = async (query: string) => {
@@ -179,7 +180,8 @@ export function StockManagement() {
     }
   };
 
-  const handleSelectStock = async (value: string) => {
+  const handleSelectStock = React.useCallback(async (value: string) => {
+    // Find from already loaded options, or fetch if needed (though current logic loads options on search)
     const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
     if (selectedOption) {
       const stockItem = selectedOption.stockItem;
@@ -194,16 +196,25 @@ export function StockManagement() {
         setIsLoadingTransactions(false);
       }
     } else {
-      setSelectedStock(null);
-      setTransactions([]);
+        // This case might happen if the value is set from an external source without options being loaded
+        setSelectedStock(null);
+        setTransactions([]);
     }
-  };
+  }, [bcnOptions, toast]);
   
   const handleStockUpdated = (newStock: Stock) => {
       setSelectedStock(newStock);
       // Refetch transactions after an update
       handleSelectStock(newStock.id);
   }
+
+  const handleRefresh = async () => {
+    if (!selectedStock) return;
+    setIsRefreshing(true);
+    await handleSelectStock(selectedStock.id);
+    setIsRefreshing(false);
+    toast({ title: 'Data refreshed' });
+  };
   
   const stockAddedTransactions = transactions.filter(t => t.type === 'addition');
   const stockSoldTransactions = transactions.filter(t => t.type === 'deduction');
@@ -219,6 +230,7 @@ export function StockManagement() {
                  <Label htmlFor="search-stock">Search Stock</Label>
                 <Combobox
                     options={bcnOptions}
+                    value={selectedStock?.id}
                     onSelect={handleSelectStock}
                     placeholder="Search by BCN or Item Name..."
                     searchPlaceholder="Type to search..."
@@ -240,7 +252,11 @@ export function StockManagement() {
                     <p className="text-sm"><strong className="block text-muted-foreground">MRP:</strong> ₹{selectedStock.mrp}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Last Updated:</strong> {new Date(selectedStock.lastUpdatedAt).toLocaleDateString()}</p>
                  </div>
-                 <div className="flex justify-end mt-4">
+                 <div className="flex justify-end mt-4 gap-2">
+                    <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+                        {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        Refresh
+                    </Button>
                     <UpdateStockDialog stock={selectedStock} onStockUpdated={handleStockUpdated} />
                  </div>
             </Card>
@@ -323,4 +339,3 @@ export function StockManagement() {
     </Card>
   );
 }
-
