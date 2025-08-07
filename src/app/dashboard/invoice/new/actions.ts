@@ -65,7 +65,8 @@ export async function createDealOrderAction(
 
     quotation.items.forEach(item => {
       // Simple logic to differentiate items. This can be improved if more item data is available.
-      const isFabric = item.salesDescription.toLowerCase().includes('fabric') || item.salesDescription.toLowerCase().includes('curtain');
+      const description = item.salesDescription || "";
+      const isFabric = description.toLowerCase().includes('fabric') || description.toLowerCase().includes('curtain');
       
       if(isFabric) {
         fabricDetails.push({
