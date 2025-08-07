@@ -242,7 +242,7 @@ function ConvertToOrderContent() {
             billingName: data.billingName,
         };
 
-      const result = await createDealOrderAction(customerId, dealId, updatedQuotation);
+      const result = await createDealOrderAction(customerId, dealId, updatedQuotation, user.name);
 
       if (result.success) {
         toast({ title: "Order Created!", description: "The sales order has been saved successfully." });

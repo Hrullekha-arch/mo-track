@@ -5,11 +5,13 @@
 import { adminDb } from '@/lib/firebase-admin';
 import { DealOrder, Order, Quotation } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
+import { getAuth } from 'firebase-admin/auth';
 
 export async function createDealOrderAction(
   customerId: string,
   dealId: string,
-  quotation: Quotation
+  quotation: Quotation,
+  creatorName: string
 ): Promise<{ success: boolean; message: string; order?: Order }> {
   try {
     const quotationRef = adminDb
@@ -67,7 +69,7 @@ export async function createDealOrderAction(
       orderNo: newOrder.id,
       id: newDealOrderRef.id,
       orderDate: new Date().toISOString(),
-      createdBy: quotation.createdBy || 'System',
+      createdBy: creatorName,
       remark: quotation.billingName || '',
       items: quotation.items,
       status: 'Pending Approval' // Set correct initial status

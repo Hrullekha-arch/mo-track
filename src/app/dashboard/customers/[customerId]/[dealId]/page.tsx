@@ -1883,16 +1883,25 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
 function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string }) {
     const [orders, setOrders] = useState<DealOrder[]>([]);
     const [loading, setLoading] = useState(true);
+    const { toast } = useToast();
 
     useEffect(() => {
-        const fetchOrders = async () => {
-            setLoading(true);
-            const data = await getOrdersForDeal(customerId, dealId);
-            setOrders(data);
-            setLoading(false);
-        };
-        fetchOrders();
-    }, [customerId, dealId]);
+        setLoading(true);
+        const q = collection(db, 'customers', customerId, 'deals', dealId, 'orders');
+        const unsubscribe = onSnapshot(q, 
+            (snapshot) => {
+                const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DealOrder));
+                setOrders(ordersData.sort((a,b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()));
+                setLoading(false);
+            },
+            (error) => {
+                console.error("Error fetching orders:", error);
+                toast({ variant: "destructive", title: "Error", description: "Could not load orders for this deal." });
+                setLoading(false);
+            }
+        );
+        return () => unsubscribe();
+    }, [customerId, dealId, toast]);
     
     const parseDate = (date: any): Date => {
         if (date instanceof Date) return date;
