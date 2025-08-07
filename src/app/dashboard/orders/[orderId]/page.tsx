@@ -4,10 +4,10 @@
 import { useState, useEffect, use } from 'react';
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, FabricDetail, FurnitureDetail } from "@/lib/types";
+import { Order, FabricDetail, FurnitureDetail, Stock } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag } from 'lucide-react';
+import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
@@ -15,8 +15,48 @@ import { MilestoneProgress } from '@/components/features/order-management/Milest
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+import { getStockById } from '@/app/dashboard/inventory/actions';
 
 type OrderItem = (FabricDetail | FurnitureDetail) & { type: 'Fabric' | 'Furniture' };
+
+function OrderItemRow({ item, index }: { item: OrderItem, index: number }) {
+    const [stockInfo, setStockInfo] = useState<Stock | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchStockInfo = async () => {
+            setLoading(true);
+            const itemName = (item as any).fabricName || (item as any).furnitureName;
+            if (itemName) {
+                // The document ID in the 'stocks' collection is the BCN/itemName
+                const stock = await getStockById(itemName.replace(/\//g, '-'));
+                setStockInfo(stock);
+            }
+            setLoading(false);
+        };
+        fetchStockInfo();
+    }, [item]);
+
+    const name = (item as any).fabricName || (item as any).furnitureName;
+    const unit = item.type === 'Fabric' ? 'Mtr' : '';
+
+    return (
+        <TableRow>
+            <TableCell>{index + 1}</TableCell>
+            <TableCell>
+                <p className="font-mono">{stockInfo?.bcn || name}</p>
+                <p className="text-xs text-muted-foreground">{stockInfo?.itemName}</p>
+            </TableCell>
+            <TableCell>{stockInfo?.serialNo || 'N/A'}</TableCell>
+            <TableCell>{item.quantity} {unit}</TableCell>
+            <TableCell>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (stockInfo?.quantity ?? 'N/A')}
+            </TableCell>
+            <TableCell>N/A</TableCell>
+        </TableRow>
+    );
+}
+
 
 function AllocateOrderTable({ order }: { order: Order }) {
     const items: OrderItem[] = [
@@ -44,21 +84,9 @@ function AllocateOrderTable({ order }: { order: Order }) {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {items.length > 0 ? items.map((item, index) => {
-                                const name = item.type === 'Fabric' ? (item as FabricDetail).fabricName : (item as FurnitureDetail).furnitureName;
-                                const unit = item.type === 'Fabric' ? 'Mtr' : '';
-
-                                return (
-                                    <TableRow key={index}>
-                                        <TableCell>{index + 1}</TableCell>
-                                        <TableCell>{name}</TableCell>
-                                        <TableCell>N/A</TableCell>
-                                        <TableCell>{item.quantity} {unit}</TableCell>
-                                        <TableCell>N/A</TableCell>
-                                        <TableCell>N/A</TableCell>
-                                    </TableRow>
-                                )
-                            }) : (
+                            {items.length > 0 ? items.map((item, index) => (
+                                <OrderItemRow key={index} item={item} index={index} />
+                            )) : (
                                 <TableRow>
                                     <TableCell colSpan={6} className="h-24 text-center">No items found in this order.</TableCell>
                                 </TableRow>
