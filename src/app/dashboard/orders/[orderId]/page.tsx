@@ -2,12 +2,12 @@
 "use client";
 
 import { useState, useEffect, use } from 'react';
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, FabricDetail, FurnitureDetail, Stock } from "@/lib/types";
+import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2 } from 'lucide-react';
+import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
@@ -15,27 +15,206 @@ import { MilestoneProgress } from '@/components/features/order-management/Milest
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
-import { getStockById } from '@/app/dashboard/inventory/actions';
+import { getStockById, getStockTransactions } from '@/app/dashboard/inventory/actions';
+import { allocateStockToAction, getAvailableStockLengths, getOrderAllocations } from './actions';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { useForm, useFieldArray } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { Form } from '@/components/ui/form';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+
 
 type OrderItem = (FabricDetail | FurnitureDetail) & { type: 'Fabric' | 'Furniture' };
 
-function OrderItemRow({ item, index }: { item: OrderItem, index: number }) {
-    const [stockInfo, setStockInfo] = useState<Stock | null>(null);
-    const [loading, setLoading] = useState(true);
+const allocationSchema = z.object({
+    selectedLengths: z.array(z.object({
+        length: z.number(),
+        transactionId: z.string(),
+    })).min(1, "Please select at least one length to allocate."),
+});
+
+type AllocationFormValues = z.infer<typeof allocationSchema>;
+
+
+function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: OrderItem, stock: Stock, orderId: string, onAllocationSuccess: () => void }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [availableLengths, setAvailableLengths] = useState<{ length: number; transactionId: string }[]>([]);
+    const [loadingLengths, setLoadingLengths] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const { toast } = useToast();
+    const { user } = useAuth();
+    
+    const form = useForm<AllocationFormValues>({
+        resolver: zodResolver(allocationSchema),
+        defaultValues: {
+            selectedLengths: [],
+        }
+    });
+    
+    const { fields, append, remove } = useFieldArray({
+        control: form.control,
+        name: "selectedLengths"
+    });
+
+    const itemRequiredQty = parseFloat((item as any).quantity || '0');
+    const selectedTotal = form.watch('selectedLengths').reduce((acc, curr) => acc + curr.length, 0);
+
 
     useEffect(() => {
-        const fetchStockInfo = async () => {
+        if (isOpen) {
+            const fetchLengths = async () => {
+                setLoadingLengths(true);
+                const result = await getAvailableStockLengths(stock.id);
+                if (result.success && result.lengths) {
+                    setAvailableLengths(result.lengths);
+                } else {
+                    toast({ variant: 'destructive', title: 'Error', description: result.message });
+                }
+                setLoadingLengths(false);
+            };
+            fetchLengths();
+        }
+    }, [isOpen, stock.id, toast]);
+    
+    const handleCheckboxChange = (checked: boolean, length: number, transactionId: string) => {
+        const selectedIndex = fields.findIndex(f => f.transactionId === transactionId && f.length === length);
+        
+        if (checked) {
+            if (selectedIndex === -1) {
+                append({ length, transactionId });
+            }
+        } else {
+            if (selectedIndex !== -1) {
+                remove(selectedIndex);
+            }
+        }
+    };
+    
+    const onSubmit = async (data: AllocationFormValues) => {
+        if (!user) return toast({ variant: 'destructive', title: 'Not authenticated'});
+        setIsSubmitting(true);
+        try {
+            const result = await allocateStockToAction({
+                orderId,
+                stockId: stock.id,
+                itemName: (item as any).fabricName || (item as any).furnitureName,
+                allocatedLengths: data.selectedLengths,
+                userId: user.id,
+                userName: user.name,
+            });
+
+            if (result.success) {
+                toast({ title: 'Allocation Successful!', description: 'Stock has been allocated to this order.' });
+                onAllocationSuccess();
+                setIsOpen(false);
+            } else {
+                toast({ variant: 'destructive', title: 'Allocation Failed', description: result.message });
+            }
+        } catch (error: any) {
+             toast({ variant: 'destructive', title: 'Error', description: error.message });
+        } finally {
+            setIsSubmitting(false);
+        }
+    }
+
+    return (
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            <DialogTrigger asChild>
+                <Button variant="outline" size="sm">Allocate</Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Allocate Stock</DialogTitle>
+                    <DialogDescription>
+                        Allocate available lengths for <strong>{stock.bcn}</strong>. Required: {itemRequiredQty.toFixed(2)}
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                    {loadingLengths ? (
+                        <div className="flex justify-center items-center h-24">
+                            <Loader2 className="h-6 w-6 animate-spin" />
+                        </div>
+                    ) : (
+                        <Form {...form}>
+                            <form onSubmit={form.handleSubmit(onSubmit)}>
+                                <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                                     {availableLengths.length > 0 ? availableLengths.map((l, i) => (
+                                         <div key={`${l.transactionId}-${i}`} className="flex items-center gap-4 p-2 border rounded-md">
+                                             <Checkbox 
+                                                id={`len-${i}`}
+                                                onCheckedChange={(checked) => handleCheckboxChange(!!checked, l.length, l.transactionId)}
+                                                checked={fields.some(f => f.transactionId === l.transactionId && f.length === l.length)}
+                                             />
+                                             <Label htmlFor={`len-${i}`} className="flex-grow">
+                                                Length: <span className="font-mono font-bold">{l.length.toFixed(2)}</span>
+                                             </Label>
+                                         </div>
+                                     )) : (
+                                        <p className="text-sm text-muted-foreground text-center">No available lengths found for this item.</p>
+                                     )}
+                                </div>
+                                <div className="font-semibold text-sm mt-4 text-right">
+                                    Selected Total: {selectedTotal.toFixed(2)} / {itemRequiredQty.toFixed(2)}
+                                </div>
+                                <DialogFooter className="pt-4">
+                                     <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                            <Button type="button" disabled={isSubmitting}>
+                                                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                                Allocate
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                    This will permanently allocate {selectedTotal.toFixed(2)} units from stock to this order. This action cannot be easily undone.
+                                                </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction onClick={form.handleSubmit(onSubmit)}>Continue</AlertDialogAction>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                </DialogFooter>
+                            </form>
+                        </Form>
+                    )}
+                </div>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
+function OrderItemRow({ item, index, orderId, onAllocationSuccess }: { item: OrderItem, index: number, orderId: string, onAllocationSuccess: () => void }) {
+    const [stockInfo, setStockInfo] = useState<Stock | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [allocatedQty, setAllocatedQty] = useState(0);
+
+    useEffect(() => {
+        const fetchItemData = async () => {
             setLoading(true);
             const itemName = (item as any).fabricName || (item as any).furnitureName;
             if (itemName) {
                 // The document ID in the 'stocks' collection is the BCN/itemName
-                const stock = await getStockById(itemName.replace(/\//g, '-'));
+                const stockId = itemName.replace(/\//g, '-');
+                const stock = await getStockById(stockId);
                 setStockInfo(stock);
+                
+                // Fetch allocation for this item
+                const allocations = await getOrderAllocations(orderId);
+                const itemAllocations = allocations.filter(a => a.stockId === stockId);
+                const totalAllocated = itemAllocations.reduce((sum, alloc) => sum + alloc.quantityChange, 0);
+                setAllocatedQty(Math.abs(totalAllocated)); // quantityChange is negative
             }
             setLoading(false);
         };
-        fetchStockInfo();
-    }, [item]);
+        fetchItemData();
+    }, [item, orderId]);
 
     const name = (item as any).fabricName || (item as any).furnitureName;
     const unit = item.type === 'Fabric' ? 'Mtr' : '';
@@ -52,13 +231,21 @@ function OrderItemRow({ item, index }: { item: OrderItem, index: number }) {
             <TableCell>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (stockInfo?.quantity ?? 'N/A')}
             </TableCell>
-            <TableCell>N/A</TableCell>
+            <TableCell>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
+                    allocatedQty > 0 ? (
+                        <span className="font-semibold text-green-600">{allocatedQty.toFixed(2)}</span>
+                    ) : (
+                        stockInfo && <AllocateDialog item={item} stock={stockInfo} orderId={orderId} onAllocationSuccess={onAllocationSuccess} />
+                    )
+                )}
+            </TableCell>
         </TableRow>
     );
 }
 
 
-function AllocateOrderTable({ order }: { order: Order }) {
+function AllocateOrderTable({ order, onAllocationSuccess }: { order: Order, onAllocationSuccess: () => void }) {
     const items: OrderItem[] = [
         ...(order.fabricDetails || []).map(d => ({ ...d, type: 'Fabric' as const })),
         ...(order.furnitureDetails || []).map(d => ({ ...d, type: 'Furniture' as const }))
@@ -85,7 +272,7 @@ function AllocateOrderTable({ order }: { order: Order }) {
                         </TableHeader>
                         <TableBody>
                             {items.length > 0 ? items.map((item, index) => (
-                                <OrderItemRow key={index} item={item} index={index} />
+                                <OrderItemRow key={index} item={item} index={index} orderId={order.id} onAllocationSuccess={onAllocationSuccess} />
                             )) : (
                                 <TableRow>
                                     <TableCell colSpan={6} className="h-24 text-center">No items found in this order.</TableCell>
@@ -103,6 +290,7 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
     const { orderId } = params;
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(true);
+    const [refreshKey, setRefreshKey] = useState(0);
     const { user, role } = useAuth();
     const { toast } = useToast();
 
@@ -118,7 +306,7 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
         });
 
         return () => unsubscribe();
-    }, [orderId]);
+    }, [orderId, refreshKey]);
     
     const canEditMilestones = (role === 'admin' || role === 'employee');
 
@@ -152,6 +340,10 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
           toast({ variant: "destructive", title: "Failed to update milestone." });
         }
     };
+    
+    const handleAllocationSuccess = () => {
+        setRefreshKey(prev => prev + 1); // Trigger a re-fetch of order data
+    }
 
 
     if (loading) {
@@ -209,7 +401,7 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
                         </CardContent>
                     </Card>
 
-                    <AllocateOrderTable order={order} />
+                    <AllocateOrderTable order={order} onAllocationSuccess={handleAllocationSuccess} />
 
                 </div>
 
@@ -227,3 +419,4 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
         </div>
     );
 }
+
