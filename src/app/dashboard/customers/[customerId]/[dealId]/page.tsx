@@ -1716,6 +1716,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
     const [loading, setLoading] = useState(true);
     const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
     const { toast } = useToast();
+    const router = useRouter();
 
     const parseDate = (date: any): Date => {
         if (date instanceof Date) return date;
@@ -2047,7 +2048,7 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded }: { cus
                                         <TableCell>{format(new Date(visit.dueDate), 'PPP p')}</TableCell>
                                         <TableCell>{salesmen.find(s => s.id === visit.representative)?.name || visit.representative}</TableCell>
                                         <TableCell>{visit.createdBy}</TableCell>
-                                        <TableCell>{format(new Date(visit.createdAt), 'dd/MM/yyyy')}</TableCell>
+                                        <TableCell>{format(new Date(visit.createdAt), 'dd/MM/yy')}</TableCell>
                                         <TableCell>
                                             <Button variant="ghost" size="icon" onClick={() => setSelectedVisit(visit)}>
                                                 <Eye className="h-4 w-4" />
