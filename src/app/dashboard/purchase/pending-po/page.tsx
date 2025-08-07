@@ -4,9 +4,6 @@
 import * as React from "react";
 import {
   ColumnDef,
-  ColumnFiltersState,
-  SortingState,
-  VisibilityState,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
@@ -14,7 +11,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowLeft, ArrowUpDown, Download, MoreHorizontal, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -28,59 +25,24 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
 import Link from 'next/link';
+import { getPendingPoItems } from "./actions";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 
 
-const data = [
-    {
-        id: "1",
-        collectionBrand: "F 185381",
-        serialNo: "213",
-        hsnCode: "540792",
-        mrp: "1968.00",
-        taxName: "SALES@ 5%",
-        clPrice: "1085.00",
-        netRate: "2167.62",
-        totalOrderQty: 3,
-        stock: 0,
-        openPoQty: 0,
-        vendorName: "D DECOR CURTAIN FABRICS LLP (SANSAAR)",
-        remark: "-",
-    },
-    {
-        id: "2",
-        collectionBrand: "WS 91917",
-        serialNo: "EC_473-ASSORT",
-        hsnCode: "540773",
-        mrp: "795.00",
-        taxName: "SALES@ 5%",
-        clPrice: "280.00",
-        netRate: "426.19",
-        totalOrderQty: 6,
-        stock: 13.8,
-        openPoQty: 0,
-        vendorName: "D DECOR (HOME IDEAS)",
-        remark: "-",
-    },
-    {
-        id: "3",
-        collectionBrand: "FURNISHING FABRIC",
-        serialNo: "NA",
-        hsnCode: "540772",
-        mrp: "10.00",
-        taxName: "SALES@ 5%",
-        clPrice: "5.00",
-        netRate: "376.19",
-        totalOrderQty: 6,
-        stock: 1.45,
-        openPoQty: 27.35,
-        vendorName: "MO",
-        remark: "-",
-    },
-];
+export interface PendingPoItem {
+    id: string;
+    collectionBrand: string;
+    serialNo: string;
+    hsnCode: string;
+    mrp: number;
+    vendorName: string;
+    totalOrderQty: number;
+    stock: number;
+}
 
-type PendingPO = typeof data[0];
 
-const columns: ColumnDef<PendingPO>[] = [
+const columns: ColumnDef<PendingPoItem>[] = [
     {
       id: "select",
       header: ({ table }) => ( <Checkbox checked={table.getIsAllPageRowsSelected()} onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)} aria-label="Select all" /> ),
@@ -92,36 +54,49 @@ const columns: ColumnDef<PendingPO>[] = [
     { accessorKey: "serialNo", header: "Serial No" },
     { accessorKey: "hsnCode", header: "HSN Code" },
     { accessorKey: "mrp", header: "MRP" },
-    { accessorKey: "taxName", header: "Tax Name" },
-    { accessorKey: "clPrice", header: "CL Price" },
-    { accessorKey: "netRate", header: "Net Rate" },
     { accessorKey: "totalOrderQty", header: "Total Order Qty" },
     { accessorKey: "stock", header: "Stock" },
-    { accessorKey: "openPoQty", header: "Open PO Qty" },
     { accessorKey: "vendorName", header: "Vendor Name" },
-    { accessorKey: "remark", header: "Remark" },
   ];
 
 
 export default function PendingPOPage() {
-  const [sorting, setSorting] = React.useState<SortingState>([])
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
-  const [rowSelection, setRowSelection] = React.useState({})
+  const [data, setData] = React.useState<PendingPoItem[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [globalFilter, setGlobalFilter] = React.useState('');
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+      const fetchData = async () => {
+          setLoading(true);
+          try {
+              const items = await getPendingPoItems();
+              setData(items);
+          } catch (error) {
+              console.error("Failed to fetch pending PO items:", error);
+              toast({
+                  variant: "destructive",
+                  title: "Error",
+                  description: "Could not load data for pending purchase orders.",
+              });
+          } finally {
+              setLoading(false);
+          }
+      };
+      fetchData();
+  }, [toast]);
+
 
   const table = useReactTable({
     data,
     columns,
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    onRowSelectionChange: setRowSelection,
+    onGlobalFilterChange: setGlobalFilter,
     state: {
-      sorting,
-      columnFilters,
-      rowSelection,
+      globalFilter,
     },
   })
 
@@ -146,10 +121,8 @@ export default function PendingPOPage() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                             placeholder="Search in table..."
-                            onChange={(event) => {
-                                const query = event.target.value;
-                                table.setGlobalFilter(query);
-                            }}
+                            value={globalFilter}
+                            onChange={(event) => setGlobalFilter(event.target.value)}
                             className="w-full max-w-sm pl-9"
                         />
                     </div>
@@ -169,22 +142,28 @@ export default function PendingPOPage() {
                             ))}
                         </TableHeader>
                         <TableBody>
-                            {table.getRowModel().rows?.length ? (
-                            table.getRowModel().rows.map((row) => (
-                                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
-                                {row.getVisibleCells().map((cell) => (
-                                    <TableCell key={cell.id}>
-                                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            {loading ? (
+                                <TableRow>
+                                    <TableCell colSpan={columns.length} className="h-24 text-center">
+                                       <Skeleton className="h-8 w-full" />
                                     </TableCell>
-                                ))}
                                 </TableRow>
-                            ))
+                            ) : table.getRowModel().rows?.length ? (
+                                table.getRowModel().rows.map((row) => (
+                                    <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
+                                    {row.getVisibleCells().map((cell) => (
+                                        <TableCell key={cell.id}>
+                                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                        </TableCell>
+                                    ))}
+                                    </TableRow>
+                                ))
                             ) : (
-                            <TableRow>
-                                <TableCell colSpan={columns.length} className="h-24 text-center">
-                                No results.
-                                </TableCell>
-                            </TableRow>
+                                <TableRow>
+                                    <TableCell colSpan={columns.length} className="h-24 text-center">
+                                    No items require purchasing at this time.
+                                    </TableCell>
+                                </TableRow>
                             )}
                         </TableBody>
                     </Table>
@@ -193,10 +172,6 @@ export default function PendingPOPage() {
                     <div className="flex-1 text-sm text-muted-foreground">
                         {table.getFilteredSelectedRowModel().rows.length} of{" "}
                         {table.getFilteredRowModel().rows.length} row(s) selected.
-                    </div>
-                     <div className="flex items-center gap-2">
-                        <Checkbox id="proceed-remark" />
-                        <label htmlFor="proceed-remark" className="text-sm font-medium">Proceed with SO remark</label>
                     </div>
                     <div className="space-x-2">
                         <Button variant="outline">Cancel</Button>
