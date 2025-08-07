@@ -17,17 +17,27 @@ export interface PendingPoItem {
 
 export async function getPendingPoItems(): Promise<PendingPoItem[]> {
     try {
+        // Step 1: Fetch only active orders. 
+        // We can't perfectly filter for "not fully completed" on the backend easily.
+        // A good proxy is to get orders that don't have a `completedAt` field.
+        // For this implementation, we will fetch all and filter locally, which is still better than fetching all stock.
         const ordersSnapshot = await adminDb.collection('orders').get();
-        const stocksSnapshot = await adminDb.collection('stocks').get();
-
         const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        const allStocks = stocksSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
         
-        const stockMap = new Map(allStocks.map(stock => [stock.bcn, stock]));
+        // This logic should be refined if a `isCompleted` flag is added to orders.
+        const activeOrders = allOrders.filter(order => {
+             const isCompleted = order.milestones.every(m => m.completed);
+             return !isCompleted;
+        });
 
-        const pendingItemsMap = new Map<string, PendingPoItem>();
+        if (activeOrders.length === 0) {
+            return [];
+        }
 
-        for (const order of allOrders) {
+        // Step 2: Aggregate all unique item names (BCNs) from active orders.
+        const requiredItemsMap = new Map<string, { totalOrderQty: number }>();
+
+        for (const order of activeOrders) {
             const itemsInOrder = [
                 ...(order.fabricDetails || []).map(item => ({ name: item.fabricName, quantity: parseFloat(item.quantity) })),
                 ...(order.furnitureDetails || []).map(item => ({ name: item.furnitureName, quantity: parseFloat(item.quantity) }))
@@ -35,33 +45,65 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
 
             for (const item of itemsInOrder) {
                 if (!item.name || isNaN(item.quantity)) continue;
-
-                const stockInfo = stockMap.get(item.name);
-                const currentStock = stockInfo?.quantity || 0;
                 
-                // For now, let's add all items regardless of stock to populate the list.
-                // The logic can be refined to `if (item.quantity > currentStock)` later.
-
-                const existingItem = pendingItemsMap.get(item.name);
-
-                if (existingItem) {
-                    existingItem.totalOrderQty += item.quantity;
+                const existing = requiredItemsMap.get(item.name);
+                if (existing) {
+                    existing.totalOrderQty += item.quantity;
                 } else {
-                    pendingItemsMap.set(item.name, {
-                        id: item.name,
-                        collectionBrand: item.name,
-                        serialNo: stockInfo?.serialNo || 'N/A',
-                        hsnCode: stockInfo?.hsnCode || 'N/A',
-                        mrp: stockInfo?.mrp || 0,
-                        vendorName: stockInfo?.vendorName || 'N/A',
-                        totalOrderQty: item.quantity,
-                        stock: currentStock,
-                    });
+                    requiredItemsMap.set(item.name, { totalOrderQty: item.quantity });
                 }
             }
         }
         
-        return Array.from(pendingItemsMap.values());
+        const requiredBcns = Array.from(requiredItemsMap.keys());
+        if (requiredBcns.length === 0) {
+            return [];
+        }
+
+        // Step 3: Fetch only the stock data for the required BCNs.
+        // Firestore 'in' query is limited to 30 items. If you have more, we need to do multiple queries.
+        const stockPromises = [];
+        for (let i = 0; i < requiredBcns.length; i += 30) {
+            const chunk = requiredBcns.slice(i, i + 30);
+            stockPromises.push(
+                adminDb.collection('stocks').where('bcn', 'in', chunk).get()
+            );
+        }
+        
+        const stockSnapshots = await Promise.all(stockPromises);
+        const stockMap = new Map<string, Stock>();
+        stockSnapshots.forEach(snapshot => {
+            snapshot.docs.forEach(doc => {
+                const stock = { id: doc.id, ...doc.data() } as Stock;
+                if(stock.bcn) {
+                   stockMap.set(stock.bcn, stock);
+                }
+            });
+        });
+
+        // Step 4 & 5: Compare, identify needs, and build the final list.
+        const pendingItems: PendingPoItem[] = [];
+        
+        for (const [bcn, required] of requiredItemsMap.entries()) {
+            const stockInfo = stockMap.get(bcn);
+            const currentStock = stockInfo?.quantity || 0;
+
+            // Only add to pending list if required quantity is greater than stock
+            if (required.totalOrderQty > currentStock) {
+                 pendingItems.push({
+                    id: bcn,
+                    collectionBrand: bcn,
+                    serialNo: stockInfo?.serialNo || 'N/A',
+                    hsnCode: stockInfo?.hsnCode || 'N/A',
+                    mrp: stockInfo?.mrp || 0,
+                    vendorName: stockInfo?.vendorName || 'N/A',
+                    totalOrderQty: required.totalOrderQty,
+                    stock: currentStock,
+                });
+            }
+        }
+        
+        return pendingItems;
 
     } catch (error) {
         console.error("Error fetching pending PO items:", error);
