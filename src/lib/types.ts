@@ -1,6 +1,5 @@
 
 
-
 import { ComboboxOption } from "@/components/ui/combobox";
 
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
@@ -134,6 +133,11 @@ export interface Order {
   fabricDetails?: FabricDetail[];
   furnitureDetails?: FurnitureDetail[];
   status?: 'Pending Approval' | 'Approved';
+  
+  // Reference back to the deal
+  customerId?: string;
+  dealId?: string;
+  dealOrderDocId?: string;
 }
 
 export interface SalesmanCrmAssignment {
@@ -391,5 +395,3 @@ export interface DealOrder {
 }
 
 export { type ComboboxOption };
-
-    

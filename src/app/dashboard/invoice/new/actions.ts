@@ -27,6 +27,16 @@ export async function createDealOrderAction(
     }
 
     const batch = adminDb.batch();
+    
+    // Create the DealOrder subcollection document first to get its ID
+    const dealOrdersRef = adminDb
+      .collection('customers')
+      .doc(customerId)
+      .collection('deals')
+      .doc(dealId)
+      .collection('orders');
+      
+    const newDealOrderRef = dealOrdersRef.doc();
 
     // 1. Create the new order in the main orders collection
     const orderId = `MOTRACK-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -44,20 +54,15 @@ export async function createDealOrderAction(
       createdAt: new Date().toISOString(),
       isAcknowledged: true, // It is now in the main workflow
       status: 'Pending Approval', // Set correct initial status
+      // Add references to find this order's context later
+      customerId: customerId,
+      dealId: dealId,
+      dealOrderDocId: newDealOrderRef.id,
     };
 
     batch.set(newOrderRef, newOrder);
     
-    // 2. Create the DealOrder subcollection document
-    const dealOrdersRef = adminDb
-      .collection('customers')
-      .doc(customerId)
-      .collection('deals')
-      .doc(dealId)
-      .collection('orders');
-      
-    const newDealOrderRef = dealOrdersRef.doc();
-
+    // 2. Now define the DealOrder with the main order ID
     const newDealOrder: DealOrder = {
       orderNo: newOrder.id,
       id: newDealOrderRef.id,

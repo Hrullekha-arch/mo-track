@@ -4,7 +4,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useState, useEffect } from 'react';
-import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Quotation, Deal, Customer, User, Order } from '@/lib/types';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
@@ -233,16 +233,26 @@ function ApproveOrderTab() {
     }, [toast]);
 
     const handleApprove = async (order: Order) => {
-        if (!user) return;
+        if (!user || !order.customerId || !order.dealId || !order.dealOrderDocId) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Order data is incomplete and cannot be approved.' });
+            return;
+        }
         setUpdatingId(order.id);
+        
         try {
-            const orderRef = doc(db, 'orders', order.id);
-            await updateDoc(orderRef, {
-                status: 'Approved'
-            });
+            const batch = writeBatch(db);
 
+            // 1. Update the main order document
+            const orderRef = doc(db, 'orders', order.id);
+            batch.update(orderRef, { status: 'Approved' });
+
+            // 2. Update the nested DealOrder document
+            const dealOrderRef = doc(db, 'customers', order.customerId, 'deals', order.dealId, 'orders', order.dealOrderDocId);
+            batch.update(dealOrderRef, { status: 'Approved' });
+
+            // 3. Create a record in the approvedOrders collection
             const approvedOrderRef = doc(db, 'approvedOrders', order.id);
-            await setDoc(approvedOrderRef, { 
+            const approvalData = { 
                 ...order, 
                 status: 'Approved', 
                 approvedAt: new Date().toISOString(),
@@ -250,12 +260,16 @@ function ApproveOrderTab() {
                     id: user.id,
                     name: user.name,
                 }
-            });
+            };
+            batch.set(approvedOrderRef, approvalData);
+
+            await batch.commit();
 
             toast({
                 title: 'Order Approved',
                 description: `Order #${order.id} has been approved.`
             });
+
         } catch (error) {
             console.error('Error approving order:', error);
             toast({
