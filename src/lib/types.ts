@@ -300,16 +300,16 @@ export interface AdvanceDetail {
 
 export interface Dimension {
     id: string;
-    length: string;
-    width: string;
-    type: string[];
+    length?: string;
+    width?: string;
+    type?: string[];
     advanceDetails?: AdvanceDetail[];
 }
 
 export interface CpdItem {
-  itemName?: string;
-  type?: string;
-  qty?: string;
+  itemName: string;
+  type: string;
+  qty: string;
   rate?: string;
   dis?: string;
   gst?: string;
@@ -319,7 +319,7 @@ export interface CpdItem {
 }
 
 export interface CpdRoom {
-  room?: string;
+  room: string;
   items: CpdItem[];
 }
 
