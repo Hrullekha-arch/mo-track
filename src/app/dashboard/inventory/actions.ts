@@ -129,8 +129,11 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
 export async function updateStockQuantityAction(stockId: string, quantityChange: number, transaction: Omit<StockTransaction, 'id'>): Promise<{ success: boolean; message: string; newStock?: Stock }> {
   try {
     const stockRef = adminDb.collection('stocks').doc(stockId);
-    const transactionRef = adminDb.collection('stockTransactions').doc();
-
+    
+    // Determine the sub-collection based on transaction type
+    const transactionCollectionName = transaction.type === 'addition' ? 'stockAdded' : 'stockSold';
+    const transactionRef = stockRef.collection(transactionCollectionName).doc();
+    
     await adminDb.runTransaction(async (t) => {
       const stockDoc = await t.get(stockRef);
       if (!stockDoc.exists) {
@@ -159,16 +162,23 @@ export async function updateStockQuantityAction(stockId: string, quantityChange:
 
 export async function getStockTransactions(stockId: string): Promise<StockTransaction[]> {
   try {
-    const transactionsRef = adminDb.collection('stockTransactions');
-    const q = transactionsRef.where('stockId', '==', stockId).orderBy('createdAt', 'desc');
-    const snapshot = await q.get();
+    const stockRef = adminDb.collection('stocks').doc(stockId);
 
-    if (snapshot.empty) {
-      return [];
-    }
+    // Fetch from both sub-collections
+    const addedTransactionsPromise = stockRef.collection('stockAdded').orderBy('createdAt', 'desc').get();
+    const soldTransactionsPromise = stockRef.collection('stockSold').orderBy('createdAt', 'desc').get();
 
-    const transactions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
-    return JSON.parse(JSON.stringify(transactions));
+    const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
+
+    const addedTransactions = addedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
+    const soldTransactions = soldSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
+
+    const allTransactions = [...addedTransactions, ...soldTransactions];
+
+    // Sort by creation date descending
+    allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return JSON.parse(JSON.stringify(allTransactions));
   } catch (error) {
     console.error(`Error fetching transactions for stock ${stockId}:`, error);
     return [];
