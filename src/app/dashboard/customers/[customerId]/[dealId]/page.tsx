@@ -1940,7 +1940,9 @@ function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string 
                                     <TableCell>{i + 1}</TableCell>
                                     <TableCell className="flex items-center gap-2">
                                         <MoreVertical className="h-4 w-4 text-muted-foreground" />
-                                        <Button variant="link" className="p-0 h-auto">{order.orderNo}</Button>
+                                        <Button variant="link" asChild className="p-0 h-auto">
+                                            <Link href={`/dashboard/orders/${order.orderNo}`}>{order.orderNo}</Link>
+                                        </Button>
                                     </TableCell>
                                     <TableCell>{order.remark || '-'}</TableCell>
                                     <TableCell>{format(parseDate(order.orderDate), 'dd/MM/yyyy')}</TableCell>
