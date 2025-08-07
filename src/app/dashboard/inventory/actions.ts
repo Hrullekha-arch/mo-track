@@ -2,9 +2,9 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Stock } from '@/lib/types';
+import { Stock, StockTransaction } from '@/lib/types';
 import * as XLSX from "xlsx";
-import { writeBatch } from 'firebase-admin/firestore';
+import { writeBatch, FieldValue } from 'firebase-admin/firestore';
 
 const BATCH_SIZE = 499; // Firestore batch limit is 500 operations
 
@@ -123,4 +123,35 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
         console.error("Error searching stock by BCN:", error);
         return [];
     }
+}
+
+
+export async function updateStockQuantityAction(stockId: string, quantityChange: number, transaction: Omit<StockTransaction, 'id'>): Promise<{ success: boolean; message: string; newStock?: Stock }> {
+  try {
+    const stockRef = adminDb.collection('stocks').doc(stockId);
+    const transactionRef = adminDb.collection('stockTransactions').doc();
+
+    await adminDb.runTransaction(async (t) => {
+      const stockDoc = await t.get(stockRef);
+      if (!stockDoc.exists) {
+        throw new Error("Stock item not found.");
+      }
+
+      const newQuantity = (stockDoc.data()?.quantity || 0) + quantityChange;
+
+      t.update(stockRef, { 
+          quantity: newQuantity,
+          lastUpdatedAt: new Date().toISOString()
+      });
+      t.set(transactionRef, transaction);
+    });
+
+    const updatedStockDoc = await stockRef.get();
+    const newStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
+
+    return { success: true, message: 'Stock updated successfully.', newStock: JSON.parse(JSON.stringify(newStockData)) };
+  } catch (error: any) {
+    console.error(`Error updating stock for ${stockId}:`, error);
+    return { success: false, message: `Failed to update stock: ${error.message}` };
+  }
 }

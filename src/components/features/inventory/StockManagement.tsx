@@ -6,13 +6,148 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
-import { Stock } from "@/lib/types";
-import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
+import { Stock, StockTransaction } from "@/lib/types";
+import { searchStockByBcn, updateStockQuantityAction } from "@/app/dashboard/inventory/actions";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, PlusCircle, Trash2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useForm, useFieldArray } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useAuth } from "@/context/AuthContext";
+
+const updateStockSchema = z.object({
+    poNo: z.string().min(1, "PO Number is required."),
+    lengths: z.array(z.object({ value: z.string().min(1, "Length must not be empty.") })).min(1, "At least one length is required."),
+});
+
+type UpdateStockFormValues = z.infer<typeof updateStockSchema>;
+
+
+function UpdateStockDialog({ stock, onStockUpdated }: { stock: Stock, onStockUpdated: (newStock: Stock) => void }) {
+    const [isOpen, setIsOpen] = React.useState(false);
+    const [isSubmitting, setIsSubmitting] = React.useState(false);
+    const { toast } = useToast();
+    const { user } = useAuth();
+    
+    const form = useForm<UpdateStockFormValues>({
+        resolver: zodResolver(updateStockSchema),
+        defaultValues: {
+            poNo: "",
+            lengths: [{ value: "" }],
+        },
+    });
+
+    const { fields, append, remove } = useFieldArray({
+        control: form.control,
+        name: "lengths",
+    });
+
+    const onSubmit = async (data: UpdateStockFormValues) => {
+        if (!user) {
+            toast({ variant: 'destructive', title: 'Authentication Error' });
+            return;
+        }
+        setIsSubmitting(true);
+        try {
+            const addedQuantity = data.lengths.reduce((sum, length) => sum + parseFloat(length.value), 0);
+            
+            const transaction: Omit<StockTransaction, 'id'> = {
+                stockId: stock.id,
+                bcn: stock.bcn || '',
+                type: 'addition',
+                quantityChange: addedQuantity,
+                poNumber: data.poNo,
+                lengths: data.lengths.map(l => parseFloat(l.value)),
+                createdAt: new Date().toISOString(),
+                createdBy: user.name,
+            };
+
+            const result = await updateStockQuantityAction(stock.id, addedQuantity, transaction);
+            
+            if (result.success && result.newStock) {
+                toast({ title: 'Stock Updated!', description: `${addedQuantity} units added successfully.`});
+                onStockUpdated(result.newStock);
+                setIsOpen(false);
+                form.reset();
+            } else {
+                toast({ variant: 'destructive', title: 'Update failed', description: result.message });
+            }
+
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred.' });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            <DialogTrigger asChild>
+                <Button>Update Stock</Button>
+            </DialogTrigger>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Update Stock for {stock.bcn}</DialogTitle>
+                    <DialogDescription>Add new stock received via a Purchase Order.</DialogDescription>
+                </DialogHeader>
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+                         <FormField
+                            control={form.control}
+                            name="poNo"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>PO NO</FormLabel>
+                                    <FormControl>
+                                        <Input placeholder="Enter Purchase Order Number" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <div className="space-y-2">
+                             <FormLabel>Lengths</FormLabel>
+                             {fields.map((field, index) => (
+                                <div key={field.id} className="flex items-center gap-2">
+                                     <FormField
+                                        control={form.control}
+                                        name={`lengths.${index}.value`}
+                                        render={({ field }) => (
+                                            <FormItem className="flex-grow">
+                                                <FormControl>
+                                                    <Input type="number" placeholder="Enter length" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)}>
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                             ))}
+                        </div>
+                        <Button type="button" variant="outline" size="sm" onClick={() => append({ value: "" })}>
+                            <PlusCircle className="mr-2 h-4 w-4" /> Add new Length
+                        </Button>
+                        <DialogFooter className="pt-4">
+                            <Button type="button" variant="ghost" onClick={() => setIsOpen(false)}>Cancel</Button>
+                            <Button type="submit" disabled={isSubmitting}>
+                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Submit
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
+            </DialogContent>
+        </Dialog>
+    )
+}
 
 export function StockManagement() {
   const [bcnOptions, setBcnOptions] = React.useState<ComboboxOption[]>([]);
@@ -51,6 +186,10 @@ export function StockManagement() {
       setSelectedStock(null);
     }
   };
+  
+  const handleStockUpdated = (newStock: Stock) => {
+      setSelectedStock(newStock);
+  }
 
   return (
     <Card>
@@ -78,14 +217,14 @@ export function StockManagement() {
                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 items-center">
                     <p className="text-sm"><strong className="block text-muted-foreground">BCN:</strong> {selectedStock.bcn}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Sr No:</strong> {selectedStock.serialNo}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Current Stock:</strong> {selectedStock.quantity}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Current Stock Qty:</strong> {selectedStock.quantity}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Vendor:</strong> {selectedStock.vendorName}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Category:</strong> {selectedStock.category}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">MRP:</strong> ₹{selectedStock.mrp}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Last Updated:</strong> {new Date(selectedStock.lastUpdatedAt).toLocaleDateString()}</p>
                  </div>
                  <div className="flex justify-end mt-4">
-                    <Button>Update Stock</Button>
+                    <UpdateStockDialog stock={selectedStock} onStockUpdated={handleStockUpdated} />
                  </div>
             </Card>
 

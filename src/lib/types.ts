@@ -218,6 +218,19 @@ export interface Stock {
   lastUpdatedAt: string; // ISO Date
 }
 
+export interface StockTransaction {
+  id: string;
+  stockId: string;
+  bcn: string;
+  type: 'addition' | 'deduction';
+  quantityChange: number;
+  poNumber?: string;
+  orderId?: string;
+  lengths?: number[];
+  createdAt: string; // ISO string
+  createdBy: string;
+}
+
 export interface Customer {
     id: string;
     name: string;
