@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers, MoreVertical, Trash2, Clock, Ban, Loader2 } from 'lucide-react';
+import { User, CheckSquare, Banknote, PackageSearch, MessageSquare, Briefcase, PlusCircle, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, Eye, EyeOff, ChevronDown, UserCheck, Search, Users, FileText, BadgePercent, ThumbsUp, Timer, ShoppingCart, Undo2, Layers, MoreVertical, Trash2, Clock, Ban, Loader2, ArrowRight } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStep, PurchaseStatus } from "@/lib/types";
@@ -642,7 +642,27 @@ export default function PurchasePage() {
                     <p className="text-muted-foreground">Manage and track all purchase requests from authorization to placing the order.</p>
                 </header>
                 
-                <Tabs defaultValue="fabric" className="w-full">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <Card className="hover:shadow-lg transition-shadow">
+                        <Link href="/dashboard/purchase/pending-po">
+                            <CardHeader className="flex flex-row items-center justify-between">
+                                <div className="space-y-1">
+                                    <CardTitle>SO to PO</CardTitle>
+                                    <CardDescription>Generate purchase orders from sales orders.</CardDescription>
+                                </div>
+                                <ArrowRight className="h-6 w-6 text-primary" />
+                            </CardHeader>
+                        </Link>
+                    </Card>
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>New Purchase Request</CardTitle>
+                            <CardDescription>Manually create a new request for materials.</CardDescription>
+                        </CardHeader>
+                    </Card>
+                </div>
+
+                <Tabs defaultValue="fabric" className="w-full pt-4">
                     <TabsList className="grid w-full grid-cols-3">
                         <TabsTrigger value="fabric">Active Fabric</TabsTrigger>
                         <TabsTrigger value="furniture">Active Furniture</TabsTrigger>
