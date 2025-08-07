@@ -189,7 +189,7 @@ export function OrdersTable() {
                 status = lastCompleted.name.toUpperCase();
              }
         }
-        return <Badge variant="secondary">{status}</Badge>;
+        return <Badge variant={status === 'PENDING APPROVAL' ? 'destructive' : 'secondary'}>{status}</Badge>;
       }
     },
     {

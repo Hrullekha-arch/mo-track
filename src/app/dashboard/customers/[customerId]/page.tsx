@@ -333,9 +333,8 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
     const getSalesmanName = (id?: string) => salesmen.find(s => s.id === id)?.name || "N/A";
     
     const calculateTotalApprovedQuotationAmount = (dealId: string) => {
-        const dealQuotations = quotations.filter(q => deals.find(d => d.id === dealId));
-        return dealQuotations
-            .filter(q => q.status === 'Approved')
+        return quotations
+            .filter(q => q.dealName === deals.find(d => d.id === dealId)?.dealName && q.status === 'Approved')
             .reduce((total, q) => total + q.totalAmount, 0);
     };
 
