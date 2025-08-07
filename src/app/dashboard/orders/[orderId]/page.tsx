@@ -4,7 +4,7 @@
 import { useState, useEffect, use } from 'react';
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order } from "@/lib/types";
+import { Order, FabricDetail, FurnitureDetail } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag } from 'lucide-react';
@@ -14,6 +14,62 @@ import { Separator } from '@/components/ui/separator';
 import { MilestoneProgress } from '@/components/features/order-management/MilestoneProgress';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+
+type OrderItem = (FabricDetail | FurnitureDetail) & { type: 'Fabric' | 'Furniture' };
+
+function AllocateOrderTable({ order }: { order: Order }) {
+    const items: OrderItem[] = [
+        ...(order.fabricDetails || []).map(d => ({ ...d, type: 'Fabric' as const })),
+        ...(order.furnitureDetails || []).map(d => ({ ...d, type: 'Furniture' as const }))
+    ];
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Allocate Order</CardTitle>
+                <CardDescription>List of items in this order.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="border rounded-md">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>#</TableHead>
+                                <TableHead>BCN/Item Name</TableHead>
+                                <TableHead>Serial No</TableHead>
+                                <TableHead>Qty</TableHead>
+                                <TableHead>Stock</TableHead>
+                                <TableHead>Allocated Qty</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {items.length > 0 ? items.map((item, index) => {
+                                const name = item.type === 'Fabric' ? (item as FabricDetail).fabricName : (item as FurnitureDetail).furnitureName;
+                                const unit = item.type === 'Fabric' ? 'Mtr' : '';
+
+                                return (
+                                    <TableRow key={index}>
+                                        <TableCell>{index + 1}</TableCell>
+                                        <TableCell>{name}</TableCell>
+                                        <TableCell>N/A</TableCell>
+                                        <TableCell>{item.quantity} {unit}</TableCell>
+                                        <TableCell>N/A</TableCell>
+                                        <TableCell>N/A</TableCell>
+                                    </TableRow>
+                                )
+                            }) : (
+                                <TableRow>
+                                    <TableCell colSpan={6} className="h-24 text-center">No items found in this order.</TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
 
 export default function OrderDetailPage({ params }: { params: { orderId: string } }) {
     const { orderId } = params;
@@ -124,6 +180,9 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
                             </div>
                         </CardContent>
                     </Card>
+
+                    <AllocateOrderTable order={order} />
+
                 </div>
 
                 <div className="lg:col-span-1">
