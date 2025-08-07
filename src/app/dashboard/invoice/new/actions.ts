@@ -45,7 +45,7 @@ export async function createDealOrderAction(
     if (dealData.representativeId) {
         const salesmanRef = adminDb.collection('users').doc(dealData.representativeId);
         const salesmanSnap = await salesmanRef.get();
-        if (salesmanSnap.exists()) {
+        if (salesmanSnap.exists) {
             salesmanName = salesmanSnap.data()?.name || 'N/A';
         }
     }
