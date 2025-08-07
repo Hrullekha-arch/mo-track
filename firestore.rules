@@ -2,94 +2,103 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper function to check if a user is authenticated
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    // Helper function to check if the user has a specific role
-    function hasRole(role) {
-      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    
+    // Helper function to check for admin or specific employee roles
+    function isAppAdmin() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
     
-    // Helper function to check if the user has a specific designation
-    function hasDesignation(designation) {
-       return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == designation;
+    function isEmployee() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'employee';
     }
-    
-    // Users can only read their own data, but admins can read/write any user document
+
+    // Default: Deny all reads/writes unless explicitly allowed
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users Collection
+    // Allow users to read other user profiles (for names, etc.)
+    // Allow users to create their own profile, and admins to create any
+    // Allow users to update their own profile, and admins to update any
+    // Allow only admins to delete users
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if hasRole('admin');
-      allow create: if hasRole('admin');
+      allow read: if request.auth != null;
+      allow create: if request.auth.uid == userId || isAppAdmin();
+      allow update: if request.auth.uid == userId || isAppAdmin();
+      allow delete: if isAppAdmin();
     }
     
-    // Admins can manage assignments
-    match /salesmanCrmAssignments/{assignmentId} {
-        allow read, write: if hasRole('admin');
+    // Salesman to CRM Assignments
+    // Only admins and designated employees (PC) should be able to manage assignments.
+    match /salesmanCrmAssignments/{salesmanId} {
+      allow read: if request.auth != null;
+      allow write: if isAppAdmin() || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == 'PC';
     }
 
-    // Orders can be read by any authenticated user, but only created/updated by admins or employees.
+    // Orders Collection
     match /orders/{orderId} {
-      allow read: if isAuthenticated();
-      allow create, update: if hasRole('admin') || hasRole('employee');
-      allow delete: if hasRole('admin');
+      // Read access for admin, employee, or if assigned to the installer
+      allow read: if isAppAdmin() || isEmployee() || resource.data.assignedTo == request.auth.uid;
+      
+      // Allow creation by admins or employees (PC)
+      allow create: if isAppAdmin() || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == 'PC';
+      
+      // Allow updates by admin, employee, or assigned installer
+      allow update: if isAppAdmin() || isEmployee() || resource.data.assignedTo == request.auth.uid;
+      
+      // Allow deletion only by admin
+      allow delete: if isAppAdmin();
+    }
+    
+    // Purchase Requests Collection
+    match /purchaseRequests/{requestId} {
+      allow read, write: if isAppAdmin() || isEmployee();
     }
 
-    // Purchase Requests can be read by any authenticated user, but only created/updated by admins or employees.
-    match /purchaseRequests/{requestId} {
-      allow read: if isAuthenticated();
-      allow create, update: if hasRole('admin') || hasRole('employee') || hasDesignation('PC');
-      allow delete: if hasRole('admin');
-    }
-    
-    // Stock data can be read by authenticated users, but only managed by admins.
+    // Stock Collection
     match /stocks/{stockId} {
-      allow read: if isAuthenticated();
-      allow write: if hasRole('admin');
+      allow read: if request.auth != null;
+      allow write: if isAppAdmin(); // Only admins can import/modify stock
     }
-    
-    // Customer and subcollection rules
+
+    // Customer and their subcollections
     match /customers/{customerId} {
-      allow read: if isAuthenticated();
-      allow create, write: if hasRole('admin') || hasRole('employee');
-      
+      // Allow read/write for admins and employees
+      allow read, write: if isAppAdmin() || isEmployee();
+
+      // Deals subcollection
       match /deals/{dealId} {
-        allow read: if isAuthenticated();
-        allow create, write: if hasRole('admin') || hasRole('employee');
-        
+        allow read, write: if isAppAdmin() || isEmployee();
+
+        // Quotations and Orders subcollections within a deal
         match /quotations/{quotationId} {
-            allow read: if isAuthenticated();
-            allow create, write: if hasRole('admin') || hasRole('employee');
+          allow read, write: if isAppAdmin() || isEmployee();
         }
         
-        match /orders/{orderId} {
-            allow read: if isAuthenticated();
-            allow create, write: if hasRole('admin') || hasRole('employee');
+        match /orders/{dealOrderId} {
+           allow read, write: if isAppAdmin() || isEmployee();
         }
 
         match /visits/{visitId} {
-            allow read: if isAuthenticated();
-            allow create, write: if hasRole('admin') || hasRole('employee');
-        }
-
-        match /measurements/{measurementId} {
-            allow read: if isAuthenticated();
-            allow create, write: if hasRole('admin') || hasRole('employee');
+           allow read, write: if request.auth != null; // Allow installers to read/write their assigned visits as well
         }
         
+        match /measurements/{measurementId} {
+           allow read, write: if isAppAdmin() || isEmployee();
+        }
+
         match /cpds/{cpdId} {
-            allow read: if isAuthenticated();
-            allow create, write: if hasRole('admin') || hasRole('employee');
+           allow read, write: if isAppAdmin() || isEmployee();
         }
       }
     }
     
-    // NEW: Rule to allow the 'Approve Quotation' page to work.
-    // This allows authenticated users to query the 'quotations' collection group.
+    // Rule for Collection Group Query used in /approve-quotation
+    // This allows authenticated users (specifically Accounts role in the app logic) to query
+    // the 'quotations' collection across all parent documents.
     match /{path=**}/quotations/{quotationId} {
-      allow read: if isAuthenticated();
+      allow read: if request.auth != null;
     }
   }
 }
