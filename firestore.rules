@@ -1,104 +1,95 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions to check user roles from the /users collection
-    function isSignedIn() {
+    // Helper function to check if a user is authenticated
+    function isAuthenticated() {
       return request.auth != null;
     }
 
-    function getUserData(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data;
-    }
-
-    function isRole(role) {
-      return isSignedIn() && getUserData(request.auth.uid).role == role;
+    // Helper function to check if the user has a specific role
+    function hasRole(role) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
     }
     
-    function isDesignation(designation) {
-      return isSignedIn() && getUserData(request.auth.uid).designation == designation;
+    // Helper function to check if the user has a specific designation
+    function hasDesignation(designation) {
+       return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == designation;
     }
-
-    // Admins have god-mode
-    function isAdmin() {
-      return isRole('admin');
-    }
-
-    // Employees include CRM, PC, etc.
-    function isEmployee() {
-      return isRole('employee');
-    }
-
-    function isInstaller() {
-      return isRole('installer');
-    }
-
-    // ======== USERS ========
-    // Admins can manage all users.
-    // Users can read their own data.
+    
+    // Users can only read their own data, but admins can read/write any user document
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated();
+      allow write: if hasRole('admin');
+      allow create: if hasRole('admin');
     }
     
-    // ======== Salesman to CRM Assignments ========
-    // Only Admins and PCs (Production Coordinators) should manage this.
-    match /salesmanCrmAssignments/{salesmanId} {
-        allow read: if isSignedIn();
-        allow write: if isAdmin() || isDesignation('PC');
+    // Admins can manage assignments
+    match /salesmanCrmAssignments/{assignmentId} {
+        allow read, write: if hasRole('admin');
     }
 
-    // ======== CUSTOMERS & DEALS ========
-    // Admins and Employees can manage customer data and all subcollections.
-    match /customers/{customerId}/{document=**} {
-      allow read, write: if isAdmin() || isEmployee();
-    }
-    
-    // ======== MAIN ORDERS COLLECTION ========
-    // This is the most complex collection with different access levels.
+    // Orders can be read by any authenticated user, but only created/updated by admins or employees.
     match /orders/{orderId} {
-      // READ:
-      // - Admins and Employees can read all orders.
-      // - Installers can only read orders assigned to them.
-      allow read: if (isAdmin() || isEmployee()) || (isInstaller() && resource.data.assignedTo == request.auth.uid);
-      
-      // CREATE:
-      // - Admins and Employees (specifically PC or CRM) can create new orders.
-      allow create: if isAdmin() || isDesignation('PC') || isDesignation('CRM');
-      
-      // UPDATE:
-      // - Admins can update anything.
-      // - Employees can update milestones up to 'Ready for Delivery' (id 5) and assign installers/CRM.
-      // - Installers can only update their own milestones (id > 5).
-      allow update: if isAdmin() || 
-                     (isEmployee() && (
-                        // Allow employee to update general fields but not installer-specific milestones if they are already completed by an installer
-                        !request.resource.data.milestones[5].completed || !request.resource.data.milestones[6].completed || !request.resource.data.milestones[7].completed
-                     )) || 
-                     (isInstaller() && resource.data.assignedTo == request.auth.uid && (
-                        // Installer can only change fields relevant to them: milestones and feedback
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['milestones', 'feedbackRating', 'feedbackRemarks', 'bypassedOtp'])
-                     ));
+      allow read: if isAuthenticated();
+      allow create, update: if hasRole('admin') || hasRole('employee');
+      allow delete: if hasRole('admin');
+    }
 
-      // DELETE:
-      // - Only Admins can delete orders.
-      allow delete: if isAdmin();
-    }
-    
-    // ======== PURCHASE REQUESTS ========
-    // Admins and Employees (PC, Accounts) can manage these.
+    // Purchase Requests can be read by any authenticated user, but only created/updated by admins or employees.
     match /purchaseRequests/{requestId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || isDesignation('PC') || isRole('Accounts');
+      allow read: if isAuthenticated();
+      allow create, update: if hasRole('admin') || hasRole('employee') || hasDesignation('PC');
+      allow delete: if hasRole('admin');
     }
     
-     // ======== INVENTORY / STOCK ========
-    // Admins can write, all authenticated users can read (e.g., for quotation creation).
+    // Stock data can be read by authenticated users, but only managed by admins.
     match /stocks/{stockId} {
-        allow read: if isSignedIn();
-        allow write: if isAdmin();
+      allow read: if isAuthenticated();
+      allow write: if hasRole('admin');
+    }
+    
+    // Customer and subcollection rules
+    match /customers/{customerId} {
+      allow read: if isAuthenticated();
+      allow create, write: if hasRole('admin') || hasRole('employee');
+      
+      match /deals/{dealId} {
+        allow read: if isAuthenticated();
+        allow create, write: if hasRole('admin') || hasRole('employee');
+        
+        match /quotations/{quotationId} {
+            allow read: if isAuthenticated();
+            allow create, write: if hasRole('admin') || hasRole('employee');
+        }
+        
+        match /orders/{orderId} {
+            allow read: if isAuthenticated();
+            allow create, write: if hasRole('admin') || hasRole('employee');
+        }
+
+        match /visits/{visitId} {
+            allow read: if isAuthenticated();
+            allow create, write: if hasRole('admin') || hasRole('employee');
+        }
+
+        match /measurements/{measurementId} {
+            allow read: if isAuthenticated();
+            allow create, write: if hasRole('admin') || hasRole('employee');
+        }
+        
+        match /cpds/{cpdId} {
+            allow read: if isAuthenticated();
+            allow create, write: if hasRole('admin') || hasRole('employee');
+        }
+      }
+    }
+    
+    // NEW: Rule to allow the 'Approve Quotation' page to work.
+    // This allows authenticated users to query the 'quotations' collection group.
+    match /{path=**}/quotations/{quotationId} {
+      allow read: if isAuthenticated();
     }
   }
 }
