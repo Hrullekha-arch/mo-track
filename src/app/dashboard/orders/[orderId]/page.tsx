@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, use } from 'react';
@@ -268,7 +267,7 @@ function OrderItemRow({ item, index, orderId, orderCrmNo, onAllocationSuccess }:
                 <p className="text-xs text-muted-foreground">{stockInfo?.itemName}</p>
             </TableCell>
             <TableCell>{stockInfo?.serialNo || 'N/A'}</TableCell>
-            <TableCell>{item.quantity} {unit}</TableCell>
+            <TableCell>{(item as any).quantity} {unit}</TableCell>
             <TableCell>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (stockInfo?.quantity ?? 'N/A')}
             </TableCell>

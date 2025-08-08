@@ -40,12 +40,15 @@ export function OrdersDashboard() {
 
     let ordersQuery;
     
-    // Admins and PCs see all acknowledged orders.
-    // CRMs only see orders assigned to them.
+    const baseQueryConstraints = [
+        where("isAcknowledged", "==", true),
+        where("status", "==", "Approved")
+    ];
+
     if (user.designation === 'CRM') {
-        ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id), where("isAcknowledged", "==", true));
+        ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id), ...baseQueryConstraints);
     } else {
-        ordersQuery = query(collection(db, "orders"), where("isAcknowledged", "==", true));
+        ordersQuery = query(collection(db, "orders"), ...baseQueryConstraints);
     }
 
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {

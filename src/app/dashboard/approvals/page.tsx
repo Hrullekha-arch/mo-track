@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -296,7 +295,7 @@ function ApprovePurchaseTab() {
                     </TableHeader>
                     <TableBody>
                         {requests.length > 0 ? requests.map(req => {
-                            const items = [...(req.fabricDetails || [])];
+                            const items = [...(req.fabricDetails || []), ...(req.furnitureDetails || [])];
                             return (
                                 <TableRow key={req.id}>
                                     <TableCell className="font-medium">{req.dealId}</TableCell>
@@ -305,7 +304,7 @@ function ApprovePurchaseTab() {
                                         <div className="flex flex-col gap-1">
                                             {items.map((item, index) => (
                                                 <div key={index} className="text-xs">
-                                                    <span className="font-semibold">{(item as any).fabricName}:</span>
+                                                    <span className="font-semibold">{(item as any).fabricName || (item as any).furnitureName}:</span>
                                                     <span className="text-muted-foreground ml-2">{item.quantity} {(req.type === 'fabric' ? 'Mtr' : 'Pcs')}</span>
                                                 </div>
                                             ))}

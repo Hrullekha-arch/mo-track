@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -46,7 +47,7 @@ const allNavItems = [
   { href: "/dashboard/orders", icon: ClipboardList, label: "Orders Dashboard", roles: ['admin', 'employee'] },
   { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
   { href: "/dashboard/visits", icon: Users, label: "Visits", roles: ['admin', 'employee'] },
-   { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts'] },
+  { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts', 'employee'] },
   { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
   { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
   { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },

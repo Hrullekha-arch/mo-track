@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -83,10 +82,13 @@ export function OrdersTable() {
     if (!user) return;
 
     let ordersQuery;
+    
+    // Admins and PCs see all acknowledged orders.
+    // CRMs only see orders assigned to them.
     if (user.designation === 'CRM') {
-        ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id), where("isAcknowledged", "==", true));
+        ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id), where("isAcknowledged", "==", true), where("status", "==", "Approved"));
     } else {
-        ordersQuery = query(collection(db, "orders"), where("isAcknowledged", "==", true));
+        ordersQuery = query(collection(db, "orders"), where("isAcknowledged", "==", true), where("status", "==", "Approved"));
     }
 
     const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
