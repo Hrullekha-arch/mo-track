@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
@@ -70,100 +69,92 @@ export interface PoCreationData {
 }
 
 export async function createPurchaseRequestAction(
-    poData: PoCreationData[],
+    poData: PoCreationData,
     creator: { id: string; name: string }
 ): Promise<{ success: boolean, message: string }> {
-    if (!poData || poData.length === 0) {
+    if (!poData || poData.items.length === 0) {
         return { success: false, message: "No data provided to create purchase requests." };
     }
 
     try {
         const batch = adminDb.batch();
-        const poNumbers: string[] = [];
-
-        for (const group of poData) {
-            if (group.items.length === 0) continue;
-            
-            const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
-            poNumbers.push(poNumber);
-            
-            // Group items by their original purchaseRequestId (dealId)
-            const itemsByRequest = group.items.reduce((acc, item) => {
-                const requestId = item.orderId;
-                if (!acc[requestId]) {
-                    acc[requestId] = [];
-                }
-                acc[requestId].push(item);
-                return acc;
-            }, {} as Record<string, PendingPoItem[]>);
-
-
-            for (const purchaseRequestId in itemsByRequest) {
-                const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
-                const originalRequestDoc = await requestRef.get();
-                if (!originalRequestDoc.exists) {
-                    console.warn(`Purchase request ${purchaseRequestId} not found. Skipping.`);
-                    continue;
-                }
-                const originalRequestData = originalRequestDoc.data() as PurchaseRequest;
-                const itemsForThisRequest = itemsByRequest[purchaseRequestId];
-
-                // Create a map of items being updated for easy lookup
-                const updatedItemsMap = new Map(itemsForThisRequest.map(i => [i.collectionBrand, i]));
-
-                // Create the new, merged fabricDetails array
-                const newFabricDetails = (originalRequestData.fabricDetails || []).map(originalItem => {
-                    if (updatedItemsMap.has(originalItem.fabricName)) {
-                        // This item is in the current PO batch, so update it
-                        return {
-                            ...originalItem,
-                            poNumber: poNumber,
-                            vendorName: group.vendor,
-                        };
-                    }
-                    // This item was part of the original request but not in this PO batch, so keep it as is
-                    return originalItem;
-                });
-                
-                // Update the existing request with the merged item list
-                batch.update(requestRef, {
-                    status: 'PO Generated',
-                    vendor: group.vendor,
-                    courier: group.courier,
-                    mode: group.mode,
-                    fabricDetails: newFabricDetails,
-                    poMilestones: [], // Reset PO milestones when a new PO is generated
-                });
-
-                // Create a new document in the `inbounds` collection for this specific PO
-                const inboundRef = adminDb.collection('inbounds').doc(poNumber);
-
-                const inboundItems: InboundItem[] = itemsForThisRequest.map(item => ({
-                    itemName: item.collectionBrand,
-                    quantity: String(item.neededQty),
-                    unit: 'Mtr', // Assuming all are fabric for now
-                    poNumber: poNumber,
-                    inboundMilestones: [],
-                }));
-
-                const newInboundRequest: InboundRequest = {
-                    id: poNumber, // Use the PO Number as the ID for inbound requests
-                    purchaseRequestId: purchaseRequestId,
-                    dealId: originalRequestData.dealId,
-                    customerName: originalRequestData.customerName,
-                    vendor: group.vendor,
-                    createdAt: new Date().toISOString(),
-                    status: 'Active',
-                    items: inboundItems,
-                };
-
-                batch.set(inboundRef, newInboundRequest);
+        const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
+        
+        // Group items by their original purchaseRequestId (dealId)
+        const itemsByRequest = poData.items.reduce((acc, item) => {
+            const requestId = item.orderId;
+            if (!acc[requestId]) {
+                acc[requestId] = [];
             }
+            acc[requestId].push(item);
+            return acc;
+        }, {} as Record<string, PendingPoItem[]>);
+
+        for (const purchaseRequestId in itemsByRequest) {
+            const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
+            const originalRequestDoc = await requestRef.get();
+            if (!originalRequestDoc.exists) {
+                console.warn(`Purchase request ${purchaseRequestId} not found. Skipping.`);
+                continue;
+            }
+            const originalRequestData = originalRequestDoc.data() as PurchaseRequest;
+            const itemsForThisRequest = itemsByRequest[purchaseRequestId];
+
+            // Create a map of items being updated for easy lookup
+            const updatedItemsMap = new Map(itemsForThisRequest.map(i => [i.collectionBrand, i]));
+
+            // Create the new, merged fabricDetails array
+            const newFabricDetails = (originalRequestData.fabricDetails || []).map(originalItem => {
+                if (updatedItemsMap.has(originalItem.fabricName)) {
+                    // This item is in the current PO batch, so update it
+                    return {
+                        ...originalItem,
+                        poNumber: poNumber,
+                        vendorName: poData.vendor,
+                    };
+                }
+                // This item was part of the original request but not in this PO batch, so keep it as is
+                return originalItem;
+            });
+            
+            // Update the existing request with the merged item list
+            batch.update(requestRef, {
+                status: 'PO Generated',
+                vendor: poData.vendor,
+                courier: poData.courier,
+                mode: poData.mode,
+                fabricDetails: newFabricDetails,
+                poMilestones: [], // Reset PO milestones when a new PO is generated
+            });
+
+            // Create a new document in the `inbounds` collection for this specific PO
+            const inboundRef = adminDb.collection('inbounds').doc(poNumber);
+
+            const inboundItems: InboundItem[] = itemsForThisRequest.map(item => ({
+                itemName: item.collectionBrand,
+                quantity: String(item.neededQty),
+                unit: 'Mtr', // Assuming all are fabric for now
+                poNumber: poNumber,
+                inboundMilestones: [],
+            }));
+
+            const newInboundRequest: InboundRequest = {
+                id: poNumber, // Use the PO Number as the ID for inbound requests
+                purchaseRequestId: purchaseRequestId,
+                dealId: originalRequestData.dealId,
+                customerName: originalRequestData.customerName,
+                vendor: poData.vendor,
+                createdAt: new Date().toISOString(),
+                status: 'Active',
+                items: inboundItems,
+            };
+
+            batch.set(inboundRef, newInboundRequest);
         }
         
         await batch.commit();
 
-        return { success: true, message: `Successfully created ${poNumbers.length} Purchase Orders. They have been moved to Inbound.` };
+        return { success: true, message: `Successfully created Purchase Order ${poNumber}. It has been moved to Inbound.` };
     } catch (error: any) {
         console.error("Error creating purchase request:", error);
         return { success: false, message: `Server error: ${error.message}` };

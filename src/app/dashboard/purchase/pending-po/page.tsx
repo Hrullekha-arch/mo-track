@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -14,7 +13,6 @@ import {
 } from "@tanstack/react-table";
 import { ArrowLeft, Search, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -39,83 +37,46 @@ import * as z from "zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 
-
-const columns: ColumnDef<PendingPoItem>[] = [
-    {
-      id: "select",
-      header: ({ table }) => ( <Checkbox checked={table.getIsAllPageRowsSelected()} onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)} aria-label="Select all" /> ),
-      cell: ({ row }) => ( <Checkbox checked={row.getIsSelected()} onCheckedChange={(value) => row.toggleSelected(!!value)} aria-label="Select row" /> ),
-      enableSorting: false,
-      enableHiding: false,
-    },
-    { accessorKey: "orderId", header: "Order ID" },
-    { accessorKey: "salesman", header: "Salesman" },
-    { accessorKey: "collectionBrand", header: "Collection/Brand" },
-    { accessorKey: "serialNo", header: "Serial No" },
-    { accessorKey: "hsnCode", header: "HSN Code" },
-    { accessorKey: "mrp", header: "MRP" },
-    { accessorKey: "neededQty", header: "Needed Qty" },
-    { accessorKey: "stock", header: "Stock" },
-    { accessorKey: "vendorName", header: "Vendor Name" },
-  ];
-
 const poGroupSchema = z.object({
     vendor: z.string(),
     courier: z.string().min(1, "Courier is required."),
     mode: z.enum(['AIR', 'SURFACE'], { required_error: "Mode is required." }),
-    items: z.array(z.any()), // Not for validation, just to hold data
+    items: z.array(z.any()),
 });
 
 const createPoFormSchema = z.object({
-  poGroups: z.array(poGroupSchema),
+  poGroup: poGroupSchema,
 });
 
 type CreatePoFormValues = z.infer<typeof createPoFormSchema>;
 
-function CreatePoDialog({ isOpen, onClose, selectedItems, creator }: { isOpen: boolean, onClose: () => void, selectedItems: PendingPoItem[], creator: { id: string, name: string } | null }) {
+function CreatePoDialog({ isOpen, onClose, item, creator }: { isOpen: boolean, onClose: () => void, item: PendingPoItem | null, creator: { id: string, name: string } | null }) {
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const { toast } = useToast();
     const router = useRouter();
 
-    const groupedByVendor = React.useMemo(() => {
-        return selectedItems.reduce((acc, item) => {
-            const vendor = item.vendorName || 'Unknown Vendor';
-            if (!acc[vendor]) {
-                acc[vendor] = [];
-            }
-            acc[vendor].push(item);
-            return acc;
-        }, {} as Record<string, PendingPoItem[]>);
-    }, [selectedItems]);
-
     const form = useForm<CreatePoFormValues>({
         resolver: zodResolver(createPoFormSchema),
         defaultValues: {
-            poGroups: Object.entries(groupedByVendor).map(([vendor, items]) => ({
-                vendor: vendor,
-                courier: "",
+            poGroup: {
+                vendor: '',
+                courier: '',
                 mode: 'SURFACE',
-                items: items,
-            })),
+                items: [],
+            }
         }
-    });
-    
-    const { fields } = useFieldArray({
-        control: form.control,
-        name: "poGroups",
     });
 
     React.useEffect(() => {
-        if (selectedItems.length > 0) {
-            const newPoGroups = Object.entries(groupedByVendor).map(([vendor, items]) => ({
-                vendor: vendor,
-                courier: "",
+        if (item) {
+            form.setValue('poGroup', {
+                vendor: item.vendorName || 'Unknown Vendor',
+                courier: '',
                 mode: 'SURFACE',
-                items: items,
-            }));
-            form.setValue('poGroups', newPoGroups);
+                items: [item]
+            });
         }
-    }, [selectedItems, form, groupedByVendor]);
+    }, [item, form]);
 
     const handleSubmit = async (values: CreatePoFormValues) => {
         if (!creator) {
@@ -124,7 +85,7 @@ function CreatePoDialog({ isOpen, onClose, selectedItems, creator }: { isOpen: b
         }
         setIsSubmitting(true);
         try {
-            const result = await createPurchaseRequestAction(values.poGroups, creator);
+            const result = await createPurchaseRequestAction(values.poGroup, creator);
 
             if (result.success) {
                 toast({ title: 'Success!', description: result.message });
@@ -141,82 +102,78 @@ function CreatePoDialog({ isOpen, onClose, selectedItems, creator }: { isOpen: b
         }
     };
     
+    if (!item) return null;
+
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-4xl">
+            <DialogContent className="max-w-xl">
                 <DialogHeader>
-                    <DialogTitle>Create Purchase Order(s)</DialogTitle>
+                    <DialogTitle>Create Purchase Order</DialogTitle>
                     <DialogDescription>
-                        A separate PO will be created for each vendor. It will then be sent for approval.
+                        A PO will be created for the selected item.
                     </DialogDescription>
                 </DialogHeader>
                  <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
-                        {fields.map((field, index) => (
-                             <Card key={field.id} className="p-4">
-                                <CardHeader className="p-0 pb-4">
-                                    <CardTitle className="text-lg">Vendor: {field.vendor}</CardTitle>
-                                </CardHeader>
-                                <CardContent className="p-0 space-y-4">
-                                     <div className="grid grid-cols-2 gap-4">
-                                        <FormField name={`poGroups.${index}.courier`} control={form.control} render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Courier</FormLabel>
-                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                    <FormControl><SelectTrigger><SelectValue placeholder="Select Courier" /></SelectTrigger></FormControl>
-                                                    <SelectContent>
-                                                        <SelectItem value="S M COURIER">S M COURIER</SelectItem>
-                                                        <SelectItem value="NITCO LOGISTICS PVT LTD">NITCO LOGISTICS PVT LTD</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}/>
-                                        <FormField name={`poGroups.${index}.mode`} control={form.control} render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Mode</FormLabel>
-                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                    <FormControl><SelectTrigger><SelectValue placeholder="Select Mode" /></SelectTrigger></FormControl>
-                                                    <SelectContent>
-                                                        <SelectItem value="AIR">AIR</SelectItem>
-                                                        <SelectItem value="SURFACE">SURFACE</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}/>
-                                    </div>
-                                    <div className="border rounded-md">
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead>#</TableHead>
-                                                    <TableHead>Order ID</TableHead>
-                                                    <TableHead>BCN/Item Name</TableHead>
-                                                    <TableHead>Needed Qty</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {form.getValues(`poGroups.${index}.items`).map((item: PendingPoItem, itemIndex: number) => (
-                                                    <TableRow key={item.id}>
-                                                        <TableCell>{itemIndex + 1}</TableCell>
-                                                        <TableCell>{item.orderId}</TableCell>
-                                                        <TableCell>{item.collectionBrand}</TableCell>
-                                                        <TableCell>{item.neededQty.toFixed(2)}</TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))}
+                    <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 py-4">
+                         <Card className="p-4">
+                            <CardHeader className="p-0 pb-4">
+                                <CardTitle className="text-lg">Vendor: {form.getValues('poGroup.vendor')}</CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-0 space-y-4">
+                                 <div className="grid grid-cols-2 gap-4">
+                                    <FormField name="poGroup.courier" control={form.control} render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Courier</FormLabel>
+                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                <FormControl><SelectTrigger><SelectValue placeholder="Select Courier" /></SelectTrigger></FormControl>
+                                                <SelectContent>
+                                                    <SelectItem value="S M COURIER">S M COURIER</SelectItem>
+                                                    <SelectItem value="NITCO LOGISTICS PVT LTD">NITCO LOGISTICS PVT LTD</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}/>
+                                    <FormField name="poGroup.mode" control={form.control} render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Mode</FormLabel>
+                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                <FormControl><SelectTrigger><SelectValue placeholder="Select Mode" /></SelectTrigger></FormControl>
+                                                <SelectContent>
+                                                    <SelectItem value="AIR">AIR</SelectItem>
+                                                    <SelectItem value="SURFACE">SURFACE</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}/>
+                                </div>
+                                <div className="border rounded-md">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Order ID</TableHead>
+                                                <TableHead>BCN/Item Name</TableHead>
+                                                <TableHead>Needed Qty</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            <TableRow key={item.id}>
+                                                <TableCell>{item.orderId}</TableCell>
+                                                <TableCell>{item.collectionBrand}</TableCell>
+                                                <TableCell>{item.neededQty.toFixed(2)}</TableCell>
+                                            </TableRow>
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </CardContent>
+                        </Card>
                         
                         <DialogFooter className="pt-4 sticky bottom-0 bg-background/95 pb-2">
                             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
                             <Button type="submit" disabled={isSubmitting}>
                                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Submit All POs
+                                Submit PO
                             </Button>
                         </DialogFooter>
                     </form>
@@ -229,7 +186,7 @@ function CreatePoDialog({ isOpen, onClose, selectedItems, creator }: { isOpen: b
 export default function PendingPOPage() {
   const [data, setData] = React.useState<PendingPoItem[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [isDialogOpen, setIsDialogOpen] = React.useState(false);
+  const [itemForPo, setItemForPo] = React.useState<PendingPoItem | null>(null);
   const [globalFilter, setGlobalFilter] = React.useState('');
   const { toast } = useToast();
   const { user } = useAuth();
@@ -253,7 +210,34 @@ export default function PendingPOPage() {
       };
       fetchData();
   }, [toast]);
+  
+  const handleCreatePoClick = (item: PendingPoItem) => {
+    setItemForPo(item);
+  };
 
+  const columns: ColumnDef<PendingPoItem>[] = [
+    { accessorKey: "orderId", header: "Order ID" },
+    { accessorKey: "salesman", header: "Salesman" },
+    { accessorKey: "collectionBrand", header: "Collection/Brand" },
+    { accessorKey: "serialNo", header: "Serial No" },
+    { accessorKey: "hsnCode", header: "HSN Code" },
+    { accessorKey: "mrp", header: "MRP" },
+    { accessorKey: "neededQty", header: "Needed Qty" },
+    { accessorKey: "stock", header: "Stock" },
+    { accessorKey: "vendorName", header: "Vendor Name" },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handleCreatePoClick(row.original)}
+        >
+          Create PO
+        </Button>
+      ),
+    },
+  ];
 
   const table = useReactTable({
     data,
@@ -267,17 +251,6 @@ export default function PendingPOPage() {
       globalFilter,
     },
   });
-  
-  const handleProceedClick = () => {
-    const selectedRows = table.getFilteredSelectedRowModel().rows;
-    if (selectedRows.length === 0) {
-        toast({ variant: 'destructive', title: 'No Items Selected', description: 'Please select items to proceed.' });
-        return;
-    }
-    setIsDialogOpen(true);
-  };
-  
-  const selectedItems = table.getFilteredSelectedRowModel().rows.map(row => row.original);
 
   return (
     <>
@@ -285,7 +258,7 @@ export default function PendingPOPage() {
         <header className="flex items-center justify-between mb-8">
             <div>
                 <h1 className="text-3xl font-bold tracking-tight">SO to PO Generation</h1>
-                <p className="text-muted-foreground">Select items to generate a Purchase Request.</p>
+                <p className="text-muted-foreground">Select an item to generate a Purchase Request.</p>
             </div>
             <Button variant="outline" asChild>
                 <Link href="/dashboard/purchase">
@@ -330,7 +303,7 @@ export default function PendingPOPage() {
                                 </TableRow>
                             ) : table.getRowModel().rows?.length ? (
                                 table.getRowModel().rows.map((row) => (
-                                    <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
+                                    <TableRow key={row.id}>
                                     {row.getVisibleCells().map((cell) => (
                                         <TableCell key={cell.id}>
                                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -348,23 +321,17 @@ export default function PendingPOPage() {
                         </TableBody>
                     </Table>
                 </div>
-                 <div className="flex items-center justify-between space-x-2 py-4">
-                    <div className="flex-1 text-sm text-muted-foreground">
-                        {table.getFilteredSelectedRowModel().rows.length} of{" "}
-                        {table.getFilteredRowModel().rows.length} row(s) selected.
-                    </div>
-                     <div className="space-x-2">
-                        <Button variant="outline" onClick={() => table.toggleAllPageRowsSelected(false)}>Cancel</Button>
-                        <Button onClick={handleProceedClick}>Proceed To PO</Button>
-                    </div>
+                 <div className="flex items-center justify-end space-x-2 py-4">
+                    <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>Previous</Button>
+                    <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next</Button>
                 </div>
             </CardContent>
         </Card>
     </div>
     <CreatePoDialog 
-        isOpen={isDialogOpen}
-        onClose={() => setIsDialogOpen(false)}
-        selectedItems={selectedItems}
+        isOpen={!!itemForPo}
+        onClose={() => setItemForPo(null)}
+        item={itemForPo}
         creator={user ? { id: user.id, name: user.name } : null}
     />
     </>
