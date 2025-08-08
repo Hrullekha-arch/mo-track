@@ -29,6 +29,9 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
             const items = request.fabricDetails || [];
 
             for (const item of items) {
+                // If an item already has a PO number, it's not "pending" for a new PO.
+                if (item.poNumber) continue;
+
                 const itemName = item.fabricName;
                 if (!itemName) continue;
 
@@ -84,54 +87,79 @@ export async function createPurchaseRequestAction(
             const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
             poNumbers.push(poNumber);
             
-            const firstItem = group.items[0];
-            const purchaseRequestId = firstItem.orderId; // This is the dealId / crmOrderNo
-            
-            const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
-            
-            const fabricDetailsForUpdate: FabricDetail[] = group.items.map(item => ({
-                fabricName: item.collectionBrand,
-                quantity: String(item.neededQty),
-                vendorName: group.vendor,
-                poNumber: poNumber, 
-            }));
+            // Group items by their original purchaseRequestId (dealId)
+            const itemsByRequest = group.items.reduce((acc, item) => {
+                const requestId = item.orderId;
+                if (!acc[requestId]) {
+                    acc[requestId] = [];
+                }
+                acc[requestId].push(item);
+                return acc;
+            }, {} as Record<string, PendingPoItem[]>);
 
-            // Update the existing request
-            batch.update(requestRef, {
-                status: 'PO Generated',
-                vendor: group.vendor,
-                courier: group.courier,
-                mode: group.mode,
-                fabricDetails: fabricDetailsForUpdate,
-                'milestones': [], // Clear previous milestones if any
-                'poMilestones': [], // Initialize poMilestones
-            });
 
-            // Create a new document in the `inbounds` collection
-            const inboundRef = adminDb.collection('inbounds').doc(purchaseRequestId);
-            const originalRequestDoc = await requestRef.get();
-            const originalRequestData = originalRequestDoc.data() as PurchaseRequest;
+            for (const purchaseRequestId in itemsByRequest) {
+                const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
+                const originalRequestDoc = await requestRef.get();
+                if (!originalRequestDoc.exists()) {
+                    console.warn(`Purchase request ${purchaseRequestId} not found. Skipping.`);
+                    continue;
+                }
+                const originalRequestData = originalRequestDoc.data() as PurchaseRequest;
+                const itemsForThisRequest = itemsByRequest[purchaseRequestId];
 
-            const inboundItems: InboundItem[] = fabricDetailsForUpdate.map(item => ({
-                itemName: item.fabricName,
-                quantity: item.quantity,
-                unit: 'Mtr', // Assuming all are fabric for now
-                poNumber: item.poNumber,
-                inboundMilestones: [],
-            }));
+                // Create a map of items being updated for easy lookup
+                const updatedItemsMap = new Map(itemsForThisRequest.map(i => [i.collectionBrand, i]));
 
-            const newInboundRequest: InboundRequest = {
-                id: purchaseRequestId,
-                purchaseRequestId: purchaseRequestId,
-                dealId: originalRequestData.dealId,
-                customerName: originalRequestData.customerName,
-                vendor: group.vendor,
-                createdAt: new Date().toISOString(),
-                status: 'Active',
-                items: inboundItems,
-            };
+                // Create the new, merged fabricDetails array
+                const newFabricDetails = (originalRequestData.fabricDetails || []).map(originalItem => {
+                    if (updatedItemsMap.has(originalItem.fabricName)) {
+                        // This item is in the current PO batch, so update it
+                        return {
+                            ...originalItem,
+                            poNumber: poNumber,
+                            vendorName: group.vendor,
+                        };
+                    }
+                    // This item was part of the original request but not in this PO batch, so keep it as is
+                    return originalItem;
+                });
+                
+                // Update the existing request with the merged item list
+                batch.update(requestRef, {
+                    status: 'PO Generated',
+                    vendor: group.vendor,
+                    courier: group.courier,
+                    mode: group.mode,
+                    fabricDetails: newFabricDetails,
+                    'milestones': [],
+                    'poMilestones': [],
+                });
 
-            batch.set(inboundRef, newInboundRequest);
+                // Create a new document in the `inbounds` collection for this specific PO
+                const inboundRef = adminDb.collection('inbounds').doc(poNumber);
+
+                const inboundItems: InboundItem[] = itemsForThisRequest.map(item => ({
+                    itemName: item.collectionBrand,
+                    quantity: String(item.neededQty),
+                    unit: 'Mtr', // Assuming all are fabric for now
+                    poNumber: poNumber,
+                    inboundMilestones: [],
+                }));
+
+                const newInboundRequest: InboundRequest = {
+                    id: poNumber, // Use the PO Number as the ID for inbound requests
+                    purchaseRequestId: purchaseRequestId,
+                    dealId: originalRequestData.dealId,
+                    customerName: originalRequestData.customerName,
+                    vendor: group.vendor,
+                    createdAt: new Date().toISOString(),
+                    status: 'Active',
+                    items: inboundItems,
+                };
+
+                batch.set(inboundRef, newInboundRequest);
+            }
         }
         
         await batch.commit();

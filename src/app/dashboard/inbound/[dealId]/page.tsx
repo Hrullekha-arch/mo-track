@@ -96,7 +96,8 @@ function ItemProcessTimeline({
 }
 
 export default function InboundProcessPage({ params }: { params: Promise<{ dealId: string }> }) {
-    const { dealId } = use(params);
+    // The dealId from the URL is now the PO Number, which is the ID of the inbound document
+    const { dealId: poNumber } = use(params);
     const [request, setRequest] = useState<InboundRequest | null>(null);
     const [loading, setLoading] = useState(true);
     const [updating, setUpdating] = useState<string | null>(null);
@@ -105,7 +106,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
     const { toast } = useToast();
 
     useEffect(() => {
-        const docRef = doc(db, "inbounds", dealId);
+        const docRef = doc(db, "inbounds", poNumber);
         const unsubscribe = onSnapshot(docRef, (doc) => {
             if (doc.exists()) {
                 const data = { id: doc.id, ...doc.data() } as InboundRequest;
@@ -120,7 +121,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         });
 
         return () => unsubscribe();
-    }, [dealId]);
+    }, [poNumber]);
 
      const handleStatusUpdate = async (itemIndex: number, stepId: number) => {
         if (!request || !user) return;
@@ -180,7 +181,8 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                     completedBy: user.name,
                 });
 
-                const purchaseRequestRef = doc(db, 'purchaseRequests', request.id);
+                // Update the associated Purchase Request
+                const purchaseRequestRef = doc(db, 'purchaseRequests', request.purchaseRequestId);
                 await updateDoc(purchaseRequestRef, { status: 'Completed', completedAt: new Date().toISOString() });
 
                 toast({
@@ -287,7 +289,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         return (
              <div className="container mx-auto p-4 md:p-6 lg:p-8 text-center">
                 <h1 className="text-2xl font-bold">Request not found</h1>
-                <p className="text-muted-foreground">The request with ID {dealId} could not be found.</p>
+                <p className="text-muted-foreground">The request with ID {poNumber} could not be found.</p>
                 <Button asChild variant="link" className="mt-4">
                     <Link href="/dashboard/inbound">Go Back</Link>
                 </Button>
@@ -308,11 +310,11 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                     </Button>
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">Inbound Process</h1>
-                        <p className="text-muted-foreground">Track the receiving process for each item in Deal ID: {request.dealId}</p>
+                        <p className="text-muted-foreground">Track receiving for PO: <span className="font-semibold text-primary">{request.id}</span> (Deal ID: {request.dealId})</p>
                     </div>
                 </div>
                 <Button asChild>
-                    <Link href={`/dashboard/inbound/scan?dealId=${dealId}`}>
+                    <Link href={`/dashboard/inbound/scan?dealId=${poNumber}`}>
                         <ScanLine className="mr-2 h-4 w-4" />
                         Scan Items
                     </Link>

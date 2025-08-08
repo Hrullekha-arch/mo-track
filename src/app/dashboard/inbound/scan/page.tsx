@@ -19,7 +19,7 @@ import Link from 'next/link';
 function InboundScan() {
     const searchParams = useSearchParams();
     const router = useRouter();
-    const dealId = searchParams.get('dealId');
+    const dealId = searchParams.get('dealId'); // This is the PO Number / Inbound ID
     const { toast } = useToast();
     const { user } = useAuth();
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -31,7 +31,7 @@ function InboundScan() {
 
     useEffect(() => {
         if (!dealId) {
-            toast({ variant: 'destructive', title: 'Error', description: 'No Deal ID provided.' });
+            toast({ variant: 'destructive', title: 'Error', description: 'No PO Number provided.' });
             router.push('/dashboard/inbound');
             return;
         }
@@ -152,7 +152,7 @@ function InboundScan() {
                 </Button>
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Inbound Scanner</h1>
-                    <p className="text-muted-foreground">For Deal ID: {request.dealId}</p>
+                    <p className="text-muted-foreground">For PO Number: {request.id}</p>
                 </div>
             </div>
 
