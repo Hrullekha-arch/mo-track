@@ -207,7 +207,8 @@ function OrderItemRow({ item, index, orderId, orderCrmNo, onAllocationSuccess }:
     const [stockInfo, setStockInfo] = useState<Stock | null>(null);
     const [loading, setLoading] = useState(true);
     const [allocatedQty, setAllocatedQty] = useState(0);
-    const [status, setStatus] = useState<{ text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }>({ text: 'Loading...', variant: 'secondary' });
+    const [status, setStatus] = useState<{ text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline', poNumber?: string }>({ text: 'Loading...', variant: 'secondary' });
+
 
     useEffect(() => {
         const fetchItemData = async () => {
@@ -240,7 +241,7 @@ function OrderItemRow({ item, index, orderId, orderCrmNo, onAllocationSuccess }:
                             if (isReceived) {
                                 setStatus({ text: 'Item Received', variant: 'default' });
                             } else {
-                                setStatus({ text: 'PO Generated', variant: 'outline' });
+                                setStatus({ text: 'PO Generated', variant: 'outline', poNumber: poItem.poNumber });
                             }
                         } else {
                              setStatus({ text: 'Pending for PO', variant: 'destructive' });
@@ -280,7 +281,12 @@ function OrderItemRow({ item, index, orderId, orderCrmNo, onAllocationSuccess }:
                 )}
             </TableCell>
             <TableCell>
-                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Badge variant={status.variant}>{status.text}</Badge>}
+                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 
+                 <Badge variant={status.variant}>
+                    {status.text}
+                    {status.poNumber && `: ${status.poNumber}`}
+                 </Badge>
+                }
             </TableCell>
         </TableRow>
     );
@@ -462,4 +468,3 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
         </div>
     );
 }
-
