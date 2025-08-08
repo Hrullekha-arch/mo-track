@@ -161,7 +161,7 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
         id: 'poNumber',
         header: 'PO Number',
         cell: ({ row }) => {
-          const poNumber = row.original.fabricDetails?.[0]?.poNumber || row.original.furnitureDetails?.[0]?.poNumber;
+          const poNumber = row.original.fabricDetails?.[0]?.poNumber;
           return poNumber ? <Badge variant="secondary">{poNumber}</Badge> : '-';
         }
     },
@@ -235,11 +235,11 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
             "Salesman": request.salesman,
             "Work Type": request.workType,
             "Status": request.status,
-            "PO Number": request.fabricDetails?.[0]?.poNumber || request.furnitureDetails?.[0]?.poNumber || '',
+            "PO Number": request.fabricDetails?.[0]?.poNumber || '',
             "Created Date": new Date(request.createdAt).toLocaleString(),
             "Promise Delivery Date": new Date(request.promiseDeliveryDate).toLocaleDateString(),
-            "Items": (request.type === 'fabric' ? request.fabricDetails : request.furnitureDetails)
-                        ?.map(item => `${(item as any).fabricName || (item as any).furnitureName}: ${item.quantity}`).join(', '),
+            "Items": (request.type === 'fabric' ? request.fabricDetails : [])
+                        ?.map(item => `${(item as any).fabricName}: ${item.quantity}`).join(', '),
         };
         return flatRequest;
     });
@@ -322,7 +322,6 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
                         <SelectContent>
                             <SelectItem value="all">All Types</SelectItem>
                             <SelectItem value="fabric">Fabric</SelectItem>
-                            <SelectItem value="furniture">Furniture</SelectItem>
                         </SelectContent>
                     </Select>
                      <Select

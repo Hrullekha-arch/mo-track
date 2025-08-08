@@ -5,7 +5,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest, FabricDetail, FurnitureDetail } from "@/lib/types";
+import { PurchaseRequest, FabricDetail } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { Archive, ChevronRight, Package, Search, CheckCircle2 } from 'lucide-react';
@@ -20,7 +20,6 @@ const TOTAL_INBOUND_STEPS = 5;
 function InboundCard({ request }: { request: PurchaseRequest }) {
     const items = [
         ...(request.fabricDetails?.filter(f => f.fabricName).map(f => ({ ...f, type: 'fabric' as const })) || []),
-        ...(request.furnitureDetails?.filter(f => f.furnitureName).map(f => ({ ...f, type: 'furniture' as const })) || [])
     ];
 
     return (
@@ -33,7 +32,7 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
                             <p className="text-sm text-muted-foreground">Deal ID: {request.dealId}</p>
                         </div>
                         <div className="flex flex-col items-end gap-2">
-                             <Badge variant={request.type === 'fabric' ? 'default' : 'secondary'} className="capitalize">{request.type}</Badge>
+                             <Badge variant={'default'} className="capitalize">Fabric</Badge>
                              <div className="flex items-center gap-2 text-muted-foreground">
                                 <ChevronRight className="h-5 w-5" />
                             </div>
@@ -53,8 +52,8 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
                         <Separator className="my-2" />
                         {items.map((item, index) => {
                             const isComplete = (item.inboundMilestones?.filter(m => m.status === 'completed').length || 0) === TOTAL_INBOUND_STEPS;
-                            const name = item.type === 'fabric' ? item.fabricName : item.furnitureName;
-                            const qty = item.type === 'fabric' ? `${item.quantity} Mtr` : `${item.quantity}`;
+                            const name = item.fabricName;
+                            const qty = `${item.quantity} Mtr`;
 
                             return (
                                 <div 
@@ -108,7 +107,6 @@ export default function InboundPage() {
 
             const items = [
                 ...(request.fabricDetails?.map(f => ({ name: f.fabricName || '', po: f.poNumber || '', qty: f.quantity || '' })) || []),
-                ...(request.furnitureDetails?.map(f => ({ name: f.furnitureName || '', po: f.poNumber || '', qty: f.quantity || '' })) || [])
             ];
 
             const itemMatch = items.some(item => 

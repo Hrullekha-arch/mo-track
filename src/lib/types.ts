@@ -77,15 +77,6 @@ export interface FabricDetail {
     panels?: string;
 }
 
-export interface FurnitureDetail {
-    furnitureName: string;
-    quantity: string;
-    poNumber?: string;
-    vendorName?: string;
-    expectedDeliveryDate?: string;
-    inboundMilestones?: InboundMilestone[];
-}
-
 export interface VasDetail {
     vasName: string;
     rate: string;
@@ -131,7 +122,7 @@ export interface Order {
   otp?: string;
   completedAt?: string; // ISO Date string
   fabricDetails?: FabricDetail[];
-  furnitureDetails?: FurnitureDetail[];
+  furnitureDetails?: never; // Deprecated
   status?: 'Pending Approval' | 'Approved';
   
   // Reference back to the deal
@@ -153,11 +144,11 @@ export interface PurchaseRequest {
   promiseDeliveryDate: string; // ISO Date string
   salesman: string;
   email?: string;
-  type: 'fabric' | 'furniture';
+  type: 'fabric'; // Always fabric now
   workType?: 'stitching' | 'production' | 'delivery';
   
   fabricDetails: FabricDetail[];
-  furnitureDetails: FurnitureDetail[];
+  furnitureDetails?: never; // Deprecated
   vasDetails?: VasDetail[];
   
   createdAt: string; // ISO Date string

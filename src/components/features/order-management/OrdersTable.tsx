@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -150,8 +151,7 @@ export function OrdersTable() {
       header: "No Of Items",
       cell: ({ row }) => {
         const fabricCount = row.original.fabricDetails?.length || 0;
-        const furnitureCount = row.original.furnitureDetails?.length || 0;
-        return <span>{fabricCount + furnitureCount}</span>;
+        return <span>{fabricCount}</span>;
       },
     },
     {

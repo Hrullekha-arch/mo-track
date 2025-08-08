@@ -5,7 +5,7 @@
 import { useState, useEffect, use } from 'react';
 import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest, InboundMilestone, FabricDetail, FurnitureDetail, PurchaseStatus, Order, O2DStatus } from "@/lib/types";
+import { PurchaseRequest, InboundMilestone, FabricDetail, Order, O2DStatus } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2, ScanLine } from 'lucide-react';
@@ -38,7 +38,7 @@ function ItemProcessTimeline({
     onRevert,
     userRole
 }: { 
-    item: FabricDetail | FurnitureDetail,
+    item: FabricDetail,
     itemIndex: number,
     request: PurchaseRequest,
     onUpdate: (itemIndex: number, stepId: number) => void,
@@ -108,10 +108,8 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         const unsubscribe = onSnapshot(docRef, (doc) => {
             if (doc.exists()) {
                 const data = { id: doc.id, ...doc.data() } as PurchaseRequest;
-                if (data.type === 'fabric' && data.fabricDetails) {
+                if (data.fabricDetails) {
                     data.fabricDetails = data.fabricDetails.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
-                } else if (data.type === 'furniture' && data.furnitureDetails) {
-                    data.furnitureDetails = data.furnitureDetails.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
                 }
                 setRequest(data);
             } else {
@@ -130,7 +128,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         
         try {
             const requestRef = doc(db, "purchaseRequests", request.id);
-            const items = request.type === 'fabric' ? [...(request.fabricDetails || [])] : [...(request.furnitureDetails || [])];
+            const items = [...(request.fabricDetails || [])];
             const itemToUpdate = items[itemIndex];
 
             if (!itemToUpdate) throw new Error("Item not found");
@@ -152,13 +150,12 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
             
             items[itemIndex] = itemToUpdate;
 
-            const payloadKey = request.type === 'fabric' ? 'fabricDetails' : 'furnitureDetails';
-            await updateDoc(requestRef, { [payloadKey]: items });
+            await updateDoc(requestRef, { fabricDetails: items });
             
             toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete.`});
 
             // Start of new logic: Check if all items are fully received
-            const allItems = items as Array<FabricDetail | FurnitureDetail>;
+            const allItems = items as Array<FabricDetail>;
             const allItemsCompleted = allItems.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
             if (allItemsCompleted) {
@@ -218,15 +215,14 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
 
         try {
             const requestRef = doc(db, "purchaseRequests", request.id);
-            const items = request.type === 'fabric' ? [...(request.fabricDetails || [])] : [...(request.furnitureDetails || [])];
+            const items = [...(request.fabricDetails || [])];
             const itemToUpdate = items[itemIndex];
             if (!itemToUpdate) throw new Error("Item not found");
 
             itemToUpdate.inboundMilestones = itemToUpdate.inboundMilestones?.filter(m => m.stepId !== milestone.stepId);
             items[itemIndex] = itemToUpdate;
             
-            const payloadKey = request.type === 'fabric' ? 'fabricDetails' : 'furnitureDetails';
-            await updateDoc(requestRef, { [payloadKey]: items });
+            await updateDoc(requestRef, { fabricDetails: items });
             
             toast({ title: "Step Reverted", description: "The process step has been successfully reverted." });
         } catch (error) {
@@ -262,7 +258,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         )
     }
 
-    const items = request.type === 'fabric' ? request.fabricDetails : request.furnitureDetails;
+    const items = request.fabricDetails;
     const revertingStepConfig = revertingMilestone ? INBOUND_PROCESS_CONFIG.find(c => c.id === revertingMilestone.milestone.stepId) : null;
 
     return (
@@ -290,7 +286,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                 <CardHeader>
                     <CardTitle>{request.customerName}</CardTitle>
                     <CardDescription>
-                        {request.type === 'fabric' ? 'Fabric' : 'Furniture'} request from salesman {request.salesman}.
+                        Fabric request from salesman {request.salesman}.
                         <br />
                         Vendor: {request.vendor || 'Not set'}
                     </CardDescription>
@@ -306,10 +302,10 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                          <div className="space-y-4">
                             {(items || []).map((item, index) => {
                                 const detail = item as any;
-                                const name = detail.fabricName || detail.furnitureName;
+                                const name = detail.fabricName;
                                 const qty = detail.quantity;
                                 const po = detail.poNumber;
-                                const qtyUnit = request.type === 'fabric' ? 'Mtr' : '';
+                                const qtyUnit = 'Mtr';
 
                                 return (
                                     <Collapsible key={index} asChild defaultOpen>

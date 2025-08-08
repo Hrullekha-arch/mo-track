@@ -28,9 +28,7 @@ export default function PurchasePage() {
     }, []);
     
     const activeRequests = useMemo(() => purchaseRequests.filter(req => req.status !== 'PO Generated'), [purchaseRequests]);
-    const fabricRequests = activeRequests.filter(req => req.type === 'fabric');
-    const furnitureRequests = activeRequests.filter(req => req.type === 'furniture');
-
+    
     const renderRequestCount = (requests: PurchaseRequest[]) => {
         if (loading) {
             return <Loader2 className="h-4 w-4 animate-spin" />;
@@ -63,16 +61,7 @@ export default function PurchasePage() {
                         <CardDescription>Active requests for fabric materials.</CardDescription>
                     </CardHeader>
                      <CardContent>
-                        <p className="text-3xl font-bold">{renderRequestCount(fabricRequests)}</p>
-                    </CardContent>
-                </Card>
-                 <Card>
-                    <CardHeader>
-                        <CardTitle>Furniture Requests</CardTitle>
-                        <CardDescription>Active requests for furniture items.</CardDescription>
-                    </CardHeader>
-                     <CardContent>
-                        <p className="text-3xl font-bold">{renderRequestCount(furnitureRequests)}</p>
+                        <p className="text-3xl font-bold">{renderRequestCount(activeRequests)}</p>
                     </CardContent>
                 </Card>
             </div>

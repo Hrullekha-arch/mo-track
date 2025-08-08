@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, Stock, PurchaseRequest, FabricDetail, FurnitureDetail, User } from "@/lib/types";
+import { Order, Stock, PurchaseRequest, FabricDetail, User } from "@/lib/types";
 
 export interface PendingPoItem {
     id: string; // Combination of orderId and itemName
@@ -26,10 +26,10 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
 
         for (const requestDoc of approvedRequestsSnapshot.docs) {
             const request = requestDoc.data() as PurchaseRequest;
-            const items = [...(request.fabricDetails || []), ...(request.furnitureDetails || [])];
+            const items = request.fabricDetails || [];
 
             for (const item of items) {
-                const itemName = (item as FabricDetail).fabricName || (item as FurnitureDetail).furnitureName;
+                const itemName = item.fabricName;
                 if (!itemName) continue;
 
                 const stockDocs = await adminDb.collection('stocks').where('bcn', '==', itemName).limit(1).get();
@@ -90,23 +90,14 @@ export async function createPurchaseRequestAction(
             const requestRef = adminDb.collection('purchaseRequests').doc(firstItem.orderId);
             
             const fabricDetails: FabricDetail[] = [];
-            const furnitureDetails: FurnitureDetail[] = [];
             
             for (const item of group.items) {
-                const stockDocs = await adminDb.collection('stocks').where('bcn', '==', item.collectionBrand).limit(1).get();
-                const stockType = stockDocs.docs[0]?.data()?.type || 'fabric';
-
                 const commonDetails = {
                     quantity: String(item.neededQty),
                     vendorName: group.vendor,
                     poNumber: poNumber, 
                 };
-
-                if (stockType === 'fabric') {
-                     fabricDetails.push({ fabricName: item.collectionBrand, ...commonDetails });
-                } else {
-                     furnitureDetails.push({ furnitureName: item.collectionBrand, ...commonDetails });
-                }
+                fabricDetails.push({ fabricName: item.collectionBrand, ...commonDetails });
             }
 
             // Update the existing request instead of creating a new one
@@ -116,7 +107,6 @@ export async function createPurchaseRequestAction(
                 courier: group.courier,
                 mode: group.mode,
                 fabricDetails: fabricDetails,
-                furnitureDetails: furnitureDetails,
                 'milestones': [], // Clear previous milestones if any
                 'poMilestones': [], // Initialize poMilestones
             });

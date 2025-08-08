@@ -3,9 +3,8 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, FurnitureDetail, PurchaseRequest, Stock } from '@/lib/types';
+import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
-import { getAuth } from 'firebase-admin/auth';
 
 export async function createDealOrderAction(
   customerId: string,
@@ -61,14 +60,10 @@ export async function createDealOrderAction(
     const newOrderRef = adminDb.collection('orders').doc(orderId);
 
     const allFabricDetails: FabricDetail[] = [];
-    const allFurnitureDetails: FurnitureDetail[] = [];
-
     const fabricToPurchase: FabricDetail[] = [];
-    const furnitureToPurchase: FurnitureDetail[] = [];
 
-    // Separate items and check stock
+    // Check stock for all items (assuming all are fabric)
     for (const item of quotation.items) {
-      const isFabric = (item.salesDescription || "").toLowerCase().includes('fabric') || (item.salesDescription || "").toLowerCase().includes('curtain');
       const itemName = item.collectionBrand;
       const requiredQty = Number(item.quantity) || 0;
 
@@ -76,16 +71,9 @@ export async function createDealOrderAction(
       const stockSnap = await stockRef.get();
       const currentStock = (stockSnap.data() as Stock)?.quantity || 0;
 
-      if (isFabric) {
-        allFabricDetails.push({ fabricName: itemName, quantity: String(requiredQty) });
-        if (requiredQty > currentStock) {
-          fabricToPurchase.push({ fabricName: itemName, quantity: String(requiredQty - currentStock) });
-        }
-      } else {
-        allFurnitureDetails.push({ furnitureName: itemName, quantity: String(requiredQty) });
-        if (requiredQty > currentStock) {
-          furnitureToPurchase.push({ furnitureName: itemName, quantity: String(requiredQty - currentStock) });
-        }
+      allFabricDetails.push({ fabricName: itemName, quantity: String(requiredQty) });
+      if (requiredQty > currentStock) {
+        fabricToPurchase.push({ fabricName: itemName, quantity: String(requiredQty - currentStock) });
       }
     }
 
@@ -106,22 +94,20 @@ export async function createDealOrderAction(
       dealOrderDocId: newDealOrderRef.id,
       storeName: quotation.store,
       fabricDetails: allFabricDetails,
-      furnitureDetails: allFurnitureDetails,
     };
 
     batch.set(newOrderRef, newOrder);
 
     // 2. Create a corresponding Purchase Request if there are items that need purchasing
-    if (fabricToPurchase.length > 0 || furnitureToPurchase.length > 0) {
+    if (fabricToPurchase.length > 0) {
         const purchaseRequestRef = adminDb.collection('purchaseRequests').doc(quotation.quotationNo);
         const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
             dealId: quotation.quotationNo,
             customerName: quotation.customerName,
             promiseDeliveryDate: new Date().toISOString(), // Placeholder, can be updated later
             salesman: salesmanName,
-            type: fabricToPurchase.length > 0 ? 'fabric' : 'furniture',
+            type: 'fabric',
             fabricDetails: fabricToPurchase,
-            furnitureDetails: furnitureToPurchase,
             createdAt: new Date().toISOString(),
             createdBy: { id: creator.id, name: creator.name },
             milestones: [],

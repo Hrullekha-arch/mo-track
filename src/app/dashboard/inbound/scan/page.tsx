@@ -1,11 +1,12 @@
 
+
 "use client";
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { PurchaseRequest, FabricDetail, FurnitureDetail, InboundMilestone } from '@/lib/types';
+import { PurchaseRequest, FabricDetail, InboundMilestone } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -40,10 +41,8 @@ function InboundScan() {
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
                 const data = { id: docSnap.id, ...docSnap.data() } as PurchaseRequest;
-                if (data.type === 'fabric' && data.fabricDetails) {
+                if (data.fabricDetails) {
                     data.fabricDetails = data.fabricDetails.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
-                } else if (data.type === 'furniture' && data.furnitureDetails) {
-                    data.furnitureDetails = data.furnitureDetails.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
                 }
                 setRequest(data);
             } else {
@@ -86,7 +85,7 @@ function InboundScan() {
         if (!request || !user) return;
         setScanning(true);
 
-        const items = request.type === 'fabric' ? [...(request.fabricDetails || [])] : [...(request.furnitureDetails || [])];
+        const items = [...(request.fabricDetails || [])];
         const itemToUpdateIndex = items.findIndex(item =>
             !item.inboundMilestones?.some(m => m.stepId === 3 && m.status === 'completed')
         );
@@ -115,11 +114,11 @@ function InboundScan() {
            
             items[itemToUpdateIndex] = itemToUpdate;
 
-            const payloadKey = request.type === 'fabric' ? 'fabricDetails' : 'furnitureDetails';
+            const payloadKey = 'fabricDetails';
             const requestRef = doc(db, "purchaseRequests", request.id);
             await updateDoc(requestRef, { [payloadKey]: items });
 
-            const itemName = (itemToUpdate as any).fabricName || (itemToUpdate as any).furnitureName;
+            const itemName = (itemToUpdate as any).fabricName;
             toast({ title: 'Item Scanned!', description: `${itemName} has been marked as complete.` });
             
             // Manually update local state to reflect change immediately
@@ -141,7 +140,7 @@ function InboundScan() {
         return <p>Request not found.</p>;
     }
     
-    const items = request.type === 'fabric' ? request.fabricDetails : request.furnitureDetails;
+    const items = request.fabricDetails;
     const scannedCount = items?.filter(i => i.inboundMilestones?.some(m => m.stepId === 3 && m.status === 'completed')).length || 0;
     const totalCount = items?.length || 0;
 
@@ -199,7 +198,7 @@ function InboundScan() {
                         <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
                             {(items || []).map((item, index) => {
                                  const detail = item as any;
-                                const name = detail.fabricName || detail.furnitureName;
+                                const name = detail.fabricName;
                                 const isScanned = item.inboundMilestones?.some(m => m.stepId === 3 && m.status === 'completed');
 
                                 return (

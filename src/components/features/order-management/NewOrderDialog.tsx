@@ -15,7 +15,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { User, OrderType, FabricDetail, FurnitureDetail, PurchaseRequest, Stock } from "@/lib/types";
+import { User, OrderType, FabricDetail, PurchaseRequest, Stock } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,11 +25,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const fabricDetailSchema = z.object({
   fabricName: z.string().min(1, "Fabric name is required"),
-  quantity: z.string().min(1, "Quantity is required"),
-});
-
-const furnitureDetailSchema = z.object({
-  furnitureName: z.string().min(1, "Furniture name is required"),
   quantity: z.string().min(1, "Quantity is required"),
 });
 
@@ -43,7 +38,6 @@ const formSchema = z.object({
   orderType: z.enum(['delivery', 'stitching', 'stitching+installation'], { required_error: "Order type is required" }),
   remarks: z.string().optional(),
   fabricDetails: z.array(fabricDetailSchema).optional(),
-  furnitureDetails: z.array(furnitureDetailSchema).optional(),
 });
 
 interface NewOrderDialogProps {
@@ -108,69 +102,11 @@ const FabricForm = ({ form }: { form: any }) => {
     );
 };
 
-const FurnitureForm = ({ form }: { form: any }) => {
-    const { fields, append, remove } = useFieldArray({
-        control: form.control,
-        name: "furnitureDetails",
-    });
-
-    return (
-        <div className="space-y-4">
-             <FormLabel>Furniture Details</FormLabel>
-            {fields.map((field, index) => (
-                 <Card key={field.id} className="p-3">
-                    <div className="flex items-end gap-2">
-                        <FormField
-                            control={form.control}
-                            name={`furnitureDetails.${index}.furnitureName`}
-                            render={({ field }) => (
-                                <FormItem className="flex-grow">
-                                    <FormLabel className="text-xs">Name</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="Furniture name" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name={`furnitureDetails.${index}.quantity`}
-                            render={({ field }) => (
-                                <FormItem>
-                                     <FormLabel className="text-xs">Qty</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="Qty" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                         <Button type="button" size="icon" variant="ghost" className="h-9 w-9 text-destructive" onClick={() => remove(index)}>
-                            <Trash2 className="h-4 w-4" />
-                         </Button>
-                    </div>
-                 </Card>
-            ))}
-             <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => append({ furnitureName: "", quantity: "" })}
-            >
-                <PlusCircle className="mr-2 h-4 w-4"/>
-                Add Furniture
-            </Button>
-        </div>
-    );
-};
-
 export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
   const [loading, setLoading] = useState(false);
   const [salesmen, setSalesmen] = useState<User[]>([]);
   const { toast } = useToast();
   const { user } = useAuth();
-  const [itemTab, setItemTab] = useState<"fabric" | "furniture">("fabric");
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -183,7 +119,6 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       storeName: "",
       remarks: "",
       fabricDetails: [],
-      furnitureDetails: [],
     },
   });
 
@@ -251,14 +186,12 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         handledByCrm: crmUserId,
         isAcknowledged: false,
         fabricDetails: values.fabricDetails || [],
-        furnitureDetails: values.furnitureDetails || [],
       };
       
       batch.set(newOrderRef, newOrderData);
 
       // Create a corresponding purchase request if items are added and out of stock
       const fabricToPurchase: FabricDetail[] = [];
-      const furnitureToPurchase: FurnitureDetail[] = [];
 
       for (const item of (values.fabricDetails || [])) {
         const stockRef = doc(db, 'stocks', item.fabricName.replace(/\//g, '-'));
@@ -270,26 +203,15 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         }
       }
 
-      for (const item of (values.furnitureDetails || [])) {
-        const stockRef = doc(db, 'stocks', item.furnitureName.replace(/\//g, '-'));
-        const stockSnap = await getDoc(stockRef);
-        const currentStock = (stockSnap.data() as Stock)?.quantity || 0;
-        const requiredQty = Number(item.quantity) || 0;
-        if (requiredQty > currentStock) {
-          furnitureToPurchase.push({ furnitureName: item.furnitureName, quantity: String(requiredQty - currentStock) });
-        }
-      }
-
-      if (fabricToPurchase.length > 0 || furnitureToPurchase.length > 0) {
+      if (fabricToPurchase.length > 0) {
         const purchaseRequestRef = doc(db, "purchaseRequests", values.crmOrderNo);
         const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
             dealId: values.crmOrderNo,
             customerName: values.customerName,
             promiseDeliveryDate: new Date().toISOString(), // Placeholder
             salesman: salesmanUser.name,
-            type: fabricToPurchase.length > 0 ? 'fabric' : 'furniture',
+            type: 'fabric',
             fabricDetails: fabricToPurchase,
-            furnitureDetails: furnitureToPurchase,
             createdAt: new Date().toISOString(),
             createdBy: { id: user.id, name: user.name },
             milestones: [],
@@ -453,22 +375,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
                 />
              </div>
              <div className="pt-4">
-                 <Tabs
-                    value={itemTab}
-                    onValueChange={(value) => setItemTab(value as "fabric" | "furniture")}
-                    className="w-full"
-                >
-                    <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="fabric">Fabric Items</TabsTrigger>
-                        <TabsTrigger value="furniture">Furniture Items</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="fabric" className="mt-4">
-                        <FabricForm form={form} />
-                    </TabsContent>
-                    <TabsContent value="furniture" className="mt-4">
-                        <FurnitureForm form={form} />
-                    </TabsContent>
-                 </Tabs>
+                 <FabricForm form={form} />
              </div>
             <DialogFooter className="pt-4">
                 <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>

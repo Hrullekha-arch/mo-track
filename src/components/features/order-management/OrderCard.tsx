@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState } from "react";
@@ -6,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { Order, User, Milestone, PurchaseRequest } from "@/lib/types";
+import { Order, User, Milestone, PurchaseRequest, FabricDetail } from "@/lib/types";
 import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2, AlertCircle, ShoppingBag } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
@@ -33,7 +34,6 @@ interface OrderCardProps {
 
 interface MaterialDetails {
     fabricDetails: { name: string; quantity: string; unit: string; }[];
-    furnitureDetails: { name: string; quantity: string; unit: string; }[];
 }
 
 export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
@@ -77,13 +77,10 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             const fabricDetails = (prData.fabricDetails || [])
                 .filter(f => f.fabricName)
                 .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
-            const furnitureDetails = (prData.furnitureDetails || [])
-                .filter(f => f.furnitureName)
-                .map(f => ({ name: f.furnitureName, quantity: f.quantity, unit: 'Qty' }));
             
-            setMaterialDetails({ fabricDetails, furnitureDetails });
+            setMaterialDetails({ fabricDetails });
         } else {
-            setMaterialDetails({ fabricDetails: [], furnitureDetails: [] });
+            setMaterialDetails({ fabricDetails: [] });
             toast({
                 variant: 'destructive',
                 title: 'Not Found',
@@ -561,36 +558,18 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                         <Loader2 className="h-8 w-8 animate-spin" />
                     </div>
                 ) : (
-                    <Tabs defaultValue="fabric" className="w-full">
-                        <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="fabric" disabled={!materialDetails?.fabricDetails?.length}>
-                                Fabric ({materialDetails?.fabricDetails?.length || 0})
-                            </TabsTrigger>
-                            <TabsTrigger value="furniture" disabled={!materialDetails?.furnitureDetails?.length}>
-                                Furniture ({materialDetails?.furnitureDetails?.length || 0})
-                            </TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="fabric" className="mt-4 max-h-60 overflow-y-auto">
-                            <div className="space-y-2 text-sm">
-                                {materialDetails?.fabricDetails.map((item, index) => (
-                                    <div key={index} className="flex justify-between items-center p-2 rounded-md bg-muted">
-                                        <span>{item.name}</span>
-                                        <span className="font-mono bg-background px-2 py-1 rounded-sm">{item.quantity} {item.unit}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </TabsContent>
-                        <TabsContent value="furniture" className="mt-4 max-h-60 overflow-y-auto">
-                            <div className="space-y-2 text-sm">
-                                {materialDetails?.furnitureDetails.map((item, index) => (
-                                    <div key={index} className="flex justify-between items-center p-2 rounded-md bg-muted">
-                                        <span>{item.name}</span>
-                                        <span className="font-mono bg-background px-2 py-1 rounded-sm">{item.quantity} {item.unit}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </TabsContent>
-                    </Tabs>
+                    <div className="space-y-2 text-sm max-h-60 overflow-y-auto">
+                        {(materialDetails?.fabricDetails || []).length > 0 ? (
+                            materialDetails?.fabricDetails.map((item, index) => (
+                                <div key={index} className="flex justify-between items-center p-2 rounded-md bg-muted">
+                                    <span>{item.name}</span>
+                                    <span className="font-mono bg-background px-2 py-1 rounded-sm">{item.quantity} {item.unit}</span>
+                                </div>
+                            ))
+                        ) : (
+                            <p className="text-muted-foreground text-center">No material details found.</p>
+                        )}
+                    </div>
                 )}
             </div>
             <DialogFooter>
