@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -50,8 +49,25 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 
+interface FlattenedPurchaseItem {
+    id: string; // Unique ID for the row
+    dealId: string;
+    customerName: string;
+    salesman: string;
+    status: string;
+    createdAt: string;
+    itemName: string;
+    quantity: string;
+    poNumber?: string;
+    vendorName?: string;
+    type: 'fabric' | 'furniture';
+    // a reference to the original request for actions
+    originalRequest: PurchaseRequest;
+}
+
+
 export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: PurchaseRequest[], view?: 'all' | 'po-tracking' }) {
-  const [requests, setRequests] = React.useState<PurchaseRequest[]>(tableData);
+  const [requests, setRequests] = React.useState<FlattenedPurchaseItem[]>([]);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
@@ -64,7 +80,28 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
   const isAuthorized = role === 'admin' || role === 'Accounts';
 
   React.useEffect(() => {
-    setRequests(tableData);
+    const flattenedData: FlattenedPurchaseItem[] = tableData.flatMap(req => {
+        const fabricItems = (req.fabricDetails || []).map(item => ({
+            id: `${req.id}-${item.fabricName}`,
+            dealId: req.dealId,
+            customerName: req.customerName,
+            salesman: req.salesman,
+            status: req.status || 'Pending Approval',
+            createdAt: req.createdAt,
+            itemName: item.fabricName,
+            quantity: item.quantity,
+            poNumber: item.poNumber,
+            vendorName: item.vendorName,
+            type: 'fabric' as const,
+            originalRequest: req,
+        }));
+
+        // You can add furniture items here as well if needed
+        // const furnitureItems = ...
+
+        return [...fabricItems];
+    });
+    setRequests(flattenedData);
   }, [tableData]);
   
   const handleDeleteRequest = async () => {
@@ -80,7 +117,7 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
   };
 
 
-  const columns: ColumnDef<PurchaseRequest>[] = [
+  const columns: ColumnDef<FlattenedPurchaseItem>[] = [
     {
       id: "select",
       header: ({ table }) => (
@@ -122,6 +159,14 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
       cell: ({ row }) => <div>{row.getValue("customerName")}</div>,
     },
     {
+        accessorKey: "itemName",
+        header: "Item Name",
+    },
+    {
+        accessorKey: "quantity",
+        header: "Quantity",
+    },
+    {
         accessorKey: "type",
         header: "Type",
         cell: ({ row }) => <Badge variant="outline" className="capitalize">{row.getValue("type")}</Badge>,
@@ -155,10 +200,10 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
         }
     },
     {
-        id: 'poNumber',
+        accessorKey: 'poNumber',
         header: 'PO Number',
         cell: ({ row }) => {
-          const poNumber = row.original.fabricDetails?.[0]?.poNumber;
+          const poNumber = row.original.poNumber;
           return poNumber ? <Badge variant="secondary">{poNumber}</Badge> : '-';
         }
     },
@@ -171,7 +216,7 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
       id: "actions",
       enableHiding: false,
       cell: ({ row }) => {
-        const request = row.original;
+        const request = row.original.originalRequest;
         if (!isAuthorized) return null;
 
         return (
@@ -189,7 +234,7 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
                 onClick={() => setDeletingRequest(request)}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
-                Delete
+                Delete Request
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -223,23 +268,7 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
         description: "Generating Purchase Requests Excel file..."
     });
 
-    const dataToExport = table.getFilteredRowModel().rows.map(row => {
-        const request = row.original;
-        let flatRequest: any = {
-            "Order ID": request.dealId,
-            "Customer Name": request.customerName,
-            "Type": request.type,
-            "Salesman": request.salesman,
-            "Work Type": request.workType,
-            "Status": request.status,
-            "PO Number": request.fabricDetails?.[0]?.poNumber || '',
-            "Created Date": new Date(request.createdAt).toLocaleString(),
-            "Promise Delivery Date": new Date(request.promiseDeliveryDate).toLocaleDateString(),
-            "Items": (request.type === 'fabric' ? request.fabricDetails : [])
-                        ?.map(item => `${(item as any).fabricName}: ${item.quantity}`).join(', '),
-        };
-        return flatRequest;
-    });
+    const dataToExport = table.getFilteredRowModel().rows.map(row => row.original);
 
     if (dataToExport.length === 0) {
         toast({
@@ -249,16 +278,28 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
         });
         return;
     }
-
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Purchase Requests");
     
-    XLSX.writeFile(workbook, `motrack_purchase_requests_${new Date().toISOString().split('T')[0]}.xlsx`);
+    const formattedData = dataToExport.map(item => ({
+        "Order ID": item.dealId,
+        "Customer Name": item.customerName,
+        "Item Name": item.itemName,
+        "Quantity": item.quantity,
+        "Type": item.type,
+        "Salesman": item.salesman,
+        "Status": item.status,
+        "PO Number": item.poNumber || '',
+        "Created Date": new Date(item.createdAt).toLocaleString(),
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(formattedData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Purchase Items");
+    
+    XLSX.writeFile(workbook, `motrack_purchase_items_${new Date().toISOString().split('T')[0]}.xlsx`);
 
     toast({
         title: "Export Complete!",
-        description: "Your Purchase Requests Excel file has been downloaded.",
+        description: "Your Purchase Items Excel file has been downloaded.",
     });
   }
   
