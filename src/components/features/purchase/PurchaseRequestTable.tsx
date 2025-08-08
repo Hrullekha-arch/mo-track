@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -241,7 +242,7 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
     const dataToExport = table.getFilteredRowModel().rows.map(row => {
         const request = row.original;
         let flatRequest: any = {
-            "Deal ID": request.dealId,
+            "Order ID": request.dealId,
             "Customer Name": request.customerName,
             "Type": request.type,
             "Salesman": request.salesman,
@@ -311,10 +312,13 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
                 <div className="flex flex-wrap items-center py-4 gap-4">
                     <Input
                         placeholder="Filter by customer or Order ID..."
-                        value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
-                        onChange={(event) =>
-                            table.getColumn("customerName")?.setFilterValue(event.target.value)
-                        }
+                        value={table.getColumn("customerName")?.getFilterValue() as string ?? ""}
+                        onChange={(event) => {
+                            const customerFilter = event.target.value;
+                            table.getColumn("customerName")?.setFilterValue(customerFilter);
+                            // Also filter dealId for a combined search
+                            table.getColumn("dealId")?.setFilterValue(customerFilter);
+                        }}
                         className="max-w-sm"
                     />
                      <Select

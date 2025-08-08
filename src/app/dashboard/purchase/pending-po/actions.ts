@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
@@ -32,7 +33,10 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
             }
         });
         
-        const activeOrders = allOrders.filter(order => !order.milestones.every(m => m.completed));
+        const activeOrders = allOrders.filter(order => {
+             const isFullyCompleted = order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
+             return !isFullyCompleted;
+        });
 
         const inFlightItems = new Map<string, number>();
         activePrSnapshot.docs.forEach(doc => {
@@ -49,8 +53,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
 
         const tempStockMap = new Map<string, number>();
         stockMap.forEach((stock, bcn) => {
-            const inFlightQty = inFlightItems.get(bcn) || 0;
-            tempStockMap.set(bcn, stock.quantity - inFlightQty);
+            tempStockMap.set(bcn, stock.quantity);
         });
 
         const pendingItems: PendingPoItem[] = [];
@@ -65,9 +68,11 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 if (!item.name || isNaN(item.quantity) || item.quantity <= 0) continue;
                 
                 const availableStock = tempStockMap.get(item.name) || 0;
+                const inFlightQty = inFlightItems.get(item.name) || 0;
+                const effectiveStock = availableStock - inFlightQty;
                 
-                if (item.quantity > availableStock) {
-                    const neededQty = item.quantity - availableStock;
+                if (item.quantity > effectiveStock) {
+                    const neededQty = item.quantity - effectiveStock;
                     const stockInfo = stockMap.get(item.name);
                     
                     pendingItems.push({
@@ -82,10 +87,6 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                         neededQty: neededQty,
                         stock: stockInfo?.quantity || 0,
                     });
-                    
-                    tempStockMap.set(item.name, 0); // Once an item is marked for purchase, its available stock is considered 0 for subsequent calculations
-                } else {
-                    tempStockMap.set(item.name, availableStock - item.quantity);
                 }
             }
         }
@@ -138,13 +139,20 @@ export async function createPurchaseRequestAction(
         }
         
         const firstItem = items[0];
+        // Fetch the source order to get accurate customer and salesman details
+        const sourceOrderDoc = await adminDb.collection('orders').doc(firstItem.orderId).get();
+        if (!sourceOrderDoc.exists) {
+            return { success: false, message: `Source order ${firstItem.orderId} not found.`};
+        }
+        const sourceOrder = sourceOrderDoc.data() as Order;
+
         const newRequestRef = adminDb.collection('purchaseRequests').doc();
         
         const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-            dealId: firstItem.orderId,
-            customerName: "Aggregated from multiple orders", // This might need revisiting if we want a specific customer
+            dealId: sourceOrder.crmOrderNo,
+            customerName: sourceOrder.customerName,
             promiseDeliveryDate: new Date().toISOString(),
-            salesman: creator.name, // The person creating the PO is the "salesman" for this request
+            salesman: sourceOrder.salesPerson,
             type: fabricDetails.length > 0 ? 'fabric' : 'furniture',
             workType: 'production',
             fabricDetails,
