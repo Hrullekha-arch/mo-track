@@ -41,6 +41,31 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
     }
 }
 
+async function recalculateStockQuantity(stockId: string) {
+    const stockRef = adminDb.collection('stocks').doc(stockId);
+    
+    const addedTransactionsPromise = stockRef.collection('stockAdded').get();
+    const soldTransactionsPromise = stockRef.collection('stockSold').get();
+    
+    const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
+
+    let totalQuantity = 0;
+    
+    addedSnapshot.forEach(doc => {
+        totalQuantity += (doc.data() as StockTransaction).quantityChange;
+    });
+    
+    soldSnapshot.forEach(doc => {
+        totalQuantity += (doc.data() as StockTransaction).quantityChange;
+    });
+
+    await stockRef.update({ 
+      quantity: totalQuantity,
+      lastUpdatedAt: new Date().toISOString()
+    });
+}
+
+
 export async function allocateStockToAction(
     { orderId, stockId, itemName, allocatedLengths, userId, userName }: 
     { orderId: string, stockId: string, itemName: string, allocatedLengths: { length: number, transactionId: string }[], userId: string, userName: string }
@@ -53,46 +78,42 @@ export async function allocateStockToAction(
         
         const totalAllocatedQty = allocatedLengths.reduce((sum, l) => sum + l.length, 0);
 
-        await adminDb.runTransaction(async (transaction) => {
-            const stockDoc = await transaction.get(stockRef);
-            if (!stockDoc.exists) {
-                throw new Error("Stock item not found.");
-            }
+        const stockDoc = await stockRef.get();
+        if (!stockDoc.exists) {
+            throw new Error("Stock item not found.");
+        }
+        
+        const currentQuantity = stockDoc.data()?.quantity || 0;
+        if (currentQuantity < totalAllocatedQty) {
+            throw new Error("Insufficient stock quantity.");
+        }
 
-            const currentQuantity = stockDoc.data()?.quantity || 0;
-            if (currentQuantity < totalAllocatedQty) {
-                throw new Error("Insufficient stock quantity.");
-            }
+        // Create a new deduction transaction
+        const stockSoldData: Omit<StockTransaction, 'id'> = {
+            stockId: stockId,
+            bcn: stockDoc.data()?.bcn || '',
+            type: 'deduction',
+            quantityChange: -totalAllocatedQty,
+            orderId: orderId,
+            lengths: allocatedLengths.map(l => l.length),
+            createdAt: new Date().toISOString(),
+            createdBy: userName,
+        };
+        await stockSoldRef.set(stockSoldData);
+        
+        // Create allocation record under the order
+        const allocationData = {
+            stockId,
+            itemName,
+            quantityAllocated: totalAllocatedQty,
+            lengths: allocatedLengths.map(l => l.length),
+            allocatedAt: new Date().toISOString(),
+            allocatedBy: userName,
+        };
+        await allocationRef.set(allocationData);
 
-            // 1. Update stock quantity
-            transaction.update(stockRef, {
-                quantity: FieldValue.increment(-totalAllocatedQty)
-            });
-
-            // 2. Create allocation record under the order
-            const allocationData = {
-                stockId,
-                itemName,
-                quantityAllocated: totalAllocatedQty,
-                lengths: allocatedLengths.map(l => l.length),
-                allocatedAt: new Date().toISOString(),
-                allocatedBy: userName,
-            };
-            transaction.set(allocationRef, allocationData);
-
-            // 3. Create a stockSold transaction
-            const stockSoldData: Omit<StockTransaction, 'id'> = {
-                stockId: stockId,
-                bcn: stockDoc.data()?.bcn || '',
-                type: 'deduction',
-                quantityChange: -totalAllocatedQty,
-                orderId: orderId,
-                lengths: allocatedLengths.map(l => l.length),
-                createdAt: new Date().toISOString(),
-                createdBy: userName,
-            };
-            transaction.set(stockSoldRef, stockSoldData);
-        });
+        // Recalculate and update the stock quantity
+        await recalculateStockQuantity(stockId);
 
         // After successful transaction, check if all items are allocated
         const updatedOrderDoc = await orderRef.get();

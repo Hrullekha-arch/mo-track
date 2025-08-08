@@ -153,7 +153,7 @@ export async function updateStockQuantityAction(
     const transactionCollectionName = transaction.type === 'addition' ? 'stockAdded' : 'stockSold';
     const transactionRef = stockRef.collection(transactionCollectionName).doc();
 
-    // Step 1: Write the new transaction document.
+    // Step 1: Write the new transaction document first.
     await transactionRef.set(transaction);
 
     // Step 2: Fetch all transactions to recalculate the total quantity.
