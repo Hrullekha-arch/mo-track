@@ -47,6 +47,7 @@ const columns: ColumnDef<PendingPoItem>[] = [
       enableHiding: false,
     },
     { accessorKey: "orderId", header: "Order ID" },
+    { accessorKey: "salesman", header: "Salesman" },
     { accessorKey: "collectionBrand", header: "Collection/Brand" },
     { accessorKey: "serialNo", header: "Serial No" },
     { accessorKey: "hsnCode", header: "HSN Code" },

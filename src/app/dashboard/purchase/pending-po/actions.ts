@@ -7,6 +7,7 @@ import { Order, Stock, PurchaseRequest, FabricDetail, FurnitureDetail } from "@/
 export interface PendingPoItem {
     id: string; // Combination of orderId and itemName
     orderId: string; // The ID of the order that needs this item
+    salesman: string;
     collectionBrand: string;
     serialNo: string;
     hsnCode: string;
@@ -18,8 +19,7 @@ export interface PendingPoItem {
 
 export async function getPendingPoItems(): Promise<PendingPoItem[]> {
     try {
-        // Step 1: Fetch active orders and all stock data
-        const ordersSnapshot = await adminDb.collection('orders').get();
+        const ordersSnapshot = await adminDb.collection('orders').where('isAcknowledged', '==', true).get();
         const stockSnapshot = await adminDb.collection('stocks').get();
         const activePrSnapshot = await adminDb.collection('purchaseRequests').where('status', '==', 'pending').get();
 
@@ -31,7 +31,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 stockMap.set(stock.bcn, stock);
             }
         });
-
+        
         const activeOrders = allOrders.filter(order => !order.milestones.every(m => m.completed));
 
         const inFlightItems = new Map<string, number>();
@@ -46,16 +46,15 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 }
             });
         });
-        
-        const pendingItems: PendingPoItem[] = [];
+
         const tempStockMap = new Map<string, number>();
         stockMap.forEach((stock, bcn) => {
             const inFlightQty = inFlightItems.get(bcn) || 0;
             tempStockMap.set(bcn, stock.quantity - inFlightQty);
         });
 
+        const pendingItems: PendingPoItem[] = [];
 
-        // Step 2: Iterate through each order's items
         for (const order of activeOrders) {
             const itemsInOrder = [
                 ...(order.fabricDetails || []).map(item => ({ name: item.fabricName, quantity: parseFloat(item.quantity) })),
@@ -66,7 +65,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 if (!item.name || isNaN(item.quantity) || item.quantity <= 0) continue;
                 
                 const availableStock = tempStockMap.get(item.name) || 0;
-
+                
                 if (item.quantity > availableStock) {
                     const neededQty = item.quantity - availableStock;
                     const stockInfo = stockMap.get(item.name);
@@ -74,6 +73,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                     pendingItems.push({
                         id: `${order.id}-${item.name}`,
                         orderId: order.id,
+                        salesman: order.salesPerson,
                         collectionBrand: item.name,
                         serialNo: stockInfo?.serialNo || 'N/A',
                         hsnCode: stockInfo?.hsnCode || 'N/A',
@@ -83,10 +83,8 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                         stock: stockInfo?.quantity || 0,
                     });
                     
-                    // Decrement the temporary stock for the next order's calculation
-                    tempStockMap.set(item.name, Math.max(0, availableStock - item.quantity));
+                    tempStockMap.set(item.name, 0); // Once an item is marked for purchase, its available stock is considered 0 for subsequent calculations
                 } else {
-                     // Decrement the temporary stock even if there's enough
                     tempStockMap.set(item.name, availableStock - item.quantity);
                 }
             }
@@ -139,13 +137,14 @@ export async function createPurchaseRequestAction(
             }
         }
         
+        const firstItem = items[0];
         const newRequestRef = adminDb.collection('purchaseRequests').doc();
         
         const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-            dealId: `AGGREGATE-${new Date().getTime()}`,
-            customerName: "Aggregated from multiple orders",
+            dealId: firstItem.orderId,
+            customerName: "Aggregated from multiple orders", // This might need revisiting if we want a specific customer
             promiseDeliveryDate: new Date().toISOString(),
-            salesman: "System",
+            salesman: creator.name, // The person creating the PO is the "salesman" for this request
             type: fabricDetails.length > 0 ? 'fabric' : 'furniture',
             workType: 'production',
             fabricDetails,
