@@ -37,50 +37,65 @@ function ApproveQuotationTab() {
     const { user } = useAuth();
 
     useEffect(() => {
-        const fetchRelatedData = async () => {
-             const dealsQuery = collectionGroup(db, 'deals');
-             const usersQuery = collection(db, 'users');
+        setLoading(true);
+        const fetchAllData = async () => {
+            try {
+                // Fetch all users and all deals first
+                const usersQuery = collection(db, 'users');
+                const dealsQuery = collectionGroup(db, 'deals');
 
-             const [dealsSnapshot, usersSnapshot] = await Promise.all([
-                 getDocs(dealsQuery),
-                 getDocs(usersQuery),
-             ]);
+                const [usersSnapshot, dealsSnapshot] = await Promise.all([
+                    getDocs(usersQuery),
+                    getDocs(dealsQuery),
+                ]);
 
-             const dealsData = dealsSnapshot.docs.reduce((acc, doc) => {
-                 acc[doc.id] = { id: doc.id, ...doc.data() } as Deal;
-                 return acc;
-             }, {} as Record<string, Deal>);
-             setAllDeals(dealsData);
-             
-             const usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-             setAllUsers(usersData);
+                const usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+                setAllUsers(usersData);
+
+                const dealsData = dealsSnapshot.docs.reduce((acc, doc) => {
+                    acc[doc.id] = { id: doc.id, ...doc.data() } as Deal;
+                    return acc;
+                }, {} as Record<string, Deal>);
+                setAllDeals(dealsData);
+
+                // Now, for each deal, fetch its pending quotations
+                const pendingQuotations: EnrichedQuotation[] = [];
+                for (const dealDoc of dealsSnapshot.docs) {
+                    const dealPathParts = dealDoc.ref.path.split('/');
+                    const customerId = dealPathParts[1];
+                    const dealId = dealDoc.id;
+
+                    const quotationsQuery = query(
+                        collection(db, 'customers', customerId, 'deals', dealId, 'quotations'),
+                        where('status', '==', 'Pending Approval')
+                    );
+                    
+                    const quotationsSnapshot = await getDocs(quotationsQuery);
+                    quotationsSnapshot.forEach(quotationDoc => {
+                        pendingQuotations.push({
+                            ...(quotationDoc.data() as Quotation),
+                            id: quotationDoc.id,
+                            customerId,
+                            dealId,
+                        });
+                    });
+                }
+                setQuotations(pendingQuotations);
+            } catch (error) {
+                console.error("Error fetching data for approvals:", error);
+                toast({
+                    variant: 'destructive',
+                    title: "Error loading data",
+                    description: "Could not fetch quotations for approval. Please check permissions."
+                });
+            } finally {
+                setLoading(false);
+            }
         };
-        
-        fetchRelatedData();
 
-        const q = query(
-            collectionGroup(db, 'quotations'), 
-            where('status', '==', 'Pending Approval')
-        );
+        fetchAllData();
+    }, [toast]);
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const quotationsData: EnrichedQuotation[] = [];
-            snapshot.forEach(doc => {
-                const data = doc.data() as Quotation;
-                const pathParts = doc.ref.path.split('/');
-                const customerId = pathParts[1];
-                const dealId = pathParts[3];
-                quotationsData.push({ ...data, id: doc.id, customerId, dealId });
-            });
-            setQuotations(quotationsData);
-            setLoading(false);
-        }, (error) => {
-            console.error("Firestore snapshot error:", error);
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, []);
 
     const handleApprove = async () => {
         if (!selectedQuotation || !user) return;
@@ -107,6 +122,8 @@ function ApproveQuotationTab() {
                 title: 'Quotation Approved',
                 description: `Quotation #${selectedQuotation.quotationNo} has been approved.`
             });
+            // Refetch data after approval
+            setQuotations(prev => prev.filter(q => q.id !== selectedQuotation.id));
         } catch (error) {
             console.error('Error approving quotation:', error);
             toast({
