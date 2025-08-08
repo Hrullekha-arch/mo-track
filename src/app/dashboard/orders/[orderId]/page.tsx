@@ -237,7 +237,7 @@ function OrderItemRow({ item, index, orderId, orderCrmNo, onAllocationSuccess }:
                         const poData = poSnap.data() as PurchaseRequest;
                         const poItem = (poData.fabricDetails || []).find(pi => pi.fabricName === itemName);
                         
-                        if (poData.status === 'PO Generated' && poItem?.poNumber) {
+                        if (poItem?.poNumber) {
                              setStatus({ text: 'PO Generated', variant: 'outline', poNumber: poItem.poNumber });
                         } else {
                              setStatus({ text: 'Pending for PO', variant: 'destructive' });
