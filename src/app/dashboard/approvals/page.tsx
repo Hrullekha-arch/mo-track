@@ -257,7 +257,6 @@ function ApprovePurchaseTab() {
                         if (itemName) {
                             const stockId = itemName.replace(/\//g, '-');
                             const stockInfo = await getStockById(stockId);
-                            // Even if stockInfo is null, we can try to get an estimated amount or just show 0
                             const itemPrice = stockInfo?.mrp || 0;
                             totalAmount += itemPrice * parseFloat(item.quantity || '0');
                         }

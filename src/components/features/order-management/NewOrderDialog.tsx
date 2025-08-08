@@ -190,20 +190,9 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       
       batch.set(newOrderRef, newOrderData);
 
-      // Create a corresponding purchase request if items are added and out of stock
-      const fabricToPurchase: FabricDetail[] = [];
-
-      for (const item of (values.fabricDetails || [])) {
-        const stockRef = doc(db, 'stocks', item.fabricName.replace(/\//g, '-'));
-        const stockSnap = await getDoc(stockRef);
-        const currentStock = (stockSnap.data() as Stock)?.quantity || 0;
-        const requiredQty = Number(item.quantity) || 0;
-        if (requiredQty > currentStock) {
-          fabricToPurchase.push({ fabricName: item.fabricName, quantity: String(requiredQty - currentStock) });
-        }
-      }
-
-      if (fabricToPurchase.length > 0) {
+      // Create a corresponding purchase request if items are added.
+      // The request will now contain ALL items, not just out-of-stock ones.
+      if (values.fabricDetails && values.fabricDetails.length > 0) {
         const purchaseRequestRef = doc(db, "purchaseRequests", values.crmOrderNo);
         const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
             dealId: values.crmOrderNo,
@@ -211,7 +200,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
             promiseDeliveryDate: new Date().toISOString(), // Placeholder
             salesman: salesmanUser.name,
             type: 'fabric',
-            fabricDetails: fabricToPurchase,
+            fabricDetails: values.fabricDetails, // Use all items
             createdAt: new Date().toISOString(),
             createdBy: { id: user.id, name: user.name },
             milestones: [],
@@ -221,7 +210,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         batch.set(purchaseRequestRef, newPurchaseRequest);
         toast({
           title: "Order & Purchase Request Created",
-          description: `Order ${trackingId} created and a purchase request sent for approval.`,
+          description: `Order ${trackingId} created and a purchase request with all items sent for approval.`,
         });
       } else {
         toast({
