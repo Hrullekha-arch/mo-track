@@ -128,7 +128,6 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         setUpdating(key);
         
         try {
-            const batch = writeBatch(db);
             const requestRef = doc(db, "purchaseRequests", request.id);
             const items = [...(request.fabricDetails || [])];
             const itemToUpdate = items[itemIndex];
@@ -144,14 +143,16 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
 
             const newMilestones = [...(itemToUpdate.inboundMilestones || []), newMilestone];
             items[itemIndex] = {...itemToUpdate, inboundMilestones: newMilestones};
-            batch.update(requestRef, { fabricDetails: items });
+            
+            await updateDoc(requestRef, { fabricDetails: items });
 
+            toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete.`});
+            
             const itemIsNowComplete = newMilestones.length === INBOUND_PROCESS_CONFIG.length;
 
             if (itemIsNowComplete) {
                 const stockId = itemToUpdate.fabricName.replace(/\//g, '-');
-                const stockRef = doc(db, "stocks", stockId);
-
+                
                 const transaction: Omit<StockTransaction, 'id'> = {
                     stockId: stockId,
                     bcn: itemToUpdate.fabricName,
@@ -162,21 +163,15 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                     createdBy: user.name,
                 };
                 
-                const transactionRef = doc(collection(stockRef, 'stockAdded'));
-                batch.set(transactionRef, transaction);
-            }
-            
-            await batch.commit();
-
-            toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete.`});
-            
-            if (itemIsNowComplete) {
-                toast({ title: "Stock Updated!", description: `${itemToUpdate.quantity} units of ${itemToUpdate.fabricName} added to inventory.`});
-                // Recalculate stock after successful commit
-                await updateStockQuantityAction(itemToUpdate.fabricName.replace(/\//g, '-'), { type: 'addition', quantityChange: 0, stockId: '', bcn: '', createdAt: '', createdBy: ''}); // Passing dummy for recalculation
+                const result = await updateStockQuantityAction(stockId, transaction);
+                if (result.success) {
+                    toast({ title: "Stock Updated!", description: `${itemToUpdate.quantity} units of ${itemToUpdate.fabricName} added to inventory.`});
+                } else {
+                    toast({ variant: 'destructive', title: 'Stock Update Failed', description: result.message });
+                }
             }
 
-            // Check if all items are fully received
+            // Check if all items are fully received after the update
             const allItemsCompleted = items.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
             if (allItemsCompleted) {

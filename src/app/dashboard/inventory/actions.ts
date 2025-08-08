@@ -153,40 +153,30 @@ export async function updateStockQuantityAction(
     const transactionCollectionName = transaction.type === 'addition' ? 'stockAdded' : 'stockSold';
     const transactionRef = stockRef.collection(transactionCollectionName).doc();
 
-    // Step 1: Write the new transaction document first.
-    await transactionRef.set(transaction);
-
-    // Step 2: Fetch all transactions to recalculate the total quantity.
-    const addedTransactionsPromise = stockRef.collection('stockAdded').get();
-    const soldTransactionsPromise = stockRef.collection('stockSold').get();
+    const batch = adminDb.batch();
     
-    const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
-
-    let totalQuantity = 0;
+    // Step 1: Write the new transaction document.
+    batch.set(transactionRef, transaction);
     
-    // Sum all additions
-    addedSnapshot.forEach(doc => {
-        totalQuantity += (doc.data() as StockTransaction).quantityChange;
-    });
-    
-    // Subtract all deductions (quantityChange is negative for deductions)
-    soldSnapshot.forEach(doc => {
-        totalQuantity += (doc.data() as StockTransaction).quantityChange; 
-    });
-
-    // Step 3: Update the main stock document with the recalculated quantity.
-    await stockRef.update({ 
-      quantity: totalQuantity,
+    // Step 2: Update the main stock document with the increment.
+    // This is more efficient than recalculating the whole sum every time.
+    batch.update(stockRef, { 
+      quantity: FieldValue.increment(transaction.quantityChange),
       lastUpdatedAt: new Date().toISOString()
     });
 
-    // Step 4: Fetch and return the updated stock document to ensure consistency.
+    await batch.commit();
+
+    // Step 3: Fetch and return the updated stock document to ensure consistency.
     const updatedStockDoc = await stockRef.get();
     const newStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
 
     return { success: true, message: 'Stock updated successfully.', newStock: JSON.parse(JSON.stringify(newStockData)) };
   } catch (error: any) {
     console.error(`Error updating stock for ${stockId}:`, error);
+    if (error.code === 'NOT_FOUND') {
+        return { success: false, message: `Stock item with ID ${stockId} not found. Could not update quantity.` };
+    }
     return { success: false, message: `Failed to update stock: ${error.message}` };
   }
 }
