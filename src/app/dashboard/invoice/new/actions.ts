@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, FurnitureDetail } from '@/lib/types';
+import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, FurnitureDetail, PurchaseRequest } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
 import { getAuth } from 'firebase-admin/auth';
 
@@ -103,8 +103,28 @@ export async function createDealOrderAction(
     };
 
     batch.set(newOrderRef, newOrder);
+
+    // 2. Create a corresponding Purchase Request if there are items
+    if (fabricDetails.length > 0 || furnitureDetails.length > 0) {
+        const purchaseRequestRef = adminDb.collection('purchaseRequests').doc(quotation.quotationNo);
+        const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
+            dealId: quotation.quotationNo,
+            customerName: quotation.customerName,
+            promiseDeliveryDate: new Date().toISOString(), // Placeholder, can be updated later
+            salesman: salesmanName,
+            type: fabricDetails.length > 0 ? 'fabric' : 'furniture',
+            fabricDetails: fabricDetails,
+            furnitureDetails: furnitureDetails,
+            createdAt: new Date().toISOString(),
+            createdBy: { id: user?.id || 'system', name: creatorName },
+            milestones: [],
+            vendorType: 'undecided',
+            status: 'Pending Approval', // This sends it to the approval queue
+        };
+        batch.set(purchaseRequestRef, newPurchaseRequest);
+    }
     
-    // 2. Now define the DealOrder with the main order ID
+    // 3. Now define the DealOrder with the main order ID
     const newDealOrder: DealOrder = {
       orderNo: newOrder.id,
       id: newDealOrderRef.id,
@@ -117,7 +137,7 @@ export async function createDealOrderAction(
 
     batch.set(newDealOrderRef, newDealOrder);
 
-    // 3. Update the quotation status
+    // 4. Update the quotation status
     batch.update(quotationRef, { 
       status: 'Converted to Order',
       orderNo: newOrder.id,
