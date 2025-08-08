@@ -38,9 +38,9 @@ function ApproveQuotationTab() {
 
     useEffect(() => {
         setLoading(true);
-        const fetchAllData = async () => {
+        // Fetch all users and deals first for enrichment later
+        const fetchMetadata = async () => {
             try {
-                // Fetch all users and all deals first
                 const usersQuery = collection(db, 'users');
                 const dealsQuery = collectionGroup(db, 'deals');
 
@@ -58,42 +58,54 @@ function ApproveQuotationTab() {
                 }, {} as Record<string, Deal>);
                 setAllDeals(dealsData);
 
-                // Now, for each deal, fetch its pending quotations
-                const pendingQuotations: EnrichedQuotation[] = [];
-                for (const dealDoc of dealsSnapshot.docs) {
-                    const dealPathParts = dealDoc.ref.path.split('/');
-                    const customerId = dealPathParts[1];
-                    const dealId = dealDoc.id;
-
-                    const quotationsQuery = query(
-                        collection(db, 'customers', customerId, 'deals', dealId, 'quotations'),
-                        where('status', '==', 'Pending Approval')
-                    );
-                    
-                    const quotationsSnapshot = await getDocs(quotationsQuery);
-                    quotationsSnapshot.forEach(quotationDoc => {
-                        pendingQuotations.push({
-                            ...(quotationDoc.data() as Quotation),
-                            id: quotationDoc.id,
-                            customerId,
-                            dealId,
-                        });
-                    });
-                }
-                setQuotations(pendingQuotations);
             } catch (error) {
-                console.error("Error fetching data for approvals:", error);
-                toast({
+                 console.error("Error fetching metadata for approvals:", error);
+                 toast({
                     variant: 'destructive',
-                    title: "Error loading data",
-                    description: "Could not fetch quotations for approval. Please check permissions."
+                    title: "Error loading metadata",
+                    description: "Could not fetch user or deal information."
                 });
-            } finally {
-                setLoading(false);
             }
-        };
+        }
+        
+        fetchMetadata();
+        
+        // This is a more direct and secure query. It requires a Firestore index.
+        const q = query(
+            collectionGroup(db, 'quotations'),
+            where('status', '==', 'Pending Approval')
+        );
 
-        fetchAllData();
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const pendingQuotations: EnrichedQuotation[] = [];
+            snapshot.forEach(doc => {
+                const quotationData = doc.data() as Quotation;
+                const pathParts = doc.ref.path.split('/');
+                // The path is customers/{customerId}/deals/{dealId}/quotations/{quotationId}
+                const customerId = pathParts[1];
+                const dealId = pathParts[3];
+
+                pendingQuotations.push({
+                    ...quotationData,
+                    id: doc.id,
+                    customerId,
+                    dealId,
+                });
+            });
+            setQuotations(pendingQuotations);
+            setLoading(false);
+        }, (error) => {
+             console.error("Error fetching pending quotations:", error);
+             toast({
+                variant: 'destructive',
+                title: "Error loading data",
+                description: "Could not fetch quotations for approval. Please check Firestore permissions and indexes."
+            });
+            setLoading(false);
+        });
+        
+        return () => unsubscribe();
+
     }, [toast]);
 
 
