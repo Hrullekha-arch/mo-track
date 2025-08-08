@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
@@ -20,61 +19,33 @@ export interface PendingPoItem {
 
 export async function getPendingPoItems(): Promise<PendingPoItem[]> {
     try {
-        const ordersSnapshot = await adminDb.collection('orders').where('isAcknowledged', '==', true).get();
-        const stockSnapshot = await adminDb.collection('stocks').get();
+        const approvedRequestsSnapshot = await adminDb.collection('purchaseRequests').where('status', '==', 'Approved').get();
         
-        const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        const stockMap = new Map<string, Stock>();
-        stockSnapshot.docs.forEach(doc => {
-            const stock = { id: doc.id, ...doc.data() } as Stock;
-            if (stock.bcn) {
-                stockMap.set(stock.bcn, stock);
-            }
-        });
-        
-        const activeOrders = allOrders.filter(order => {
-             const isFullyCompleted = order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
-             return !isFullyCompleted;
-        });
-
         const pendingItems: PendingPoItem[] = [];
 
-        for (const order of activeOrders) {
-            const itemsInOrder = [
-                ...(order.fabricDetails || []).map(item => ({ name: item.fabricName, quantity: parseFloat(item.quantity) })),
-                ...(order.furnitureDetails || []).map(item => ({ name: item.furnitureName, quantity: parseFloat(item.quantity) }))
-            ];
-            
-            const allocationsSnapshot = await adminDb.collection('orders').doc(order.id).collection('allocations').get();
-            const allocations = allocationsSnapshot.docs.map(d => d.data());
+        for (const requestDoc of approvedRequestsSnapshot.docs) {
+            const request = requestDoc.data() as PurchaseRequest;
+            const items = [...(request.fabricDetails || []), ...(request.furnitureDetails || [])];
 
-            for (const item of itemsInOrder) {
-                if (!item.name || isNaN(item.quantity) || item.quantity <= 0) continue;
+            for (const item of items) {
+                const itemName = (item as FabricDetail).fabricName || (item as FurnitureDetail).furnitureName;
+                if (!itemName) continue;
+
+                const stockDocs = await adminDb.collection('stocks').where('bcn', '==', itemName).limit(1).get();
+                const stockInfo = stockDocs.docs[0]?.data() as Stock | undefined;
                 
-                const stockInfo = stockMap.get(item.name);
-                const availableStock = stockInfo?.quantity || 0;
-
-                const totalAllocatedForThisItem = allocations
-                    .filter(a => a.itemName === item.name)
-                    .reduce((sum, alloc) => sum + alloc.quantityAllocated, 0);
-
-                const neededFromStock = item.quantity - totalAllocatedForThisItem;
-                
-                if (neededFromStock > availableStock) {
-                    const purchaseQty = neededFromStock - availableStock;
-                    pendingItems.push({
-                        id: `${order.id}-${item.name}`,
-                        orderId: order.id,
-                        salesman: order.salesPerson,
-                        collectionBrand: item.name,
-                        serialNo: stockInfo?.serialNo || 'N/A',
-                        hsnCode: stockInfo?.hsnCode || 'N/A',
-                        mrp: stockInfo?.mrp || 0,
-                        vendorName: stockInfo?.vendorName || 'N/A',
-                        neededQty: purchaseQty,
-                        stock: stockInfo?.quantity || 0,
-                    });
-                }
+                pendingItems.push({
+                    id: `${request.dealId}-${itemName}`,
+                    orderId: request.dealId,
+                    salesman: request.salesman,
+                    collectionBrand: itemName,
+                    serialNo: stockInfo?.serialNo || 'N/A',
+                    hsnCode: stockInfo?.hsnCode || 'N/A',
+                    mrp: stockInfo?.mrp || 0,
+                    vendorName: item.vendorName || stockInfo?.vendorName || 'N/A',
+                    neededQty: parseFloat(item.quantity),
+                    stock: stockInfo?.quantity || 0,
+                });
             }
         }
         
@@ -115,8 +86,6 @@ export async function createPurchaseRequestAction(
             const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
             poNumbers.push(poNumber);
 
-            // Fetch the source order once, assuming all items in a group come from the same order for now.
-            // A more robust solution might handle items from multiple orders in one PO group.
             const firstItem = group.items[0];
             const sourceOrderDoc = await adminDb.collection('orders').doc(firstItem.orderId).get();
             if (!sourceOrderDoc.exists()) {
@@ -156,7 +125,7 @@ export async function createPurchaseRequestAction(
                 createdBy: creator,
                 milestones: [],
                 vendorType: 'undecided',
-                status: 'Pending Approval', // New requests start as pending
+                status: 'Pending Approval',
                 vendor: group.vendor,
                 courier: group.courier,
                 mode: group.mode,
