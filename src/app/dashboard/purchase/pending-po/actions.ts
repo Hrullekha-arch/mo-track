@@ -124,7 +124,12 @@ export async function createPurchaseRequestAction(
         for (const item of items) {
             const neededQty = item.totalOrderQty - item.stock;
             // A simple way to differentiate - can be improved with better data
-            if (item.collectionBrand.toLowerCase().includes('fabric')) {
+            // This logic assumes fabric items contain 'fabric' in their BCN or category.
+            // A more robust solution might use a 'type' field in the stock data.
+            const stockInfo = await adminDb.collection('stocks').where('bcn', '==', item.collectionBrand).limit(1).get();
+            const stockType = stockInfo.docs[0]?.data()?.type || 'fabric'; // Default to fabric
+
+            if (stockType === 'fabric') {
                  fabricDetails.push({
                     fabricName: item.collectionBrand,
                     quantity: String(neededQty),
