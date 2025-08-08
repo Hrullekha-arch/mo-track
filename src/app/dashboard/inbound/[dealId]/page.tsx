@@ -20,7 +20,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { PO_PROCESS_CONFIG } from '@/lib/constants';
-import { updateStockQuantityAction } from '@/app/dashboard/inventory/actions';
+import { updateStockQuantityAction, revertStockAdditionAction } from '@/app/dashboard/inventory/actions';
 
 
 const INBOUND_PROCESS_CONFIG = [
@@ -229,7 +229,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
     };
     
     const handleRevertUpdate = async () => {
-        if (!request || !revertingMilestone) return;
+        if (!request || !revertingMilestone || !user) return;
 
         const { itemIndex, milestone } = revertingMilestone;
         const key = `${itemIndex}-${milestone.stepId}`;
@@ -241,10 +241,25 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
             const itemToUpdate = items[itemIndex];
             if (!itemToUpdate) throw new Error("Item not found");
 
+            // Check if this was the last step, which would have triggered a stock update
+            const wasLastStep = itemToUpdate.inboundMilestones?.length === INBOUND_PROCESS_CONFIG.length;
+            
             itemToUpdate.inboundMilestones = itemToUpdate.inboundMilestones?.filter(m => m.stepId !== milestone.stepId);
             items[itemIndex] = itemToUpdate;
             
             await updateDoc(requestRef, { items: items });
+
+            // If it was the last step, revert the stock update
+            if (wasLastStep && itemToUpdate.poNumber) {
+                const stockId = itemToUpdate.itemName.replace(/\//g, '-');
+                const revertResult = await revertStockAdditionAction(stockId, itemToUpdate.poNumber, itemToUpdate.itemName, user.name);
+                if (revertResult.success) {
+                    toast({ title: 'Stock Reverted', description: revertResult.message });
+                } else {
+                    toast({ variant: 'destructive', title: 'Stock Revert Failed', description: revertResult.message });
+                    // Potentially handle this error more gracefully, e.g., don't revert the UI
+                }
+            }
             
             toast({ title: "Step Reverted", description: "The process step has been successfully reverted." });
         } catch (error) {
@@ -369,7 +384,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                 <AlertDialogHeader>
                     <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                     <AlertDialogDescription>
-                        This will revert the step: <strong>{revertingStepConfig?.name}</strong>. This action cannot be undone.
+                        This will revert the step: <strong>{revertingStepConfig?.name}</strong>. If this step triggered a stock update, the inventory will also be reverted. This action cannot be easily undone.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

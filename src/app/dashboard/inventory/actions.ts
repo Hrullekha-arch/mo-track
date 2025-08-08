@@ -150,16 +150,13 @@ export async function updateStockQuantityAction(
 ): Promise<{ success: boolean; message: string; newStock?: Stock }> {
   try {
     const stockRef = adminDb.collection('stocks').doc(stockId);
-    const transactionCollectionName = transaction.type === 'addition' ? 'stockAdded' : 'stockSold';
+    const transactionCollectionName = 'stockAdded';
     const transactionRef = stockRef.collection(transactionCollectionName).doc();
 
     const batch = adminDb.batch();
     
-    // Step 1: Write the new transaction document.
-    batch.set(transactionRef, transaction);
+    batch.set(transactionRef, { ...transaction, id: transactionRef.id });
     
-    // Step 2: Update the main stock document with the increment.
-    // This is more efficient than recalculating the whole sum every time.
     batch.update(stockRef, { 
       quantity: FieldValue.increment(transaction.quantityChange),
       lastUpdatedAt: new Date().toISOString()
@@ -167,7 +164,6 @@ export async function updateStockQuantityAction(
 
     await batch.commit();
 
-    // Step 3: Fetch and return the updated stock document to ensure consistency.
     const updatedStockDoc = await stockRef.get();
     const newStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
 
@@ -178,6 +174,46 @@ export async function updateStockQuantityAction(
         return { success: false, message: `Stock item with ID ${stockId} not found. Could not update quantity.` };
     }
     return { success: false, message: `Failed to update stock: ${error.message}` };
+  }
+}
+
+export async function revertStockAdditionAction(
+  stockId: string,
+  poNumber: string,
+  itemName: string,
+  revertedBy: string
+): Promise<{ success: boolean; message: string; }> {
+  try {
+    const stockRef = adminDb.collection('stocks').doc(stockId);
+    const transactionsRef = stockRef.collection('stockAdded');
+
+    const q = transactionsRef.where('poNumber', '==', poNumber).where('bcn', '==', itemName);
+    const snapshot = await q.get();
+
+    if (snapshot.empty) {
+      return { success: false, message: `No matching stock addition transaction found for PO ${poNumber} and item ${itemName}.` };
+    }
+    
+    const batch = adminDb.batch();
+    let totalRevertedQuantity = 0;
+
+    snapshot.docs.forEach(doc => {
+      const transaction = doc.data() as StockTransaction;
+      totalRevertedQuantity += transaction.quantityChange;
+      batch.delete(doc.ref);
+    });
+
+    batch.update(stockRef, {
+        quantity: FieldValue.increment(-totalRevertedQuantity),
+        lastUpdatedAt: new Date().toISOString()
+    });
+
+    await batch.commit();
+    
+    return { success: true, message: `Successfully reverted stock addition of ${totalRevertedQuantity} for ${itemName}.` };
+  } catch (error: any) {
+    console.error(`Error reverting stock addition for ${stockId}:`, error);
+    return { success: false, message: `Failed to revert stock addition: ${error.message}` };
   }
 }
 
