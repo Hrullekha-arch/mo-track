@@ -11,7 +11,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowLeft, Search } from "lucide-react";
+import { ArrowLeft, Search, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -25,21 +25,12 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
 import Link from 'next/link';
-import { getPendingPoItems } from "./actions";
+import { getPendingPoItems, createPurchaseRequestAction, PendingPoItem } from "./actions";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-
-
-export interface PendingPoItem {
-    id: string;
-    collectionBrand: string;
-    serialNo: string;
-    hsnCode: string;
-    mrp: number;
-    vendorName: string;
-    totalOrderQty: number;
-    stock: number;
-}
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
 
 const columns: ColumnDef<PendingPoItem>[] = [
@@ -63,8 +54,11 @@ const columns: ColumnDef<PendingPoItem>[] = [
 export default function PendingPOPage() {
   const [data, setData] = React.useState<PendingPoItem[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [globalFilter, setGlobalFilter] = React.useState('');
   const { toast } = useToast();
+  const router = useRouter();
+  const { user } = useAuth();
 
   React.useEffect(() => {
       const fetchData = async () => {
@@ -98,7 +92,37 @@ export default function PendingPOPage() {
     state: {
       globalFilter,
     },
-  })
+  });
+  
+  const handleProceed = async () => {
+    if (!user) {
+      toast({ variant: 'destructive', title: 'Authentication Error' });
+      return;
+    }
+    const selectedRows = table.getFilteredSelectedRowModel().rows;
+    if (selectedRows.length === 0) {
+      toast({ variant: 'destructive', title: 'No Items Selected', description: 'Please select items to proceed.' });
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      const selectedItems = selectedRows.map(row => row.original);
+      const result = await createPurchaseRequestAction(selectedItems, { id: user.id, name: user.name });
+
+      if (result.success) {
+        toast({ title: 'Success!', description: result.message });
+        router.push('/dashboard/purchase');
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: result.message });
+      }
+    } catch (error) {
+      console.error(error);
+      toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8">
@@ -145,7 +169,7 @@ export default function PendingPOPage() {
                             {loading ? (
                                 <TableRow>
                                     <TableCell colSpan={columns.length} className="h-24 text-center">
-                                       <Skeleton className="h-8 w-full" />
+                                       <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                                     </TableCell>
                                 </TableRow>
                             ) : table.getRowModel().rows?.length ? (
@@ -173,9 +197,28 @@ export default function PendingPOPage() {
                         {table.getFilteredSelectedRowModel().rows.length} of{" "}
                         {table.getFilteredRowModel().rows.length} row(s) selected.
                     </div>
-                    <div className="space-x-2">
-                        <Button variant="outline">Cancel</Button>
-                        <Button>Proceed To PO</Button>
+                     <div className="space-x-2">
+                        <Button variant="outline" onClick={() => router.back()}>Cancel</Button>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                               <Button disabled={isSubmitting || table.getFilteredSelectedRowModel().rows.length === 0}>
+                                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    Proceed To PO
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This will create a new Purchase Request with {table.getFilteredSelectedRowModel().rows.length} item(s). This action cannot be undone.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleProceed}>Continue</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     </div>
                 </div>
             </CardContent>

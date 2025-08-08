@@ -2,7 +2,7 @@
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, Stock } from "@/lib/types";
+import { Order, Stock, PurchaseRequest, FabricDetail, FurnitureDetail } from "@/lib/types";
 
 export interface PendingPoItem {
     id: string; // Combination of orderId and itemName
@@ -18,13 +18,9 @@ export interface PendingPoItem {
 export async function getPendingPoItems(): Promise<PendingPoItem[]> {
     try {
         // Step 1: Fetch only active orders. 
-        // We can't perfectly filter for "not fully completed" on the backend easily.
-        // A good proxy is to get orders that don't have a `completedAt` field.
-        // For this implementation, we will fetch all and filter locally, which is still better than fetching all stock.
         const ordersSnapshot = await adminDb.collection('orders').get();
         const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
         
-        // This logic should be refined if a `isCompleted` flag is added to orders.
         const activeOrders = allOrders.filter(order => {
              const isCompleted = order.milestones.every(m => m.completed);
              return !isCompleted;
@@ -35,7 +31,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
         }
 
         // Step 2: Aggregate all unique item names (BCNs) from active orders.
-        const requiredItemsMap = new Map<string, { totalOrderQty: number }>();
+        const requiredItemsMap = new Map<string, { totalOrderQty: number, orders: string[] }>();
 
         for (const order of activeOrders) {
             const itemsInOrder = [
@@ -49,8 +45,11 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 const existing = requiredItemsMap.get(item.name);
                 if (existing) {
                     existing.totalOrderQty += item.quantity;
+                    if (!existing.orders.includes(order.id)) {
+                        existing.orders.push(order.id);
+                    }
                 } else {
-                    requiredItemsMap.set(item.name, { totalOrderQty: item.quantity });
+                    requiredItemsMap.set(item.name, { totalOrderQty: item.quantity, orders: [order.id] });
                 }
             }
         }
@@ -61,7 +60,6 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
         }
 
         // Step 3: Fetch only the stock data for the required BCNs.
-        // Firestore 'in' query is limited to 30 items. If you have more, we need to do multiple queries.
         const stockPromises = [];
         for (let i = 0; i < requiredBcns.length; i += 30) {
             const chunk = requiredBcns.slice(i, i + 30);
@@ -88,7 +86,6 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
             const stockInfo = stockMap.get(bcn);
             const currentStock = stockInfo?.quantity || 0;
 
-            // Only add to pending list if required quantity is greater than stock
             if (required.totalOrderQty > currentStock) {
                  pendingItems.push({
                     id: bcn,
@@ -103,10 +100,70 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
             }
         }
         
-        return pendingItems;
+        return JSON.parse(JSON.stringify(pendingItems));
 
     } catch (error) {
         console.error("Error fetching pending PO items:", error);
         return [];
+    }
+}
+
+
+export async function createPurchaseRequestAction(
+    items: PendingPoItem[],
+    creator: { id: string; name: string }
+): Promise<{ success: boolean, message: string, requestId?: string }> {
+    if (!items || items.length === 0) {
+        return { success: false, message: "No items provided to create a purchase request." };
+    }
+
+    try {
+        const fabricDetails: FabricDetail[] = [];
+        const furnitureDetails: FurnitureDetail[] = [];
+
+        for (const item of items) {
+            const neededQty = item.totalOrderQty - item.stock;
+            // A simple way to differentiate - can be improved with better data
+            if (item.collectionBrand.toLowerCase().includes('fabric')) {
+                 fabricDetails.push({
+                    fabricName: item.collectionBrand,
+                    quantity: String(neededQty),
+                    vendorName: item.vendorName,
+                });
+            } else {
+                 furnitureDetails.push({
+                    furnitureName: item.collectionBrand,
+                    quantity: String(neededQty),
+                    vendorName: item.vendorName,
+                });
+            }
+        }
+        
+        const newRequestRef = adminDb.collection('purchaseRequests').doc();
+        
+        // For now, some fields will be placeholders.
+        // A more sophisticated implementation would aggregate customer/deal info.
+        const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
+            dealId: `AGGREGATE-${new Date().getTime()}`,
+            customerName: "Aggregated from multiple orders",
+            promiseDeliveryDate: new Date().toISOString(),
+            salesman: "System",
+            type: fabricDetails.length > 0 ? 'fabric' : 'furniture',
+            workType: 'production',
+            fabricDetails,
+            furnitureDetails,
+            createdAt: new Date().toISOString(),
+            createdBy: creator,
+            milestones: [],
+            vendorType: 'undecided',
+            status: 'pending',
+        };
+        
+        await newRequestRef.set(newPurchaseRequest);
+
+        return { success: true, message: "Purchase request created successfully!", requestId: newRequestRef.id };
+    } catch (error: any) {
+        console.error("Error creating purchase request:", error);
+        return { success: false, message: `Server error: ${error.message}` };
     }
 }
