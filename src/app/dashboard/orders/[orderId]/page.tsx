@@ -336,7 +336,8 @@ function AllocateOrderTable({ order, onAllocationSuccess }: { order: Order, onAl
     )
 }
 
-export default function OrderDetailPage({ params }: { params: { orderId: string } }) {
+export default function OrderDetailPage({ params: paramsPromise }: { params: Promise<{ orderId: string }> }) {
+    const params = use(paramsPromise);
     const { orderId } = params;
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(true);
@@ -469,4 +470,3 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
         </div>
     );
 }
-

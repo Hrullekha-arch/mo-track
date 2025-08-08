@@ -95,9 +95,9 @@ function ItemProcessTimeline({
     );
 }
 
-export default function InboundProcessPage({ params }: { params: Promise<{ dealId: string }> }) {
+export default function InboundProcessPage({ params: paramsPromise }: { params: Promise<{ dealId: string }> }) {
     // The dealId from the URL is now the PO Number, which is the ID of the inbound document
-    const { dealId: poNumber } = use(params);
+    const { dealId: poNumber } = use(paramsPromise);
     const [request, setRequest] = useState<InboundRequest | null>(null);
     const [loading, setLoading] = useState(true);
     const [updating, setUpdating] = useState<string | null>(null);
