@@ -26,10 +26,6 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
              return !isCompleted;
         });
 
-        if (activeOrders.length === 0) {
-            return [];
-        }
-
         // Step 2: Aggregate all unique item names (BCNs) from active orders.
         const requiredItemsMap = new Map<string, { totalOrderQty: number, orders: string[] }>();
 
@@ -78,14 +74,33 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 }
             });
         });
+        
+        // Step 4: Fetch active Purchase Requests to check for "in-flight" stock
+        const activePrSnapshot = await adminDb.collection('purchaseRequests').where('status', '==', 'pending').get();
+        const inFlightItems = new Map<string, number>();
 
-        // Step 4 & 5: Compare, identify needs, and build the final list.
+        activePrSnapshot.docs.forEach(doc => {
+            const pr = doc.data() as PurchaseRequest;
+            const items = [...(pr.fabricDetails || []), ...(pr.furnitureDetails || [])];
+            items.forEach(item => {
+                const name = (item as FabricDetail).fabricName || (item as FurnitureDetail).furnitureName;
+                const quantity = parseFloat(item.quantity) || 0;
+                if (name) {
+                    inFlightItems.set(name, (inFlightItems.get(name) || 0) + quantity);
+                }
+            });
+        });
+
+        // Step 5: Compare, identify needs, and build the final list.
         const pendingItems: PendingPoItem[] = [];
         
         for (const [bcn, required] of requiredItemsMap.entries()) {
             const stockInfo = stockMap.get(bcn);
             const currentStock = stockInfo?.quantity || 0;
-            const neededQty = required.totalOrderQty - currentStock;
+            const inFlightQty = inFlightItems.get(bcn) || 0;
+            
+            // The actual needed quantity is what's ordered, minus what's in stock and what's already on order.
+            const neededQty = required.totalOrderQty - currentStock - inFlightQty;
 
             if (neededQty > 0) {
                  pendingItems.push({
