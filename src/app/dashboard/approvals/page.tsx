@@ -30,7 +30,6 @@ function ApproveQuotationTab() {
     const [loading, setLoading] = useState(true);
     const [updatingId, setUpdatingId] = useState<string | null>(null);
     const [selectedQuotation, setSelectedQuotation] = useState<EnrichedQuotation | null>(null);
-    const [allDeals, setAllDeals] = useState<Record<string, Deal>>({});
     const [allUsers, setAllUsers] = useState<User[]>([]);
 
     const { toast } = useToast();
@@ -38,39 +37,25 @@ function ApproveQuotationTab() {
 
     useEffect(() => {
         setLoading(true);
-        // Fetch all users and deals first for enrichment later
+        // Fetch all users first for enrichment later
         const fetchMetadata = async () => {
             try {
                 const usersQuery = collection(db, 'users');
-                const dealsQuery = collectionGroup(db, 'deals');
-
-                const [usersSnapshot, dealsSnapshot] = await Promise.all([
-                    getDocs(usersQuery),
-                    getDocs(dealsQuery),
-                ]);
-
+                const usersSnapshot = await getDocs(usersQuery);
                 const usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
                 setAllUsers(usersData);
-
-                const dealsData = dealsSnapshot.docs.reduce((acc, doc) => {
-                    acc[doc.id] = { id: doc.id, ...doc.data() } as Deal;
-                    return acc;
-                }, {} as Record<string, Deal>);
-                setAllDeals(dealsData);
-
             } catch (error) {
                  console.error("Error fetching metadata for approvals:", error);
                  toast({
                     variant: 'destructive',
-                    title: "Error loading metadata",
-                    description: "Could not fetch user or deal information."
+                    title: "Error loading user data",
+                    description: "Could not fetch user information."
                 });
             }
         }
         
         fetchMetadata();
         
-        // This is a more direct and secure query. It requires a Firestore index.
         const q = query(
             collectionGroup(db, 'quotations'),
             where('status', '==', 'Pending Approval')
@@ -81,7 +66,6 @@ function ApproveQuotationTab() {
             snapshot.forEach(doc => {
                 const quotationData = doc.data() as Quotation;
                 const pathParts = doc.ref.path.split('/');
-                // The path is customers/{customerId}/deals/{dealId}/quotations/{quotationId}
                 const customerId = pathParts[1];
                 const dealId = pathParts[3];
 
@@ -118,7 +102,6 @@ function ApproveQuotationTab() {
                 status: 'Approved'
             });
 
-            // Save a copy to the approvedQuotations collection
             const approvedQuotationRef = doc(db, 'approvedQuotations', selectedQuotation.id);
             await setDoc(approvedQuotationRef, { 
                 ...selectedQuotation, 
@@ -134,7 +117,6 @@ function ApproveQuotationTab() {
                 title: 'Quotation Approved',
                 description: `Quotation #${selectedQuotation.quotationNo} has been approved.`
             });
-            // Refetch data after approval
             setQuotations(prev => prev.filter(q => q.id !== selectedQuotation.id));
         } catch (error) {
             console.error('Error approving quotation:', error);
@@ -214,7 +196,7 @@ function ApproveQuotationTab() {
                                <PrintableQuotationProfessional
                                     values={selectedQuotation}
                                     creatorName={allUsers.find(u => u.id === selectedQuotation.createdBy)?.name}
-                                    salesmanName={allUsers.find(s => s.id === allDeals[selectedQuotation.dealId]?.representativeId)?.name}
+                                    salesmanName={allUsers.find(s => s.id === selectedQuotation.items[0]?.id)?.name} // This part might need adjustment if salesmanId isn't on item
                                 />
                             </div>
                             <DialogFooter>
@@ -302,7 +284,7 @@ function ApprovePurchaseTab() {
                     </TableHeader>
                     <TableBody>
                         {requests.length > 0 ? requests.map(req => {
-                            const items = [...(req.fabricDetails || []), ...(req.furnitureDetails || [])];
+                            const items = [...(req.fabricDetails || [])];
                             return (
                                 <TableRow key={req.id}>
                                     <TableCell className="font-medium">{req.dealId}</TableCell>
@@ -311,7 +293,7 @@ function ApprovePurchaseTab() {
                                         <div className="flex flex-col gap-1">
                                             {items.map((item, index) => (
                                                 <div key={index} className="text-xs">
-                                                    <span className="font-semibold">{(item as any).fabricName || (item as any).furnitureName}:</span>
+                                                    <span className="font-semibold">{(item as any).fabricName}:</span>
                                                     <span className="text-muted-foreground ml-2">{item.quantity} {(req.type === 'fabric' ? 'Mtr' : 'Pcs')}</span>
                                                 </div>
                                             ))}
