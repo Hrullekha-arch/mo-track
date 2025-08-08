@@ -119,7 +119,7 @@ function CreatePoDialog({ isOpen, onClose, selectedItems, creator }: { isOpen: b
                             <FormField name="vendor" control={form.control} render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Vendor</FormLabel>
-                                    <FormControl><Input {...field} readOnly /></FormControl>
+                                    <FormControl><Input {...field} /></FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}/>
@@ -234,11 +234,6 @@ export default function PendingPOPage() {
     const selectedRows = table.getFilteredSelectedRowModel().rows;
     if (selectedRows.length === 0) {
         toast({ variant: 'destructive', title: 'No Items Selected', description: 'Please select items to proceed.' });
-        return;
-    }
-    const vendors = new Set(selectedRows.map(row => row.original.vendorName));
-    if (vendors.size > 1) {
-        toast({ variant: 'destructive', title: 'Multiple Vendors Selected', description: 'Please select items from only one vendor to create a PO.' });
         return;
     }
     setIsDialogOpen(true);
