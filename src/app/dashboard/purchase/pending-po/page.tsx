@@ -33,6 +33,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 
 const createPoSchema = z.object({
   vendor: z.string().min(1, "Vendor name is required."),
@@ -46,16 +47,17 @@ function CreatePoDialog({
     isOpen, 
     onClose, 
     item, 
-    creator 
+    creator,
+    onSuccess,
 }: { 
     isOpen: boolean;
     onClose: () => void; 
     item: PendingPoItem | null; 
     creator: { id: string; name: string; } | null;
+    onSuccess: () => void;
 }) {
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const { toast } = useToast();
-    const router = useRouter();
 
     const form = useForm<CreatePoFormValues>({
         resolver: zodResolver(createPoSchema),
@@ -65,6 +67,8 @@ function CreatePoDialog({
     React.useEffect(() => {
         if (item) {
             form.setValue('vendor', item.vendorName || '');
+        } else {
+            form.reset({ vendor: '', courier: '', mode: 'SURFACE' });
         }
     }, [item, form]);
 
@@ -83,9 +87,8 @@ function CreatePoDialog({
 
             if (result.success) {
                 toast({ title: 'Success!', description: result.message });
+                onSuccess(); // This will trigger a data refresh in the parent
                 onClose();
-                // Instead of router.refresh(), we call fetchData to update the table state
-                // This is passed down from the main component.
             } else {
                 toast({ variant: 'destructive', title: 'Error', description: result.message });
             }
@@ -101,25 +104,21 @@ function CreatePoDialog({
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>Create Purchase Order</DialogTitle>
-                    <DialogDescription>
-                        A PO will be created for BCN: <strong>{item.collectionBrand}</strong> from Order ID: <strong>{item.orderId}</strong>. <br />
-                        Required Quantity: <strong>{item.neededQty}</strong>
-                    </DialogDescription>
                 </DialogHeader>
                  <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                        <FormField name="vendor" control={form.control} render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Vendor</FormLabel>
-                                <FormControl><Input {...field} /></FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}/>
-                        <div className="grid grid-cols-2 gap-4">
-                            <FormField name="courier" control={form.control} render={({ field }) => (
+                    <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <FormField name="vendor" control={form.control} render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Vendor</FormLabel>
+                                    <FormControl><Input {...field} /></FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}/>
+                             <FormField name="courier" control={form.control} render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Courier</FormLabel>
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
@@ -146,11 +145,31 @@ function CreatePoDialog({
                                 </FormItem>
                             )}/>
                         </div>
-                        <DialogFooter className="pt-2">
+                        
+                        <Separator />
+                        
+                        <div>
+                            <div className="grid grid-cols-12 px-4 py-2 font-medium text-muted-foreground text-sm">
+                                <div className="col-span-1">#</div>
+                                <div className="col-span-6">BCN/Item Name</div>
+                                <div className="col-span-3">Serial No</div>
+                                <div className="col-span-2 text-right">Qty</div>
+                            </div>
+                            <div className="border rounded-md px-4 py-3">
+                                 <div className="grid grid-cols-12 items-center">
+                                    <div className="col-span-1 font-semibold">1</div>
+                                    <div className="col-span-6 font-semibold text-primary">{item.collectionBrand}</div>
+                                    <div className="col-span-3 text-muted-foreground">{item.serialNo}</div>
+                                    <div className="col-span-2 text-right font-bold">{item.neededQty}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <DialogFooter className="pt-4">
                             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
                             <Button type="submit" disabled={isSubmitting}>
                                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Submit PO
+                                Submit
                             </Button>
                         </DialogFooter>
                     </form>
@@ -305,12 +324,10 @@ export default function PendingPOPage() {
     </div>
     <CreatePoDialog 
         isOpen={!!itemForPo}
-        onClose={() => {
-            setItemForPo(null);
-            fetchData();
-        }}
+        onClose={() => setItemForPo(null)}
         item={itemForPo}
         creator={user ? { id: user.id, name: user.name } : null}
+        onSuccess={fetchData}
     />
     </>
   )
