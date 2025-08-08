@@ -12,26 +12,46 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
         const stockAddedSnapshot = await adminDb.collection('stocks').doc(stockId).collection('stockAdded').get();
         const stockSoldSnapshot = await adminDb.collection('stocks').doc(stockId).collection('stockSold').get();
 
-        const addedLengths = stockAddedSnapshot.docs.flatMap(doc => {
+        const addedLengthCounts: { [key: number]: { count: number, transactionIds: string[] } } = {};
+        stockAddedSnapshot.docs.forEach(doc => {
             const data = doc.data() as StockTransaction;
-            return (data.lengths || []).map(length => ({ length, transactionId: doc.id }));
-        });
-        
-        const soldLengths = stockSoldSnapshot.docs.flatMap(doc => {
-            const data = doc.data() as StockTransaction;
-            return (data.lengths || []);
+            (data.lengths || []).forEach(length => {
+                if (!addedLengthCounts[length]) {
+                    addedLengthCounts[length] = { count: 0, transactionIds: [] };
+                }
+                addedLengthCounts[length].count++;
+                if (!addedLengthCounts[length].transactionIds.includes(doc.id)) {
+                    addedLengthCounts[length].transactionIds.push(doc.id);
+                }
+            });
         });
 
-        // This is a simple subtraction, assumes lengths are unique enough for this logic.
-        // A more robust system might mark specific lengths as used.
-        const availableLengths = addedLengths.filter(added => {
-            const indexInSold = soldLengths.findIndex(sold => sold === added.length);
-            if (indexInSold > -1) {
-                soldLengths.splice(indexInSold, 1);
-                return false;
-            }
-            return true;
+        const soldLengthCounts: { [key: number]: number } = {};
+        stockSoldSnapshot.docs.forEach(doc => {
+            const data = doc.data() as StockTransaction;
+            (data.lengths || []).forEach(length => {
+                if (!soldLengthCounts[length]) {
+                    soldLengthCounts[length] = 0;
+                }
+                soldLengthCounts[length]++;
+            });
         });
+
+        const availableLengths: { length: number; transactionId: string }[] = [];
+        for (const lengthStr in addedLengthCounts) {
+            const length = parseFloat(lengthStr);
+            const addedInfo = addedLengthCounts[length];
+            const soldCount = soldLengthCounts[length] || 0;
+            const availableCount = addedInfo.count - soldCount;
+            
+            if (availableCount > 0) {
+                // For simplicity, we use the first transactionId. A more complex system might track individual length instances.
+                const transactionId = addedInfo.transactionIds[0];
+                for (let i = 0; i < availableCount; i++) {
+                    availableLengths.push({ length, transactionId });
+                }
+            }
+        }
 
         return { success: true, message: 'Lengths fetched.', lengths: availableLengths };
 
@@ -122,7 +142,6 @@ export async function allocateStockToAction(
         
         const allItems = [
             ...(orderData.fabricDetails || []).map(d => ({ ...d, type: 'Fabric' })),
-            ...(orderData.furnitureDetails || []).map(d => ({ ...d, type: 'Furniture' }))
         ];
 
         const allAllocationsSnapshot = await orderRef.collection('allocations').get();
