@@ -106,7 +106,7 @@ function CreatePoDialog({ isOpen, onClose, item, creator }: { isOpen: boolean, o
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-xl">
+            <DialogContent className="max-w-md">
                 <DialogHeader>
                     <DialogTitle>Create Purchase Order</DialogTitle>
                     <DialogDescription>
@@ -114,10 +114,10 @@ function CreatePoDialog({ isOpen, onClose, item, creator }: { isOpen: boolean, o
                     </DialogDescription>
                 </DialogHeader>
                  <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 py-4">
-                         <Card className="p-4">
+                    <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+                         <Card className="p-4 border-0 shadow-none">
                             <CardHeader className="p-0 pb-4">
-                                <CardTitle className="text-lg">Vendor: {form.getValues('poGroup.vendor')}</CardTitle>
+                                <CardTitle className="text-base">Vendor: {form.getValues('poGroup.vendor')}</CardTitle>
                             </CardHeader>
                             <CardContent className="p-0 space-y-4">
                                  <div className="grid grid-cols-2 gap-4">
@@ -169,7 +169,7 @@ function CreatePoDialog({ isOpen, onClose, item, creator }: { isOpen: boolean, o
                             </CardContent>
                         </Card>
                         
-                        <DialogFooter className="pt-4 sticky bottom-0 bg-background/95 pb-2">
+                        <DialogFooter className="pt-2">
                             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
                             <Button type="submit" disabled={isSubmitting}>
                                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
