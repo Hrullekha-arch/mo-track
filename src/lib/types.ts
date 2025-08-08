@@ -71,7 +71,6 @@ export interface FabricDetail {
     poNumber?: string;
     vendorName?: string;
     expectedDeliveryDate?: string;
-    inboundMilestones?: InboundMilestone[];
     hasPanels?: boolean;
     type?: string;
     panels?: string;
@@ -122,7 +121,6 @@ export interface Order {
   otp?: string;
   completedAt?: string; // ISO Date string
   fabricDetails?: FabricDetail[];
-  furnitureDetails?: never; // Deprecated
   status?: 'Pending Approval' | 'Approved';
   
   // Reference back to the deal
@@ -144,12 +142,10 @@ export interface PurchaseRequest {
   promiseDeliveryDate: string; // ISO Date string
   salesman: string;
   email?: string;
-  type: 'fabric'; // Always fabric now
+  type: 'fabric'; 
   workType?: 'stitching' | 'production' | 'delivery';
   
   fabricDetails: FabricDetail[];
-  furnitureDetails?: never; // Deprecated
-  vasDetails?: VasDetail[];
   
   createdAt: string; // ISO Date string
   createdBy: {
@@ -174,6 +170,29 @@ export interface PurchaseRequest {
   completedAt?: string;
   completedBy?: string;
 }
+
+
+export interface InboundItem {
+    itemName: string;
+    quantity: string;
+    unit: 'Mtr' | 'Pcs';
+    poNumber?: string;
+    inboundMilestones: InboundMilestone[];
+}
+
+export interface InboundRequest {
+    id: string; // Corresponds to the PurchaseRequest ID (dealId)
+    purchaseRequestId: string;
+    dealId: string;
+    customerName: string;
+    vendor: string;
+    createdAt: string;
+    status: 'Active' | 'Completed';
+    completedAt?: string;
+    completedBy?: string;
+    items: InboundItem[];
+}
+
 
 export interface PurchaseStatus {
   stepId: number;

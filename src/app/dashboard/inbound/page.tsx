@@ -5,7 +5,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest } from "@/lib/types";
+import { InboundRequest, InboundItem } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { Archive, ChevronRight, Package, Search, CheckCircle2, History } from 'lucide-react';
@@ -18,17 +18,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const TOTAL_INBOUND_STEPS = 5;
 
-const isRequestComplete = (request: PurchaseRequest) => {
-    const items = request.fabricDetails || [];
-    if (items.length === 0) return false;
-    return items.every(item => (item.inboundMilestones?.filter(m => m.status === 'completed').length || 0) === TOTAL_INBOUND_STEPS);
+const isRequestComplete = (request: InboundRequest) => {
+    if (request.items.length === 0) return false;
+    return request.status === 'Completed' || request.items.every(item => (item.inboundMilestones?.filter(m => m.status === 'completed').length || 0) === TOTAL_INBOUND_STEPS);
 }
 
-function InboundCard({ request }: { request: PurchaseRequest }) {
-    const items = [
-        ...(request.fabricDetails?.filter(f => f.fabricName).map(f => ({ ...f, type: 'fabric' as const })) || []),
-    ];
-
+function InboundCard({ request }: { request: InboundRequest }) {
     return (
         <Link href={`/dashboard/inbound/${request.id}`} className="block">
             <Card className="hover:shadow-md transition-shadow">
@@ -39,7 +34,7 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
                             <p className="text-sm text-muted-foreground">Deal ID: {request.dealId}</p>
                         </div>
                         <div className="flex flex-col items-end gap-2">
-                             <Badge variant={'default'} className="capitalize">Fabric</Badge>
+                             <Badge variant={'default'} className="capitalize">{request.vendor}</Badge>
                              <div className="flex items-center gap-2 text-muted-foreground">
                                 <ChevronRight className="h-5 w-5" />
                             </div>
@@ -57,10 +52,10 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
                             <div className="col-span-4 text-right">Qty</div>
                         </div>
                         <Separator className="my-2" />
-                        {items.map((item, index) => {
+                        {request.items.map((item, index) => {
                             const isComplete = (item.inboundMilestones?.filter(m => m.status === 'completed').length || 0) === TOTAL_INBOUND_STEPS;
-                            const name = item.fabricName;
-                            const qty = `${item.quantity} Mtr`;
+                            const name = item.itemName;
+                            const qty = `${item.quantity} ${item.unit}`;
 
                             return (
                                 <div 
@@ -87,7 +82,7 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
 }
 
 
-function InboundList({ requests, searchQuery }: { requests: PurchaseRequest[], searchQuery: string }) {
+function InboundList({ requests, searchQuery }: { requests: InboundRequest[], searchQuery: string }) {
      const filteredRequests = useMemo(() => {
         if (!searchQuery) {
             return requests;
@@ -97,12 +92,10 @@ function InboundList({ requests, searchQuery }: { requests: PurchaseRequest[], s
             const customerNameMatch = request.customerName.toLowerCase().includes(query);
             const dealIdMatch = request.dealId.toLowerCase().includes(query);
 
-            const items = [ ...(request.fabricDetails?.map(f => ({ name: f.fabricName || '', po: f.poNumber || '', qty: f.quantity || '' })) || []) ];
-
-            const itemMatch = items.some(item => 
-                item.name.toLowerCase().includes(query) || 
-                item.po.toLowerCase().includes(query) ||
-                String(item.qty).toLowerCase().includes(query)
+            const itemMatch = request.items.some(item => 
+                item.itemName.toLowerCase().includes(query) || 
+                (item.poNumber || '').toLowerCase().includes(query) ||
+                String(item.quantity).toLowerCase().includes(query)
             );
 
             return customerNameMatch || dealIdMatch || itemMatch;
@@ -137,14 +130,14 @@ function InboundList({ requests, searchQuery }: { requests: PurchaseRequest[], s
 
 
 export default function InboundPage() {
-    const [inboundRequests, setInboundRequests] = useState<PurchaseRequest[]>([]);
+    const [inboundRequests, setInboundRequests] = useState<InboundRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
 
     useEffect(() => {
-        const q = query(collection(db, "purchaseRequests"), where("status", "==", "PO Generated"));
+        const q = query(collection(db, "inbounds"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InboundRequest));
             setInboundRequests(requests.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
             setLoading(false);
         });
@@ -153,8 +146,8 @@ export default function InboundPage() {
     }, []);
     
     const { activeRequests, completedRequests } = useMemo(() => {
-        const active: PurchaseRequest[] = [];
-        const completed: PurchaseRequest[] = [];
+        const active: InboundRequest[] = [];
+        const completed: InboundRequest[] = [];
         inboundRequests.forEach(req => {
             if (isRequestComplete(req)) {
                 completed.push(req);

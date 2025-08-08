@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { PurchaseRequest, FabricDetail, InboundMilestone } from '@/lib/types';
+import { InboundRequest, InboundItem, InboundMilestone } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -24,7 +24,7 @@ function InboundScan() {
     const { user } = useAuth();
     const videoRef = useRef<HTMLVideoElement>(null);
 
-    const [request, setRequest] = useState<PurchaseRequest | null>(null);
+    const [request, setRequest] = useState<InboundRequest | null>(null);
     const [loading, setLoading] = useState(true);
     const [scanning, setScanning] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
@@ -37,16 +37,16 @@ function InboundScan() {
         }
 
         const fetchRequest = async () => {
-            const docRef = doc(db, 'purchaseRequests', dealId);
+            const docRef = doc(db, 'inbounds', dealId);
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
-                const data = { id: docSnap.id, ...docSnap.data() } as PurchaseRequest;
-                if (data.fabricDetails) {
-                    data.fabricDetails = data.fabricDetails.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
+                const data = { id: docSnap.id, ...docSnap.data() } as InboundRequest;
+                if (data.items) {
+                    data.items = data.items.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
                 }
                 setRequest(data);
             } else {
-                toast({ variant: 'destructive', title: 'Error', description: 'Purchase request not found.' });
+                toast({ variant: 'destructive', title: 'Error', description: 'Inbound request not found.' });
             }
             setLoading(false);
         };
@@ -85,7 +85,7 @@ function InboundScan() {
         if (!request || !user) return;
         setScanning(true);
 
-        const items = [...(request.fabricDetails || [])];
+        const items = [...(request.items || [])];
         const itemToUpdateIndex = items.findIndex(item =>
             !item.inboundMilestones?.some(m => m.stepId === 3 && m.status === 'completed')
         );
@@ -114,15 +114,14 @@ function InboundScan() {
            
             items[itemToUpdateIndex] = itemToUpdate;
 
-            const payloadKey = 'fabricDetails';
-            const requestRef = doc(db, "purchaseRequests", request.id);
-            await updateDoc(requestRef, { [payloadKey]: items });
+            const requestRef = doc(db, "inbounds", request.id);
+            await updateDoc(requestRef, { items: items });
 
-            const itemName = (itemToUpdate as any).fabricName;
+            const itemName = (itemToUpdate as any).itemName;
             toast({ title: 'Item Scanned!', description: `${itemName} has been marked as complete.` });
             
             // Manually update local state to reflect change immediately
-            setRequest(prev => prev ? { ...prev, [payloadKey]: items } : null);
+            setRequest(prev => prev ? { ...prev, items: items } : null);
 
         } catch (error) {
             console.error('Error updating status on scan:', error);
@@ -140,7 +139,7 @@ function InboundScan() {
         return <p>Request not found.</p>;
     }
     
-    const items = request.fabricDetails;
+    const items = request.items;
     const scannedCount = items?.filter(i => i.inboundMilestones?.some(m => m.stepId === 3 && m.status === 'completed')).length || 0;
     const totalCount = items?.length || 0;
 
@@ -198,7 +197,7 @@ function InboundScan() {
                         <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
                             {(items || []).map((item, index) => {
                                  const detail = item as any;
-                                const name = detail.fabricName;
+                                const name = detail.itemName;
                                 const isScanned = item.inboundMilestones?.some(m => m.stepId === 3 && m.status === 'completed');
 
                                 return (

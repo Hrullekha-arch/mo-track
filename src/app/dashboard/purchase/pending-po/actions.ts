@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, Stock, PurchaseRequest, FabricDetail, User } from "@/lib/types";
+import { Order, Stock, PurchaseRequest, FabricDetail, User, InboundRequest, InboundItem } from "@/lib/types";
 
 export interface PendingPoItem {
     id: string; // Combination of orderId and itemName
@@ -85,31 +85,53 @@ export async function createPurchaseRequestAction(
             poNumbers.push(poNumber);
             
             const firstItem = group.items[0];
+            const purchaseRequestId = firstItem.orderId; // This is the dealId / crmOrderNo
             
-            // The original purchase request was created with the Order's CRM No as its ID.
-            const requestRef = adminDb.collection('purchaseRequests').doc(firstItem.orderId);
+            const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
             
-            const fabricDetails: FabricDetail[] = [];
-            
-            for (const item of group.items) {
-                const commonDetails = {
-                    quantity: String(item.neededQty),
-                    vendorName: group.vendor,
-                    poNumber: poNumber, 
-                };
-                fabricDetails.push({ fabricName: item.collectionBrand, ...commonDetails });
-            }
+            const fabricDetailsForUpdate: FabricDetail[] = group.items.map(item => ({
+                fabricName: item.collectionBrand,
+                quantity: String(item.neededQty),
+                vendorName: group.vendor,
+                poNumber: poNumber, 
+            }));
 
-            // Update the existing request instead of creating a new one
+            // Update the existing request
             batch.update(requestRef, {
                 status: 'PO Generated',
                 vendor: group.vendor,
                 courier: group.courier,
                 mode: group.mode,
-                fabricDetails: fabricDetails,
+                fabricDetails: fabricDetailsForUpdate,
                 'milestones': [], // Clear previous milestones if any
                 'poMilestones': [], // Initialize poMilestones
             });
+
+            // Create a new document in the `inbounds` collection
+            const inboundRef = adminDb.collection('inbounds').doc(purchaseRequestId);
+            const originalRequestDoc = await requestRef.get();
+            const originalRequestData = originalRequestDoc.data() as PurchaseRequest;
+
+            const inboundItems: InboundItem[] = fabricDetailsForUpdate.map(item => ({
+                itemName: item.fabricName,
+                quantity: item.quantity,
+                unit: 'Mtr', // Assuming all are fabric for now
+                poNumber: item.poNumber,
+                inboundMilestones: [],
+            }));
+
+            const newInboundRequest: InboundRequest = {
+                id: purchaseRequestId,
+                purchaseRequestId: purchaseRequestId,
+                dealId: originalRequestData.dealId,
+                customerName: originalRequestData.customerName,
+                vendor: group.vendor,
+                createdAt: new Date().toISOString(),
+                status: 'Active',
+                items: inboundItems,
+            };
+
+            batch.set(inboundRef, newInboundRequest);
         }
         
         await batch.commit();

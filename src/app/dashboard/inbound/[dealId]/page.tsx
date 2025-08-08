@@ -5,7 +5,7 @@
 import { useState, useEffect, use } from 'react';
 import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion, collection, query, where, getDocs, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest, InboundMilestone, FabricDetail, Order, O2DStatus, StockTransaction } from "@/lib/types";
+import { InboundRequest, InboundItem, InboundMilestone, Order, O2DStatus, StockTransaction } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2, ScanLine } from 'lucide-react';
@@ -39,9 +39,9 @@ function ItemProcessTimeline({
     onRevert,
     userRole
 }: { 
-    item: FabricDetail,
+    item: InboundItem,
     itemIndex: number,
-    request: PurchaseRequest,
+    request: InboundRequest,
     onUpdate: (itemIndex: number, stepId: number) => void,
     onRevert: (itemIndex: number, milestone: InboundMilestone) => void,
     userRole: string | null
@@ -97,7 +97,7 @@ function ItemProcessTimeline({
 
 export default function InboundProcessPage({ params }: { params: Promise<{ dealId: string }> }) {
     const { dealId } = use(params);
-    const [request, setRequest] = useState<PurchaseRequest | null>(null);
+    const [request, setRequest] = useState<InboundRequest | null>(null);
     const [loading, setLoading] = useState(true);
     const [updating, setUpdating] = useState<string | null>(null);
     const [revertingMilestone, setRevertingMilestone] = useState<{itemIndex: number, milestone: InboundMilestone} | null>(null);
@@ -105,12 +105,12 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
     const { toast } = useToast();
 
     useEffect(() => {
-        const docRef = doc(db, "purchaseRequests", dealId);
+        const docRef = doc(db, "inbounds", dealId);
         const unsubscribe = onSnapshot(docRef, (doc) => {
             if (doc.exists()) {
-                const data = { id: doc.id, ...doc.data() } as PurchaseRequest;
-                if (data.fabricDetails) {
-                    data.fabricDetails = data.fabricDetails.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
+                const data = { id: doc.id, ...doc.data() } as InboundRequest;
+                if (data.items) {
+                    data.items = data.items.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
                 }
                 setRequest(data);
             } else {
@@ -128,8 +128,8 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         setUpdating(key);
         
         try {
-            const requestRef = doc(db, "purchaseRequests", request.id);
-            const items = [...(request.fabricDetails || [])];
+            const requestRef = doc(db, "inbounds", request.id);
+            const items = [...(request.items || [])];
             const itemToUpdate = items[itemIndex];
 
             if (!itemToUpdate) throw new Error("Item not found");
@@ -144,18 +144,18 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
             const newMilestones = [...(itemToUpdate.inboundMilestones || []), newMilestone];
             items[itemIndex] = {...itemToUpdate, inboundMilestones: newMilestones};
             
-            await updateDoc(requestRef, { fabricDetails: items });
+            await updateDoc(requestRef, { items: items });
 
             toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete.`});
             
             const itemIsNowComplete = newMilestones.length === INBOUND_PROCESS_CONFIG.length;
 
             if (itemIsNowComplete) {
-                const stockId = itemToUpdate.fabricName.replace(/\//g, '-');
+                const stockId = itemToUpdate.itemName.replace(/\//g, '-');
                 
                 const transaction: Omit<StockTransaction, 'id'> = {
                     stockId: stockId,
-                    bcn: itemToUpdate.fabricName,
+                    bcn: itemToUpdate.itemName,
                     type: 'addition',
                     quantityChange: parseFloat(itemToUpdate.quantity),
                     poNumber: itemToUpdate.poNumber,
@@ -165,7 +165,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                 
                 const result = await updateStockQuantityAction(stockId, transaction);
                 if (result.success) {
-                    toast({ title: "Stock Updated!", description: `${itemToUpdate.quantity} units of ${itemToUpdate.fabricName} added to inventory.`});
+                    toast({ title: "Stock Updated!", description: `${itemToUpdate.quantity} units of ${itemToUpdate.itemName} added to inventory.`});
                 } else {
                     toast({ variant: 'destructive', title: 'Stock Update Failed', description: result.message });
                 }
@@ -174,14 +174,17 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
             const allItemsCompleted = items.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
             if (allItemsCompleted) {
-                // If all items are done, update the main PurchaseRequest status
                 await updateDoc(requestRef, { 
                     status: 'Completed',
                     completedAt: new Date().toISOString(),
                     completedBy: user.name,
                 });
+
+                const purchaseRequestRef = doc(db, 'purchaseRequests', request.id);
+                await updateDoc(purchaseRequestRef, { status: 'Completed', completedAt: new Date().toISOString() });
+
                 toast({
-                    title: "Purchase Request Complete!",
+                    title: "Inbound Complete!",
                     description: `Request for Deal ID ${request.dealId} is now fully received.`,
                     duration: 5000,
                 });
@@ -233,15 +236,15 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         setUpdating(key);
 
         try {
-            const requestRef = doc(db, "purchaseRequests", request.id);
-            const items = [...(request.fabricDetails || [])];
+            const requestRef = doc(db, "inbounds", request.id);
+            const items = [...(request.items || [])];
             const itemToUpdate = items[itemIndex];
             if (!itemToUpdate) throw new Error("Item not found");
 
             itemToUpdate.inboundMilestones = itemToUpdate.inboundMilestones?.filter(m => m.stepId !== milestone.stepId);
             items[itemIndex] = itemToUpdate;
             
-            await updateDoc(requestRef, { fabricDetails: items });
+            await updateDoc(requestRef, { items: items });
             
             toast({ title: "Step Reverted", description: "The process step has been successfully reverted." });
         } catch (error) {
@@ -277,7 +280,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         )
     }
 
-    const items = request.fabricDetails;
+    const items = request.items;
     const revertingStepConfig = revertingMilestone ? INBOUND_PROCESS_CONFIG.find(c => c.id === revertingMilestone.milestone.stepId) : null;
 
     return (
@@ -305,8 +308,6 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                 <CardHeader>
                     <CardTitle>{request.customerName}</CardTitle>
                     <CardDescription>
-                        Fabric request from salesman {request.salesman}.
-                        <br />
                         Vendor: {request.vendor || 'Not set'}
                     </CardDescription>
                 </CardHeader>
@@ -321,7 +322,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                          <div className="space-y-4">
                             {(items || []).map((item, index) => {
                                 const detail = item as any;
-                                const name = detail.fabricName;
+                                const name = detail.itemName;
                                 const qty = detail.quantity;
                                 const po = detail.poNumber;
                                 const qtyUnit = 'Mtr';
