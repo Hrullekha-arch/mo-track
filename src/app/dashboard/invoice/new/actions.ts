@@ -57,7 +57,7 @@ export async function createDealOrderAction(
     const newDealOrderRef = dealOrdersRef.doc();
 
     // 1. Create the new order in the main orders collection
-    const orderId = `MOTRACK-${Math.floor(1000 + Math.random() * 9000)}`;
+    const orderId = `MOTRACK-${quotation.quotationNo}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
 
     const fabricDetails: FabricDetail[] = [];
