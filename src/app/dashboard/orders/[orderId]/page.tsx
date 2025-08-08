@@ -44,7 +44,7 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
     const [isOpen, setIsOpen] = useState(false);
     const [availableLengths, setAvailableLengths] = useState<{ length: number; transactionId: string }[]>([]);
     const [loadingLengths, setLoadingLengths] = useState(true);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isSubmitting, setIsSubmitting] useState(false);
     const { toast } = useToast();
     const { user } = useAuth();
     
@@ -208,12 +208,13 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
     )
 }
 
-function OrderItemRow({ item, index, orderId, orderCrmNo, onAllocationSuccess }: { item: OrderItem, index: number, orderId: string, orderCrmNo: string, onAllocationSuccess: () => void }) {
+function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuccess }: { item: OrderItem, index: number, order: Order, orderId: string, orderCrmNo: string, onAllocationSuccess: () => void }) {
     const [stockInfo, setStockInfo] = useState<Stock | null>(null);
     const [loading, setLoading] = useState(true);
     const [allocatedQty, setAllocatedQty] = useState(0);
     const [status, setStatus] = useState<{ text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline', poNumber?: string }>({ text: 'Loading...', variant: 'secondary' });
 
+    const isOrderApproved = order.status === 'Approved';
 
     useEffect(() => {
         const fetchItemData = async () => {
@@ -272,12 +273,14 @@ function OrderItemRow({ item, index, orderId, orderCrmNo, onAllocationSuccess }:
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (stockInfo?.quantity ?? 'N/A')}
             </TableCell>
             <TableCell>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
-                    allocatedQty > 0 ? (
-                        <span className="font-semibold text-green-600">{allocatedQty.toFixed(2)}</span>
-                    ) : (
-                        stockInfo && <AllocateDialog item={item} stock={stockInfo} orderId={orderId} onAllocationSuccess={onAllocationSuccess} />
-                    )
+                {loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                ) : allocatedQty > 0 ? (
+                    <span className="font-semibold text-green-600">{allocatedQty.toFixed(2)}</span>
+                ) : isOrderApproved && stockInfo ? (
+                    <AllocateDialog item={item} stock={stockInfo} orderId={orderId} onAllocationSuccess={onAllocationSuccess} />
+                ) : (
+                    <Badge variant="outline">{order.status || 'Pending'}</Badge>
                 )}
             </TableCell>
             <TableCell>
@@ -321,7 +324,7 @@ function AllocateOrderTable({ order, onAllocationSuccess }: { order: Order, onAl
                         </TableHeader>
                         <TableBody>
                             {items.length > 0 ? items.map((item, index) => (
-                                <OrderItemRow key={index} item={item} index={index} orderId={order.id} orderCrmNo={order.crmOrderNo} onAllocationSuccess={onAllocationSuccess} />
+                                <OrderItemRow key={index} item={item} index={index} order={order} orderId={order.id} orderCrmNo={order.crmOrderNo} onAllocationSuccess={onAllocationSuccess} />
                             )) : (
                                 <TableRow>
                                     <TableCell colSpan={7} className="h-24 text-center">No items found in this order.</TableCell>
@@ -469,3 +472,5 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
         </div>
     );
 }
+
+    
