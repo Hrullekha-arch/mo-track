@@ -173,6 +173,11 @@ export interface PurchaseRequest {
   // PO Tracking
   poMilestones?: PurchaseStatus[];
   poDeliveryDate?: string | null; // Date promised by vendor
+
+  // New PO creation fields
+  vendor?: string;
+  courier?: string;
+  mode?: string;
 }
 
 export interface PurchaseStatus {

@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
@@ -96,7 +95,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                     hsnCode: stockInfo?.hsnCode || 'N/A',
                     mrp: stockInfo?.mrp || 0,
                     vendorName: stockInfo?.vendorName || 'N/A',
-                    totalOrderQty: neededQty, // Corrected: This now shows the shortfall
+                    totalOrderQty: neededQty,
                     stock: currentStock,
                 });
             }
@@ -113,7 +112,8 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
 
 export async function createPurchaseRequestAction(
     items: PendingPoItem[],
-    creator: { id: string; name: string }
+    creator: { id: string; name: string },
+    poDetails: { vendor?: string; courier: string; mode: string }
 ): Promise<{ success: boolean, message: string, requestId?: string }> {
     if (!items || items.length === 0) {
         return { success: false, message: "No items provided to create a purchase request." };
@@ -122,24 +122,30 @@ export async function createPurchaseRequestAction(
     try {
         const fabricDetails: FabricDetail[] = [];
         const furnitureDetails: FurnitureDetail[] = [];
+        
+        // Generate a unique numeric PO number
+        const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
 
         for (const item of items) {
-            // The 'totalOrderQty' from the report now correctly represents the shortfall.
             const neededQty = item.totalOrderQty;
             const stockInfo = await adminDb.collection('stocks').where('bcn', '==', item.collectionBrand).limit(1).get();
             const stockType = stockInfo.docs[0]?.data()?.type || 'fabric';
 
+            const commonDetails = {
+                quantity: String(neededQty),
+                vendorName: poDetails.vendor || item.vendorName,
+                poNumber: poNumber, // Assign the same PO number to all items in this batch
+            };
+
             if (stockType === 'fabric') {
                  fabricDetails.push({
                     fabricName: item.collectionBrand,
-                    quantity: String(neededQty),
-                    vendorName: item.vendorName,
+                    ...commonDetails,
                 });
             } else {
                  furnitureDetails.push({
                     furnitureName: item.collectionBrand,
-                    quantity: String(neededQty),
-                    vendorName: item.vendorName,
+                    ...commonDetails,
                 });
             }
         }
@@ -160,11 +166,15 @@ export async function createPurchaseRequestAction(
             milestones: [],
             vendorType: 'undecided',
             status: 'pending',
+            // Add new fields
+            vendor: poDetails.vendor,
+            courier: poDetails.courier,
+            mode: poDetails.mode,
         };
         
         await newRequestRef.set(newPurchaseRequest);
 
-        return { success: true, message: "Purchase request created successfully!", requestId: newRequestRef.id };
+        return { success: true, message: `Purchase Request with PO #${poNumber} created successfully!`, requestId: newRequestRef.id };
     } catch (error: any) {
         console.error("Error creating purchase request:", error);
         return { success: false, message: `Server error: ${error.message}` };

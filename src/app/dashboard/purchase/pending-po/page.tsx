@@ -30,7 +30,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 
 const columns: ColumnDef<PendingPoItem>[] = [
@@ -50,14 +55,143 @@ const columns: ColumnDef<PendingPoItem>[] = [
     { accessorKey: "vendorName", header: "Vendor Name" },
   ];
 
+const createPoSchema = z.object({
+    vendor: z.string().optional(),
+    courier: z.string().min(1, "Courier is required."),
+    mode: z.enum(['AIR', 'SURFACE'], { required_error: "Mode is required." }),
+});
+
+type CreatePoFormValues = z.infer<typeof createPoSchema>;
+
+function CreatePoDialog({ isOpen, onClose, selectedItems, creator }: { isOpen: boolean, onClose: () => void, selectedItems: PendingPoItem[], creator: { id: string, name: string } | null }) {
+    const [isSubmitting, setIsSubmitting] = React.useState(false);
+    const { toast } = useToast();
+    const router = useRouter();
+
+    const form = useForm<CreatePoFormValues>({
+        resolver: zodResolver(createPoSchema),
+        defaultValues: {
+            vendor: selectedItems[0]?.vendorName || "",
+        }
+    });
+    
+    React.useEffect(() => {
+        if (selectedItems.length > 0) {
+            form.setValue('vendor', selectedItems[0]?.vendorName || "");
+        }
+    }, [selectedItems, form]);
+
+    const handleSubmit = async (values: CreatePoFormValues) => {
+        if (!creator) {
+            toast({ variant: 'destructive', title: 'Authentication Error' });
+            return;
+        }
+        setIsSubmitting(true);
+        try {
+            const result = await createPurchaseRequestAction(selectedItems, creator, values);
+
+            if (result.success) {
+                toast({ title: 'Success!', description: result.message });
+                router.push('/dashboard/purchase');
+            } else {
+                toast({ variant: 'destructive', title: 'Error', description: result.message });
+            }
+        } catch (error) {
+            console.error(error);
+            toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred.' });
+        } finally {
+            setIsSubmitting(false);
+            onClose();
+        }
+    };
+    
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Create Purchase Order</DialogTitle>
+                </DialogHeader>
+                 <Form {...form}>
+                    <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 py-4">
+                        <div className="grid grid-cols-3 gap-4">
+                            <FormField name="vendor" control={form.control} render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Vendor</FormLabel>
+                                    <FormControl><Input {...field} readOnly /></FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}/>
+                            <FormField name="courier" control={form.control} render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Courier</FormLabel>
+                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl><SelectTrigger><SelectValue placeholder="Select Courier" /></SelectTrigger></FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="S M COURIER">S M COURIER</SelectItem>
+                                            <SelectItem value="NITCO LOGISTICS PVT LTD">NITCO LOGISTICS PVT LTD</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}/>
+                            <FormField name="mode" control={form.control} render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Mode</FormLabel>
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl><SelectTrigger><SelectValue placeholder="Select Mode" /></SelectTrigger></FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="AIR">AIR</SelectItem>
+                                            <SelectItem value="SURFACE">SURFACE</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}/>
+                        </div>
+
+                        <div className="border rounded-md max-h-60 overflow-y-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>#</TableHead>
+                                        <TableHead>BCN/Item Name</TableHead>
+                                        <TableHead>Serial No</TableHead>
+                                        <TableHead>Qty</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {selectedItems.map((item, index) => (
+                                        <TableRow key={item.id}>
+                                            <TableCell>{index + 1}</TableCell>
+                                            <TableCell>{item.collectionBrand}</TableCell>
+                                            <TableCell>{item.serialNo}</TableCell>
+                                            <TableCell>{item.totalOrderQty}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                        
+                        <DialogFooter className="pt-4">
+                            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+                            <Button type="submit" disabled={isSubmitting}>
+                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Submit
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
+            </DialogContent>
+        </Dialog>
+    )
+}
 
 export default function PendingPOPage() {
   const [data, setData] = React.useState<PendingPoItem[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [isDialogOpen, setIsDialogOpen] = React.useState(false);
   const [globalFilter, setGlobalFilter] = React.useState('');
   const { toast } = useToast();
-  const router = useRouter();
   const { user } = useAuth();
 
   React.useEffect(() => {
@@ -94,37 +228,24 @@ export default function PendingPOPage() {
     },
   });
   
-  const handleProceed = async () => {
-    if (!user) {
-      toast({ variant: 'destructive', title: 'Authentication Error' });
-      return;
-    }
+  const handleProceedClick = () => {
     const selectedRows = table.getFilteredSelectedRowModel().rows;
     if (selectedRows.length === 0) {
-      toast({ variant: 'destructive', title: 'No Items Selected', description: 'Please select items to proceed.' });
-      return;
+        toast({ variant: 'destructive', title: 'No Items Selected', description: 'Please select items to proceed.' });
+        return;
     }
-    
-    setIsSubmitting(true);
-    try {
-      const selectedItems = selectedRows.map(row => row.original);
-      const result = await createPurchaseRequestAction(selectedItems, { id: user.id, name: user.name });
-
-      if (result.success) {
-        toast({ title: 'Success!', description: result.message });
-        router.push('/dashboard/purchase');
-      } else {
-        toast({ variant: 'destructive', title: 'Error', description: result.message });
-      }
-    } catch (error) {
-      console.error(error);
-      toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred.' });
-    } finally {
-      setIsSubmitting(false);
+    const vendors = new Set(selectedRows.map(row => row.original.vendorName));
+    if (vendors.size > 1) {
+        toast({ variant: 'destructive', title: 'Multiple Vendors Selected', description: 'Please select items from only one vendor to create a PO.' });
+        return;
     }
+    setIsDialogOpen(true);
   };
+  
+  const selectedItems = table.getFilteredSelectedRowModel().rows.map(row => row.original);
 
   return (
+    <>
     <div className="w-full p-4 md:p-6 lg:p-8">
         <header className="flex items-center justify-between mb-8">
             <div>
@@ -198,31 +319,19 @@ export default function PendingPOPage() {
                         {table.getFilteredRowModel().rows.length} row(s) selected.
                     </div>
                      <div className="space-x-2">
-                        <Button variant="outline" onClick={() => router.back()}>Cancel</Button>
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                               <Button disabled={isSubmitting || table.getFilteredSelectedRowModel().rows.length === 0}>
-                                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                    Proceed To PO
-                                </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                        This will create a new Purchase Request with {table.getFilteredSelectedRowModel().rows.length} item(s). This action cannot be undone.
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction onClick={handleProceed}>Continue</AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
+                        <Button variant="outline" onClick={() => table.toggleAllPageRowsSelected(false)}>Cancel</Button>
+                        <Button onClick={handleProceedClick}>Proceed To PO</Button>
                     </div>
                 </div>
             </CardContent>
         </Card>
     </div>
+    <CreatePoDialog 
+        isOpen={isDialogOpen}
+        onClose={() => setIsDialogOpen(false)}
+        selectedItems={selectedItems}
+        creator={user ? { id: user.id, name: user.name } : null}
+    />
+    </>
   )
 }
