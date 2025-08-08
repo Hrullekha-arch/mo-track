@@ -133,7 +133,7 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
     },
     {
       accessorKey: "dealId",
-      header: "Deal ID",
+      header: "Order ID",
       cell: ({ row }) => <div className="font-mono">{row.getValue("dealId")}</div>,
     },
     {
@@ -310,7 +310,7 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
             <CardContent className="p-4">
                 <div className="flex flex-wrap items-center py-4 gap-4">
                     <Input
-                        placeholder="Filter by customer or Deal ID..."
+                        placeholder="Filter by customer or Order ID..."
                         value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
                         onChange={(event) =>
                             table.getColumn("customerName")?.setFilterValue(event.target.value)
