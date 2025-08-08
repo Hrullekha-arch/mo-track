@@ -138,6 +138,36 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
       cell: ({ row }) => <div className="font-mono">{row.getValue("dealId")}</div>,
     },
     {
+      id: "bcn",
+      header: "BCN",
+      cell: ({ row }) => {
+        const items = [...(row.original.fabricDetails || []), ...(row.original.furnitureDetails || [])];
+        if (items.length === 0) return '-';
+        return (
+          <div className="space-y-1">
+            {items.map((item, index) => (
+              <p key={index} className="text-xs truncate">{(item as any).fabricName || (item as any).furnitureName}</p>
+            ))}
+          </div>
+        )
+      }
+    },
+    {
+      id: "qty",
+      header: "Qty",
+      cell: ({ row }) => {
+        const items = [...(row.original.fabricDetails || []), ...(row.original.furnitureDetails || [])];
+        if (items.length === 0) return '-';
+        return (
+          <div className="space-y-1">
+            {items.map((item, index) => (
+              <p key={index} className="text-xs">{item.quantity} {(row.original.type === 'fabric') ? 'Mtr' : ''}</p>
+            ))}
+          </div>
+        )
+      }
+    },
+    {
       accessorKey: "customerName",
       header: ({ column }) => (
         <Button
