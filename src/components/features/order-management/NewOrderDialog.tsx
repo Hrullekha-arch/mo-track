@@ -15,7 +15,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { User, OrderType, FabricDetail, FurnitureDetail, PurchaseRequest } from "@/lib/types";
+import { User, OrderType, FabricDetail, FurnitureDetail, PurchaseRequest, Stock } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -256,27 +256,50 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       
       batch.set(newOrderRef, newOrderData);
 
-      // Create a corresponding purchase request if items are added
-      if ((values.fabricDetails && values.fabricDetails.length > 0) || (values.furnitureDetails && values.furnitureDetails.length > 0)) {
+      // Create a corresponding purchase request if items are added and out of stock
+      const fabricToPurchase: FabricDetail[] = [];
+      const furnitureToPurchase: FurnitureDetail[] = [];
+
+      for (const item of (values.fabricDetails || [])) {
+        const stockRef = doc(db, 'stocks', item.fabricName.replace(/\//g, '-'));
+        const stockSnap = await getDoc(stockRef);
+        const currentStock = (stockSnap.data() as Stock)?.quantity || 0;
+        const requiredQty = Number(item.quantity) || 0;
+        if (requiredQty > currentStock) {
+          fabricToPurchase.push({ fabricName: item.fabricName, quantity: String(requiredQty - currentStock) });
+        }
+      }
+
+      for (const item of (values.furnitureDetails || [])) {
+        const stockRef = doc(db, 'stocks', item.furnitureName.replace(/\//g, '-'));
+        const stockSnap = await getDoc(stockRef);
+        const currentStock = (stockSnap.data() as Stock)?.quantity || 0;
+        const requiredQty = Number(item.quantity) || 0;
+        if (requiredQty > currentStock) {
+          furnitureToPurchase.push({ furnitureName: item.furnitureName, quantity: String(requiredQty - currentStock) });
+        }
+      }
+
+      if (fabricToPurchase.length > 0 || furnitureToPurchase.length > 0) {
         const purchaseRequestRef = doc(db, "purchaseRequests", values.crmOrderNo);
         const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
             dealId: values.crmOrderNo,
             customerName: values.customerName,
             promiseDeliveryDate: new Date().toISOString(), // Placeholder
             salesman: salesmanUser.name,
-            type: values.fabricDetails && values.fabricDetails.length > 0 ? 'fabric' : 'furniture',
-            fabricDetails: values.fabricDetails || [],
-            furnitureDetails: values.furnitureDetails || [],
+            type: fabricToPurchase.length > 0 ? 'fabric' : 'furniture',
+            fabricDetails: fabricToPurchase,
+            furnitureDetails: furnitureToPurchase,
             createdAt: new Date().toISOString(),
             createdBy: { id: user.id, name: user.name },
             milestones: [],
             vendorType: 'undecided',
-            status: 'Pending Approval', // STARTING POINT OF NEW WORKFLOW
+            status: 'Pending Approval',
         };
         batch.set(purchaseRequestRef, newPurchaseRequest);
         toast({
           title: "Order & Purchase Request Created",
-          description: `Order ${trackingId} has been created and a purchase request sent for approval.`,
+          description: `Order ${trackingId} created and a purchase request sent for approval.`,
         });
       } else {
         toast({

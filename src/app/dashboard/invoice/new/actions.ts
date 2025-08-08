@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, FurnitureDetail, PurchaseRequest } from '@/lib/types';
+import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, FurnitureDetail, PurchaseRequest, Stock } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
 import { getAuth } from 'firebase-admin/auth';
 
@@ -60,26 +60,34 @@ export async function createDealOrderAction(
     const orderId = `MOTRACK-${quotation.quotationNo}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
 
-    const fabricDetails: FabricDetail[] = [];
-    const furnitureDetails: FurnitureDetail[] = [];
+    const allFabricDetails: FabricDetail[] = [];
+    const allFurnitureDetails: FurnitureDetail[] = [];
 
-    quotation.items.forEach(item => {
-      // Simple logic to differentiate items. This can be improved if more item data is available.
-      const description = item.salesDescription || "";
-      const isFabric = description.toLowerCase().includes('fabric') || description.toLowerCase().includes('curtain');
-      
-      if(isFabric) {
-        fabricDetails.push({
-          fabricName: item.collectionBrand,
-          quantity: item.quantity.toString(),
-        });
+    const fabricToPurchase: FabricDetail[] = [];
+    const furnitureToPurchase: FurnitureDetail[] = [];
+
+    // Separate items and check stock
+    for (const item of quotation.items) {
+      const isFabric = (item.salesDescription || "").toLowerCase().includes('fabric') || (item.salesDescription || "").toLowerCase().includes('curtain');
+      const itemName = item.collectionBrand;
+      const requiredQty = Number(item.quantity) || 0;
+
+      const stockRef = adminDb.collection('stocks').doc(itemName.replace(/\//g, '-'));
+      const stockSnap = await stockRef.get();
+      const currentStock = (stockSnap.data() as Stock)?.quantity || 0;
+
+      if (isFabric) {
+        allFabricDetails.push({ fabricName: itemName, quantity: String(requiredQty) });
+        if (requiredQty > currentStock) {
+          fabricToPurchase.push({ fabricName: itemName, quantity: String(requiredQty - currentStock) });
+        }
       } else {
-        furnitureDetails.push({
-          furnitureName: item.collectionBrand,
-          quantity: item.quantity.toString(),
-        });
+        allFurnitureDetails.push({ furnitureName: itemName, quantity: String(requiredQty) });
+        if (requiredQty > currentStock) {
+          furnitureToPurchase.push({ furnitureName: itemName, quantity: String(requiredQty - currentStock) });
+        }
       }
-    });
+    }
 
     const newOrder: Order = {
       id: orderId,
@@ -91,30 +99,29 @@ export async function createDealOrderAction(
       orderType: 'stitching', // Default, should be determined
       milestones: getMilestonesForOrder('stitching'), // Set default milestones
       createdAt: new Date().toISOString(),
-      isAcknowledged: true, // It is now in the main workflow
-      status: 'Approved', // Set correct initial status
-      // Add references to find this order's context later
+      isAcknowledged: true,
+      status: 'Approved',
       customerId: customerId,
       dealId: dealId,
       dealOrderDocId: newDealOrderRef.id,
       storeName: quotation.store,
-      fabricDetails: fabricDetails,
-      furnitureDetails: furnitureDetails,
+      fabricDetails: allFabricDetails,
+      furnitureDetails: allFurnitureDetails,
     };
 
     batch.set(newOrderRef, newOrder);
 
-    // 2. Create a corresponding Purchase Request if there are items
-    if (fabricDetails.length > 0 || furnitureDetails.length > 0) {
+    // 2. Create a corresponding Purchase Request if there are items that need purchasing
+    if (fabricToPurchase.length > 0 || furnitureToPurchase.length > 0) {
         const purchaseRequestRef = adminDb.collection('purchaseRequests').doc(quotation.quotationNo);
         const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
             dealId: quotation.quotationNo,
             customerName: quotation.customerName,
             promiseDeliveryDate: new Date().toISOString(), // Placeholder, can be updated later
             salesman: salesmanName,
-            type: fabricDetails.length > 0 ? 'fabric' : 'furniture',
-            fabricDetails: fabricDetails,
-            furnitureDetails: furnitureDetails,
+            type: fabricToPurchase.length > 0 ? 'fabric' : 'furniture',
+            fabricDetails: fabricToPurchase,
+            furnitureDetails: furnitureToPurchase,
             createdAt: new Date().toISOString(),
             createdBy: { id: creator.id, name: creator.name },
             milestones: [],
@@ -132,7 +139,7 @@ export async function createDealOrderAction(
       createdBy: creator.name,
       remark: quotation.billingName || '',
       items: quotation.items,
-      status: 'Approved' // Set correct initial status
+      status: 'Approved'
     };
 
     batch.set(newDealOrderRef, newDealOrder);
