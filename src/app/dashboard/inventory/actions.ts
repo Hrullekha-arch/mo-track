@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -244,16 +243,28 @@ export async function getStockTransactions(stockId: string): Promise<StockTransa
 
 export async function getAllStockTransactions(): Promise<StockTransaction[]> {
   try {
-    const addedPromise = adminDb.collectionGroup('stockAdded').orderBy('createdAt', 'desc').get();
-    const soldPromise = adminDb.collectionGroup('stockSold').orderBy('createdAt', 'desc').get();
+    const allTransactions: StockTransaction[] = [];
+    const stocksSnapshot = await adminDb.collection('stocks').get();
 
-    const [addedSnapshot, soldSnapshot] = await Promise.all([addedPromise, soldPromise]);
+    for (const stockDoc of stocksSnapshot.docs) {
+      const stockId = stockDoc.id;
+      const stockRef = adminDb.collection('stocks').doc(stockId);
 
-    const addedTransactions = addedSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as StockTransaction));
-    const soldTransactions = soldSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as StockTransaction));
-    
-    const allTransactions = [...addedTransactions, ...soldTransactions]
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const addedPromise = stockRef.collection('stockAdded').get();
+      const soldPromise = stockRef.collection('stockSold').get();
+
+      const [addedSnapshot, soldSnapshot] = await Promise.all([addedPromise, soldPromise]);
+
+      addedSnapshot.forEach(doc => {
+        allTransactions.push({ ...doc.data(), id: doc.id } as StockTransaction);
+      });
+
+      soldSnapshot.forEach(doc => {
+        allTransactions.push({ ...doc.data(), id: doc.id } as StockTransaction);
+      });
+    }
+
+    allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     return JSON.parse(JSON.stringify(allTransactions));
   } catch (error) {
@@ -296,3 +307,5 @@ export async function deleteStockTransaction(stockId: string, transactionId: str
     return { success: false, message: `Failed to delete transaction: ${error.message}` };
   }
 }
+
+    
