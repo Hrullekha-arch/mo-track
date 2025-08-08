@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, Stock, PurchaseRequest, FabricDetail, FurnitureDetail } from "@/lib/types";
+import { Order, Stock, PurchaseRequest, FabricDetail, FurnitureDetail, User } from "@/lib/types";
 
 export interface PendingPoItem {
     id: string; // Combination of orderId and itemName
@@ -22,8 +22,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
     try {
         const ordersSnapshot = await adminDb.collection('orders').where('isAcknowledged', '==', true).get();
         const stockSnapshot = await adminDb.collection('stocks').get();
-        const activePrSnapshot = await adminDb.collection('purchaseRequests').where('status', '==', 'pending').get();
-
+        
         const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
         const stockMap = new Map<string, Stock>();
         stockSnapshot.docs.forEach(doc => {
@@ -38,24 +37,6 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
              return !isFullyCompleted;
         });
 
-        const inFlightItems = new Map<string, number>();
-        activePrSnapshot.docs.forEach(doc => {
-            const pr = doc.data() as PurchaseRequest;
-            const items = [...(pr.fabricDetails || []), ...(pr.furnitureDetails || [])];
-            items.forEach(item => {
-                const name = (item as FabricDetail).fabricName || (item as FurnitureDetail).furnitureName;
-                const quantity = parseFloat(item.quantity) || 0;
-                if (name) {
-                    inFlightItems.set(name, (inFlightItems.get(name) || 0) + quantity);
-                }
-            });
-        });
-
-        const tempStockMap = new Map<string, number>();
-        stockMap.forEach((stock, bcn) => {
-            tempStockMap.set(bcn, stock.quantity);
-        });
-
         const pendingItems: PendingPoItem[] = [];
 
         for (const order of activeOrders) {
@@ -63,18 +44,24 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 ...(order.fabricDetails || []).map(item => ({ name: item.fabricName, quantity: parseFloat(item.quantity) })),
                 ...(order.furnitureDetails || []).map(item => ({ name: item.furnitureName, quantity: parseFloat(item.quantity) }))
             ];
+            
+            const allocationsSnapshot = await adminDb.collection('orders').doc(order.id).collection('allocations').get();
+            const allocations = allocationsSnapshot.docs.map(d => d.data());
 
             for (const item of itemsInOrder) {
                 if (!item.name || isNaN(item.quantity) || item.quantity <= 0) continue;
                 
-                const availableStock = tempStockMap.get(item.name) || 0;
-                const inFlightQty = inFlightItems.get(item.name) || 0;
-                const effectiveStock = availableStock - inFlightQty;
+                const stockInfo = stockMap.get(item.name);
+                const availableStock = stockInfo?.quantity || 0;
+
+                const totalAllocatedForThisItem = allocations
+                    .filter(a => a.itemName === item.name)
+                    .reduce((sum, alloc) => sum + alloc.quantityAllocated, 0);
+
+                const neededFromStock = item.quantity - totalAllocatedForThisItem;
                 
-                if (item.quantity > effectiveStock) {
-                    const neededQty = item.quantity - effectiveStock;
-                    const stockInfo = stockMap.get(item.name);
-                    
+                if (neededFromStock > availableStock) {
+                    const purchaseQty = neededFromStock - availableStock;
                     pendingItems.push({
                         id: `${order.id}-${item.name}`,
                         orderId: order.id,
@@ -84,7 +71,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                         hsnCode: stockInfo?.hsnCode || 'N/A',
                         mrp: stockInfo?.mrp || 0,
                         vendorName: stockInfo?.vendorName || 'N/A',
-                        neededQty: neededQty,
+                        neededQty: purchaseQty,
                         stock: stockInfo?.quantity || 0,
                     });
                 }
@@ -100,76 +87,82 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
 }
 
 
+export interface PoCreationData {
+    vendor: string;
+    courier: string;
+    mode: string;
+    items: PendingPoItem[];
+}
+
 export async function createPurchaseRequestAction(
-    items: PendingPoItem[],
-    creator: { id: string; name: string },
-    poDetails: { vendor?: string; courier: string; mode: string }
-): Promise<{ success: boolean, message: string, requestId?: string }> {
-    if (!items || items.length === 0) {
-        return { success: false, message: "No items provided to create a purchase request." };
+    poData: PoCreationData[],
+    creator: { id: string; name: string }
+): Promise<{ success: boolean, message: string }> {
+    if (!poData || poData.length === 0) {
+        return { success: false, message: "No data provided to create purchase requests." };
     }
 
     try {
-        const fabricDetails: FabricDetail[] = [];
-        const furnitureDetails: FurnitureDetail[] = [];
-        
-        const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
+        const batch = adminDb.batch();
+        const poNumbers: string[] = [];
 
-        for (const item of items) {
-            const stockInfo = await adminDb.collection('stocks').where('bcn', '==', item.collectionBrand).limit(1).get();
-            const stockType = stockInfo.docs[0]?.data()?.type || 'fabric';
+        for (const group of poData) {
+            if (group.items.length === 0) continue;
 
-            const commonDetails = {
-                quantity: String(item.neededQty),
-                vendorName: poDetails.vendor || item.vendorName,
-                poNumber: poNumber, 
-            };
+            const fabricDetails: FabricDetail[] = [];
+            const furnitureDetails: FurnitureDetail[] = [];
+            
+            const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
+            poNumbers.push(poNumber);
 
-            if (stockType === 'fabric') {
-                 fabricDetails.push({
-                    fabricName: item.collectionBrand,
-                    ...commonDetails,
-                });
-            } else {
-                 furnitureDetails.push({
-                    furnitureName: item.collectionBrand,
-                    ...commonDetails,
-                });
+            for (const item of group.items) {
+                const stockDocs = await adminDb.collection('stocks').where('bcn', '==', item.collectionBrand).limit(1).get();
+                const stockType = stockDocs.docs[0]?.data()?.type || 'fabric';
+
+                const commonDetails = {
+                    quantity: String(item.neededQty),
+                    vendorName: group.vendor,
+                    poNumber: poNumber, 
+                };
+
+                if (stockType === 'fabric') {
+                     fabricDetails.push({ fabricName: item.collectionBrand, ...commonDetails });
+                } else {
+                     furnitureDetails.push({ furnitureName: item.collectionBrand, ...commonDetails });
+                }
             }
+            
+            const firstItem = group.items[0];
+            const sourceOrderDoc = await adminDb.collection('orders').doc(firstItem.orderId).get();
+            const sourceOrder = sourceOrderDoc.data() as Order;
+
+            const newRequestRef = adminDb.collection('purchaseRequests').doc();
+            
+            const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
+                dealId: sourceOrder.crmOrderNo,
+                customerName: sourceOrder.customerName,
+                promiseDeliveryDate: new Date().toISOString(),
+                salesman: creator.name, // The person creating the PO is the one responsible.
+                type: fabricDetails.length > 0 ? 'fabric' : 'furniture',
+                workType: 'production',
+                fabricDetails,
+                furnitureDetails,
+                createdAt: new Date().toISOString(),
+                createdBy: creator,
+                milestones: [],
+                vendorType: 'undecided',
+                status: 'pending',
+                vendor: group.vendor,
+                courier: group.courier,
+                mode: group.mode,
+            };
+            
+            batch.set(newRequestRef, newPurchaseRequest);
         }
         
-        const firstItem = items[0];
-        // Fetch the source order to get accurate customer and salesman details
-        const sourceOrderDoc = await adminDb.collection('orders').doc(firstItem.orderId).get();
-        if (!sourceOrderDoc.exists) {
-            return { success: false, message: `Source order ${firstItem.orderId} not found.`};
-        }
-        const sourceOrder = sourceOrderDoc.data() as Order;
+        await batch.commit();
 
-        const newRequestRef = adminDb.collection('purchaseRequests').doc();
-        
-        const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-            dealId: sourceOrder.crmOrderNo,
-            customerName: sourceOrder.customerName,
-            promiseDeliveryDate: new Date().toISOString(),
-            salesman: sourceOrder.salesPerson,
-            type: fabricDetails.length > 0 ? 'fabric' : 'furniture',
-            workType: 'production',
-            fabricDetails,
-            furnitureDetails,
-            createdAt: new Date().toISOString(),
-            createdBy: creator,
-            milestones: [],
-            vendorType: 'undecided',
-            status: 'pending',
-            vendor: poDetails.vendor,
-            courier: poDetails.courier,
-            mode: poDetails.mode,
-        };
-        
-        await newRequestRef.set(newPurchaseRequest);
-
-        return { success: true, message: `Purchase Request with PO #${poNumber} created successfully!`, requestId: newRequestRef.id };
+        return { success: true, message: `Successfully created ${poNumbers.length} Purchase Requests with POs: ${poNumbers.join(', ')}` };
     } catch (error: any) {
         console.error("Error creating purchase request:", error);
         return { success: false, message: `Server error: ${error.message}` };
