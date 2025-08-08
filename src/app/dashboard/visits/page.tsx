@@ -64,47 +64,74 @@ export default function AllVisitsPage() {
         const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
         setUsers(usersData);
     });
+    
+    // More efficient query using collectionGroup
+    const visitsQuery = collectionGroup(db, 'visits');
+    const unsubscribeVisits = onSnapshot(visitsQuery, async (snapshot) => {
+        const visitsData: EnrichedDealVisit[] = [];
+        // Use a map to avoid re-fetching the same customer/deal multiple times
+        const customerCache = new Map<string, Customer>();
+        const dealCache = new Map<string, Deal>();
 
-    const fetchAllData = async () => {
-        try {
-            const customersSnapshot = await getDocs(collection(db, "customers"));
-            const allVisits: EnrichedDealVisit[] = [];
+        for (const doc of snapshot.docs) {
+            const visit = doc.data() as DealVisit;
+            const pathParts = doc.ref.path.split('/');
+            const customerId = pathParts[1];
+            const dealDocId = pathParts[3];
 
-            for (const customerDoc of customersSnapshot.docs) {
-                const customer = { id: customerDoc.id, ...customerDoc.data() } as Customer;
-                const dealsSnapshot = await getDocs(collection(db, `customers/${customer.id}/deals`));
-                for (const dealDoc of dealsSnapshot.docs) {
-                    const deal = { id: dealDoc.id, ...dealDoc.data() } as Deal;
-                    const visitsSnapshot = await getDocs(collection(db, `customers/${customer.id}/deals/${deal.id}/visits`));
-                    visitsSnapshot.forEach(visitDoc => {
-                        allVisits.push({
-                            ...(visitDoc.data() as DealVisit),
-                            id: visitDoc.id,
-                            dealId: deal.dealId, // This was missing
-                            customerId: customer.id,
-                            customerName: customer.name || 'Unknown',
-                            dealDocId: deal.id,
-                            dealName: deal.dealName,
-                        });
-                    });
+            let customerName = 'Unknown';
+            let dealName = 'Unknown';
+            let dealId = 'N/A';
+
+            // Fetch customer if not in cache
+            if (!customerCache.has(customerId)) {
+                const customerRef = doc.ref.parent.parent!.parent!.parent!; // customers/{customerId}
+                const customerSnap = await getDoc(customerRef);
+                if (customerSnap.exists()) {
+                    customerCache.set(customerId, { id: customerSnap.id, ...customerSnap.data() } as Customer);
                 }
             }
-            setVisits(allVisits);
-        } catch (error) {
-            console.error("Error fetching visits:", error);
-            toast({
-                variant: "destructive",
-                title: "Error",
-                description: "Could not load visit data. Please check your Firestore permissions."
+            customerName = customerCache.get(customerId)?.name || 'Unknown';
+            
+            // Fetch deal if not in cache
+            const dealCacheKey = `${customerId}-${dealDocId}`;
+            if (!dealCache.has(dealCacheKey)) {
+                const dealRef = doc.ref.parent.parent!; // customers/{customerId}/deals/{dealId}
+                const dealSnap = await getDoc(dealRef);
+                 if (dealSnap.exists()) {
+                    dealCache.set(dealCacheKey, { id: dealSnap.id, ...dealSnap.data() } as Deal);
+                }
+            }
+            const dealData = dealCache.get(dealCacheKey);
+            dealName = dealData?.dealName || 'Unknown';
+            dealId = dealData?.dealId || 'N/A';
+
+            visitsData.push({
+                ...visit,
+                id: doc.id,
+                customerId,
+                dealDocId,
+                customerName,
+                dealName,
+                dealId
             });
-        } finally {
-            setLoading(false);
         }
+        setVisits(visitsData);
+        setLoading(false);
+    }, (error) => {
+        console.error("Error fetching visits:", error);
+        toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Could not load visit data. Please check your Firestore permissions."
+        });
+        setLoading(false);
+    });
+
+    return () => {
+        unsubscribeUsers();
+        unsubscribeVisits();
     };
-
-    fetchAllData();
-
-    return () => unsubscribeUsers();
   }, [toast]);
   
   const getRepresentativeName = (id: string) => users.find(u => u.id === id)?.name || id;
@@ -206,7 +233,7 @@ export default function AllVisitsPage() {
               <h4 className="font-semibold">Delivery/Installation Selected:</h4>
               <ul className="list-disc list-inside text-muted-foreground">
                   {(visit.deliveryInstallations && visit.deliveryInstallations.length > 0) ? 
-                      visit.deliveryInstallations.map(d => <li key={d.id}>{deliveryInstallationItems.find(di => di.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>) 
+                      visit.deliveryInstallations.map(d => d && <li key={d.id}>{deliveryInstallationItems.find(di => di.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>) 
                       : <li>None</li>}
                   {visit.otherDelivery && <li>Other: {visit.otherDelivery}</li>}
               </ul>
@@ -215,7 +242,7 @@ export default function AllVisitsPage() {
               <div>
                   <h4 className="font-semibold">Sub-Delivery/Installation:</h4>
                   <ul className="list-disc list-inside text-muted-foreground">
-                      {visit.subDeliveryInstallations.map(d => <li key={d.id}>{subDeliveryInstallationItems.find(sdi => sdi.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>)}
+                      {visit.subDeliveryInstallations.map(d => d && <li key={d.id}>{subDeliveryInstallationItems.find(sdi => sdi.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>)}
                   </ul>
               </div>
           )}
