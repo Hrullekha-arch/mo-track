@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
@@ -23,7 +24,7 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
     ];
 
     return (
-        <Link href={`/dashboard/inbound/${request.dealId}`} className="block">
+        <Link href={`/dashboard/inbound/${request.id}`} className="block">
             <Card className="hover:shadow-md transition-shadow">
                 <CardHeader>
                     <div className="flex justify-between items-start">
@@ -86,19 +87,10 @@ export default function InboundPage() {
     const [searchQuery, setSearchQuery] = useState("");
 
     useEffect(() => {
-        // A PO is considered "inbound" once it's marked as "PO Confirmation" (step 1)
-        const unsubscribe = onSnapshot(query(collection(db, "purchaseRequests")), (snapshot) => {
-            const allRequests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-            
-            const filteredRequests = allRequests.filter(req => 
-                req.poMilestones?.some(m => m.stepId === 1 && m.status === 'completed')
-            );
-            
-            setInboundRequests(filteredRequests.sort((a,b) => {
-                 const aDate = a.poMilestones?.find(m => m.stepId === 1)?.completedAt || a.createdAt;
-                 const bDate = b.poMilestones?.find(m => m.stepId === 1)?.completedAt || b.createdAt;
-                 return new Date(bDate).getTime() - new Date(aDate).getTime();
-            }));
+        const q = query(collection(db, "purchaseRequests"), where("status", "==", "PO Generated"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            setInboundRequests(requests.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
             setLoading(false);
         });
 
@@ -150,7 +142,7 @@ export default function InboundPage() {
             <header className="mb-8">
                 <h1 className="text-3xl font-bold tracking-tight">Inbound Materials</h1>
                 <p className="text-muted-foreground">
-                    A log of all materials for which a Purchase Order has been confirmed with a vendor.
+                    A log of all materials for which a Purchase Order has been generated.
                 </p>
             </header>
             
@@ -179,7 +171,7 @@ export default function InboundPage() {
                     <CardDescription>
                         {searchQuery 
                             ? `No items match your search for "${searchQuery}".`
-                            : `When a purchase order completes the "PO Confirmation" step, it will appear here.`
+                            : `When a purchase order is generated, it will appear here.`
                         }
                     </CardDescription>
                 </Card>

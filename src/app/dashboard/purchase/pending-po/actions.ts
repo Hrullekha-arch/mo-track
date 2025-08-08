@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
@@ -79,20 +80,18 @@ export async function createPurchaseRequestAction(
 
         for (const group of poData) {
             if (group.items.length === 0) continue;
-
-            const fabricDetails: FabricDetail[] = [];
-            const furnitureDetails: FurnitureDetail[] = [];
             
             const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
             poNumbers.push(poNumber);
-
+            
             const firstItem = group.items[0];
-            const sourceOrderDoc = await adminDb.collection('orders').doc(firstItem.orderId).get();
-            if (!sourceOrderDoc.exists()) {
-                throw new Error(`Source order ${firstItem.orderId} not found.`);
-            }
-            const sourceOrder = sourceOrderDoc.data() as Order;
-
+            
+            // The original purchase request was created with the Order's CRM No as its ID.
+            const requestRef = adminDb.collection('purchaseRequests').doc(firstItem.orderId);
+            
+            const fabricDetails: FabricDetail[] = [];
+            const furnitureDetails: FurnitureDetail[] = [];
+            
             for (const item of group.items) {
                 const stockDocs = await adminDb.collection('stocks').where('bcn', '==', item.collectionBrand).limit(1).get();
                 const stockType = stockDocs.docs[0]?.data()?.type || 'fabric';
@@ -109,34 +108,23 @@ export async function createPurchaseRequestAction(
                      furnitureDetails.push({ furnitureName: item.collectionBrand, ...commonDetails });
                 }
             }
-            
-            const newRequestRef = adminDb.collection('purchaseRequests').doc();
-            
-            const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-                dealId: sourceOrder.crmOrderNo,
-                customerName: sourceOrder.customerName,
-                promiseDeliveryDate: new Date().toISOString(),
-                salesman: sourceOrder.salesPerson,
-                type: fabricDetails.length > 0 ? 'fabric' : 'furniture',
-                workType: 'production',
-                fabricDetails,
-                furnitureDetails,
-                createdAt: new Date().toISOString(),
-                createdBy: creator,
-                milestones: [],
-                vendorType: 'undecided',
-                status: 'Pending Approval',
+
+            // Update the existing request instead of creating a new one
+            batch.update(requestRef, {
+                status: 'PO Generated',
                 vendor: group.vendor,
                 courier: group.courier,
                 mode: group.mode,
-            };
-            
-            batch.set(newRequestRef, newPurchaseRequest);
+                fabricDetails: fabricDetails,
+                furnitureDetails: furnitureDetails,
+                'milestones': [], // Clear previous milestones if any
+                'poMilestones': [], // Initialize poMilestones
+            });
         }
         
         await batch.commit();
 
-        return { success: true, message: `Successfully created ${poNumbers.length} Purchase Requests. They are now pending approval.` };
+        return { success: true, message: `Successfully created ${poNumbers.length} Purchase Orders. They have been moved to Inbound.` };
     } catch (error: any) {
         console.error("Error creating purchase request:", error);
         return { success: false, message: `Server error: ${error.message}` };

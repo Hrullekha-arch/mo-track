@@ -167,7 +167,7 @@ export interface PurchaseRequest {
   };
   milestones: PurchaseStatus[];
   vendorType: 'existing' | 'new' | 'undecided';
-  status: 'pending' | 'completed' | 'cancelled';
+  status: 'Pending Approval' | 'Approved' | 'PO Generated' | 'Completed' | 'Cancelled';
   remarks?: string;
 
   // PO Tracking

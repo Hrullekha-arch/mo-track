@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { doc, setDoc, getDoc, collection, query, where, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, getDoc, collection, query, where, onSnapshot, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getMilestonesForOrder } from "@/lib/constants";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -15,7 +15,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { User, OrderType, FabricDetail, FurnitureDetail } from "@/lib/types";
+import { User, OrderType, FabricDetail, FurnitureDetail, PurchaseRequest } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -205,7 +205,6 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
     }
     setLoading(true);
     try {
-      // Find assigned CRM user for the selected salesman by name or code
       const salesmanIdentifier = values.salesPerson.trim();
       const salesmanUser = salesmen.find(s => 
         s.name.toLowerCase() === salesmanIdentifier.toLowerCase() || 
@@ -213,72 +212,87 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
       );
 
       if (!salesmanUser) {
-           toast({ 
-               variant: "destructive", 
-               title: "Salesman not found",
-               description: `Could not find a salesman with the name or code "${salesmanIdentifier}".`
-            });
+           toast({ variant: "destructive", title: "Salesman not found", description: `Could not find a salesman with the name or code "${salesmanIdentifier}".` });
            form.setError("salesPerson", { message: "Salesman not found." });
            setLoading(false);
            return;
       }
+      
       const assignmentRef = doc(db, "salesmanCrmAssignments", salesmanUser.name);
       const assignmentSnap = await getDoc(assignmentRef);
       const crmUserId = assignmentSnap.exists() ? assignmentSnap.data().crmUserId : null;
 
       if (!crmUserId) {
-        toast({
-          variant: "destructive",
-          title: "Assignment Missing",
-          description: `The salesman "${salesmanUser.name}" is not assigned to a CRM handler. Please set the assignment in User Management.`,
-        });
+        toast({ variant: "destructive", title: "Assignment Missing", description: `The salesman "${salesmanUser.name}" is not assigned to a CRM handler. Please set the assignment in User Management.` });
         setLoading(false);
         return;
       }
-
+      
+      const batch = writeBatch(db);
+      
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
-      const newMilestones = getMilestonesForOrder(values.orderType);
-      
-      const otp = Math.floor(1000 + Math.random() * 9000).toString();
-      
-      const newOrder = {
+      const newOrderRef = doc(db, "orders", trackingId);
+
+      const newOrderData = {
         id: trackingId,
         crmOrderNo: values.crmOrderNo,
         customerName: values.customerName,
         customerPhone: values.customerPhone,
         customerAddress: values.customerAddress,
-        salesPerson: salesmanUser.name, // Store the actual name
+        salesPerson: salesmanUser.name,
         storeName: values.storeName,
         orderType: values.orderType,
         remarks: values.remarks || "",
-        milestones: newMilestones,
-        o2dMilestones: [], // Initialize empty O2D milestones
+        milestones: getMilestonesForOrder(values.orderType),
+        o2dMilestones: [],
         createdAt: new Date().toISOString(),
-        createdBy: {
-            id: user.id,
-            name: user.name,
-        },
-        otp: otp,
-        handledByCrm: crmUserId, // Automatically assign CRM
-        isAcknowledged: false, // Orders start in O2D, so they are not yet acknowledged for the main workflow
+        createdBy: { id: user.id, name: user.name },
+        otp: Math.floor(1000 + Math.random() * 9000).toString(),
+        handledByCrm: crmUserId,
+        isAcknowledged: false,
         fabricDetails: values.fabricDetails || [],
         furnitureDetails: values.furnitureDetails || [],
       };
+      
+      batch.set(newOrderRef, newOrderData);
 
-      await setDoc(doc(db, "orders", trackingId), newOrder);
-      toast({
-        title: "Order Created",
-        description: `Order ${trackingId} has been created and moved to the O2D dashboard.`,
-      });
+      // Create a corresponding purchase request if items are added
+      if ((values.fabricDetails && values.fabricDetails.length > 0) || (values.furnitureDetails && values.furnitureDetails.length > 0)) {
+        const purchaseRequestRef = doc(db, "purchaseRequests", values.crmOrderNo);
+        const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
+            dealId: values.crmOrderNo,
+            customerName: values.customerName,
+            promiseDeliveryDate: new Date().toISOString(), // Placeholder
+            salesman: salesmanUser.name,
+            type: values.fabricDetails && values.fabricDetails.length > 0 ? 'fabric' : 'furniture',
+            fabricDetails: values.fabricDetails || [],
+            furnitureDetails: values.furnitureDetails || [],
+            createdAt: new Date().toISOString(),
+            createdBy: { id: user.id, name: user.name },
+            milestones: [],
+            vendorType: 'undecided',
+            status: 'Pending Approval', // STARTING POINT OF NEW WORKFLOW
+        };
+        batch.set(purchaseRequestRef, newPurchaseRequest);
+        toast({
+          title: "Order & Purchase Request Created",
+          description: `Order ${trackingId} has been created and a purchase request sent for approval.`,
+        });
+      } else {
+        toast({
+            title: "Order Created",
+            description: `Order ${trackingId} has been created and moved to the O2D dashboard.`,
+        });
+      }
+
+      await batch.commit();
+
       form.reset();
       onClose();
+
     } catch (error) {
       console.error("Error creating order: ", error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to create the order. Please try again.",
-      });
+      toast({ variant: "destructive", title: "Error", description: "Failed to create the order. Please try again." });
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, use } from 'react';
@@ -156,7 +157,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
             
             toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete.`});
 
-            // --- Start of new logic: Check if all items are fully received ---
+            // Start of new logic: Check if all items are fully received
             const allItems = items as Array<FabricDetail | FurnitureDetail>;
             const allItemsCompleted = allItems.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
@@ -171,7 +172,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                     const orderData = orderDoc.data() as Order;
                     const o2dStep9 = orderData.o2dMilestones?.find(m => m.stepId === 9);
 
-                    if (!o2dStep9) {
+                    if (!o2dStep9 || o2dStep9.status !== 'completed') {
                         const o2dMilestoneStep9: O2DStatus = {
                             stepId: 9,
                             status: 'completed',
@@ -180,9 +181,16 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                             remarks: "Automatically completed after all items were received in Inbound.",
                             selection: 'Done'
                         };
-                        await updateDoc(orderDoc.ref, {
-                            o2dMilestones: arrayUnion(o2dMilestoneStep9)
-                        });
+                        
+                        const existingO2dStep9Index = (orderData.o2dMilestones || []).findIndex(m => m.stepId === 9);
+                        if (existingO2dStep9Index > -1) {
+                            const newO2dMilestones = [...(orderData.o2dMilestones || [])];
+                            newO2dMilestones[existingO2dStep9Index] = o2dMilestoneStep9;
+                            await updateDoc(orderDoc.ref, { o2dMilestones: newO2dMilestones });
+                        } else {
+                            await updateDoc(orderDoc.ref, { o2dMilestones: arrayUnion(o2dMilestoneStep9) });
+                        }
+                        
                         toast({
                             title: "O2D Process Updated!",
                             description: `Step "Purchase Material Receiving" was automatically marked as done for order ${orderData.id}.`,
@@ -191,7 +199,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                     }
                 }
             }
-            // --- End of new logic ---
+            // End of new logic
 
         } catch (error) {
             console.error("Error updating inbound status:", error);
@@ -284,7 +292,7 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                     <CardDescription>
                         {request.type === 'fabric' ? 'Fabric' : 'Furniture'} request from salesman {request.salesman}.
                         <br />
-                        Vendor promised delivery on: {request.poDeliveryDate ? format(new Date(request.poDeliveryDate), 'PPP') : 'Not set'}
+                        Vendor: {request.vendor || 'Not set'}
                     </CardDescription>
                 </CardHeader>
             </Card>
