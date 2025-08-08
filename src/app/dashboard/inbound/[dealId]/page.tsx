@@ -153,13 +153,15 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
 
             if (itemIsNowComplete) {
                 const stockId = itemToUpdate.itemName.replace(/\//g, '-');
+                const quantity = parseFloat(itemToUpdate.quantity);
                 
                 const transaction: Omit<StockTransaction, 'id'> = {
                     stockId: stockId,
                     bcn: itemToUpdate.itemName,
                     type: 'addition',
-                    quantityChange: parseFloat(itemToUpdate.quantity),
+                    quantityChange: quantity,
                     poNumber: itemToUpdate.poNumber,
+                    lengths: [quantity], // Assume the total quantity is a single length for now
                     createdAt: new Date().toISOString(),
                     createdBy: user.name,
                 };

@@ -150,7 +150,7 @@ export async function updateStockQuantityAction(
 ): Promise<{ success: boolean; message: string; newStock?: Stock }> {
   try {
     const stockRef = adminDb.collection('stocks').doc(stockId);
-    const transactionCollectionName = 'stockAdded';
+    const transactionCollectionName = transaction.type === 'addition' ? 'stockAdded' : 'stockSold';
     const transactionRef = stockRef.collection(transactionCollectionName).doc();
 
     const batch = adminDb.batch();

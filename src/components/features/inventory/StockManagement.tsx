@@ -55,7 +55,8 @@ function UpdateStockDialog({ stock, onStockUpdated }: { stock: Stock, onStockUpd
         }
         setIsSubmitting(true);
         try {
-            const addedQuantity = data.lengths.reduce((sum, length) => sum + parseFloat(length.value), 0);
+            const lengthsAsNumbers = data.lengths.map(l => parseFloat(l.value)).filter(n => !isNaN(n));
+            const addedQuantity = lengthsAsNumbers.reduce((sum, length) => sum + length, 0);
             
             const transaction: Omit<StockTransaction, 'id'> = {
                 stockId: stock.id,
@@ -63,7 +64,7 @@ function UpdateStockDialog({ stock, onStockUpdated }: { stock: Stock, onStockUpd
                 type: 'addition',
                 quantityChange: addedQuantity,
                 poNumber: data.poNo,
-                lengths: data.lengths.map(l => parseFloat(l.value)),
+                lengths: lengthsAsNumbers,
                 createdAt: new Date().toISOString(),
                 createdBy: user.name,
             };
