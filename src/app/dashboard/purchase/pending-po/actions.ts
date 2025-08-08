@@ -6,79 +6,35 @@ import { Order, Stock, PurchaseRequest, FabricDetail, FurnitureDetail } from "@/
 
 export interface PendingPoItem {
     id: string; // Combination of orderId and itemName
+    orderId: string; // The ID of the order that needs this item
     collectionBrand: string;
     serialNo: string;
     hsnCode: string;
     mrp: number;
     vendorName: string;
-    totalOrderQty: number;
+    neededQty: number; // The quantity needed for this specific order
     stock: number;
 }
 
 export async function getPendingPoItems(): Promise<PendingPoItem[]> {
     try {
-        // Step 1: Fetch only active orders. 
+        // Step 1: Fetch active orders and all stock data
         const ordersSnapshot = await adminDb.collection('orders').get();
-        const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        
-        const activeOrders = allOrders.filter(order => {
-             const isCompleted = order.milestones.every(m => m.completed);
-             return !isCompleted;
-        });
-
-        // Step 2: Aggregate all unique item names (BCNs) from active orders.
-        const requiredItemsMap = new Map<string, { totalOrderQty: number, orders: string[] }>();
-
-        for (const order of activeOrders) {
-            const itemsInOrder = [
-                ...(order.fabricDetails || []).map(item => ({ name: item.fabricName, quantity: parseFloat(item.quantity) })),
-                ...(order.furnitureDetails || []).map(item => ({ name: item.furnitureName, quantity: parseFloat(item.quantity) }))
-            ];
-
-            for (const item of itemsInOrder) {
-                if (!item.name || isNaN(item.quantity)) continue;
-                
-                const existing = requiredItemsMap.get(item.name);
-                if (existing) {
-                    existing.totalOrderQty += item.quantity;
-                    if (!existing.orders.includes(order.id)) {
-                        existing.orders.push(order.id);
-                    }
-                } else {
-                    requiredItemsMap.set(item.name, { totalOrderQty: item.quantity, orders: [order.id] });
-                }
-            }
-        }
-        
-        const requiredBcns = Array.from(requiredItemsMap.keys());
-        if (requiredBcns.length === 0) {
-            return [];
-        }
-
-        // Step 3: Fetch only the stock data for the required BCNs.
-        const stockPromises = [];
-        for (let i = 0; i < requiredBcns.length; i += 30) {
-            const chunk = requiredBcns.slice(i, i + 30);
-            stockPromises.push(
-                adminDb.collection('stocks').where('bcn', 'in', chunk).get()
-            );
-        }
-        
-        const stockSnapshots = await Promise.all(stockPromises);
-        const stockMap = new Map<string, Stock>();
-        stockSnapshots.forEach(snapshot => {
-            snapshot.docs.forEach(doc => {
-                const stock = { id: doc.id, ...doc.data() } as Stock;
-                if(stock.bcn) {
-                   stockMap.set(stock.bcn, stock);
-                }
-            });
-        });
-        
-        // Step 4: Fetch active Purchase Requests to check for "in-flight" stock
+        const stockSnapshot = await adminDb.collection('stocks').get();
         const activePrSnapshot = await adminDb.collection('purchaseRequests').where('status', '==', 'pending').get();
-        const inFlightItems = new Map<string, number>();
 
+        const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+        const stockMap = new Map<string, Stock>();
+        stockSnapshot.docs.forEach(doc => {
+            const stock = { id: doc.id, ...doc.data() } as Stock;
+            if (stock.bcn) {
+                stockMap.set(stock.bcn, stock);
+            }
+        });
+
+        const activeOrders = allOrders.filter(order => !order.milestones.every(m => m.completed));
+
+        const inFlightItems = new Map<string, number>();
         activePrSnapshot.docs.forEach(doc => {
             const pr = doc.data() as PurchaseRequest;
             const items = [...(pr.fabricDetails || []), ...(pr.furnitureDetails || [])];
@@ -90,29 +46,49 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 }
             });
         });
-
-        // Step 5: Compare, identify needs, and build the final list.
-        const pendingItems: PendingPoItem[] = [];
         
-        for (const [bcn, required] of requiredItemsMap.entries()) {
-            const stockInfo = stockMap.get(bcn);
-            const currentStock = stockInfo?.quantity || 0;
+        const pendingItems: PendingPoItem[] = [];
+        const tempStockMap = new Map<string, number>();
+        stockMap.forEach((stock, bcn) => {
             const inFlightQty = inFlightItems.get(bcn) || 0;
-            
-            // The actual needed quantity is what's ordered, minus what's in stock and what's already on order.
-            const neededQty = required.totalOrderQty - currentStock - inFlightQty;
+            tempStockMap.set(bcn, stock.quantity - inFlightQty);
+        });
 
-            if (neededQty > 0) {
-                 pendingItems.push({
-                    id: bcn,
-                    collectionBrand: bcn,
-                    serialNo: stockInfo?.serialNo || 'N/A',
-                    hsnCode: stockInfo?.hsnCode || 'N/A',
-                    mrp: stockInfo?.mrp || 0,
-                    vendorName: stockInfo?.vendorName || 'N/A',
-                    totalOrderQty: neededQty,
-                    stock: currentStock,
-                });
+
+        // Step 2: Iterate through each order's items
+        for (const order of activeOrders) {
+            const itemsInOrder = [
+                ...(order.fabricDetails || []).map(item => ({ name: item.fabricName, quantity: parseFloat(item.quantity) })),
+                ...(order.furnitureDetails || []).map(item => ({ name: item.furnitureName, quantity: parseFloat(item.quantity) }))
+            ];
+
+            for (const item of itemsInOrder) {
+                if (!item.name || isNaN(item.quantity) || item.quantity <= 0) continue;
+                
+                const availableStock = tempStockMap.get(item.name) || 0;
+
+                if (item.quantity > availableStock) {
+                    const neededQty = item.quantity - availableStock;
+                    const stockInfo = stockMap.get(item.name);
+                    
+                    pendingItems.push({
+                        id: `${order.id}-${item.name}`,
+                        orderId: order.id,
+                        collectionBrand: item.name,
+                        serialNo: stockInfo?.serialNo || 'N/A',
+                        hsnCode: stockInfo?.hsnCode || 'N/A',
+                        mrp: stockInfo?.mrp || 0,
+                        vendorName: stockInfo?.vendorName || 'N/A',
+                        neededQty: neededQty,
+                        stock: stockInfo?.quantity || 0,
+                    });
+                    
+                    // Decrement the temporary stock for the next order's calculation
+                    tempStockMap.set(item.name, Math.max(0, availableStock - item.quantity));
+                } else {
+                     // Decrement the temporary stock even if there's enough
+                    tempStockMap.set(item.name, availableStock - item.quantity);
+                }
             }
         }
         
@@ -138,18 +114,16 @@ export async function createPurchaseRequestAction(
         const fabricDetails: FabricDetail[] = [];
         const furnitureDetails: FurnitureDetail[] = [];
         
-        // Generate a unique numeric PO number
         const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
 
         for (const item of items) {
-            const neededQty = item.totalOrderQty;
             const stockInfo = await adminDb.collection('stocks').where('bcn', '==', item.collectionBrand).limit(1).get();
             const stockType = stockInfo.docs[0]?.data()?.type || 'fabric';
 
             const commonDetails = {
-                quantity: String(neededQty),
+                quantity: String(item.neededQty),
                 vendorName: poDetails.vendor || item.vendorName,
-                poNumber: poNumber, // Assign the same PO number to all items in this batch
+                poNumber: poNumber, 
             };
 
             if (stockType === 'fabric') {
@@ -181,7 +155,6 @@ export async function createPurchaseRequestAction(
             milestones: [],
             vendorType: 'undecided',
             status: 'pending',
-            // Add new fields
             vendor: poDetails.vendor,
             courier: poDetails.courier,
             mode: poDetails.mode,

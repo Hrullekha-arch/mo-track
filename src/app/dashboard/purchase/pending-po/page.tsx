@@ -30,7 +30,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -46,11 +46,12 @@ const columns: ColumnDef<PendingPoItem>[] = [
       enableSorting: false,
       enableHiding: false,
     },
+    { accessorKey: "orderId", header: "Order ID" },
     { accessorKey: "collectionBrand", header: "Collection/Brand" },
     { accessorKey: "serialNo", header: "Serial No" },
     { accessorKey: "hsnCode", header: "HSN Code" },
     { accessorKey: "mrp", header: "MRP" },
-    { accessorKey: "totalOrderQty", header: "Total Order Qty" },
+    { accessorKey: "neededQty", header: "Needed Qty" },
     { accessorKey: "stock", header: "Stock" },
     { accessorKey: "vendorName", header: "Vendor Name" },
   ];
@@ -154,18 +155,18 @@ function CreatePoDialog({ isOpen, onClose, selectedItems, creator }: { isOpen: b
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>#</TableHead>
+                                        <TableHead>Order ID</TableHead>
                                         <TableHead>BCN/Item Name</TableHead>
-                                        <TableHead>Serial No</TableHead>
-                                        <TableHead>Qty</TableHead>
+                                        <TableHead>Needed Qty</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {selectedItems.map((item, index) => (
                                         <TableRow key={item.id}>
                                             <TableCell>{index + 1}</TableCell>
+                                            <TableCell>{item.orderId}</TableCell>
                                             <TableCell>{item.collectionBrand}</TableCell>
-                                            <TableCell>{item.serialNo}</TableCell>
-                                            <TableCell>{item.totalOrderQty}</TableCell>
+                                            <TableCell>{item.neededQty}</TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
