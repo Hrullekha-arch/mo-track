@@ -115,6 +115,15 @@ export async function createPurchaseRequestAction(
             const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
             poNumbers.push(poNumber);
 
+            // Fetch the source order once, assuming all items in a group come from the same order for now.
+            // A more robust solution might handle items from multiple orders in one PO group.
+            const firstItem = group.items[0];
+            const sourceOrderDoc = await adminDb.collection('orders').doc(firstItem.orderId).get();
+            if (!sourceOrderDoc.exists()) {
+                throw new Error(`Source order ${firstItem.orderId} not found.`);
+            }
+            const sourceOrder = sourceOrderDoc.data() as Order;
+
             for (const item of group.items) {
                 const stockDocs = await adminDb.collection('stocks').where('bcn', '==', item.collectionBrand).limit(1).get();
                 const stockType = stockDocs.docs[0]?.data()?.type || 'fabric';
@@ -132,17 +141,13 @@ export async function createPurchaseRequestAction(
                 }
             }
             
-            const firstItem = group.items[0];
-            const sourceOrderDoc = await adminDb.collection('orders').doc(firstItem.orderId).get();
-            const sourceOrder = sourceOrderDoc.data() as Order;
-
             const newRequestRef = adminDb.collection('purchaseRequests').doc();
             
             const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
                 dealId: sourceOrder.crmOrderNo,
                 customerName: sourceOrder.customerName,
                 promiseDeliveryDate: new Date().toISOString(),
-                salesman: creator.name, // The person creating the PO is the one responsible.
+                salesman: sourceOrder.salesPerson,
                 type: fabricDetails.length > 0 ? 'fabric' : 'furniture',
                 workType: 'production',
                 fabricDetails,
@@ -151,7 +156,7 @@ export async function createPurchaseRequestAction(
                 createdBy: creator,
                 milestones: [],
                 vendorType: 'undecided',
-                status: 'pending',
+                status: 'Pending Approval', // New requests start as pending
                 vendor: group.vendor,
                 courier: group.courier,
                 mode: group.mode,
@@ -162,7 +167,7 @@ export async function createPurchaseRequestAction(
         
         await batch.commit();
 
-        return { success: true, message: `Successfully created ${poNumbers.length} Purchase Requests with POs: ${poNumbers.join(', ')}` };
+        return { success: true, message: `Successfully created ${poNumbers.length} Purchase Requests. They are now pending approval.` };
     } catch (error: any) {
         console.error("Error creating purchase request:", error);
         return { success: false, message: `Server error: ${error.message}` };

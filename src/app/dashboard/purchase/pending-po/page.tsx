@@ -147,7 +147,7 @@ function CreatePoDialog({ isOpen, onClose, selectedItems, creator }: { isOpen: b
                 <DialogHeader>
                     <DialogTitle>Create Purchase Order(s)</DialogTitle>
                     <DialogDescription>
-                        A separate PO will be created for each vendor.
+                        A separate PO will be created for each vendor. It will then be sent for approval.
                     </DialogDescription>
                 </DialogHeader>
                  <Form {...form}>
@@ -284,8 +284,8 @@ export default function PendingPOPage() {
     <div className="w-full p-4 md:p-6 lg:p-8">
         <header className="flex items-center justify-between mb-8">
             <div>
-                <h1 className="text-3xl font-bold tracking-tight">Pending Purchase Order Report</h1>
-                <p className="text-muted-foreground">Select items to generate a Purchase Order.</p>
+                <h1 className="text-3xl font-bold tracking-tight">SO to PO Generation</h1>
+                <p className="text-muted-foreground">Select items to generate a Purchase Request.</p>
             </div>
             <Button variant="outline" asChild>
                 <Link href="/dashboard/purchase">

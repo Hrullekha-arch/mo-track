@@ -127,7 +127,7 @@ export async function createDealOrderAction(
 
     return {
       success: true,
-      message: 'Order created successfully. It is now pending approval.',
+      message: 'Order created successfully and is now active.',
       order: JSON.parse(JSON.stringify(newOrder)),
     };
   } catch (error: any) {

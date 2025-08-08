@@ -50,18 +50,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 
-const getStatus = (request: PurchaseRequest) => {
-    const isBlocked = request.milestones.some(m => m.stepId <= 3 && m.status === 'skipped');
-    if (isBlocked) return "Blocked";
-
-    const lastStepInExisting = 6;
-    const lastStepInNew = 11;
-    const isCompleted = request.milestones.some(cs => (cs.stepId === lastStepInExisting || cs.stepId === lastStepInNew) && cs.status === 'completed');
-    if (isCompleted) return "Order Placed";
-    
-    return "In Progress";
-}
-
 export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-tracking' }) {
   const [requests, setRequests] = React.useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -74,21 +62,12 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
   const { toast } = useToast();
   const { role } = useAuth();
   
-  const isAuthorized = role === 'admin';
+  const isAuthorized = role === 'admin' || role === 'Accounts';
 
   React.useEffect(() => {
     const requestsQuery = query(collection(db, "purchaseRequests"));
     const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
       let requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-
-      if (view === 'po-tracking') {
-          requestsData = requestsData.filter(req => {
-              const isOrderPlaced = req.milestones.some(m => (m.stepId === 6 || m.stepId === 11) && m.status === 'completed');
-              const isPoProcessCompleted = req.poMilestones?.some(m => m.stepId === 5 && m.status === 'completed');
-              return isOrderPlaced && !isPoProcessCompleted;
-          });
-      }
-
       setRequests(requestsData);
       setLoading(false);
     });
@@ -138,36 +117,6 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
       cell: ({ row }) => <div className="font-mono">{row.getValue("dealId")}</div>,
     },
     {
-      id: "bcn",
-      header: "BCN",
-      cell: ({ row }) => {
-        const items = [...(row.original.fabricDetails || []), ...(row.original.furnitureDetails || [])];
-        if (items.length === 0) return '-';
-        return (
-          <div className="space-y-1">
-            {items.map((item, index) => (
-              <p key={index} className="text-xs truncate">{(item as any).fabricName || (item as any).furnitureName}</p>
-            ))}
-          </div>
-        )
-      }
-    },
-    {
-      id: "qty",
-      header: "Qty",
-      cell: ({ row }) => {
-        const items = [...(row.original.fabricDetails || []), ...(row.original.furnitureDetails || [])];
-        if (items.length === 0) return '-';
-        return (
-          <div className="space-y-1">
-            {items.map((item, index) => (
-              <p key={index} className="text-xs">{item.quantity} {(row.original.type === 'fabric') ? 'Mtr' : ''}</p>
-            ))}
-          </div>
-        )
-      }
-    },
-    {
       accessorKey: "customerName",
       header: ({ column }) => (
         <Button
@@ -194,18 +143,26 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
         cell: ({ row }) => <div>{row.getValue("salesman")}</div>,
     },
     {
-        id: "status",
         accessorKey: "status",
         header: "Status",
         cell: ({ row }) => {
-            const status = getStatus(row.original);
-            let variant: "default" | "secondary" | "destructive" = "secondary";
-            if (status === "Order Placed") variant = "default";
-            if (status === "Blocked") variant = "destructive";
+            const status = row.original.status || 'Pending Approval';
+            let variant: "default" | "secondary" | "destructive" | "outline" = "secondary";
+            if (status === "Approved") variant = "default";
+            if (status === "Pending Approval") variant = "outline";
+            if (status === "PO Generated") variant = "default";
             return <Badge variant={variant}>{status}</Badge>;
         },
         filterFn: (row, id, value) => {
-            return value.includes(getStatus(row.original))
+            return value.includes(row.getValue(id))
+        }
+    },
+    {
+        id: 'poNumber',
+        header: 'PO Number',
+        cell: ({ row }) => {
+          const poNumber = row.original.fabricDetails?.[0]?.poNumber || row.original.furnitureDetails?.[0]?.poNumber;
+          return poNumber ? <Badge variant="secondary">{poNumber}</Badge> : '-';
         }
     },
     {
@@ -277,7 +234,8 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
             "Type": request.type,
             "Salesman": request.salesman,
             "Work Type": request.workType,
-            "Status": getStatus(request),
+            "Status": request.status,
+            "PO Number": request.fabricDetails?.[0]?.poNumber || request.furnitureDetails?.[0]?.poNumber || '',
             "Created Date": new Date(request.createdAt).toLocaleString(),
             "Promise Delivery Date": new Date(request.promiseDeliveryDate).toLocaleDateString(),
             "Items": (request.type === 'fabric' ? request.fabricDetails : request.furnitureDetails)
@@ -318,7 +276,7 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
     )
   }
   
-  if (!isAuthorized) {
+  if (!isAuthorized && view !== 'po-tracking') {
     return (
         <Card className="mt-8">
             <CardHeader className="text-center">
@@ -333,10 +291,12 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
   return (
     <>
     <div className="w-full">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">{view === 'po-tracking' ? 'PO Tracking' : 'Purchase Requests'}</h1>
-          <p className="text-muted-foreground">A detailed view of all {view === 'po-tracking' ? 'active purchase orders' : 'purchase requests'}.</p>
-        </header>
+        {view === 'all' && (
+            <header className="mb-8">
+                <h1 className="text-3xl font-bold tracking-tight">All Purchase Requests</h1>
+                <p className="text-muted-foreground">A detailed view of all purchase requests.</p>
+            </header>
+        )}
         <Card>
             <CardContent className="p-4">
                 <div className="flex flex-wrap items-center py-4 gap-4">
@@ -346,7 +306,6 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
                         onChange={(event) => {
                             const customerFilter = event.target.value;
                             table.getColumn("customerName")?.setFilterValue(customerFilter);
-                            // Also filter dealId for a combined search
                             table.getColumn("dealId")?.setFilterValue(customerFilter);
                         }}
                         className="max-w-sm"
@@ -377,9 +336,9 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Statuses</SelectItem>
-                            <SelectItem value="In Progress">In Progress</SelectItem>
-                            <SelectItem value="Order Placed">Order Placed</SelectItem>
-                            <SelectItem value="Blocked">Blocked</SelectItem>
+                            <SelectItem value="Pending Approval">Pending Approval</SelectItem>
+                            <SelectItem value="Approved">Approved</SelectItem>
+                            <SelectItem value="PO Generated">PO Generated</SelectItem>
                         </SelectContent>
                     </Select>
 

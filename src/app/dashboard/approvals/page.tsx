@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useState, useEffect } from 'react';
 import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Quotation, Deal, Customer, User, Order } from '@/lib/types';
+import { Quotation, Deal, Customer, User, Order, PurchaseRequest } from '@/lib/types';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -203,14 +203,100 @@ function ApproveQuotationTab() {
     );
 }
 
-function ApproveOrderTab() {
+function ApprovePurchaseTab() {
+    const [requests, setRequests] = useState<PurchaseRequest[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [updatingId, setUpdatingId] = useState<string | null>(null);
+    const { toast } = useToast();
+    const { user, role } = useAuth();
+    
+    useEffect(() => {
+        const q = query(
+            collection(db, 'purchaseRequests'), 
+            where('status', '==', 'Pending Approval')
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            setRequests(data);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    const handleApprove = async (request: PurchaseRequest) => {
+        if (role !== 'Accounts' && role !== 'admin') {
+            toast({ variant: 'destructive', title: 'Permission Denied', description: 'Only Accounts can approve purchase requests.' });
+            return;
+        }
+        setUpdatingId(request.id);
+        try {
+            const requestRef = doc(db, 'purchaseRequests', request.id);
+            await updateDoc(requestRef, {
+                status: 'Approved',
+                approvedBy: { id: user?.id, name: user?.name },
+                approvedAt: new Date().toISOString()
+            });
+            toast({ title: 'Request Approved', description: `Purchase request for Deal ID ${request.dealId} has been approved.` });
+        } catch (error) {
+            console.error('Error approving request:', error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Failed to approve request.' });
+        } finally {
+            setUpdatingId(null);
+        }
+    };
+    
+    if (loading) {
+        return (
+            <div className="p-8">
+                <Skeleton className="h-8 w-1/2 mb-4" />
+                <Skeleton className="h-4 w-3/4 mb-8" />
+                <Skeleton className="h-64 w-full" />
+            </div>
+        );
+    }
     
     return (
         <Card className="mt-4">
             <CardContent className="pt-6">
-                <div className="text-center py-10 text-muted-foreground">
-                    The order approval process has been removed. Orders created from quotations are now approved automatically.
-                </div>
+                 <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Deal ID</TableHead>
+                            <TableHead>Customer</TableHead>
+                            <TableHead>Salesman</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead className="text-right">Action</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {requests.length > 0 ? requests.map(req => (
+                             <TableRow key={req.id}>
+                                <TableCell className="font-medium">{req.dealId}</TableCell>
+                                <TableCell>{req.customerName}</TableCell>
+                                <TableCell>{req.salesman}</TableCell>
+                                <TableCell className="capitalize">{req.type}</TableCell>
+                                <TableCell>{format(new Date(req.createdAt), 'dd/MM/yyyy')}</TableCell>
+                                <TableCell className="text-right">
+                                    <Button
+                                        size="sm"
+                                        onClick={() => handleApprove(req)}
+                                        disabled={updatingId === req.id || (role !== 'Accounts' && role !== 'admin')}
+                                    >
+                                        {updatingId === req.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                        Approve
+                                    </Button>
+                                </TableCell>
+                            </TableRow>
+                        )) : (
+                            <TableRow>
+                                <TableCell colSpan={6} className="h-24 text-center">No purchase requests pending for approval.</TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
             </CardContent>
         </Card>
     );
@@ -221,14 +307,18 @@ export default function ApprovalsPage() {
         <div className="p-4 md:p-6 lg:p-8">
             <header className="mb-8">
                 <h1 className="text-3xl font-bold tracking-tight">Approvals</h1>
-                <p className="text-muted-foreground">Review and approve quotations.</p>
+                <p className="text-muted-foreground">Review and approve quotations and purchase requests.</p>
             </header>
             <Tabs defaultValue="quotations" className="w-full">
-                <TabsList className="grid w-full grid-cols-1">
+                <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="quotations">Approve Quotations</TabsTrigger>
+                    <TabsTrigger value="purchases">Approve Purchases</TabsTrigger>
                 </TabsList>
                 <TabsContent value="quotations" className="mt-0">
                     <ApproveQuotationTab />
+                </TabsContent>
+                <TabsContent value="purchases" className="mt-0">
+                    <ApprovePurchaseTab />
                 </TabsContent>
             </Tabs>
         </div>
