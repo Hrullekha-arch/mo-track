@@ -70,7 +70,7 @@ function UpdateStockDialog({ stock, onStockUpdated }: { stock: Stock, onStockUpd
 
             const result = await updateStockQuantityAction(stock.id, transaction);
             
-            if (result.success) {
+            if (result.success && result.newStock) {
                 toast({ title: 'Stock Updated!', description: `${addedQuantity} units added successfully.`});
                 const freshStock = await getStockById(stock.id);
                 if (freshStock) {
