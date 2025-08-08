@@ -3,99 +3,107 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-  
-    // Helper function to check if a user has a specific role
-    function isSignedIn() {
+
+    // ==================================================================
+    //                        Helper Functions
+    // ==================================================================
+    function isAuthenticated() {
       return request.auth != null;
     }
 
-    function isRole(role) {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role == 'admin';
+    }
+
+    function isEmployee() {
+      return isAuthenticated() && getUserData().role == 'employee';
+    }
+
+    function isInstaller() {
+      return isAuthenticated() && getUserData().role == 'installer';
     }
     
-    function isDesignation(designation) {
-        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == designation;
+    function isAccounts() {
+       return isAuthenticated() && getUserData().role == 'Accounts';
     }
-    
+
     function isOwner(userId) {
-        return request.auth.uid == userId;
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Admins can do anything
-    match /{path=**}/documents/{document} {
-      allow read, write: if isRole('admin');
-    }
-
-    // == Users Collection ==
-    // Users can read public user info, but only admins can write.
-    match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isRole('admin');
+    // ==================================================================
+    //                        Global Rules
+    // ==================================================================
+    
+    // Admins have god-mode. They can read/write anything, anywhere.
+    match /{document=**} {
+      allow read, write: if isAdmin();
     }
     
-    // == Salesman to CRM Assignments ==
-    // Only admins and employees can manage these assignments.
-    match /salesmanCrmAssignments/{assignmentId} {
-        allow read, write: if isRole('admin') || isRole('employee');
+    // ==================================================================
+    //                      Collection-Specific Rules
+    // ==================================================================
+
+    // --- Users Collection ---
+    // Any authenticated user can read user profiles (to get names, etc.)
+    // Only admins can modify user profiles (handled by the global admin rule)
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      // Write is covered by global admin rule.
     }
 
-    // == Orders Collection ==
-    match /orders/{orderId} {
-      // Unauthenticated users can read a single order for tracking.
-      allow get: if !isSignedIn();
+    // --- Customer Data (Customers, Deals, Quotations, etc.) ---
+    // Employees can manage all customer-related data.
+    // Admin access is already granted globally.
+    match /customers/{customerId}/{document=**} {
+      allow read, write: if isEmployee();
+    }
+    
+    // --- Standalone Approved Quotations Collection ---
+    match /approvedQuotations/{quotationId} {
+        allow read, write: if isEmployee();
+    }
 
-      // Admins and Employees can read all orders.
-      allow list, get: if isRole('admin') || isRole('employee');
+    // --- Orders Collection ---
+    match /orders/{orderId} {
+      // Employees can read/create/delete orders.
+      allow read, create, delete: if isEmployee();
       
       // Installers can only read orders assigned to them.
-      allow get: if isRole('installer') && resource.data.assignedTo == request.auth.uid;
+      allow read: if isInstaller() && resource.data.assignedTo == request.auth.uid;
       
-      // Creating new orders
-      allow create: if isRole('admin') || isRole('employee');
-      
-      // Updating orders has role-specific logic
-      allow update: if (isRole('admin') || isRole('employee')) ||
-                       (isRole('installer') && resource.data.assignedTo == request.auth.uid);
-                       
-      allow delete: if isRole('admin');
-      
-      match /allocations/{allocationId} {
-        allow read, write: if isRole('admin') || isRole('employee');
-      }
-    }
-    
-    // == Customers and all sub-collections ==
-    // Admins and employees have full control over customer relationship data.
-    match /customers/{customerId}/{path=**} {
-        allow read, write: if isRole('admin') || isRole('employee');
-    }
-    
-    // == Approved Quotations (for reporting/history) ==
-    match /approvedQuotations/{quotationId} {
-       allow read, write: if isRole('admin') || isRole('employee') || isRole('Accounts');
+      // Update rules are more granular.
+      allow update: if isEmployee() || 
+                      (isInstaller() && resource.data.assignedTo == request.auth.uid && request.resource.data.keys().hasOnly(['milestones', 'feedbackRating', 'feedbackRemarks', 'bypassedOtp']));
+                      
+      // Allow public access ONLY for the tracking page (read-only 'get').
+      allow get: if true;
     }
 
-    // == Purchase Requests Collection ==
+    // --- Purchase & Inbound ---
     match /purchaseRequests/{requestId} {
-      allow read, write: if isRole('admin') || isRole('employee') || isRole('Accounts');
-    }
-    
-    // == Inbounds Collection ==
-    match /inbounds/{inboundId} {
-       allow read, write: if isRole('admin') || isRole('employee');
+        allow read, write: if isEmployee() || isAccounts();
     }
 
-    // == Stock Management ==
-    // Only allow authenticated users to read stock data.
-    // Writing to stock is locked down to be handled ONLY by backend/server functions.
-    match /stocks/{stockId} {
-      allow read: if isSignedIn();
-      allow write: if false; // IMPORTANT: Prevent all client-side writes
-      
-      // Sub-collections for transactions are also server-only
-      match /{collection}/{transactionId} {
-         allow read, write: if false;
-      }
+    match /inbounds/{inboundId}/{document=**} {
+        allow read, write: if isEmployee();
+    }
+    
+    // --- Inventory & Stock Transactions ---
+    // Only allow authenticated users to read stock levels.
+    // Writes are denied from the client to force using server-side logic for safety.
+    match /stocks/{stockId}/{document=**} {
+        allow read: if isAuthenticated();
+        allow write: if false; // Must be updated via server-side actions
+    }
+    
+    // --- Assignments ---
+    match /salesmanCrmAssignments/{salesmanId} {
+        allow read, write: if isEmployee();
     }
   }
 }
