@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem } from "@/lib/types";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { getCustomerById } from "@/app/dashboard/customers/actions";
 import { getDealById, getQuotationsForDeal } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import Link from "next/link";
@@ -126,12 +126,19 @@ function ConvertToOrderContent() {
     name: "products"
   });
 
-  const productTotal = fields.reduce((acc, item, index) => {
-    return {
-      quantity: acc.quantity + (form.getValues(`products.${index}.quantity`) || 0),
-      amount: acc.amount + (form.getValues(`products.${index}.amount`) || 0),
-    };
-  }, { quantity: 0, amount: 0 });
+  const productTotal = useMemo(() => {
+    return fields.reduce((acc, item) => {
+        const qty = Number(item.quantity) || 0;
+        const rate = Number(item.mrp) || 0;
+        const discountPercent = Number(item.discountPercent) || 0;
+        const subtotal = qty * rate;
+        const discountAmount = subtotal * (discountPercent / 100);
+        
+        acc.quantity += qty;
+        acc.amount += subtotal - discountAmount;
+        return acc;
+    }, { quantity: 0, amount: 0 });
+  }, [fields]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -240,12 +247,13 @@ function ConvertToOrderContent() {
                 discountPercent: Number(p.discountPercent) || 0,
             })),
             billingName: data.billingName,
+            totalAmount: productTotal.amount, // Pass the final calculated amount
         };
 
       const result = await createDealOrderAction(customerId, dealId, updatedQuotation, { id: user.id, name: user.name });
 
       if (result.success) {
-        toast({ title: "Order Created!", description: "The sales order has been saved successfully." });
+        toast({ title: "Order Created!", description: "The sales order has been sent for approval." });
         router.push(`/dashboard/customers/${customerId}/${dealId}?tab=orders`);
       } else {
         toast({ variant: 'destructive', title: 'Creation Failed', description: result.message });

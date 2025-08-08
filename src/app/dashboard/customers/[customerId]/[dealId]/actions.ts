@@ -2,9 +2,10 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Order } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { VisitFormValues, MeasurementFormValues, CpdFormValues } from './page';
+import { createDealOrderAction } from '@/app/dashboard/invoice/new/actions';
 
 export async function getDealById(customerId: string, dealId: string): Promise<Deal | null> {
     try {
@@ -42,7 +43,7 @@ export async function updateDealProducts(customerId: string, dealId: string, pro
 }
 
 
-export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormValues & { cpdId?: string }, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string }> {
+export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormValues, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string, order?: Order }> {
   try {
     const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
     
@@ -59,7 +60,17 @@ export async function createQuotationAction(customerId: string, dealId: string, 
     
     await quotationRef.set(newQuotation);
 
-    return { success: true, message: 'Quotation created successfully!', quotationId: quotationRef.id };
+    // After creating quotation, automatically create the order in pending state
+    const orderResult = await createDealOrderAction(customerId, dealId, { ...newQuotation, id: quotationRef.id }, { id: values.createdBy || 'system', name: 'System' });
+
+    if (!orderResult.success) {
+        // If order creation fails, we might want to revert the quotation creation or just log the error
+        console.error("Failed to create order automatically after quotation:", orderResult.message);
+        return { success: false, message: `Quotation created, but failed to create order: ${orderResult.message}` };
+    }
+
+
+    return { success: true, message: 'Quotation created successfully and order sent for approval!', quotationId: quotationRef.id, order: orderResult.order };
   } catch (error: any) {
     console.error("Error creating quotation:", error);
     return { success: false, message: `Failed to create quotation: ${error.message}` };

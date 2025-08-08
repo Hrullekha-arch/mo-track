@@ -80,6 +80,7 @@ export async function createDealOrderAction(
       dealOrderDocId: newDealOrderRef.id,
       storeName: quotation.store,
       fabricDetails: allFabricDetails,
+      totalAmount: quotation.totalAmount, // Store the final amount from the quotation
     };
 
     batch.set(newOrderRef, newOrder);

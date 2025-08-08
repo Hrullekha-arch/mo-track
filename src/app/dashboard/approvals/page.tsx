@@ -248,22 +248,7 @@ function ApproveOrdersTab() {
 
         const unsubscribe = onSnapshot(q, async (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-            
-            const enrichedData = await Promise.all(
-                data.map(async (order) => {
-                    let totalAmount = 0;
-                    const items: FabricDetail[] = order.fabricDetails || [];
-                    for (const item of items) {
-                        const stockId = item.fabricName.replace(/\//g, '-');
-                        const stockInfo = await getStockById(stockId);
-                        const itemPrice = stockInfo?.mrp || 0;
-                        totalAmount += itemPrice * parseFloat(item.quantity || '0');
-                    }
-                    return { ...order, totalAmount };
-                })
-            );
-
-            setOrders(enrichedData);
+            setOrders(data);
             setLoading(false);
         });
 
@@ -367,7 +352,7 @@ export default function ApprovalsPage() {
                 <h1 className="text-3xl font-bold tracking-tight">Approvals</h1>
                 <p className="text-muted-foreground">Review and approve quotations and orders.</p>
             </header>
-            <Tabs defaultValue="quotations" className="w-full">
+            <Tabs defaultValue="orders" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="quotations">Approve Quotations</TabsTrigger>
                     <TabsTrigger value="orders">Approve Orders</TabsTrigger>
