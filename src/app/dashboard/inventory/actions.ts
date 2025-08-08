@@ -169,19 +169,11 @@ export async function updateStockQuantityAction(
       addedSnapshot.forEach(doc => {
           totalQuantity += (doc.data() as StockTransaction).quantityChange;
       });
-      // The current transaction is an addition, so add it to the total.
-      if (transaction.type === 'addition') {
-        totalQuantity += transaction.quantityChange;
-      }
       
       // Subtract all deductions
       soldSnapshot.forEach(doc => {
           totalQuantity += (doc.data() as StockTransaction).quantityChange; // quantityChange is negative for deductions
       });
-      // If the current transaction is a deduction, it's already negative.
-      if (transaction.type === 'deduction') {
-          totalQuantity += transaction.quantityChange;
-      }
 
       // 3. Update the main stock document with the recalculated quantity
       t.update(stockRef, { 
