@@ -163,8 +163,6 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         return;
       }
       
-      const batch = writeBatch(db);
-      
       const trackingId = `MOTRACK-${values.crmOrderNo}`;
       const newOrderRef = doc(db, "orders", trackingId);
 
@@ -184,42 +182,17 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         createdBy: { id: user.id, name: user.name },
         otp: Math.floor(1000 + Math.random() * 9000).toString(),
         handledByCrm: crmUserId,
-        isAcknowledged: false,
+        isAcknowledged: true, // It is created within the system
+        status: 'Pending Approval', // Goes to approval first
         fabricDetails: values.fabricDetails || [],
       };
       
-      batch.set(newOrderRef, newOrderData);
+      await setDoc(newOrderRef, newOrderData);
 
-      // Create a corresponding purchase request if items are added.
-      // The request will now contain ALL items, not just out-of-stock ones.
-      if (values.fabricDetails && values.fabricDetails.length > 0) {
-        const purchaseRequestRef = doc(db, "purchaseRequests", values.crmOrderNo);
-        const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-            dealId: values.crmOrderNo,
-            customerName: values.customerName,
-            promiseDeliveryDate: new Date().toISOString(), // Placeholder
-            salesman: salesmanUser.name,
-            type: 'fabric',
-            fabricDetails: values.fabricDetails, // Use all items
-            createdAt: new Date().toISOString(),
-            createdBy: { id: user.id, name: user.name },
-            milestones: [],
-            vendorType: 'undecided',
-            status: 'Pending Approval',
-        };
-        batch.set(purchaseRequestRef, newPurchaseRequest);
-        toast({
-          title: "Order & Purchase Request Created",
-          description: `Order ${trackingId} created and a purchase request with all items sent for approval.`,
-        });
-      } else {
-        toast({
-            title: "Order Created",
-            description: `Order ${trackingId} has been created and moved to the O2D dashboard.`,
-        });
-      }
-
-      await batch.commit();
+      toast({
+          title: "Order Created",
+          description: `Order ${trackingId} created and sent for approval.`,
+      });
 
       form.reset();
       onClose();
@@ -243,7 +216,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
         <DialogHeader>
           <DialogTitle>Create New Order</DialogTitle>
           <DialogDescription>
-            Fill in the details below to create a new order. It will be added to the O2D workflow.
+            Fill in the details below to create a new order. It will be sent for approval before processing.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>

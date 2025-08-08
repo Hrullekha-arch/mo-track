@@ -28,10 +28,10 @@ export async function createDealOrderAction(
       return { success: false, message: 'This quotation has already been converted to an order.' };
     }
 
-    if (!customerSnap.exists) {
+    if (!customerSnap.exists()) {
         return { success: false, message: 'Customer not found.' };
     }
-    if (!dealSnap.exists) {
+    if (!dealSnap.exists()) {
         return { success: false, message: 'Deal not found.' };
     }
 
@@ -58,23 +58,10 @@ export async function createDealOrderAction(
     const orderId = `MOTRACK-${quotation.quotationNo}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
 
-    const allFabricDetails: FabricDetail[] = [];
-    const fabricToPurchase: FabricDetail[] = [];
-
-    // Check stock for all items (assuming all are fabric)
-    for (const item of quotation.items) {
-      const itemName = item.collectionBrand;
-      const requiredQty = Number(item.quantity) || 0;
-
-      const stockRef = adminDb.collection('stocks').doc(itemName.replace(/\//g, '-'));
-      const stockSnap = await stockRef.get();
-      const currentStock = (stockSnap.data() as Stock)?.quantity || 0;
-
-      allFabricDetails.push({ fabricName: itemName, quantity: String(requiredQty) });
-      if (requiredQty > currentStock) {
-        fabricToPurchase.push({ fabricName: itemName, quantity: String(requiredQty - currentStock) });
-      }
-    }
+    const allFabricDetails: FabricDetail[] = quotation.items.map(item => ({
+      fabricName: item.collectionBrand,
+      quantity: String(item.quantity),
+    }));
 
     const newOrder: Order = {
       id: orderId,
@@ -86,7 +73,7 @@ export async function createDealOrderAction(
       orderType: 'stitching', // Default, should be determined
       milestones: getMilestonesForOrder('stitching'), // Initialize with default milestones
       createdAt: new Date().toISOString(),
-      isAcknowledged: true, // It is acknowledged but pending approval
+      isAcknowledged: true,
       status: 'Pending Approval', // NEW: Set status to Pending Approval
       customerId: customerId,
       dealId: dealId,
@@ -96,27 +83,8 @@ export async function createDealOrderAction(
     };
 
     batch.set(newOrderRef, newOrder);
-
-    // 2. Create a corresponding Purchase Request if there are items that need purchasing
-    if (fabricToPurchase.length > 0) {
-        const purchaseRequestRef = adminDb.collection('purchaseRequests').doc(quotation.quotationNo);
-        const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-            dealId: quotation.quotationNo,
-            customerName: quotation.customerName,
-            promiseDeliveryDate: new Date().toISOString(), // Placeholder, can be updated later
-            salesman: salesmanName,
-            type: 'fabric',
-            fabricDetails: fabricToPurchase,
-            createdAt: new Date().toISOString(),
-            createdBy: { id: creator.id, name: creator.name },
-            milestones: [],
-            vendorType: 'undecided',
-            status: 'Pending Approval',
-        };
-        batch.set(purchaseRequestRef, newPurchaseRequest);
-    }
     
-    // 3. Now define the DealOrder with the main order ID
+    // 2. Now define the DealOrder with the main order ID
     const newDealOrder: DealOrder = {
       orderNo: newOrder.id,
       id: newDealOrderRef.id,
@@ -129,7 +97,7 @@ export async function createDealOrderAction(
 
     batch.set(newDealOrderRef, newDealOrder);
 
-    // 4. Update the quotation status
+    // 3. Update the quotation status
     batch.update(quotationRef, { 
       status: 'Converted to Order',
       orderNo: newOrder.id,

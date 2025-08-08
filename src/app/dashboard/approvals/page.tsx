@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useState, useEffect } from 'react';
 import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Quotation, Deal, Customer, User, Order, PurchaseRequest, Stock } from '@/lib/types';
+import { Quotation, Deal, Customer, User, Order, PurchaseRequest, Stock, FabricDetail } from '@/lib/types';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -20,6 +20,7 @@ import { PrintableQuotationProfessional } from '@/components/features/order-mana
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { getStockById } from "../inventory/actions";
+import { approveOrderAndCreatePurchaseRequest } from "./actions";
 
 interface EnrichedQuotation extends Quotation {
     dealId: string;
@@ -27,7 +28,7 @@ interface EnrichedQuotation extends Quotation {
     dealName: string;
 }
 
-interface EnrichedPurchaseRequest extends PurchaseRequest {
+interface EnrichedOrder extends Order {
     totalAmount?: number;
 }
 
@@ -232,8 +233,8 @@ function ApproveQuotationTab() {
     );
 }
 
-function ApprovePurchaseTab() {
-    const [requests, setRequests] = useState<EnrichedPurchaseRequest[]>([]);
+function ApproveOrdersTab() {
+    const [orders, setOrders] = useState<EnrichedOrder[]>([]);
     const [loading, setLoading] = useState(true);
     const [updatingId, setUpdatingId] = useState<string | null>(null);
     const { toast } = useToast();
@@ -241,54 +242,50 @@ function ApprovePurchaseTab() {
     
     useEffect(() => {
         const q = query(
-            collection(db, 'purchaseRequests'), 
+            collection(db, 'orders'), 
             where('status', '==', 'Pending Approval')
         );
 
         const unsubscribe = onSnapshot(q, async (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
             
             const enrichedData = await Promise.all(
-                data.map(async (req) => {
+                data.map(async (order) => {
                     let totalAmount = 0;
-                    const items = [...(req.fabricDetails || []), ...(req.furnitureDetails || [])];
+                    const items: FabricDetail[] = order.fabricDetails || [];
                     for (const item of items) {
-                        const itemName = (item as any).fabricName || (item as any).furnitureName;
-                        if (itemName) {
-                            const stockId = itemName.replace(/\//g, '-');
-                            const stockInfo = await getStockById(stockId);
-                            const itemPrice = stockInfo?.mrp || 0;
-                            totalAmount += itemPrice * parseFloat(item.quantity || '0');
-                        }
+                        const stockId = item.fabricName.replace(/\//g, '-');
+                        const stockInfo = await getStockById(stockId);
+                        const itemPrice = stockInfo?.mrp || 0;
+                        totalAmount += itemPrice * parseFloat(item.quantity || '0');
                     }
-                    return { ...req, totalAmount };
+                    return { ...order, totalAmount };
                 })
             );
 
-            setRequests(enrichedData);
+            setOrders(enrichedData);
             setLoading(false);
         });
 
         return () => unsubscribe();
     }, []);
 
-    const handleApprove = async (request: PurchaseRequest) => {
-        if (role !== 'Accounts' && role !== 'admin') {
-            toast({ variant: 'destructive', title: 'Permission Denied', description: 'Only Accounts can approve purchase requests.' });
+    const handleApprove = async (order: Order) => {
+        if (!user || (role !== 'Accounts' && role !== 'admin')) {
+            toast({ variant: 'destructive', title: 'Permission Denied', description: 'Only Accounts can approve orders.' });
             return;
         }
-        setUpdatingId(request.id);
+        setUpdatingId(order.id);
         try {
-            const requestRef = doc(db, 'purchaseRequests', request.id);
-            await updateDoc(requestRef, {
-                status: 'Approved',
-                approvedBy: { id: user?.id, name: user?.name },
-                approvedAt: new Date().toISOString()
-            });
-            toast({ title: 'Request Approved', description: `Purchase request for Deal ID ${request.dealId} has been approved.` });
+            const result = await approveOrderAndCreatePurchaseRequest(order.id, { id: user.id, name: user.name });
+            if (result.success) {
+                toast({ title: 'Order Approved', description: result.message });
+            } else {
+                 toast({ variant: 'destructive', title: 'Approval Failed', description: result.message });
+            }
         } catch (error) {
-            console.error('Error approving request:', error);
-            toast({ variant: 'destructive', title: 'Error', description: 'Failed to approve request.' });
+            console.error('Error approving order:', error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Failed to approve order.' });
         } finally {
             setUpdatingId(null);
         }
@@ -310,42 +307,42 @@ function ApprovePurchaseTab() {
                  <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>Deal ID</TableHead>
+                            <TableHead>Order ID</TableHead>
                             <TableHead>Customer</TableHead>
                             <TableHead>Items (BCN & Qty)</TableHead>
-                            <TableHead>Type</TableHead>
+                            <TableHead>Sales Person</TableHead>
                              <TableHead className="text-right">Total Amount</TableHead>
                             <TableHead>Date</TableHead>
                             <TableHead className="text-right">Action</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {requests.length > 0 ? requests.map(req => {
-                            const items = [...(req.fabricDetails || []), ...(req.furnitureDetails || [])];
+                        {orders.length > 0 ? orders.map(order => {
+                            const items = order.fabricDetails || [];
                             return (
-                                <TableRow key={req.id}>
-                                    <TableCell className="font-medium">{req.dealId}</TableCell>
-                                    <TableCell>{req.customerName}</TableCell>
+                                <TableRow key={order.id}>
+                                    <TableCell className="font-medium">{order.crmOrderNo}</TableCell>
+                                    <TableCell>{order.customerName}</TableCell>
                                     <TableCell>
                                         <div className="flex flex-col gap-1">
                                             {items.map((item, index) => (
                                                 <div key={index} className="text-xs">
-                                                    <span className="font-semibold">{(item as any).fabricName || (item as any).furnitureName}:</span>
-                                                    <span className="text-muted-foreground ml-2">{item.quantity} {(req.type === 'fabric' ? 'Mtr' : 'Pcs')}</span>
+                                                    <span className="font-semibold">{item.fabricName}:</span>
+                                                    <span className="text-muted-foreground ml-2">{item.quantity} Mtr</span>
                                                 </div>
                                             ))}
                                         </div>
                                     </TableCell>
-                                    <TableCell className="capitalize">{req.type}</TableCell>
-                                    <TableCell className="text-right">₹{req.totalAmount?.toFixed(2)}</TableCell>
-                                    <TableCell>{format(new Date(req.createdAt), 'dd/MM/yyyy')}</TableCell>
+                                    <TableCell>{order.salesPerson}</TableCell>
+                                    <TableCell className="text-right">₹{order.totalAmount?.toFixed(2)}</TableCell>
+                                    <TableCell>{format(new Date(order.createdAt), 'dd/MM/yyyy')}</TableCell>
                                     <TableCell className="text-right">
                                         <Button
                                             size="sm"
-                                            onClick={() => handleApprove(req)}
-                                            disabled={updatingId === req.id || (role !== 'Accounts' && role !== 'admin')}
+                                            onClick={() => handleApprove(order)}
+                                            disabled={updatingId === order.id || (role !== 'Accounts' && role !== 'admin')}
                                         >
-                                            {updatingId === req.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            {updatingId === order.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                             Approve
                                         </Button>
                                     </TableCell>
@@ -353,7 +350,7 @@ function ApprovePurchaseTab() {
                             )
                         }) : (
                             <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">No purchase requests pending for approval.</TableCell>
+                                <TableCell colSpan={7} className="h-24 text-center">No orders pending for approval.</TableCell>
                             </TableRow>
                         )}
                     </TableBody>
@@ -368,18 +365,18 @@ export default function ApprovalsPage() {
         <div className="p-4 md:p-6 lg:p-8">
             <header className="mb-8">
                 <h1 className="text-3xl font-bold tracking-tight">Approvals</h1>
-                <p className="text-muted-foreground">Review and approve quotations and purchase requests.</p>
+                <p className="text-muted-foreground">Review and approve quotations and orders.</p>
             </header>
             <Tabs defaultValue="quotations" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="quotations">Approve Quotations</TabsTrigger>
-                    <TabsTrigger value="purchases">Approve Purchases</TabsTrigger>
+                    <TabsTrigger value="orders">Approve Orders</TabsTrigger>
                 </TabsList>
                 <TabsContent value="quotations" className="mt-0">
                     <ApproveQuotationTab />
                 </TabsContent>
-                <TabsContent value="purchases" className="mt-0">
-                    <ApprovePurchaseTab />
+                <TabsContent value="orders" className="mt-0">
+                    <ApproveOrdersTab />
                 </TabsContent>
             </Tabs>
         </div>
