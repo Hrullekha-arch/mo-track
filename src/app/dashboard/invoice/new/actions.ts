@@ -92,7 +92,7 @@ export async function createDealOrderAction(
       milestones: getMilestonesForOrder('stitching'), // Set default milestones
       createdAt: new Date().toISOString(),
       isAcknowledged: true, // It is now in the main workflow
-      status: 'Pending Approval', // Set correct initial status
+      status: 'Approved', // Set correct initial status
       // Add references to find this order's context later
       customerId: customerId,
       dealId: dealId,
@@ -112,7 +112,7 @@ export async function createDealOrderAction(
       createdBy: creatorName,
       remark: quotation.billingName || '',
       items: quotation.items,
-      status: 'Pending Approval' // Set correct initial status
+      status: 'Approved' // Set correct initial status
     };
 
     batch.set(newDealOrderRef, newDealOrder);

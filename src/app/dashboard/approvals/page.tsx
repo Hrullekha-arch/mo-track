@@ -204,141 +204,13 @@ function ApproveQuotationTab() {
 }
 
 function ApproveOrderTab() {
-    const [orders, setOrders] = useState<Order[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [updatingId, setUpdatingId] = useState<string | null>(null);
-    const { toast } = useToast();
-    const { user } = useAuth();
-
-    useEffect(() => {
-        const q = query(
-            collection(db, 'orders'), 
-            where('status', '==', 'Pending Approval')
-        );
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const ordersData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
-            setOrders(ordersData);
-            setLoading(false);
-        }, (error) => {
-            console.error("Error fetching pending orders: ", error);
-            toast({
-                variant: 'destructive',
-                title: 'Error Loading Data',
-                description: 'Could not fetch orders pending approval. Please check permissions.'
-            });
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, [toast]);
-
-    const handleApprove = async (order: Order) => {
-        if (!user || !order.customerId || !order.dealId || !order.dealOrderDocId) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Order data is incomplete and cannot be approved.' });
-            return;
-        }
-        setUpdatingId(order.id);
-        
-        try {
-            const batch = writeBatch(db);
-
-            // 1. Update the main order document
-            const orderRef = doc(db, 'orders', order.id);
-            batch.update(orderRef, { status: 'Approved' });
-
-            // 2. Update the nested DealOrder document
-            const dealOrderRef = doc(db, 'customers', order.customerId, 'deals', order.dealId, 'orders', order.dealOrderDocId);
-            batch.update(dealOrderRef, { status: 'Approved' });
-
-            // 3. Create a record in the approvedOrders collection
-            const approvedOrderRef = doc(db, 'approvedOrders', order.id);
-            const approvalData = { 
-                ...order, 
-                status: 'Approved', 
-                approvedAt: new Date().toISOString(),
-                approvedBy: {
-                    id: user.id,
-                    name: user.name,
-                }
-            };
-            batch.set(approvedOrderRef, approvalData);
-
-            await batch.commit();
-
-            toast({
-                title: 'Order Approved',
-                description: `Order #${order.id} has been approved.`
-            });
-
-        } catch (error) {
-            console.error('Error approving order:', error);
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'Failed to approve order.'
-            });
-        } finally {
-            setUpdatingId(null);
-        }
-    };
-
-    if (loading) {
-        return (
-            <div className="p-8">
-                <Skeleton className="h-8 w-1/2 mb-4" />
-                <Skeleton className="h-4 w-3/4 mb-8" />
-                <Skeleton className="h-64 w-full" />
-            </div>
-        );
-    }
-
+    
     return (
         <Card className="mt-4">
             <CardContent className="pt-6">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Order No</TableHead>
-                            <TableHead>Customer</TableHead>
-                            <TableHead>Sales Person</TableHead>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="text-right">Action</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {orders.length > 0 ? orders.map(order => (
-                            <TableRow key={order.id}>
-                                <TableCell className="font-medium">
-                                    <Button asChild variant="link" className="p-0 h-auto">
-                                        <Link href={`/dashboard/orders/${order.id}`}>
-                                            {order.id}
-                                        </Link>
-                                    </Button>
-                                </TableCell>
-                                <TableCell>{order.customerName}</TableCell>
-                                <TableCell>{order.salesPerson}</TableCell>
-                                <TableCell>{format(new Date(order.createdAt), 'dd/MM/yyyy')}</TableCell>
-                                <TableCell><Badge variant="outline">{order.status}</Badge></TableCell>
-                                <TableCell className="text-right">
-                                    <Button
-                                        size="sm"
-                                        onClick={() => handleApprove(order)}
-                                        disabled={updatingId === order.id}
-                                    >
-                                        {updatingId === order.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        Approve
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        )) : (
-                            <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center">No orders pending for approval.</TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
+                <div className="text-center py-10 text-muted-foreground">
+                    The order approval process has been removed. Orders created from quotations are now approved automatically.
+                </div>
             </CardContent>
         </Card>
     );
@@ -349,18 +221,14 @@ export default function ApprovalsPage() {
         <div className="p-4 md:p-6 lg:p-8">
             <header className="mb-8">
                 <h1 className="text-3xl font-bold tracking-tight">Approvals</h1>
-                <p className="text-muted-foreground">Review and approve quotations and orders.</p>
+                <p className="text-muted-foreground">Review and approve quotations.</p>
             </header>
             <Tabs defaultValue="quotations" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-1">
                     <TabsTrigger value="quotations">Approve Quotations</TabsTrigger>
-                    <TabsTrigger value="orders">Approve Orders</TabsTrigger>
                 </TabsList>
                 <TabsContent value="quotations" className="mt-0">
                     <ApproveQuotationTab />
-                </TabsContent>
-                <TabsContent value="orders" className="mt-0">
-                    <ApproveOrderTab />
                 </TabsContent>
             </Tabs>
         </div>
