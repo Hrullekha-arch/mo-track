@@ -144,28 +144,41 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
 }
 
 
-export async function updateStockQuantityAction(stockId: string, quantityChange: number, transaction: Omit<StockTransaction, 'id'>): Promise<{ success: boolean; message: string; newStock?: Stock }> {
+export async function updateStockQuantityAction(
+  stockId: string, 
+  transaction: Omit<StockTransaction, 'id'>
+): Promise<{ success: boolean; message: string; newStock?: Stock }> {
   try {
     const stockRef = adminDb.collection('stocks').doc(stockId);
-    
-    // Determine the sub-collection based on transaction type
     const transactionCollectionName = transaction.type === 'addition' ? 'stockAdded' : 'stockSold';
     const transactionRef = stockRef.collection(transactionCollectionName).doc();
-    
+
     await adminDb.runTransaction(async (t) => {
-      const stockDoc = await t.get(stockRef);
-      if (!stockDoc.exists) {
-        throw new Error("Stock item not found.");
-      }
-
-      const currentQuantity = stockDoc.data()?.quantity || 0;
-      const newQuantity = currentQuantity + quantityChange;
-
-      t.update(stockRef, { 
-          quantity: newQuantity,
-          lastUpdatedAt: new Date().toISOString()
-      });
+      // 1. Add the new transaction document
       t.set(transactionRef, transaction);
+
+      // 2. Fetch all transactions to recalculate the total quantity
+      const addedTransactionsPromise = t.get(stockRef.collection('stockAdded'));
+      const soldTransactionsPromise = t.get(stockRef.collection('stockSold'));
+      
+      const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
+
+      let totalQuantity = 0;
+      addedSnapshot.forEach(doc => {
+          totalQuantity += (doc.data() as StockTransaction).quantityChange;
+      });
+      soldSnapshot.forEach(doc => {
+          totalQuantity += (doc.data() as StockTransaction).quantityChange; // quantityChange is negative for deductions
+      });
+      
+      // Add the quantity from the current transaction being processed
+      totalQuantity += transaction.quantityChange;
+
+      // 3. Update the main stock document with the recalculated quantity
+      t.update(stockRef, { 
+        quantity: totalQuantity,
+        lastUpdatedAt: new Date().toISOString()
+      });
     });
 
     const updatedStockDoc = await stockRef.get();
