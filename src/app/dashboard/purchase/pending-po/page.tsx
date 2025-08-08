@@ -41,7 +41,7 @@ const poGroupSchema = z.object({
     vendor: z.string(),
     courier: z.string().min(1, "Courier is required."),
     mode: z.enum(['AIR', 'SURFACE'], { required_error: "Mode is required." }),
-    items: z.array(z.any()),
+    item: z.any(),
 });
 
 const createPoFormSchema = z.object({
@@ -62,7 +62,7 @@ function CreatePoDialog({ isOpen, onClose, item, creator }: { isOpen: boolean, o
                 vendor: '',
                 courier: '',
                 mode: 'SURFACE',
-                items: [],
+                item: null,
             }
         }
     });
@@ -73,7 +73,7 @@ function CreatePoDialog({ isOpen, onClose, item, creator }: { isOpen: boolean, o
                 vendor: item.vendorName || 'Unknown Vendor',
                 courier: '',
                 mode: 'SURFACE',
-                items: [item]
+                item: item,
             });
         }
     }, [item, form]);
