@@ -244,17 +244,27 @@ export async function getStockTransactions(stockId: string): Promise<StockTransa
 
 export async function getAllStockTransactions(): Promise<StockTransaction[]> {
   try {
-    const addedPromise = adminDb.collectionGroup('stockAdded').orderBy('createdAt', 'desc').get();
-    const soldPromise = adminDb.collectionGroup('stockSold').orderBy('createdAt', 'desc').get();
+    // Fetch the 10 most recent additions
+    const addedPromise = adminDb.collectionGroup('stockAdded')
+      .orderBy('createdAt', 'desc')
+      .limit(10)
+      .get();
+      
+    // Fetch the 10 most recent deductions
+    const soldPromise = adminDb.collectionGroup('stockSold')
+      .orderBy('createdAt', 'desc')
+      .limit(10)
+      .get();
 
     const [addedSnapshot, soldSnapshot] = await Promise.all([addedPromise, soldPromise]);
 
     const addedTransactions = addedSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as StockTransaction));
     const soldTransactions = soldSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as StockTransaction));
     
-    const allTransactions = [...addedTransactions, ...soldTransactions];
-
-    allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Combine, sort, and take the top 10 of the combined list
+    const allTransactions = [...addedTransactions, ...soldTransactions]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 10);
 
     return JSON.parse(JSON.stringify(allTransactions));
   } catch (error) {
