@@ -77,6 +77,17 @@ export async function createDealOrderAction(
       }
     }
 
+    // --- AUTOMATION LOGIC ---
+    // Automatically mark the first milestone ("Order Received") as complete.
+    const milestones = getMilestonesForOrder('stitching');
+    milestones[0] = {
+        ...milestones[0],
+        completed: true,
+        completedAt: new Date().toISOString(),
+        completedBy: creator.name,
+    };
+    // --- END AUTOMATION LOGIC ---
+
     const newOrder: Order = {
       id: orderId,
       crmOrderNo: quotation.quotationNo,
@@ -85,7 +96,7 @@ export async function createDealOrderAction(
       customerAddress: customerData.addressPinCode || `${customerData.city}, ${customerData.state}`,
       salesPerson: salesmanName,
       orderType: 'stitching', // Default, should be determined
-      milestones: getMilestonesForOrder('stitching'), // Set default milestones
+      milestones: milestones,
       createdAt: new Date().toISOString(),
       isAcknowledged: true,
       status: 'Approved',

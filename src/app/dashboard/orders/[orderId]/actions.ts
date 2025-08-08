@@ -115,6 +115,7 @@ export async function allocateStockToAction(
         // Recalculate and update the stock quantity
         await recalculateStockQuantity(stockId);
 
+        // --- AUTOMATION LOGIC ---
         // After successful transaction, check if all items are allocated
         const updatedOrderDoc = await orderRef.get();
         const orderData = updatedOrderDoc.data() as Order;
@@ -136,6 +137,7 @@ export async function allocateStockToAction(
             return totalAllocated >= requiredQty;
         });
 
+        // If all items are allocated, update the "Fabric Allocated" milestone
         if (isAllAllocated) {
             const fabricMilestone = orderData.milestones.find(m => m.id === 2);
             if (fabricMilestone && !fabricMilestone.completed) {
@@ -144,12 +146,13 @@ export async function allocateStockToAction(
                         ...m,
                         completed: true,
                         completedAt: new Date().toISOString(),
-                        completedBy: userName
+                        completedBy: userName,
                     } : m
                 );
                 await orderRef.update({ milestones: updatedMilestones });
             }
         }
+        // --- END AUTOMATION LOGIC ---
 
         return { success: true, message: 'Stock allocated successfully.' };
     } catch (error: any) {
