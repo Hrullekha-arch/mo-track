@@ -257,9 +257,9 @@ function ApprovePurchaseTab() {
                         if (itemName) {
                             const stockId = itemName.replace(/\//g, '-');
                             const stockInfo = await getStockById(stockId);
-                            if (stockInfo) {
-                                totalAmount += (stockInfo.mrp || 0) * parseFloat(item.quantity || '0');
-                            }
+                            // Even if stockInfo is null, we can try to get an estimated amount or just show 0
+                            const itemPrice = stockInfo?.mrp || 0;
+                            totalAmount += itemPrice * parseFloat(item.quantity || '0');
                         }
                     }
                     return { ...req, totalAmount };
@@ -315,7 +315,7 @@ function ApprovePurchaseTab() {
                             <TableHead>Customer</TableHead>
                             <TableHead>Items (BCN & Qty)</TableHead>
                             <TableHead>Type</TableHead>
-                             <TableHead>Amount</TableHead>
+                             <TableHead className="text-right">Total Amount</TableHead>
                             <TableHead>Date</TableHead>
                             <TableHead className="text-right">Action</TableHead>
                         </TableRow>
@@ -338,7 +338,7 @@ function ApprovePurchaseTab() {
                                         </div>
                                     </TableCell>
                                     <TableCell className="capitalize">{req.type}</TableCell>
-                                    <TableCell>₹{req.totalAmount?.toFixed(2)}</TableCell>
+                                    <TableCell className="text-right">₹{req.totalAmount?.toFixed(2)}</TableCell>
                                     <TableCell>{format(new Date(req.createdAt), 'dd/MM/yyyy')}</TableCell>
                                     <TableCell className="text-right">
                                         <Button
