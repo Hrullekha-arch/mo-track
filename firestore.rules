@@ -3,106 +3,99 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper function to get the role of the requesting user
-    function getUserRole(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+  
+    // Helper function to check if a user has a specific role
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    // Helper function to get the designation of the requesting user
-    function getUserDesignation(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.designation;
+    function isRole(role) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+    
+    function isDesignation(designation) {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.designation == designation;
+    }
+    
+    function isOwner(userId) {
+        return request.auth.uid == userId;
     }
 
-    // By default, deny all reads and writes
-    match /{document=**} {
-      allow read, write: if false;
+    // Admins can do anything
+    match /{path=**}/documents/{document} {
+      allow read, write: if isRole('admin');
     }
 
-    // Users collection rules
+    // == Users Collection ==
+    // Users can read public user info, but only admins can write.
     match /users/{userId} {
-      // Any authenticated user can read user profiles (to get names, roles, etc.)
-      allow read: if request.auth != null;
-      // Only admins can create, update, or delete users.
-      // A user can update their own profile (e.g., for profile picture changes, not yet implemented but good to have)
-      allow write: if getUserRole(request.auth.uid) == 'admin' || request.auth.uid == userId;
-    }
-
-    // Orders collection rules
-    match /orders/{orderId} {
-      // Unauthenticated users can read if they know the document ID (tracking code)
-      allow get: if request.auth == null;
-
-      // Authenticated users
-      allow read: if request.auth != null &&
-                  ( getUserRole(request.auth.uid) == 'admin' ||
-                    getUserRole(request.auth.uid) == 'employee' ||
-                    (getUserRole(request.auth.uid) == 'installer' && resource.data.assignedTo == request.auth.uid)
-                  );
-                  
-      // Admins and employees can create and update anything.
-      // Installers can only update specific fields on orders assigned to them.
-      allow create: if request.auth != null && (getUserRole(request.auth.uid) == 'admin' || getUserRole(request.auth.uid) == 'employee');
-      allow update: if request.auth != null &&
-                    ( getUserRole(request.auth.uid) == 'admin' ||
-                      getUserRole(request.auth.uid) == 'employee' ||
-                      ( // Installer-specific update rules
-                        getUserRole(request.auth.uid) == 'installer' &&
-                        resource.data.assignedTo == request.auth.uid &&
-                        request.resource.data.keys().hasOnly(['milestones', 'feedbackRating', 'feedbackRemarks', 'bypassedOtp', 'completedAt'])
-                      )
-                    );
-      allow delete: if getUserRole(request.auth.uid) == 'admin';
-    }
-
-    // Customer data rules (customers and all subcollections)
-    match /customers/{customerId}/{document=**} {
-        allow read, write: if request.auth != null && (getUserRole(request.auth.uid) == 'admin' || getUserRole(request.auth.uid) == 'employee');
-    }
-
-    // Purchase Requests collection rules
-    match /purchaseRequests/{requestId} {
-        allow read, write: if request.auth != null && (getUserRole(request.auth.uid) == 'admin' || getUserRole(request.auth.uid) == 'employee');
-        // A more granular rule for approving
-        allow update: if request.auth != null &&
-                      ( getUserRole(request.auth.uid) == 'admin' ||
-                        // Allow Accounts to approve
-                        (getUserRole(request.auth.uid) == 'Accounts' && request.resource.data.status == 'Approved') ||
-                        // Allow other employees to update but not approve without being an account manager or admin
-                        (getUserRole(request.auth.uid) == 'employee' && request.resource.data.status != 'Approved')
-                      );
+      allow read: if isSignedIn();
+      allow write: if isRole('admin');
     }
     
-    // Inbounds collection rules
-    match /inbounds/{inboundId} {
-        allow read, write: if request.auth != null && (getUserRole(request.auth.uid) == 'admin' || getUserRole(request.auth.uid) == 'employee');
-    }
-
-    // Stock collection rules
-    // Reading is allowed for any authenticated user to check stock levels.
-    // Writing (updating quantity) is denied from the client and must be done via secure server actions.
-    match /stocks/{stockId} {
-      allow read: if request.auth != null;
-      allow write: if false; // Prevent all client-side writes
-    }
-    
-    // Transactions should be created by the backend only.
-    match /stocks/{stockId}/{transactionCollection}/{transactionId} {
-        allow write: if false;
-        allow read: if request.auth != null && (getUserRole(request.auth.uid) == 'admin' || getUserRole(request.auth.uid) == 'employee');
-    }
-
-    // Rules for salesman assignments
+    // == Salesman to CRM Assignments ==
+    // Only admins and employees can manage these assignments.
     match /salesmanCrmAssignments/{assignmentId} {
-      allow read, write: if request.auth != null &&
-                        ( getUserRole(request.auth.uid) == 'admin' ||
-                          (getUserRole(request.auth.uid) == 'employee' && getUserDesignation(request.auth.uid) == 'PC')
-                        );
+        allow read, write: if isRole('admin') || isRole('employee');
+    }
+
+    // == Orders Collection ==
+    match /orders/{orderId} {
+      // Unauthenticated users can read a single order for tracking.
+      allow get: if !isSignedIn();
+
+      // Admins and Employees can read all orders.
+      allow list, get: if isRole('admin') || isRole('employee');
+      
+      // Installers can only read orders assigned to them.
+      allow get: if isRole('installer') && resource.data.assignedTo == request.auth.uid;
+      
+      // Creating new orders
+      allow create: if isRole('admin') || isRole('employee');
+      
+      // Updating orders has role-specific logic
+      allow update: if (isRole('admin') || isRole('employee')) ||
+                       (isRole('installer') && resource.data.assignedTo == request.auth.uid);
+                       
+      allow delete: if isRole('admin');
+      
+      match /allocations/{allocationId} {
+        allow read, write: if isRole('admin') || isRole('employee');
+      }
     }
     
-    // Rules for approved quotations (used for reference)
+    // == Customers and all sub-collections ==
+    // Admins and employees have full control over customer relationship data.
+    match /customers/{customerId}/{path=**} {
+        allow read, write: if isRole('admin') || isRole('employee');
+    }
+    
+    // == Approved Quotations (for reporting/history) ==
     match /approvedQuotations/{quotationId} {
-       allow read, write: if request.auth != null && (getUserRole(request.auth.uid) == 'admin' || getUserRole(request.auth.uid) == 'employee');
+       allow read, write: if isRole('admin') || isRole('employee') || isRole('Accounts');
+    }
+
+    // == Purchase Requests Collection ==
+    match /purchaseRequests/{requestId} {
+      allow read, write: if isRole('admin') || isRole('employee') || isRole('Accounts');
+    }
+    
+    // == Inbounds Collection ==
+    match /inbounds/{inboundId} {
+       allow read, write: if isRole('admin') || isRole('employee');
+    }
+
+    // == Stock Management ==
+    // Only allow authenticated users to read stock data.
+    // Writing to stock is locked down to be handled ONLY by backend/server functions.
+    match /stocks/{stockId} {
+      allow read: if isSignedIn();
+      allow write: if false; // IMPORTANT: Prevent all client-side writes
+      
+      // Sub-collections for transactions are also server-only
+      match /{collection}/{transactionId} {
+         allow read, write: if false;
+      }
     }
   }
 }
