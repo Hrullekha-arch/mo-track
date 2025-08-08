@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowRight, Loader2 } from 'lucide-react';
+import { ArrowRight, Loader2, CheckCheck, History } from 'lucide-react';
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest } from "@/lib/types";
@@ -27,7 +27,8 @@ export default function PurchasePage() {
         return () => unsubscribe();
     }, []);
     
-    const activeRequests = useMemo(() => purchaseRequests.filter(req => req.status !== 'PO Generated'), [purchaseRequests]);
+    const activeRequests = useMemo(() => purchaseRequests.filter(req => req.status !== 'Completed'), [purchaseRequests]);
+    const completedRequests = useMemo(() => purchaseRequests.filter(req => req.status === 'Completed'), [purchaseRequests]);
     
     const renderRequestCount = (requests: PurchaseRequest[]) => {
         if (loading) {
@@ -49,7 +50,7 @@ export default function PurchasePage() {
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div className="space-y-1">
                                 <CardTitle>SO to PO</CardTitle>
-                                <CardDescription>Generate purchase requests from sales orders.</CardDescription>
+                                <CardDescription>Generate purchase orders from sales orders.</CardDescription>
                             </div>
                             <ArrowRight className="h-6 w-6 text-primary" />
                         </CardHeader>
@@ -57,21 +58,34 @@ export default function PurchasePage() {
                 </Card>
                  <Card>
                     <CardHeader>
-                        <CardTitle>Fabric Requests</CardTitle>
-                        <CardDescription>Active requests for fabric materials.</CardDescription>
+                        <CardTitle>Active Purchases</CardTitle>
+                        <CardDescription>Requests currently in the workflow.</CardDescription>
                     </CardHeader>
                      <CardContent>
                         <p className="text-3xl font-bold">{renderRequestCount(activeRequests)}</p>
                     </CardContent>
                 </Card>
+                 <Card>
+                    <CardHeader>
+                        <CardTitle>Completed Purchases</CardTitle>
+                        <CardDescription>Fully received purchase requests.</CardDescription>
+                    </CardHeader>
+                     <CardContent>
+                        <p className="text-3xl font-bold">{renderRequestCount(completedRequests)}</p>
+                    </CardContent>
+                </Card>
             </div>
 
-            <Tabs defaultValue="all" className="w-full pt-4">
-                <TabsList className="grid w-full grid-cols-1">
-                    <TabsTrigger value="all">All Purchases</TabsTrigger>
+            <Tabs defaultValue="active" className="w-full pt-4">
+                <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="active">Active Purchases</TabsTrigger>
+                    <TabsTrigger value="history">Purchase History</TabsTrigger>
                 </TabsList>
-                <TabsContent value="all" className="pt-4">
-                     {loading ? <Skeleton className="h-96 w-full" /> : <PurchaseRequestTable />}
+                <TabsContent value="active" className="pt-4">
+                     {loading ? <Skeleton className="h-96 w-full" /> : <PurchaseRequestTable tableData={activeRequests} />}
+                </TabsContent>
+                <TabsContent value="history" className="pt-4">
+                     {loading ? <Skeleton className="h-96 w-full" /> : <PurchaseRequestTable tableData={completedRequests} />}
                 </TabsContent>
             </Tabs>
         </div>

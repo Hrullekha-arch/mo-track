@@ -171,10 +171,22 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                 }
             }
 
-            // Check if all items are fully received after the update
             const allItemsCompleted = items.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
             if (allItemsCompleted) {
+                // If all items are done, update the main PurchaseRequest status
+                await updateDoc(requestRef, { 
+                    status: 'Completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: user.name,
+                });
+                toast({
+                    title: "Purchase Request Complete!",
+                    description: `Request for Deal ID ${request.dealId} is now fully received.`,
+                    duration: 5000,
+                });
+
+                // Also try to update the related order's O2D step
                 const ordersRef = collection(db, "orders");
                 const q = query(ordersRef, where("crmOrderNo", "==", request.dealId));
                 const orderSnapshot = await getDocs(q);
@@ -202,12 +214,6 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                         } else {
                             await updateDoc(orderDoc.ref, { o2dMilestones: arrayUnion(o2dMilestoneStep9) });
                         }
-                        
-                        toast({
-                            title: "O2D Process Updated!",
-                            description: `Step "Purchase Material Receiving" was automatically marked as done for order ${orderData.id}.`,
-                            duration: 5000,
-                        });
                     }
                 }
             }

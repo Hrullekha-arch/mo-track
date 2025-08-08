@@ -169,6 +169,10 @@ export interface PurchaseRequest {
   vendor?: string;
   courier?: string;
   mode?: string;
+
+  // Completion fields
+  completedAt?: string;
+  completedBy?: string;
 }
 
 export interface PurchaseStatus {

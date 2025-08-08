@@ -15,7 +15,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, ShieldAlert } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, ShieldAlert, CheckCircle } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import { Button } from "@/components/ui/button";
@@ -50,9 +50,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 
-export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-tracking' }) {
-  const [requests, setRequests] = React.useState<PurchaseRequest[]>([]);
-  const [loading, setLoading] = React.useState(true);
+export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: PurchaseRequest[], view?: 'all' | 'po-tracking' }) {
+  const [requests, setRequests] = React.useState<PurchaseRequest[]>(tableData);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
@@ -65,15 +64,8 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
   const isAuthorized = role === 'admin' || role === 'Accounts';
 
   React.useEffect(() => {
-    const requestsQuery = query(collection(db, "purchaseRequests"));
-    const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
-      let requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-      setRequests(requestsData);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [view]);
+    setRequests(tableData);
+  }, [tableData]);
   
   const handleDeleteRequest = async () => {
     if (!deletingRequest) return;
@@ -148,10 +140,15 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
         cell: ({ row }) => {
             const status = row.original.status || 'Pending Approval';
             let variant: "default" | "secondary" | "destructive" | "outline" = "secondary";
-            if (status === "Approved") variant = "default";
+            let Icon = null;
+            if (status === "Approved") variant = "secondary";
             if (status === "Pending Approval") variant = "outline";
             if (status === "PO Generated") variant = "default";
-            return <Badge variant={variant}>{status}</Badge>;
+            if (status === "Completed") {
+                variant = "default";
+                Icon = CheckCircle;
+            }
+            return <Badge variant={variant} className={status === 'Completed' ? "bg-green-600 hover:bg-green-700" : ""}>{Icon && <Icon className="mr-1 h-3 w-3"/>}{status}</Badge>;
         },
         filterFn: (row, id, value) => {
             return value.includes(row.getValue(id))
@@ -264,17 +261,6 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
         description: "Your Purchase Requests Excel file has been downloaded.",
     });
   }
-
-  if (loading) {
-    return (
-        <div className="space-y-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-64 w-full" />
-            <Skeleton className="h-10 w-full" />
-        </div>
-    )
-  }
   
   if (!isAuthorized && view !== 'po-tracking') {
     return (
@@ -291,12 +277,6 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
   return (
     <>
     <div className="w-full">
-        {view === 'all' && (
-            <header className="mb-8">
-                <h1 className="text-3xl font-bold tracking-tight">All Purchase Requests</h1>
-                <p className="text-muted-foreground">A detailed view of all purchase requests.</p>
-            </header>
-        )}
         <Card>
             <CardContent className="p-4">
                 <div className="flex flex-wrap items-center py-4 gap-4">
@@ -338,6 +318,7 @@ export function PurchaseRequestTable({ view = 'all' }: { view?: 'all' | 'po-trac
                             <SelectItem value="Pending Approval">Pending Approval</SelectItem>
                             <SelectItem value="Approved">Approved</SelectItem>
                             <SelectItem value="PO Generated">PO Generated</SelectItem>
+                            <SelectItem value="Completed">Completed</SelectItem>
                         </SelectContent>
                     </Select>
 
