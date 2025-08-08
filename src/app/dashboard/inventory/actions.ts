@@ -241,4 +241,59 @@ export async function getStockTransactions(stockId: string): Promise<StockTransa
     return [];
   }
 }
+
+export async function getAllStockTransactions(): Promise<StockTransaction[]> {
+  try {
+    const addedPromise = adminDb.collectionGroup('stockAdded').orderBy('createdAt', 'desc').get();
+    const soldPromise = adminDb.collectionGroup('stockSold').orderBy('createdAt', 'desc').get();
+
+    const [addedSnapshot, soldSnapshot] = await Promise.all([addedPromise, soldPromise]);
+
+    const addedTransactions = addedSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as StockTransaction));
+    const soldTransactions = soldSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as StockTransaction));
     
+    const allTransactions = [...addedTransactions, ...soldTransactions];
+
+    allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return JSON.parse(JSON.stringify(allTransactions));
+  } catch (error) {
+    console.error('Error fetching all stock transactions:', error);
+    return [];
+  }
+}
+
+export async function deleteStockTransaction(stockId: string, transactionId: string, type: 'addition' | 'deduction'): Promise<{ success: boolean; message: string }> {
+  try {
+    const stockRef = adminDb.collection('stocks').doc(stockId);
+    const collectionName = type === 'addition' ? 'stockAdded' : 'stockSold';
+    const transactionRef = stockRef.collection(collectionName).doc(transactionId);
+    
+    const transactionDoc = await transactionRef.get();
+    if (!transactionDoc.exists) {
+      throw new Error("Transaction not found.");
+    }
+
+    const transactionData = transactionDoc.data() as StockTransaction;
+    const quantityChange = transactionData.quantityChange;
+
+    const batch = adminDb.batch();
+    
+    // Delete the transaction document
+    batch.delete(transactionRef);
+
+    // Revert the quantity change on the main stock item
+    batch.update(stockRef, { 
+      quantity: FieldValue.increment(-quantityChange), // Negating the change (e.g., if it was +50, this adds -50)
+      lastUpdatedAt: new Date().toISOString()
+    });
+
+    await batch.commit();
+
+    return { success: true, message: `Transaction ${transactionId} deleted and stock quantity updated.` };
+
+  } catch (error: any) {
+    console.error("Error deleting stock transaction:", error);
+    return { success: false, message: `Failed to delete transaction: ${error.message}` };
+  }
+}
