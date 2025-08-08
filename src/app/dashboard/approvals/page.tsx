@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { useState, useEffect } from 'react';
 import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Quotation, Deal, Customer, User, Order, PurchaseRequest } from '@/lib/types';
+import { Quotation, Deal, Customer, User, Order, PurchaseRequest, Stock } from '@/lib/types';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -18,12 +19,18 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { PrintableQuotationProfessional } from '@/components/features/order-management/PrintableQuotationProfessional';
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+import { getStockById } from "../inventory/actions";
 
 interface EnrichedQuotation extends Quotation {
     dealId: string;
     customerId: string;
     dealName: string;
 }
+
+interface EnrichedPurchaseRequest extends PurchaseRequest {
+    totalAmount?: number;
+}
+
 
 function ApproveQuotationTab() {
     const [quotations, setQuotations] = useState<EnrichedQuotation[]>([]);
@@ -226,7 +233,7 @@ function ApproveQuotationTab() {
 }
 
 function ApprovePurchaseTab() {
-    const [requests, setRequests] = useState<PurchaseRequest[]>([]);
+    const [requests, setRequests] = useState<EnrichedPurchaseRequest[]>([]);
     const [loading, setLoading] = useState(true);
     const [updatingId, setUpdatingId] = useState<string | null>(null);
     const { toast } = useToast();
@@ -238,9 +245,28 @@ function ApprovePurchaseTab() {
             where('status', '==', 'Pending Approval')
         );
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+        const unsubscribe = onSnapshot(q, async (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-            setRequests(data);
+            
+            const enrichedData = await Promise.all(
+                data.map(async (req) => {
+                    let totalAmount = 0;
+                    const items = [...(req.fabricDetails || []), ...(req.furnitureDetails || [])];
+                    for (const item of items) {
+                        const itemName = (item as any).fabricName || (item as any).furnitureName;
+                        if (itemName) {
+                            const stockId = itemName.replace(/\//g, '-');
+                            const stockInfo = await getStockById(stockId);
+                            if (stockInfo) {
+                                totalAmount += (stockInfo.mrp || 0) * parseFloat(item.quantity || '0');
+                            }
+                        }
+                    }
+                    return { ...req, totalAmount };
+                })
+            );
+
+            setRequests(enrichedData);
             setLoading(false);
         });
 
@@ -289,6 +315,7 @@ function ApprovePurchaseTab() {
                             <TableHead>Customer</TableHead>
                             <TableHead>Items (BCN & Qty)</TableHead>
                             <TableHead>Type</TableHead>
+                             <TableHead>Amount</TableHead>
                             <TableHead>Date</TableHead>
                             <TableHead className="text-right">Action</TableHead>
                         </TableRow>
@@ -311,6 +338,7 @@ function ApprovePurchaseTab() {
                                         </div>
                                     </TableCell>
                                     <TableCell className="capitalize">{req.type}</TableCell>
+                                    <TableCell>₹{req.totalAmount?.toFixed(2)}</TableCell>
                                     <TableCell>{format(new Date(req.createdAt), 'dd/MM/yyyy')}</TableCell>
                                     <TableCell className="text-right">
                                         <Button
@@ -326,7 +354,7 @@ function ApprovePurchaseTab() {
                             )
                         }) : (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center">No purchase requests pending for approval.</TableCell>
+                                <TableCell colSpan={7} className="h-24 text-center">No purchase requests pending for approval.</TableCell>
                             </TableRow>
                         )}
                     </TableBody>
