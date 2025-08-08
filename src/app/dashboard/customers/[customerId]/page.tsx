@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useEffect, useState, use } from "react";
@@ -228,7 +227,7 @@ function RoomFields({ roomIndex, onRemoveRoom }: { roomIndex: number, onRemoveRo
 
                          <Button type="button" size="icon" variant="ghost" className="text-destructive" onClick={() => remove(itemIndex)}>
                             <Trash2 className="h-4 w-4" />
-                        </Button>
+                         </Button>
                     </div>
                 ))}
              </div>
@@ -252,7 +251,9 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
     const { toast } = useToast();
 
     useEffect(() => {
+        let isMounted = true;
         const fetchInitialData = async () => {
+            if (!isMounted) return;
             setLoading(true);
             try {
                 const [customerData, dealsData, salesmenData] = await Promise.all([
@@ -260,6 +261,8 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                     getDealsForCustomer(customerId),
                     getSalesmen(),
                 ]);
+
+                if (!isMounted) return;
 
                 if (customerData) {
                     setCustomer(customerData);
@@ -271,7 +274,9 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                         const dealQuotations = await getQuotationsForDealAction(customerId, deal.id);
                         allQuotations.push(...dealQuotations);
                     }
-                    setQuotations(allQuotations);
+                    if (isMounted) {
+                        setQuotations(allQuotations);
+                    }
                 } else {
                     setCustomer(null);
                     toast({
@@ -288,12 +293,18 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
                     description: 'Failed to fetch customer details.'
                 })
             } finally {
-                 setLoading(false);
+                 if (isMounted) {
+                    setLoading(false);
+                }
             }
         };
 
         if (customerId) {
             fetchInitialData();
+        }
+
+        return () => {
+            isMounted = false;
         }
     }, [customerId, toast]);
 
@@ -452,4 +463,5 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
         />
         </>
     );
-}
+
+    
