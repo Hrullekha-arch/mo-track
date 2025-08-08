@@ -153,35 +153,34 @@ export async function updateStockQuantityAction(
     const transactionCollectionName = transaction.type === 'addition' ? 'stockAdded' : 'stockSold';
     const transactionRef = stockRef.collection(transactionCollectionName).doc();
 
-    await adminDb.runTransaction(async (t) => {
-      // 1. Add the new transaction document
-      t.set(transactionRef, transaction);
+    // Step 1: Write the new transaction document.
+    await transactionRef.set(transaction);
 
-      // 2. Fetch all transactions to recalculate the total quantity
-      const addedTransactionsPromise = t.get(stockRef.collection('stockAdded'));
-      const soldTransactionsPromise = t.get(stockRef.collection('stockSold'));
-      
-      const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
+    // Step 2: Fetch all transactions to recalculate the total quantity.
+    const addedTransactionsPromise = stockRef.collection('stockAdded').get();
+    const soldTransactionsPromise = stockRef.collection('stockSold').get();
+    
+    const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
 
-      let totalQuantity = 0;
-      
-      // Sum all additions
-      addedSnapshot.forEach(doc => {
-          totalQuantity += (doc.data() as StockTransaction).quantityChange;
-      });
-      
-      // Subtract all deductions
-      soldSnapshot.forEach(doc => {
-          totalQuantity += (doc.data() as StockTransaction).quantityChange; // quantityChange is negative for deductions
-      });
-
-      // 3. Update the main stock document with the recalculated quantity
-      t.update(stockRef, { 
-        quantity: totalQuantity,
-        lastUpdatedAt: new Date().toISOString()
-      });
+    let totalQuantity = 0;
+    
+    // Sum all additions
+    addedSnapshot.forEach(doc => {
+        totalQuantity += (doc.data() as StockTransaction).quantityChange;
+    });
+    
+    // Subtract all deductions (quantityChange is negative for deductions)
+    soldSnapshot.forEach(doc => {
+        totalQuantity += (doc.data() as StockTransaction).quantityChange; 
     });
 
+    // Step 3: Update the main stock document with the recalculated quantity.
+    await stockRef.update({ 
+      quantity: totalQuantity,
+      lastUpdatedAt: new Date().toISOString()
+    });
+
+    // Step 4: Fetch and return the updated stock document to ensure consistency.
     const updatedStockDoc = await stockRef.get();
     const newStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
 
