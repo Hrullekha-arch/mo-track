@@ -3,9 +3,9 @@
 "use client";
 
 import { useState, useEffect, use } from 'react';
-import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion, collection, query, where, getDocs, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest, InboundMilestone, FabricDetail, Order, O2DStatus } from "@/lib/types";
+import { PurchaseRequest, InboundMilestone, FabricDetail, Order, O2DStatus, StockTransaction } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2, ScanLine } from 'lucide-react';
@@ -20,6 +20,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { PO_PROCESS_CONFIG } from '@/lib/constants';
+import { updateStockQuantityAction } from '@/app/dashboard/inventory/actions';
 
 
 const INBOUND_PROCESS_CONFIG = [
@@ -127,14 +128,13 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
         setUpdating(key);
         
         try {
+            const batch = writeBatch(db);
             const requestRef = doc(db, "purchaseRequests", request.id);
             const items = [...(request.fabricDetails || [])];
             const itemToUpdate = items[itemIndex];
 
             if (!itemToUpdate) throw new Error("Item not found");
 
-            const existingMilestoneIndex = itemToUpdate.inboundMilestones?.findIndex(m => m.stepId === stepId) ?? -1;
-            
             const newMilestone: InboundMilestone = {
                 stepId,
                 status: 'completed',
@@ -142,24 +142,44 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                 completedBy: user.name,
             };
 
-            if (existingMilestoneIndex > -1) {
-                 itemToUpdate.inboundMilestones![existingMilestoneIndex] = newMilestone;
-            } else {
-                itemToUpdate.inboundMilestones = [...(itemToUpdate.inboundMilestones || []), newMilestone];
+            const newMilestones = [...(itemToUpdate.inboundMilestones || []), newMilestone];
+            items[itemIndex] = {...itemToUpdate, inboundMilestones: newMilestones};
+            batch.update(requestRef, { fabricDetails: items });
+
+            const itemIsNowComplete = newMilestones.length === INBOUND_PROCESS_CONFIG.length;
+
+            if (itemIsNowComplete) {
+                const stockId = itemToUpdate.fabricName.replace(/\//g, '-');
+                const stockRef = doc(db, "stocks", stockId);
+
+                const transaction: Omit<StockTransaction, 'id'> = {
+                    stockId: stockId,
+                    bcn: itemToUpdate.fabricName,
+                    type: 'addition',
+                    quantityChange: parseFloat(itemToUpdate.quantity),
+                    poNumber: itemToUpdate.poNumber,
+                    createdAt: new Date().toISOString(),
+                    createdBy: user.name,
+                };
+                
+                const transactionRef = doc(collection(stockRef, 'stockAdded'));
+                batch.set(transactionRef, transaction);
             }
             
-            items[itemIndex] = itemToUpdate;
+            await batch.commit();
 
-            await updateDoc(requestRef, { fabricDetails: items });
-            
             toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete.`});
+            
+            if (itemIsNowComplete) {
+                toast({ title: "Stock Updated!", description: `${itemToUpdate.quantity} units of ${itemToUpdate.fabricName} added to inventory.`});
+                // Recalculate stock after successful commit
+                await updateStockQuantityAction(itemToUpdate.fabricName.replace(/\//g, '-'), { type: 'addition', quantityChange: 0, stockId: '', bcn: '', createdAt: '', createdBy: ''}); // Passing dummy for recalculation
+            }
 
-            // Start of new logic: Check if all items are fully received
-            const allItems = items as Array<FabricDetail>;
-            const allItemsCompleted = allItems.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
+            // Check if all items are fully received
+            const allItemsCompleted = items.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
             if (allItemsCompleted) {
-                // All items have completed all inbound steps. Now update O2D.
                 const ordersRef = collection(db, "orders");
                 const q = query(ordersRef, where("crmOrderNo", "==", request.dealId));
                 const orderSnapshot = await getDocs(q);
@@ -196,8 +216,6 @@ export default function InboundProcessPage({ params }: { params: Promise<{ dealI
                     }
                 }
             }
-            // End of new logic
-
         } catch (error) {
             console.error("Error updating inbound status:", error);
             toast({ variant: "destructive", title: "Update Failed", description: "Could not update the item process status." });

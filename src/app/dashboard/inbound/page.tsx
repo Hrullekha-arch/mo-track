@@ -5,17 +5,24 @@
 import { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest, FabricDetail } from "@/lib/types";
+import { PurchaseRequest } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
-import { Archive, ChevronRight, Package, Search, CheckCircle2 } from 'lucide-react';
+import { Archive, ChevronRight, Package, Search, CheckCircle2, History } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const TOTAL_INBOUND_STEPS = 5;
+
+const isRequestComplete = (request: PurchaseRequest) => {
+    const items = request.fabricDetails || [];
+    if (items.length === 0) return false;
+    return items.every(item => (item.inboundMilestones?.filter(m => m.status === 'completed').length || 0) === TOTAL_INBOUND_STEPS);
+}
 
 function InboundCard({ request }: { request: PurchaseRequest }) {
     const items = [
@@ -80,6 +87,55 @@ function InboundCard({ request }: { request: PurchaseRequest }) {
 }
 
 
+function InboundList({ requests, searchQuery }: { requests: PurchaseRequest[], searchQuery: string }) {
+     const filteredRequests = useMemo(() => {
+        if (!searchQuery) {
+            return requests;
+        }
+        return requests.filter(request => {
+            const query = searchQuery.toLowerCase();
+            const customerNameMatch = request.customerName.toLowerCase().includes(query);
+            const dealIdMatch = request.dealId.toLowerCase().includes(query);
+
+            const items = [ ...(request.fabricDetails?.map(f => ({ name: f.fabricName || '', po: f.poNumber || '', qty: f.quantity || '' })) || []) ];
+
+            const itemMatch = items.some(item => 
+                item.name.toLowerCase().includes(query) || 
+                item.po.toLowerCase().includes(query) ||
+                String(item.qty).toLowerCase().includes(query)
+            );
+
+            return customerNameMatch || dealIdMatch || itemMatch;
+        });
+    }, [requests, searchQuery]);
+
+    if (filteredRequests.length > 0) {
+        return (
+            <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {filteredRequests.map(request => (
+                    <InboundCard key={request.id} request={request} />
+                ))}
+            </div>
+        );
+    }
+    
+    return (
+        <Card className="text-center p-12">
+            <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
+                <Package className="h-8 w-8" />
+            </div>
+            <CardTitle>No Inbound Items Found</CardTitle>
+            <CardDescription>
+                {searchQuery 
+                    ? `No items match your search for "${searchQuery}".`
+                    : `When a purchase order is generated, it will appear here.`
+                }
+            </CardDescription>
+        </Card>
+    );
+}
+
+
 export default function InboundPage() {
     const [inboundRequests, setInboundRequests] = useState<PurchaseRequest[]>([]);
     const [loading, setLoading] = useState(true);
@@ -96,28 +152,18 @@ export default function InboundPage() {
         return () => unsubscribe();
     }, []);
     
-    const filteredInboundRequests = useMemo(() => {
-        if (!searchQuery) {
-            return inboundRequests;
-        }
-        return inboundRequests.filter(request => {
-            const query = searchQuery.toLowerCase();
-            const customerNameMatch = request.customerName.toLowerCase().includes(query);
-            const dealIdMatch = request.dealId.toLowerCase().includes(query);
-
-            const items = [
-                ...(request.fabricDetails?.map(f => ({ name: f.fabricName || '', po: f.poNumber || '', qty: f.quantity || '' })) || []),
-            ];
-
-            const itemMatch = items.some(item => 
-                item.name.toLowerCase().includes(query) || 
-                item.po.toLowerCase().includes(query) ||
-                String(item.qty).toLowerCase().includes(query)
-            );
-
-            return customerNameMatch || dealIdMatch || itemMatch;
+    const { activeRequests, completedRequests } = useMemo(() => {
+        const active: PurchaseRequest[] = [];
+        const completed: PurchaseRequest[] = [];
+        inboundRequests.forEach(req => {
+            if (isRequestComplete(req)) {
+                completed.push(req);
+            } else {
+                active.push(req);
+            }
         });
-    }, [inboundRequests, searchQuery]);
+        return { activeRequests: active, completedRequests: completed };
+    }, [inboundRequests]);
 
     if (loading) {
         return (
@@ -153,27 +199,25 @@ export default function InboundPage() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                 />
             </div>
-
-            {filteredInboundRequests.length > 0 ? (
-                <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-                    {filteredInboundRequests.map(request => (
-                        <InboundCard key={request.id} request={request} />
-                    ))}
-                </div>
-            ) : (
-                <Card className="text-center p-12">
-                    <div className="mx-auto bg-primary text-primary-foreground rounded-full p-3 w-fit mb-4">
-                        <Package className="h-8 w-8" />
-                    </div>
-                    <CardTitle>No Inbound Items Found</CardTitle>
-                    <CardDescription>
-                        {searchQuery 
-                            ? `No items match your search for "${searchQuery}".`
-                            : `When a purchase order is generated, it will appear here.`
-                        }
-                    </CardDescription>
-                </Card>
-            )}
+            
+            <Tabs defaultValue="active" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="active">
+                         <Archive className="mr-2 h-4 w-4" />
+                        Active Inbound ({activeRequests.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="history">
+                        <History className="mr-2 h-4 w-4" />
+                        Inbound History ({completedRequests.length})
+                    </TabsTrigger>
+                </TabsList>
+                <TabsContent value="active" className="pt-6">
+                    <InboundList requests={activeRequests} searchQuery={searchQuery} />
+                </TabsContent>
+                <TabsContent value="history" className="pt-6">
+                     <InboundList requests={completedRequests} searchQuery={searchQuery} />
+                </TabsContent>
+            </Tabs>
         </div>
     );
 }
