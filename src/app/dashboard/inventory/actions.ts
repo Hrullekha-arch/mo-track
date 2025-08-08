@@ -308,4 +308,37 @@ export async function deleteStockTransaction(stockId: string, transactionId: str
   }
 }
 
+export async function deleteStockTransactions(transactions: StockTransaction[]): Promise<{ success: boolean; message: string }> {
+  try {
+    const batch = adminDb.batch();
+    const quantityReversals: { [stockId: string]: number } = {};
+
+    transactions.forEach(tx => {
+      const collectionName = tx.type === 'addition' ? 'stockAdded' : 'stockSold';
+      const transactionRef = adminDb.collection('stocks').doc(tx.stockId).collection(collectionName).doc(tx.id);
+      batch.delete(transactionRef);
+
+      if (!quantityReversals[tx.stockId]) {
+        quantityReversals[tx.stockId] = 0;
+      }
+      quantityReversals[tx.stockId] -= tx.quantityChange;
+    });
+
+    for (const stockId in quantityReversals) {
+      const stockRef = adminDb.collection('stocks').doc(stockId);
+      batch.update(stockRef, {
+        quantity: FieldValue.increment(quantityReversals[stockId]),
+        lastUpdatedAt: new Date().toISOString(),
+      });
+    }
+
+    await batch.commit();
+    return { success: true, message: "Transactions deleted successfully." };
+
+  } catch (error: any) {
+    console.error("Error deleting stock transactions:", error);
+    return { success: false, message: `Failed to delete transactions: ${error.message}` };
+  }
+}
+
     

@@ -12,6 +12,7 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
+  VisibilityState,
 } from "@tanstack/react-table";
 import { ArrowUpDown, Download, Loader2, Trash2, CalendarIcon, X } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -32,23 +33,26 @@ import { StockTransaction } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
-import { getAllStockTransactions, deleteStockTransaction } from "@/app/dashboard/inventory/actions";
+import { getAllStockTransactions, deleteStockTransaction, deleteStockTransactions } from "@/app/dashboard/inventory/actions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export function StockHistoryTable() {
   const [transactions, setTransactions] = React.useState<StockTransaction[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
+  const [rowSelection, setRowSelection] = React.useState({});
   const [globalFilter, setGlobalFilter] = React.useState('');
   const [dateRangeFilter, setDateRangeFilter] = React.useState<DateRange | undefined>();
   const [typeFilter, setTypeFilter] = React.useState("all");
   const [deletingTransaction, setDeletingTransaction] = React.useState<StockTransaction | null>(null);
+  const [isBulkDeleting, setIsBulkDeleting] = React.useState(false);
 
   const { role } = useAuth();
   const { toast } = useToast();
@@ -88,7 +92,54 @@ export function StockHistoryTable() {
       }
   };
 
+  const handleDeleteSelected = async () => {
+    const selectedRows = table.getFilteredSelectedRowModel().rows;
+    const transactionsToDelete = selectedRows.map(row => row.original);
+    
+    if (transactionsToDelete.length === 0) {
+      toast({ variant: 'destructive', title: 'No transactions selected' });
+      return;
+    }
+    
+    try {
+      const result = await deleteStockTransactions(transactionsToDelete);
+      if (result.success) {
+        toast({ title: 'Bulk Deletion Successful', description: `${transactionsToDelete.length} transactions have been deleted.` });
+        fetchTransactions(); // Refresh data
+        table.resetRowSelection(); // Clear selection
+      } else {
+        toast({ variant: 'destructive', title: 'Bulk Deletion Failed', description: result.message });
+      }
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred during bulk deletion.' });
+    } finally {
+        setIsBulkDeleting(false);
+    }
+  };
+
   const columns: ColumnDef<StockTransaction>[] = [
+    {
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          checked={
+            table.getIsAllPageRowsSelected() ||
+            (table.getIsSomePageRowsSelected() && "indeterminate")
+          }
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label="Select all"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
     {
       accessorKey: "createdAt",
       header: ({ column }) => ( <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>Date <ArrowUpDown className="ml-2 h-4 w-4" /></Button> ),
@@ -152,7 +203,7 @@ export function StockHistoryTable() {
     if (dateRangeFilter?.from) {
       data = data.filter(t => isWithinInterval(new Date(t.createdAt), {
         start: dateRangeFilter.from!,
-        end: dateRangeFilter.to || new Date(8640000000000000), // A very far future date if 'to' is not set
+        end: dateRangeFilter.to || new Date(8640000000000000),
       }));
     }
 
@@ -178,10 +229,12 @@ export function StockHistoryTable() {
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     onColumnFiltersChange: setColumnFilters,
+    onRowSelectionChange: setRowSelection,
     state: {
       sorting,
       columnFilters,
       globalFilter,
+      rowSelection
     },
   });
 
@@ -274,6 +327,32 @@ export function StockHistoryTable() {
             </AlertDialogContent>
           </AlertDialog>
           <div className="flex items-center justify-end space-x-2 py-4">
+             <div className="flex-1 text-sm text-muted-foreground">
+                {table.getFilteredSelectedRowModel().rows.length} of{" "}
+                {table.getFilteredRowModel().rows.length} row(s) selected.
+             </div>
+             {table.getFilteredSelectedRowModel().rows.length > 0 && isAuthorized && (
+                 <AlertDialog>
+                     <AlertDialogTrigger asChild>
+                         <Button variant="destructive" disabled={isBulkDeleting}>
+                             {isBulkDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                             Delete Selected ({table.getFilteredSelectedRowModel().rows.length})
+                         </Button>
+                     </AlertDialogTrigger>
+                     <AlertDialogContent>
+                         <AlertDialogHeader>
+                             <AlertDialogTitle>Confirm Bulk Deletion</AlertDialogTitle>
+                             <AlertDialogDescription>
+                                 This will permanently delete {table.getFilteredSelectedRowModel().rows.length} transactions and update all affected stock quantities. This action is irreversible.
+                             </AlertDialogDescription>
+                         </AlertDialogHeader>
+                         <AlertDialogFooter>
+                             <AlertDialogCancel>Cancel</AlertDialogCancel>
+                             <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Yes, delete them</AlertDialogAction>
+                         </AlertDialogFooter>
+                     </AlertDialogContent>
+                 </AlertDialog>
+             )}
             <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>Previous</Button>
             <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next</Button>
           </div>
