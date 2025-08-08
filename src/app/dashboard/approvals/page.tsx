@@ -265,32 +265,44 @@ function ApprovePurchaseTab() {
                         <TableRow>
                             <TableHead>Deal ID</TableHead>
                             <TableHead>Customer</TableHead>
-                            <TableHead>Salesman</TableHead>
+                            <TableHead>Items (BCN & Qty)</TableHead>
                             <TableHead>Type</TableHead>
                             <TableHead>Date</TableHead>
                             <TableHead className="text-right">Action</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {requests.length > 0 ? requests.map(req => (
-                             <TableRow key={req.id}>
-                                <TableCell className="font-medium">{req.dealId}</TableCell>
-                                <TableCell>{req.customerName}</TableCell>
-                                <TableCell>{req.salesman}</TableCell>
-                                <TableCell className="capitalize">{req.type}</TableCell>
-                                <TableCell>{format(new Date(req.createdAt), 'dd/MM/yyyy')}</TableCell>
-                                <TableCell className="text-right">
-                                    <Button
-                                        size="sm"
-                                        onClick={() => handleApprove(req)}
-                                        disabled={updatingId === req.id || (role !== 'Accounts' && role !== 'admin')}
-                                    >
-                                        {updatingId === req.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        Approve
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        )) : (
+                        {requests.length > 0 ? requests.map(req => {
+                            const items = [...(req.fabricDetails || []), ...(req.furnitureDetails || [])];
+                            return (
+                                <TableRow key={req.id}>
+                                    <TableCell className="font-medium">{req.dealId}</TableCell>
+                                    <TableCell>{req.customerName}</TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-col gap-1">
+                                            {items.map((item, index) => (
+                                                <div key={index} className="text-xs">
+                                                    <span className="font-semibold">{(item as any).fabricName || (item as any).furnitureName}:</span>
+                                                    <span className="text-muted-foreground ml-2">{item.quantity} {(req.type === 'fabric' ? 'Mtr' : 'Pcs')}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell className="capitalize">{req.type}</TableCell>
+                                    <TableCell>{format(new Date(req.createdAt), 'dd/MM/yyyy')}</TableCell>
+                                    <TableCell className="text-right">
+                                        <Button
+                                            size="sm"
+                                            onClick={() => handleApprove(req)}
+                                            disabled={updatingId === req.id || (role !== 'Accounts' && role !== 'admin')}
+                                        >
+                                            {updatingId === req.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            Approve
+                                        </Button>
+                                    </TableCell>
+                                </TableRow>
+                            )
+                        }) : (
                             <TableRow>
                                 <TableCell colSpan={6} className="h-24 text-center">No purchase requests pending for approval.</TableCell>
                             </TableRow>
