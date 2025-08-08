@@ -5,7 +5,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useState, useEffect } from 'react';
-import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Quotation, Deal, Customer, User, Order, PurchaseRequest } from '@/lib/types';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
@@ -23,6 +23,7 @@ import { useAuth } from "@/context/AuthContext";
 interface EnrichedQuotation extends Quotation {
     dealId: string;
     customerId: string;
+    dealName: string;
 }
 
 function ApproveQuotationTab() {
@@ -38,14 +39,14 @@ function ApproveQuotationTab() {
     useEffect(() => {
         setLoading(true);
         // Fetch all users first for enrichment later
-        const fetchMetadata = async () => {
+        const fetchUsers = async () => {
             try {
                 const usersQuery = collection(db, 'users');
                 const usersSnapshot = await getDocs(usersQuery);
                 const usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
                 setAllUsers(usersData);
             } catch (error) {
-                 console.error("Error fetching metadata for approvals:", error);
+                 console.error("Error fetching users for approvals:", error);
                  toast({
                     variant: 'destructive',
                     title: "Error loading user data",
@@ -54,28 +55,39 @@ function ApproveQuotationTab() {
             }
         }
         
-        fetchMetadata();
+        fetchUsers();
         
         const q = query(
             collectionGroup(db, 'quotations'),
             where('status', '==', 'Pending Approval')
         );
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+        const unsubscribe = onSnapshot(q, async (snapshot) => {
             const pendingQuotations: EnrichedQuotation[] = [];
-            snapshot.forEach(doc => {
-                const quotationData = doc.data() as Quotation;
-                const pathParts = doc.ref.path.split('/');
+            
+            for (const docSnap of snapshot.docs) {
+                const quotationData = docSnap.data() as Quotation;
+                const pathParts = docSnap.ref.path.split('/');
                 const customerId = pathParts[1];
                 const dealId = pathParts[3];
 
-                pendingQuotations.push({
-                    ...quotationData,
-                    id: doc.id,
-                    customerId,
-                    dealId,
-                });
-            });
+                try {
+                    const customerSnap = await getDoc(doc(db, 'customers', customerId));
+                    const dealSnap = await getDoc(doc(db, 'customers', customerId, 'deals', dealId));
+
+                    pendingQuotations.push({
+                        ...quotationData,
+                        id: docSnap.id,
+                        customerId,
+                        dealId,
+                        customerName: customerSnap.exists() ? customerSnap.data().name : 'Unknown Customer',
+                        dealName: dealSnap.exists() ? dealSnap.data().dealName : 'Unknown Deal',
+                    });
+                } catch (error) {
+                     console.error(`Failed to enrich quotation ${docSnap.id}:`, error);
+                }
+            }
+            
             setQuotations(pendingQuotations);
             setLoading(false);
         }, (error) => {
