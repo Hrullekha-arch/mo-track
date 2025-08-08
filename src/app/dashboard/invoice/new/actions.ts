@@ -28,10 +28,10 @@ export async function createDealOrderAction(
       return { success: false, message: 'This quotation has already been converted to an order.' };
     }
 
-    if (!customerSnap.exists()) {
+    if (!customerSnap.exists) {
         return { success: false, message: 'Customer not found.' };
     }
-    if (!dealSnap.exists()) {
+    if (!dealSnap.exists) {
         return { success: false, message: 'Deal not found.' };
     }
 
