@@ -132,8 +132,7 @@ export async function createPurchaseRequestAction(
                     courier: group.courier,
                     mode: group.mode,
                     fabricDetails: newFabricDetails,
-                    'milestones': [],
-                    'poMilestones': [],
+                    poMilestones: [], // Reset PO milestones when a new PO is generated
                 });
 
                 // Create a new document in the `inbounds` collection for this specific PO
