@@ -1,31 +1,45 @@
 
-
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowRight, Loader2, CheckCheck, History } from 'lucide-react';
-import { collection, onSnapshot, query } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest } from "@/lib/types";
 import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PurchaseRequestTable } from '@/components/features/purchase/PurchaseRequestTable';
+import { useAuth } from '@/context/AuthContext';
 
 export default function PurchasePage() {
     const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
     const [loading, setLoading] = useState(true);
+    const { user, role } = useAuth();
 
     useEffect(() => {
-        const q = query(collection(db, "purchaseRequests"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+        if (!user) return;
+        
+        // Let's create a query that should be allowed by security rules.
+        // Admins/Accounts see all, others might see none if not configured.
+        // A simple query on the collection is better than a complex one for this page.
+        const requestsQuery = query(collection(db, "purchaseRequests"));
+
+        const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
             const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            
+            // Filter client-side based on what is considered "active"
+            // This avoids complex queries that Firestore security rules might block.
             setPurchaseRequests(requestsData);
             setLoading(false);
+        }, (error) => {
+            console.error("Error fetching purchase requests:", error);
+            setLoading(false);
         });
+
         return () => unsubscribe();
-    }, []);
+    }, [user]);
     
     const activeRequests = useMemo(() => purchaseRequests.filter(req => req.status !== 'Completed'), [purchaseRequests]);
     const completedRequests = useMemo(() => purchaseRequests.filter(req => req.status === 'Completed'), [purchaseRequests]);
