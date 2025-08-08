@@ -45,7 +45,7 @@ export async function approveOrderAndCreatePurchaseRequest(
         let purchaseMessage = "";
         // 3. Create a new Purchase Request document if there are items to purchase
         if (itemsToPurchase.length > 0) {
-            const prRef = adminDb.collection('purchaseRequests').doc(); // Auto-generate ID
+            const prRef = adminDb.collection('purchaseRequests').doc(orderData.crmOrderNo);
             const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
                 dealId: orderData.crmOrderNo,
                 customerName: orderData.customerName,
@@ -57,7 +57,7 @@ export async function approveOrderAndCreatePurchaseRequest(
                 createdBy: approver,
                 milestones: [],
                 vendorType: 'undecided',
-                status: 'Pending Approval', // This request itself will need to be processed
+                status: 'Approved', // This request should be approved and ready for SO to PO
             };
             batch.set(prRef, newPurchaseRequest);
             purchaseMessage = ` A purchase request has been generated for ${itemsToPurchase.length} out-of-stock item(s).`;
