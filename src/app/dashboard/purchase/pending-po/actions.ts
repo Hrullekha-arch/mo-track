@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
@@ -85,8 +86,9 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
         for (const [bcn, required] of requiredItemsMap.entries()) {
             const stockInfo = stockMap.get(bcn);
             const currentStock = stockInfo?.quantity || 0;
+            const neededQty = required.totalOrderQty - currentStock;
 
-            if (required.totalOrderQty > currentStock) {
+            if (neededQty > 0) {
                  pendingItems.push({
                     id: bcn,
                     collectionBrand: bcn,
@@ -94,7 +96,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                     hsnCode: stockInfo?.hsnCode || 'N/A',
                     mrp: stockInfo?.mrp || 0,
                     vendorName: stockInfo?.vendorName || 'N/A',
-                    totalOrderQty: required.totalOrderQty,
+                    totalOrderQty: neededQty, // Corrected: This now shows the shortfall
                     stock: currentStock,
                 });
             }
@@ -122,12 +124,10 @@ export async function createPurchaseRequestAction(
         const furnitureDetails: FurnitureDetail[] = [];
 
         for (const item of items) {
-            const neededQty = item.totalOrderQty - item.stock;
-            // A simple way to differentiate - can be improved with better data
-            // This logic assumes fabric items contain 'fabric' in their BCN or category.
-            // A more robust solution might use a 'type' field in the stock data.
+            // The 'totalOrderQty' from the report now correctly represents the shortfall.
+            const neededQty = item.totalOrderQty;
             const stockInfo = await adminDb.collection('stocks').where('bcn', '==', item.collectionBrand).limit(1).get();
-            const stockType = stockInfo.docs[0]?.data()?.type || 'fabric'; // Default to fabric
+            const stockType = stockInfo.docs[0]?.data()?.type || 'fabric';
 
             if (stockType === 'fabric') {
                  fabricDetails.push({
@@ -146,8 +146,6 @@ export async function createPurchaseRequestAction(
         
         const newRequestRef = adminDb.collection('purchaseRequests').doc();
         
-        // For now, some fields will be placeholders.
-        // A more sophisticated implementation would aggregate customer/deal info.
         const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
             dealId: `AGGREGATE-${new Date().getTime()}`,
             customerName: "Aggregated from multiple orders",
