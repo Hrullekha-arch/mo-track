@@ -3,34 +3,29 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowRight, Loader2, CheckCheck, History } from 'lucide-react';
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { ArrowRight, Loader2 } from 'lucide-react';
+import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest } from "@/lib/types";
 import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PurchaseRequestTable } from '@/components/features/purchase/PurchaseRequestTable';
 import { useAuth } from '@/context/AuthContext';
+import { PurchaseRequestTable } from '@/components/features/purchase/PurchaseRequestTable';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+
 
 export default function PurchasePage() {
     const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
     const [loading, setLoading] = useState(true);
-    const { user, role } = useAuth();
+    const { user } = useAuth();
 
     useEffect(() => {
         if (!user) return;
         
-        // Let's create a query that should be allowed by security rules.
-        // Admins/Accounts see all, others might see none if not configured.
-        // A simple query on the collection is better than a complex one for this page.
         const requestsQuery = query(collection(db, "purchaseRequests"));
 
         const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
             const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-            
-            // Filter client-side based on what is considered "active"
-            // This avoids complex queries that Firestore security rules might block.
             setPurchaseRequests(requestsData);
             setLoading(false);
         }, (error) => {
@@ -51,8 +46,25 @@ export default function PurchasePage() {
         return requests.length;
     };
 
+    if (loading) {
+        return (
+             <div className="space-y-4 p-4 md:p-6 lg:p-8">
+                <header>
+                    <Skeleton className="h-9 w-1/2 mb-2" />
+                    <Skeleton className="h-5 w-3/4" />
+                </header>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <Skeleton className="h-24" />
+                    <Skeleton className="h-24" />
+                    <Skeleton className="h-24" />
+                </div>
+                 <Skeleton className="h-96 w-full" />
+            </div>
+        )
+    }
+
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 p-4 md:p-6 lg:p-8">
             <header>
                 <h1 className="text-3xl font-bold tracking-tight">Purchase Process</h1>
                 <p className="text-muted-foreground">Manage and track all purchase requests from authorization to placing the order.</p>
@@ -96,10 +108,10 @@ export default function PurchasePage() {
                     <TabsTrigger value="history">Purchase History</TabsTrigger>
                 </TabsList>
                 <TabsContent value="active" className="pt-4">
-                     {loading ? <Skeleton className="h-96 w-full" /> : <PurchaseRequestTable tableData={activeRequests} />}
+                     <PurchaseRequestTable tableData={activeRequests} />
                 </TabsContent>
                 <TabsContent value="history" className="pt-4">
-                     {loading ? <Skeleton className="h-96 w-full" /> : <PurchaseRequestTable tableData={completedRequests} />}
+                     <PurchaseRequestTable tableData={completedRequests} />
                 </TabsContent>
             </Tabs>
         </div>

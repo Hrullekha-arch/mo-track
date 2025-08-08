@@ -37,13 +37,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, deleteDoc } from "firebase/firestore";
+import { Card, CardContent } from "@/components/ui/card";
+import { doc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -61,12 +60,11 @@ interface FlattenedPurchaseItem {
     poNumber?: string;
     vendorName?: string;
     type: 'fabric' | 'furniture';
-    // a reference to the original request for actions
     originalRequest: PurchaseRequest;
 }
 
 
-export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: PurchaseRequest[], view?: 'all' | 'po-tracking' }) {
+export function PurchaseRequestTable({ tableData }: { tableData: PurchaseRequest[] }) {
   const [requests, setRequests] = React.useState<FlattenedPurchaseItem[]>([]);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -95,9 +93,6 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
             type: 'fabric' as const,
             originalRequest: req,
         }));
-
-        // You can add furniture items here as well if needed
-        // const furnitureItems = ...
 
         return [...fabricItems];
     });
@@ -303,7 +298,7 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
     });
   }
   
-  if (!isAuthorized && view !== 'po-tracking') {
+  if (!isAuthorized) {
     return (
         <Card className="mt-8">
             <CardHeader className="text-center">
@@ -323,11 +318,9 @@ export function PurchaseRequestTable({ tableData, view = 'all' }: { tableData: P
                 <div className="flex flex-wrap items-center py-4 gap-4">
                     <Input
                         placeholder="Filter by customer or Order ID..."
-                        value={table.getColumn("customerName")?.getFilterValue() as string ?? ""}
+                        value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
                         onChange={(event) => {
-                            const customerFilter = event.target.value;
-                            table.getColumn("customerName")?.setFilterValue(customerFilter);
-                            table.getColumn("dealId")?.setFilterValue(customerFilter);
+                            table.getColumn("customerName")?.setFilterValue(event.target.value)
                         }}
                         className="max-w-sm"
                     />

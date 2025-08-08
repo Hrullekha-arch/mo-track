@@ -2,24 +2,26 @@
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, Stock, PurchaseRequest, FabricDetail, User, InboundRequest, InboundItem } from "@/lib/types";
+import { PurchaseRequest, Stock, InboundRequest, InboundItem } from "@/lib/types";
 
 export interface PendingPoItem {
     id: string; // Combination of orderId and itemName
-    orderId: string; // The ID of the order that needs this item
+    orderId: string;
     salesman: string;
     collectionBrand: string;
     serialNo: string;
     hsnCode: string;
     mrp: number;
     vendorName: string;
-    neededQty: number; // The quantity needed for this specific order
+    neededQty: number;
     stock: number;
 }
 
 export async function getPendingPoItems(): Promise<PendingPoItem[]> {
     try {
-        const approvedRequestsSnapshot = await adminDb.collection('purchaseRequests').where('status', '==', 'Approved').get();
+        const approvedRequestsSnapshot = await adminDb.collection('purchaseRequests')
+            .where('status', '==', 'Approved')
+            .get();
         
         const pendingItems: PendingPoItem[] = [];
 
@@ -92,8 +94,10 @@ export async function createPurchaseRequestAction(
         const originalRequestData = originalRequestDoc.data() as PurchaseRequest;
 
         // Find the specific item in the fabricDetails array and update it
+        let itemFoundAndUpdated = false;
         const newFabricDetails = (originalRequestData.fabricDetails || []).map(originalItem => {
-            if (originalItem.fabricName === item.collectionBrand) {
+            if (originalItem.fabricName === item.collectionBrand && !originalItem.poNumber) {
+                itemFoundAndUpdated = true;
                 return {
                     ...originalItem,
                     poNumber: poNumber,
@@ -102,21 +106,22 @@ export async function createPurchaseRequestAction(
             }
             return originalItem;
         });
+        
+        if (!itemFoundAndUpdated) {
+            throw new Error(`Item ${item.collectionBrand} not found or already has a PO in request ${purchaseRequestId}.`);
+        }
 
         const allItemsNowHavePo = newFabricDetails.every(i => !!i.poNumber);
 
-        // Update the purchase request with the modified fabricDetails array
         batch.update(requestRef, {
-            status: allItemsNowHavePo ? 'PO Generated' : 'Approved', // Mark as PO Generated only if all items have a PO
-            vendor: vendor, // It might be better to store this per item if vendors differ
+            status: allItemsNowHavePo ? 'PO Generated' : 'Approved',
+            vendor: vendor, 
             courier: courier,
             mode: mode,
             fabricDetails: newFabricDetails,
         });
 
-        // Create a new document in the `inbounds` collection for this specific PO
         const inboundRef = adminDb.collection('inbounds').doc(poNumber);
-
         const inboundItems: InboundItem[] = [{
             itemName: item.collectionBrand,
             quantity: String(item.neededQty),
