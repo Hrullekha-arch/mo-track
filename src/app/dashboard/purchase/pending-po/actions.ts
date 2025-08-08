@@ -101,7 +101,7 @@ export async function createPurchaseRequestAction(
             for (const purchaseRequestId in itemsByRequest) {
                 const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
                 const originalRequestDoc = await requestRef.get();
-                if (!originalRequestDoc.exists()) {
+                if (!originalRequestDoc.exists) {
                     console.warn(`Purchase request ${purchaseRequestId} not found. Skipping.`);
                     continue;
                 }
