@@ -2,9 +2,9 @@
 "use client";
 
 import { useState, useEffect, use } from 'react';
-import { doc, onSnapshot, updateDoc, collection } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, collection, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction } from "@/lib/types";
+import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2 } from 'lucide-react';
@@ -25,6 +25,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form } from '@/components/ui/form';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Badge } from '@/components/ui/badge';
 
 
 type OrderItem = (FabricDetail | FurnitureDetail) & { type: 'Fabric' | 'Furniture' };
@@ -202,10 +203,11 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
     )
 }
 
-function OrderItemRow({ item, index, orderId, onAllocationSuccess }: { item: OrderItem, index: number, orderId: string, onAllocationSuccess: () => void }) {
+function OrderItemRow({ item, index, orderId, orderCrmNo, onAllocationSuccess }: { item: OrderItem, index: number, orderId: string, orderCrmNo: string, onAllocationSuccess: () => void }) {
     const [stockInfo, setStockInfo] = useState<Stock | null>(null);
     const [loading, setLoading] = useState(true);
     const [allocatedQty, setAllocatedQty] = useState(0);
+    const [status, setStatus] = useState<{ text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }>({ text: 'Loading...', variant: 'secondary' });
 
     useEffect(() => {
         const fetchItemData = async () => {
@@ -222,11 +224,36 @@ function OrderItemRow({ item, index, orderId, onAllocationSuccess }: { item: Ord
                 const itemAllocations = allocations.filter(a => a.itemName === itemName);
                 const totalAllocated = itemAllocations.reduce((sum, alloc) => sum + alloc.quantityAllocated, 0);
                 setAllocatedQty(totalAllocated);
+                
+                // Determine Status
+                const requiredQty = parseFloat((item as any).quantity || '0');
+                if ((stock?.quantity || 0) >= requiredQty) {
+                    setStatus({ text: 'In Stock', variant: 'default' });
+                } else {
+                    const poRef = doc(db, 'purchaseRequests', orderCrmNo);
+                    const poSnap = await getDoc(poRef);
+                    if (poSnap.exists()) {
+                        const poData = poSnap.data() as PurchaseRequest;
+                        const poItem = (poData.fabricDetails || []).concat(poData.furnitureDetails || []).find(pi => ((pi as any).fabricName || (pi as any).furnitureName) === itemName);
+                        if (poItem) {
+                            const isReceived = poItem.inboundMilestones?.length === 5;
+                            if (isReceived) {
+                                setStatus({ text: 'Item Received', variant: 'default' });
+                            } else {
+                                setStatus({ text: 'PO Generated', variant: 'outline' });
+                            }
+                        } else {
+                             setStatus({ text: 'Pending for PO', variant: 'destructive' });
+                        }
+                    } else {
+                        setStatus({ text: 'Pending for PO', variant: 'destructive' });
+                    }
+                }
             }
             setLoading(false);
         };
         fetchItemData();
-    }, [item, orderId, onAllocationSuccess]);
+    }, [item, orderId, onAllocationSuccess, orderCrmNo]);
 
     const name = (item as any).fabricName || (item as any).furnitureName;
     const unit = item.type === 'Fabric' ? 'Mtr' : '';
@@ -251,6 +278,9 @@ function OrderItemRow({ item, index, orderId, onAllocationSuccess }: { item: Ord
                         stockInfo && <AllocateDialog item={item} stock={stockInfo} orderId={orderId} onAllocationSuccess={onAllocationSuccess} />
                     )
                 )}
+            </TableCell>
+            <TableCell>
+                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Badge variant={status.variant}>{status.text}</Badge>}
             </TableCell>
         </TableRow>
     );
@@ -280,14 +310,15 @@ function AllocateOrderTable({ order, onAllocationSuccess }: { order: Order, onAl
                                 <TableHead>Qty</TableHead>
                                 <TableHead>Stock</TableHead>
                                 <TableHead>Allocated Qty</TableHead>
+                                <TableHead>Status</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {items.length > 0 ? items.map((item, index) => (
-                                <OrderItemRow key={index} item={item} index={index} orderId={order.id} onAllocationSuccess={onAllocationSuccess} />
+                                <OrderItemRow key={index} item={item} index={index} orderId={order.id} orderCrmNo={order.crmOrderNo} onAllocationSuccess={onAllocationSuccess} />
                             )) : (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="h-24 text-center">No items found in this order.</TableCell>
+                                    <TableCell colSpan={7} className="h-24 text-center">No items found in this order.</TableCell>
                                 </TableRow>
                             )}
                         </TableBody>
