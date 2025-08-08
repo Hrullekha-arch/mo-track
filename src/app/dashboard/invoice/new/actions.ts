@@ -11,7 +11,7 @@ export async function createDealOrderAction(
   customerId: string,
   dealId: string,
   quotation: Quotation,
-  creatorName: string
+  creator: { id: string; name: string }
 ): Promise<{ success: boolean; message: string; order?: Order }> {
   try {
     const customerRef = adminDb.collection('customers').doc(customerId);
@@ -116,10 +116,10 @@ export async function createDealOrderAction(
             fabricDetails: fabricDetails,
             furnitureDetails: furnitureDetails,
             createdAt: new Date().toISOString(),
-            createdBy: { id: user?.id || 'system', name: creatorName },
+            createdBy: { id: creator.id, name: creator.name },
             milestones: [],
             vendorType: 'undecided',
-            status: 'Pending Approval', // This sends it to the approval queue
+            status: 'Pending Approval',
         };
         batch.set(purchaseRequestRef, newPurchaseRequest);
     }
@@ -129,7 +129,7 @@ export async function createDealOrderAction(
       orderNo: newOrder.id,
       id: newDealOrderRef.id,
       orderDate: new Date().toISOString(),
-      createdBy: creatorName,
+      createdBy: creator.name,
       remark: quotation.billingName || '',
       items: quotation.items,
       status: 'Approved' // Set correct initial status
