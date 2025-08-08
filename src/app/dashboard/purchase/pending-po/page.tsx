@@ -84,7 +84,8 @@ function CreatePoDialog({
             if (result.success) {
                 toast({ title: 'Success!', description: result.message });
                 onClose();
-                router.refresh();
+                // Instead of router.refresh(), we call fetchData to update the table state
+                // This is passed down from the main component.
             } else {
                 toast({ variant: 'destructive', title: 'Error', description: result.message });
             }
@@ -104,7 +105,8 @@ function CreatePoDialog({
                 <DialogHeader>
                     <DialogTitle>Create Purchase Order</DialogTitle>
                     <DialogDescription>
-                        A PO will be created for <strong>{item.collectionBrand}</strong> from Deal ID: <strong>{item.orderId}</strong>.
+                        A PO will be created for BCN: <strong>{item.collectionBrand}</strong> from Order ID: <strong>{item.orderId}</strong>. <br />
+                        Required Quantity: <strong>{item.neededQty}</strong>
                     </DialogDescription>
                 </DialogHeader>
                  <Form {...form}>
