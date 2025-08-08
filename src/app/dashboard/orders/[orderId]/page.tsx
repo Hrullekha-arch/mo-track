@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, use } from 'react';
@@ -215,34 +216,29 @@ function OrderItemRow({ item, index, orderId, orderCrmNo, onAllocationSuccess }:
             setLoading(true);
             const itemName = (item as any).fabricName || (item as any).furnitureName;
             if (itemName) {
-                // The document ID in the 'stocks' collection is the BCN/itemName
                 const stockId = itemName.replace(/\//g, '-');
                 const stock = await getStockById(stockId);
                 setStockInfo(stock);
                 
-                // Fetch allocation for this item
                 const allocations = await getOrderAllocations(orderId);
                 const itemAllocations = allocations.filter(a => a.itemName === itemName);
                 const totalAllocated = itemAllocations.reduce((sum, alloc) => sum + alloc.quantityAllocated, 0);
                 setAllocatedQty(totalAllocated);
                 
-                // Determine Status
                 const requiredQty = parseFloat((item as any).quantity || '0');
-                if ((stock?.quantity || 0) >= requiredQty) {
+                if (totalAllocated >= requiredQty) {
+                    setStatus({ text: 'Allocated', variant: 'default' });
+                } else if ((stock?.quantity || 0) >= requiredQty) {
                     setStatus({ text: 'In Stock', variant: 'default' });
                 } else {
                     const poRef = doc(db, 'purchaseRequests', orderCrmNo);
                     const poSnap = await getDoc(poRef);
                     if (poSnap.exists()) {
                         const poData = poSnap.data() as PurchaseRequest;
-                        const poItem = (poData.fabricDetails || []).concat(poData.furnitureDetails || []).find(pi => ((pi as any).fabricName || (pi as any).furnitureName) === itemName);
-                        if (poItem) {
-                            const isReceived = poItem.inboundMilestones?.length === 5;
-                            if (isReceived) {
-                                setStatus({ text: 'Item Received', variant: 'default' });
-                            } else {
-                                setStatus({ text: 'PO Generated', variant: 'outline', poNumber: poItem.poNumber });
-                            }
+                        const poItem = (poData.fabricDetails || []).find(pi => pi.fabricName === itemName);
+                        
+                        if (poData.status === 'PO Generated' && poItem?.poNumber) {
+                             setStatus({ text: 'PO Generated', variant: 'outline', poNumber: poItem.poNumber });
                         } else {
                              setStatus({ text: 'Pending for PO', variant: 'destructive' });
                         }
