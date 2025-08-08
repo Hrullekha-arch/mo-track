@@ -143,25 +143,26 @@ export function StockHistoryTable() {
   ];
 
   const filteredData = React.useMemo(() => {
-    let data = transactions;
+    let data = [...transactions];
 
-    if (typeFilter !== 'all') {
+    if (typeFilter && typeFilter !== "all") {
       data = data.filter(t => t.type === typeFilter);
     }
-    
+
     if (dateRangeFilter?.from) {
       data = data.filter(t => isWithinInterval(new Date(t.createdAt), {
         start: dateRangeFilter.from!,
-        end: dateRangeFilter.to || new Date(),
+        end: dateRangeFilter.to || new Date(8640000000000000), // A very far future date if 'to' is not set
       }));
     }
 
     if (globalFilter) {
+      const lowercasedFilter = globalFilter.toLowerCase();
       data = data.filter(t => 
-        t.bcn?.toLowerCase().includes(globalFilter.toLowerCase()) ||
-        t.createdBy?.toLowerCase().includes(globalFilter.toLowerCase()) ||
-        t.poNumber?.toLowerCase().includes(globalFilter.toLowerCase()) ||
-        t.orderId?.toLowerCase().includes(globalFilter.toLowerCase())
+        t.bcn?.toLowerCase().includes(lowercasedFilter) ||
+        t.createdBy?.toLowerCase().includes(lowercasedFilter) ||
+        t.poNumber?.toLowerCase().includes(lowercasedFilter) ||
+        t.orderId?.toLowerCase().includes(lowercasedFilter)
       );
     }
     
@@ -176,6 +177,7 @@ export function StockHistoryTable() {
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    onColumnFiltersChange: setColumnFilters,
     state: {
       sorting,
       columnFilters,
@@ -191,6 +193,7 @@ export function StockHistoryTable() {
     setGlobalFilter("");
     setDateRangeFilter(undefined);
     setTypeFilter("all");
+    setColumnFilters([]);
   };
 
   return (
@@ -243,7 +246,7 @@ export function StockHistoryTable() {
               </TableHeader>
               <TableBody>
                 {loading ? (
-                    <TableRow><TableCell colSpan={columns.length} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
+                    <TableRow><TableCell colSpan={columns.length} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
                 ) : table.getRowModel().rows?.length ? (
                   table.getRowModel().rows.map((row) => (
                     <TableRow key={row.id}>
