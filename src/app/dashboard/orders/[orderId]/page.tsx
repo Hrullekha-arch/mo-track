@@ -93,7 +93,7 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
                         title: 'Allocation Limit Exceeded',
                         description: `You cannot allocate more than the required quantity of ${itemRequiredQty.toFixed(2)}.`,
                     });
-                    // Uncheck the box visually by not adding the value
+                    // This is a visual correction. The actual form state is not changed, so the box remains unchecked.
                     const checkbox = document.getElementById(`len-${transactionId}-${length}`) as HTMLInputElement;
                     if (checkbox) checkbox.checked = false;
                     return;
@@ -135,7 +135,12 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
     }
 
     return (
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <Dialog open={isOpen} onOpenChange={(open) => {
+            setIsOpen(open);
+            if (!open) {
+                form.reset(); // Reset form when closing
+            }
+        }}>
             <DialogTrigger asChild>
                 <Button variant="outline" size="sm">Allocate</Button>
             </DialogTrigger>
@@ -228,7 +233,7 @@ function OrderItemRow({ item, index, orderId, orderCrmNo, onAllocationSuccess }:
                 const requiredQty = parseFloat((item as any).quantity || '0');
                 if (totalAllocated >= requiredQty) {
                     setStatus({ text: 'Allocated', variant: 'default' });
-                } else if ((stock?.quantity || 0) >= requiredQty) {
+                } else if ((stock?.quantity || 0) >= (requiredQty - totalAllocated)) {
                     setStatus({ text: 'In Stock', variant: 'default' });
                 } else {
                     const poRef = doc(db, 'purchaseRequests', orderCrmNo);
@@ -464,3 +469,4 @@ export default function OrderDetailPage({ params }: { params: { orderId: string 
         </div>
     );
 }
+
