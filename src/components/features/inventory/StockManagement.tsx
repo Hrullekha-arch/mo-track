@@ -308,8 +308,8 @@ export function StockManagement() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Date</TableHead>
-                                    <TableHead>By</TableHead>
-                                    <TableHead>Lengths</TableHead>
+                                    <TableHead>Full Length</TableHead>
+                                    <TableHead>Sold Length</TableHead>
                                     <TableHead>Order ID</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -320,8 +320,8 @@ export function StockManagement() {
                                     stockSoldTransactions.map(tx => (
                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
-                                            <TableCell>{tx.createdBy}</TableCell>
-                                            <TableCell>{tx.lengths ? tx.lengths.join(', ') : tx.quantityChange}</TableCell>
+                                            <TableCell>{tx.originalLength?.toFixed(2) || 'N/A'}</TableCell>
+                                            <TableCell>{tx.lengths ? tx.lengths.join(', ') : Math.abs(tx.quantityChange)}</TableCell>
                                             <TableCell>{tx.orderId}</TableCell>
                                         </TableRow>
                                     ))
@@ -378,5 +378,3 @@ export function StockManagement() {
     </Card>
   );
 }
-
-

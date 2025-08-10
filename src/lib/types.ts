@@ -1,6 +1,5 @@
 
 
-
 import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp } from "firebase/firestore";
 
@@ -261,6 +260,7 @@ export interface StockTransaction {
   poNumber?: string;
   orderId?: string;
   lengths?: number[];
+  originalLength?: number;
   createdAt: string; // ISO string
   createdBy: string;
 }

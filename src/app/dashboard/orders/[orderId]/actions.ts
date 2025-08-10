@@ -71,19 +71,30 @@ export async function allocateStockToAction(
 
             const totalAllocatedQty = allocatedLengths.reduce((sum, l) => sum + l.length, 0);
 
-            // Group allocations by their original transaction ID
+            // Group allocations by their original transaction ID to fetch original lengths
             const allocationsByTxId = allocatedLengths.reduce((acc, current) => {
                 if (!acc[current.transactionId]) {
-                    acc[current.transactionId] = 0;
+                    acc[current.transactionId] = {
+                        totalAllocated: 0,
+                        originalLength: 0 // We'll fill this in next
+                    };
                 }
-                acc[current.transactionId] += current.length;
+                acc[current.transactionId].totalAllocated += current.length;
                 return acc;
-            }, {} as Record<string, number>);
+            }, {} as Record<string, { totalAllocated: number, originalLength: number }>);
             
             // For each original 'stockAdded' transaction that we are allocating from...
             for (const txId in allocationsByTxId) {
                 const originalTxRef = stockRef.collection('stockAdded').doc(txId);
-                const allocatedAmount = allocationsByTxId[txId];
+                const originalTxDoc = await transaction.get(originalTxRef);
+
+                if (!originalTxDoc.exists) {
+                    throw new Error(`Original stock roll with ID ${txId} not found.`);
+                }
+                const originalTxData = originalTxDoc.data() as StockTransaction;
+                allocationsByTxId[txId].originalLength = originalTxData.quantityChange;
+
+                const allocatedAmount = allocationsByTxId[txId].totalAllocated;
                 
                 // Decrement the quantity from the original roll.
                 transaction.update(originalTxRef, {
@@ -92,22 +103,25 @@ export async function allocateStockToAction(
             }
             
             const allocationRef = orderRef.collection('allocations').doc(); // New allocation document
-            const stockSoldRef = stockRef.collection('stockSold').doc(); // New transaction document
             
-            // Create a new deduction transaction
-            const stockSoldData: Omit<StockTransaction, 'id'> = {
-                stockId: stockId,
-                bcn: stockData.bcn || '',
-                type: 'deduction',
-                quantityChange: -totalAllocatedQty, // Stored as a negative number
-                orderId: orderId,
-                lengths: allocatedLengths.map(l => l.length), // Record the lengths that were cut
-                createdAt: new Date().toISOString(),
-                createdBy: userName,
-            };
-            transaction.set(stockSoldRef, stockSoldData);
+            // Create a new deduction transaction for each piece cut
+            for (const allocatedPiece of allocatedLengths) {
+                const stockSoldRef = stockRef.collection('stockSold').doc();
+                const stockSoldData: Omit<StockTransaction, 'id'> = {
+                    stockId: stockId,
+                    bcn: stockData.bcn || '',
+                    type: 'deduction',
+                    quantityChange: -allocatedPiece.length,
+                    lengths: [allocatedPiece.length],
+                    originalLength: allocationsByTxId[allocatedPiece.transactionId]?.originalLength || 0,
+                    orderId: orderId,
+                    createdAt: new Date().toISOString(),
+                    createdBy: userName,
+                };
+                transaction.set(stockSoldRef, stockSoldData);
+            }
             
-            // Create allocation record under the order
+            // Create one allocation record under the order for the total
             const allocationData = {
                 stockId,
                 itemName,
