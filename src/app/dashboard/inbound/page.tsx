@@ -1,13 +1,14 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { PurchaseRequest } from "@/lib/types";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from '@/components/ui/skeleton';
 import { PurchaseRequestTable } from '@/components/features/purchase/PurchaseRequestTable';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function InboundPage() {
     const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
@@ -33,6 +34,8 @@ export default function InboundPage() {
 
         return () => unsubscribe();
     }, [toast]);
+    
+    const activeRequests = useMemo(() => purchaseRequests.filter(req => req.status !== 'Completed'), [purchaseRequests]);
 
     if (loading) {
         return (
@@ -41,6 +44,7 @@ export default function InboundPage() {
                     <Skeleton className="h-9 w-1/2 mb-2" />
                     <Skeleton className="h-5 w-3/4" />
                 </header>
+                 <Skeleton className="h-10 w-full" />
                  <Skeleton className="h-96 w-full" />
             </div>
         )
@@ -55,7 +59,18 @@ export default function InboundPage() {
                 </p>
             </header>
             
-            <PurchaseRequestTable tableData={purchaseRequests} view="all" />
+            <Tabs defaultValue="active" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="active">Active Inbound</TabsTrigger>
+                    <TabsTrigger value="all">All Inbound</TabsTrigger>
+                </TabsList>
+                <TabsContent value="active" className="mt-4">
+                    <PurchaseRequestTable tableData={activeRequests} view="all" />
+                </TabsContent>
+                <TabsContent value="all" className="mt-4">
+                    <PurchaseRequestTable tableData={purchaseRequests} view="all" />
+                </TabsContent>
+            </Tabs>
         </div>
     );
 }
