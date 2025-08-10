@@ -120,7 +120,7 @@ function GenerateInvoiceDialog({
         // 2. Update all selected batches status
         batches.forEach(b => {
             const batchRef = doc(db, "invoiceBatches", b.id);
-            batch.update(batchRef, { status: "invoiced", tallyBillNo: tallyBillNo || null });
+            batch.update(batchRef, { status: "invoiced", tallyBillNo: tallyBillNo || null, invoiceId: newInvoiceRef.id });
         });
         
         await batch.commit();
@@ -214,6 +214,13 @@ function InvoiceTable({
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
     const [isGenerateDialogOpen, setIsGenerateDialogOpen] = React.useState(false);
+    const [isViewInvoiceOpen, setIsViewInvoiceOpen] = React.useState(false);
+    const [selectedBatchForView, setSelectedBatchForView] = React.useState<InvoiceBatch | null>(null);
+
+    const handleViewClick = (batch: InvoiceBatch) => {
+        setSelectedBatchForView(batch);
+        setIsViewInvoiceOpen(true);
+    };
 
     const columns: ColumnDef<InvoiceBatch>[] = [
     {
@@ -285,14 +292,15 @@ function InvoiceTable({
       header: "Status",
       cell: ({ row }) => {
         const status = row.getValue("status") as string;
+        const tallyBillNo = row.original.tallyBillNo;
         const variant = status === 'pending' ? 'secondary' : 'default';
         const color = status === 'pending' ? '' : 'bg-green-600';
-        return <Badge variant={variant} className={color}>{status}</Badge>;
+        return <Badge variant={variant} className={color}>{tallyBillNo ? `${status}: ${tallyBillNo}` : status}</Badge>;
       }
     },
     {
         id: 'actions',
-        cell: ({ row }) => <Button variant="ghost" size="icon"><ChevronRight className="h-4 w-4"/></Button>
+        cell: ({ row }) => <Button variant="ghost" size="icon" onClick={() => handleViewClick(row.original)}><ChevronRight className="h-4 w-4"/></Button>
     }
   ];
 
@@ -380,6 +388,44 @@ function InvoiceTable({
             batches={selectedBatches}
             orders={selectedOrders}
         />
+        {selectedBatchForView && (
+            <Dialog open={isViewInvoiceOpen} onOpenChange={setIsViewInvoiceOpen}>
+                <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle>View Invoice</DialogTitle>
+                        <DialogDescription>
+                            Viewing invoice for batch {selectedBatchForView.id}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex-grow overflow-y-auto pr-4" id="printable-invoice-view-content">
+                        <PrintableInvoice
+                            batches={[selectedBatchForView]}
+                            orders={orders.filter(o => o.id === selectedBatchForView.orderId)}
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                const printContent = document.getElementById('printable-invoice-view-content');
+                                if (!printContent) return;
+                                const printWindow = window.open('', '_blank');
+                                if (!printWindow) return;
+                                printWindow.document.write(printContent.innerHTML);
+                                printWindow.document.close();
+                                setTimeout(() => {
+                                    printWindow.focus();
+                                    printWindow.print();
+                                }, 250);
+                            }}
+                        >
+                            <Printer className="mr-2 h-4 w-4" /> Print
+                        </Button>
+                        <Button variant="ghost" onClick={() => setIsViewInvoiceOpen(false)}>Close</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        )}
     </>
   )
 }

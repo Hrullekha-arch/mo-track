@@ -454,7 +454,8 @@ export interface InvoiceBatch {
     createdAt: Timestamp;
     status: 'pending' | 'invoiced';
     items: InvoiceBatchItem[];
-    tallyBillNo?: string;
+    tallyBillNo?: string | null;
+    invoiceId?: string;
 }
 
 export interface Invoice {

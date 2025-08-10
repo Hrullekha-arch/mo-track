@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -38,7 +39,7 @@ const numberToWords = (num: number): string => {
 
 export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
     const [stockDetails, setStockDetails] = React.useState<Record<string, Stock>>({});
-    const [logoSrc, setLogoSrc] = React.useState("/logo.png");
+    const [logoSrc, setLogoSrc] = React.useState("");
 
     // Assuming we are generating an invoice for the first selected batch/order
     const primaryBatch = batches[0];
@@ -101,7 +102,11 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
         <div style={{ width: '210mm', minHeight: '297mm', margin: 'auto', padding: '1rem', backgroundColor: 'white', color: 'black', fontFamily: 'Arial, sans-serif', fontSize: '10px' }}>
             <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid black', paddingBottom: '0.5rem' }}>
                  <div style={{ flex: '0 0 120px' }}>
-                    <img src={logoSrc} alt="MoTrack Logo" style={{width: '100px', height: 'auto'}} />
+                    <img 
+                        src={logoSrc} 
+                        alt="MoTrack Logo" 
+                        style={{ width: '100px', height: 'auto' }} 
+                    />
                  </div>
                 <div style={{ flex: '1', textAlign: 'center' }}>
                     <h1 style={{ fontSize: '14px', fontWeight: 'bold', margin: 0, borderBottom: '1px solid black', paddingBottom: '4px' }}>TAX INVOICE</h1>
@@ -123,8 +128,8 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
                     <p style={{ margin: '2px 0' }}>GSTIN: Buyer's PAN No. -</p>
                 </div>
                 <div style={{ width: '38%', border: '1px solid black' }}>
-                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Date</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{format(new Date(), 'dd/MM/yyyy')}</strong></p></div>
-                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Invoice No</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{/* Placeholder */}</strong></p></div>
+                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Date</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{format(new Date(primaryBatch.createdAt.toDate()), 'dd/MM/yyyy')}</strong></p></div>
+                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Invoice No</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{primaryBatch.invoiceId || 'N/A'}</strong></p></div>
                     <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Architect</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{/* Placeholder */}</strong></p></div>
                     <div style={{ display: 'flex' }}><p style={{width: '50%', margin: '2px 4px'}}>Sales Representative</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{primaryOrder.salesPerson}</strong></p></div>
                 </div>
