@@ -98,7 +98,7 @@ export function StockDetails() {
       <CardHeader>
         <CardTitle>Stock Details</CardTitle>
         <CardDescription>
-          Search for a stock item to view details and print stickers.
+          Search for a stock item to view details. Sticker printing has been moved to the cutting page for accuracy.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -120,14 +120,6 @@ export function StockDetails() {
                     onSearch={handleBcnSearch}
                 />
             </div>
-            {selectedStock && (
-                <div className="flex gap-2">
-                    <Button onClick={() => setIsPrintDialogOpen(true)} variant="outline">
-                        <Printer className="mr-2 h-4 w-4"/>
-                        Print Stickers
-                    </Button>
-                </div>
-            )}
         </div>
         
         <div className="flex gap-4">
@@ -140,41 +132,6 @@ export function StockDetails() {
     <UpdateBatchTaxDialog isOpen={isTaxDialogOpen} onClose={() => setIsTaxDialogOpen(false)} />
     <UpdateBatchRackDialog isOpen={isRackDialogOpen} onClose={() => setIsRackDialogOpen(false)} />
 
-    {selectedStock && (
-        <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
-            <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
-                 <DialogHeader>
-                    <DialogTitle>Print Stickers for {selectedStock.bcn}</DialogTitle>
-                    <DialogDescription>
-                        A sticker will be generated for each available length of this stock item.
-                    </DialogDescription>
-                </DialogHeader>
-                <div id="sticker-print-area" className="flex-grow overflow-y-auto p-4 bg-muted/50 rounded-md grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    {isLoadingTransactions ? (
-                        <div className="col-span-full flex items-center justify-center">
-                            <Loader2 className="h-8 w-8 animate-spin" />
-                        </div>
-                    ) : (
-                        stockAddedTransactions.map((tx, index) => (
-                            <StockLengthSticker
-                                key={`${tx.id}-${index}`}
-                                stock={selectedStock}
-                                length={tx.quantityChange}
-                                uniqueId={`${tx.id}-${index}`}
-                            />
-                        ))
-                    )}
-                </div>
-                <DialogFooter>
-                    <Button variant="ghost" onClick={() => setIsPrintDialogOpen(false)}>Cancel</Button>
-                    <Button onClick={handlePrint}>
-                        <Printer className="mr-2 h-4 w-4"/>
-                        Print
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )}
     </>
   );
 }

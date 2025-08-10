@@ -11,17 +11,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, CheckCircle, Loader2, ScanLine, Undo } from "lucide-react";
+import { ArrowLeft, CheckCircle, Loader2, ScanLine, Undo2, Printer } from "lucide-react";
 import { getStockById } from "../inventory/actions";
 import Link from 'next/link';
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-
+import { Dialog, DialogBody, DialogFooter as NewDialogFooter } from "@/components/ui/dialog";
+import { StockLengthSticker } from "@/components/features/inventory/StockLengthSticker";
 
 function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => void }) {
     const [loadingStock, setLoadingStock] = useState<Record<string, boolean>>({});
     const [stockDetails, setStockDetails] = useState<Record<string, Stock>>({});
     const [revertingBcn, setRevertingBcn] = useState<string | null>(null);
+    const [printingItem, setPrintingItem] = useState<any>(null);
+
     const { toast } = useToast();
     const { role } = useAuth();
     const isAdmin = role === 'admin';
@@ -51,7 +54,10 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
             );
 
             // If the overall task was 'Completed', it should now be 'In Progress'
-            const newStatus = task.status === 'Completed' ? 'In Progress' : task.status;
+            let newStatus = task.status;
+            if (task.status === 'Completed' && updatedItems.some(i => i.status === 'pending')) {
+                newStatus = 'In Progress';
+            }
 
             const taskRef = doc(db, 'Cutting', task.id);
             await updateDoc(taskRef, {
@@ -67,6 +73,21 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
             setRevertingBcn(null);
         }
     }
+    
+    const handlePrint = () => {
+        const printContent = document.getElementById('sticker-print-area-cutting');
+        if (!printContent) return;
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) return;
+        printWindow.document.write('<html><head><title>Print Sticker</title></head><body>');
+        printWindow.document.write(printContent.innerHTML);
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        setTimeout(() => {
+            printWindow.focus();
+            printWindow.print();
+        }, 250);
+    };
 
 
     return (
@@ -98,20 +119,24 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
                                     <Card key={index} className="p-3">
                                         <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                                             <div><span className="font-semibold text-xs">BCN:</span><p className="font-mono">{item.bcn}</p></div>
-                                            <div><span className="font-semibold text-xs">Last Length:</span><p>{loadingStock[item.bcn] ? <Loader2 className="h-4 w-4 animate-spin"/> : (stock?.quantity.toFixed(2) || 'N/A')}</p></div>
+                                            <div><span className="font-semibold text-xs">Available Stock:</span><p>{loadingStock[item.bcn] ? <Loader2 className="h-4 w-4 animate-spin"/> : (stock?.quantity.toFixed(2) || 'N/A')}</p></div>
                                             <div><span className="font-semibold text-xs">Qty to Cut:</span><p className="font-bold text-lg">{item.quantityAllocated.toFixed(2)}</p></div>
                                             <div><span className="font-semibold text-xs">Category:</span><p>{stock?.category || 'N/A'}</p></div>
                                             <div><span className="font-semibold text-xs">Rack:</span><p>{stock?.rack || 'N/A'}</p></div>
-                                            <div className="flex items-center justify-end gap-2">
+                                            <div className="col-span-2 flex items-center justify-end gap-2">
+                                                <Button variant="outline" size="sm" onClick={() => setPrintingItem({stock, item})}>
+                                                    <Printer className="mr-2 h-4 w-4"/>
+                                                    Print Sticker
+                                                </Button>
                                                 {item.status === 'cut' ? (
                                                     <>
                                                         <div className="flex items-center gap-2 text-green-600 font-bold">
-                                                            <CheckCircle className="h-5 w-5"/> Cut
+                                                            <CheckCircle className="h-5 w-5"/> Verified
                                                         </div>
                                                         {isAdmin && (
                                                             <AlertDialogTrigger asChild>
                                                                 <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => setRevertingBcn(item.bcn)}>
-                                                                    <Undo className="h-4 w-4" />
+                                                                    <Undo2 className="h-4 w-4" />
                                                                 </Button>
                                                             </AlertDialogTrigger>
                                                         )}
@@ -132,6 +157,30 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
                         </div>
                     </CardContent>
                 </Card>
+                 <Dialog open={!!printingItem} onOpenChange={() => setPrintingItem(null)}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Print Sticker</DialogTitle>
+                            <DialogDescription>
+                                Sticker for {printingItem?.item.bcn} with length {printingItem?.item.quantityAllocated.toFixed(2)}.
+                            </DialogDescription>
+                        </DialogHeader>
+                        {printingItem && (
+                             <div id="sticker-print-area-cutting" className="py-4 flex justify-center">
+                                <StockLengthSticker 
+                                    bcn={printingItem.item.bcn}
+                                    length={printingItem.item.quantityAllocated}
+                                    mrp={printingItem.stock?.mrp || 0}
+                                    rack={printingItem.stock?.rack || 'N/A'}
+                                />
+                            </div>
+                        )}
+                        <DialogFooter>
+                            <Button variant="ghost" onClick={() => setPrintingItem(null)}>Cancel</Button>
+                            <Button onClick={handlePrint}>Print</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </div>
              <AlertDialogContent>
                 <AlertDialogHeader>
@@ -233,6 +282,9 @@ export default function CuttingPage() {
                                         <div><span className="font-semibold text-xs">Customer Name:</span><p>{task.customerName}</p></div>
                                     </div>
                                 </CardHeader>
+                                 <CardContent className="p-4">
+                                    <Button className="w-full" variant="secondary" onClick={() => setSelectedTask(task)}>View Details</Button>
+                                </CardContent>
                             </Card>
                         ))}
                      </div>

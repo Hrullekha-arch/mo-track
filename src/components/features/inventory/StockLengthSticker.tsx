@@ -7,19 +7,20 @@ import Image from 'next/image';
 import { Stock } from '@/lib/types';
 
 interface StockLengthStickerProps {
-    stock: Stock;
+    bcn: string;
     length: number;
-    uniqueId: string; // A unique ID for this specific sticker, e.g., transactionId + index
+    mrp: number;
+    rack: string;
 }
 
 // 72.2mm x 49.8mm at 96 DPI
 const STICKER_WIDTH_PX = 272;
 const STICKER_HEIGHT_PX = 188;
 
-export function StockLengthSticker({ stock, length, uniqueId }: StockLengthStickerProps) {
+export function StockLengthSticker({ bcn, length, mrp, rack }: StockLengthStickerProps) {
     const barcodeRef = useRef<SVGSVGElement>(null);
     // The barcode value should now be a composite of the BCN and the specific length.
-    const barcodeValue = `${stock.bcn}|${length.toFixed(2)}`;
+    const barcodeValue = `${bcn}|${length.toFixed(2)}`;
 
     useEffect(() => {
         if (barcodeRef.current && barcodeValue) {
@@ -53,14 +54,14 @@ export function StockLengthSticker({ stock, length, uniqueId }: StockLengthStick
                 </div>
                 <div style={{ width: '40px', height: '40px', border: '1px solid #333', borderRadius: '50%' }} className="flex flex-col items-center justify-center flex-shrink-0">
                     <span className="text-[9px] leading-none">Rack</span>
-                    <span className="text-sm font-bold leading-none">{stock.rack || 'N/A'}</span>
+                    <span className="text-sm font-bold leading-none">{rack || 'N/A'}</span>
                 </div>
             </div>
 
             {/* Middle Section */}
             <div className='my-1 text-center space-y-1'>
-                <p className="text-xs">MRP: <span className="font-bold">{stock.mrp?.toFixed(2) || 'N/A'}</span></p>
-                <p className="text-xs">BCN: <span className="font-bold">{stock.bcn || 'N/A'}</span></p>
+                <p className="text-xs">MRP: <span className="font-bold">{mrp?.toFixed(2) || 'N/A'}</span></p>
+                <p className="text-xs">BCN: <span className="font-bold">{bcn || 'N/A'}</span></p>
             </div>
             
             {/* Bottom Section */}
