@@ -25,11 +25,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, doc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import { InvoiceBatch, Order } from "@/lib/types";
+import { InvoiceBatch, Order, Invoice } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
 import { Input } from "@/components/ui/input";
@@ -58,15 +58,73 @@ function GenerateInvoiceDialog({
     setIsTallyDialogOpen(false);
     setIsGenerating(true);
     
-    // Create a batch write to update all selected batches
-    const batch = batches.map(b => {
-        const batchRef = doc(db, "invoiceBatches", b.id);
-        return updateDoc(batchRef, { status: "invoiced", tallyBillNo: tallyBillNo || null });
-    });
-    
     try {
-        await Promise.all(batch);
-        toast({ title: "Invoice Generated!", description: "The invoice has been successfully generated."});
+        const batch = writeBatch(db);
+        const primaryOrder = orders[0];
+        
+        // Combine all items from all selected batches
+        const allItems = batches.flatMap(b => b.items);
+
+        // Calculate totals for the new invoice document
+        const totals = allItems.reduce((acc, item) => {
+            const qty = item.quantityAllocated;
+            const rate = item.rate;
+            const amount = qty * rate;
+            const discountAmount = 0; // Assuming 0 discount for now
+            const taxableValue = amount - discountAmount;
+            const cgst = taxableValue * 0.025;
+            const sgst = taxableValue * 0.025;
+            
+            acc.totalAmount += amount;
+            acc.totalDiscount += discountAmount;
+            acc.taxableValue += taxableValue;
+            acc.totalCgst += cgst;
+            acc.totalSgst += sgst;
+            
+            return acc;
+        }, { totalAmount: 0, totalDiscount: 0, taxableValue: 0, totalCgst: 0, totalSgst: 0 });
+
+        const netAmount = totals.taxableValue + totals.totalCgst + totals.totalSgst;
+        const roundedAmount = Math.round(netAmount);
+        const roundOff = roundedAmount - netAmount;
+        
+        // 1. Create the new Invoice document
+        const newInvoiceRef = doc(collection(db, "invoices"));
+        const newInvoice: Omit<Invoice, 'id'> = {
+            invoiceNo: newInvoiceRef.id, // Use Firestore's generated ID for uniqueness
+            orderId: primaryOrder.id,
+            tallyBillNo: tallyBillNo || undefined,
+            customer: {
+                name: primaryOrder.customerName,
+                phone: primaryOrder.customerPhone,
+                address: primaryOrder.customerAddress,
+            },
+            salesPerson: primaryOrder.salesPerson,
+            items: allItems,
+            totals: {
+                subTotal: totals.totalAmount,
+                totalDiscount: totals.totalDiscount,
+                taxableValue: totals.taxableValue,
+                cgst: totals.totalCgst,
+                sgst: totals.totalSgst,
+                igst: 0, // Assuming IGST is 0 for now
+                roundOff: roundOff,
+                grandTotal: roundedAmount,
+            },
+            createdAt: new Date().toISOString(),
+            createdBy: "System", // Replace with actual user later
+        };
+        batch.set(newInvoiceRef, newInvoice);
+
+        // 2. Update all selected batches status
+        batches.forEach(b => {
+            const batchRef = doc(db, "invoiceBatches", b.id);
+            batch.update(batchRef, { status: "invoiced", tallyBillNo: tallyBillNo || null });
+        });
+        
+        await batch.commit();
+
+        toast({ title: "Invoice Generated!", description: `Invoice ${newInvoiceRef.id} has been created.`});
         onClose();
     } catch (error) {
         console.error("Error finalizing invoice:", error);

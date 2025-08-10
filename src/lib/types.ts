@@ -1,6 +1,5 @@
 
 
-
 import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp } from "firebase/firestore";
 
@@ -456,6 +455,32 @@ export interface InvoiceBatch {
     status: 'pending' | 'invoiced';
     items: InvoiceBatchItem[];
     tallyBillNo?: string;
+}
+
+export interface Invoice {
+    id: string; // Firestore document ID
+    invoiceNo: string; // e.g. MOTRACK-INV-1234
+    orderId: string;
+    tallyBillNo?: string;
+    customer: {
+        name: string;
+        phone: string;
+        address: string;
+    };
+    salesPerson: string;
+    items: InvoiceBatchItem[];
+    totals: {
+        subTotal: number;
+        totalDiscount: number;
+        taxableValue: number;
+        cgst: number;
+        sgst: number;
+        igst: number;
+        roundOff: number;
+        grandTotal: number;
+    };
+    createdAt: string; // ISO Date string
+    createdBy: string; // User name
 }
 
 

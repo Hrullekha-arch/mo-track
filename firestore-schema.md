@@ -180,6 +180,43 @@ Tracks the receipt of materials from purchase orders.
 
 ---
 
+## `invoices`
+
+Stores final, generated invoices.
+
+-   **Path**: `/invoices/{invoiceId}`
+-   **Operations**: Create, Read
+-   **Structure**:
+    ```typescript
+    interface Invoice {
+      id: string;
+      invoiceNo: string;
+      orderId: string;
+      tallyBillNo?: string;
+      customer: {
+        name: string;
+        phone: string;
+        address: string;
+      };
+      salesPerson: string;
+      items: InvoiceBatchItem[];
+      totals: {
+        subTotal: number;
+        totalDiscount: number;
+        taxableValue: number;
+        cgst: number;
+        sgst: number;
+        igst: number;
+        roundOff: number;
+        grandTotal: number;
+      };
+      createdAt: string; // ISO Date
+      createdBy: string; // User name
+    }
+    ```
+
+---
+
 ## `stocks`
 
 The main inventory collection.
