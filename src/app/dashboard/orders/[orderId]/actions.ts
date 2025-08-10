@@ -12,46 +12,28 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
         const stockAddedSnapshot = await adminDb.collection('stocks').doc(stockId).collection('stockAdded').get();
         const stockSoldSnapshot = await adminDb.collection('stocks').doc(stockId).collection('stockSold').get();
 
-        const addedLengthCounts: { [key: number]: { count: number, transactionIds: string[] } } = {};
-        stockAddedSnapshot.docs.forEach(doc => {
-            const data = doc.data() as StockTransaction;
-            (data.lengths || []).forEach(length => {
-                if (!addedLengthCounts[length]) {
-                    addedLengthCounts[length] = { count: 0, transactionIds: [] };
-                }
-                addedLengthCounts[length].count++;
-                if (!addedLengthCounts[length].transactionIds.includes(doc.id)) {
-                    addedLengthCounts[length].transactionIds.push(doc.id);
-                }
-            });
-        });
-
+        // Create a frequency map of sold lengths for efficient lookup
         const soldLengthCounts: { [key: number]: number } = {};
         stockSoldSnapshot.docs.forEach(doc => {
             const data = doc.data() as StockTransaction;
             (data.lengths || []).forEach(length => {
-                if (!soldLengthCounts[length]) {
-                    soldLengthCounts[length] = 0;
-                }
-                soldLengthCounts[length]++;
+                soldLengthCounts[length] = (soldLengthCounts[length] || 0) + 1;
             });
         });
-
+        
         const availableLengths: { length: number; transactionId: string }[] = [];
-        for (const lengthStr in addedLengthCounts) {
-            const length = parseFloat(lengthStr);
-            const addedInfo = addedLengthCounts[length];
-            const soldCount = soldLengthCounts[length] || 0;
-            const availableCount = addedInfo.count - soldCount;
-            
-            if (availableCount > 0) {
-                // For simplicity, we use the first transactionId. A more complex system might track individual length instances.
-                const transactionId = addedInfo.transactionIds[0];
-                for (let i = 0; i < availableCount; i++) {
-                    availableLengths.push({ length, transactionId });
+        stockAddedSnapshot.docs.forEach(doc => {
+            const data = doc.data() as StockTransaction;
+            (data.lengths || []).forEach(length => {
+                if (soldLengthCounts[length] && soldLengthCounts[length] > 0) {
+                    // This length has been sold, so decrement the count and don't add it as available
+                    soldLengthCounts[length]--;
+                } else {
+                    // This length has not been sold, so it's available
+                    availableLengths.push({ length, transactionId: doc.id });
                 }
-            }
-        }
+            });
+        });
 
         return { success: true, message: 'Lengths fetched.', lengths: availableLengths };
 

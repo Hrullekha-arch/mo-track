@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Stock, StockTransaction } from "@/lib/types";
-import { searchStockByBcn, updateStockQuantityAction, getStockTransactions, getStockById } from "@/app/dashboard/inventory/actions";
+import { searchStockByBcn, updateStockQuantityAction, getStockTransactions, getStockById, getAvailableStockLengths } from "@/app/dashboard/inventory/actions";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, PlusCircle, RefreshCw, Trash2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,6 +20,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useAuth } from "@/context/AuthContext";
+import { Badge } from "@/components/ui/badge";
 
 const updateStockSchema = z.object({
     poNo: z.string().min(1, "PO Number is required."),
@@ -158,8 +159,9 @@ export function StockManagement() {
   const [bcnOptions, setBcnOptions] = React.useState<ComboboxOption[]>([]);
   const [selectedStock, setSelectedStock] = React.useState<Stock | null>(null);
   const [transactions, setTransactions] = React.useState<StockTransaction[]>([]);
+  const [availableLengths, setAvailableLengths] = React.useState<number[]>([]);
   const [isSearching, setIsSearching] = React.useState(false);
-  const [isLoadingTransactions, setIsLoadingTransactions] = React.useState(false);
+  const [isLoadingDetails, setIsLoadingDetails] = React.useState(false);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const { toast } = useToast();
 
@@ -187,14 +189,25 @@ export function StockManagement() {
 
   const handleSelectStock = React.useCallback(async (stockItem: Stock) => {
     setSelectedStock(stockItem);
-    setIsLoadingTransactions(true);
+    setIsLoadingDetails(true);
     try {
-      const fetchedTransactions = await getStockTransactions(stockItem.id);
-      setTransactions(fetchedTransactions);
+      const [transactionsResult, lengthsResult] = await Promise.all([
+          getStockTransactions(stockItem.id),
+          getAvailableStockLengths(stockItem.id)
+      ]);
+      
+      setTransactions(transactionsResult);
+
+      if (lengthsResult.success && lengthsResult.lengths) {
+          setAvailableLengths(lengthsResult.lengths);
+      } else {
+          setAvailableLengths([]);
+          toast({variant: 'destructive', title: 'Error fetching lengths'});
+      }
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Error fetching history' });
+      toast({ variant: 'destructive', title: 'Error fetching details' });
     } finally {
-      setIsLoadingTransactions(false);
+      setIsLoadingDetails(false);
     }
   }, [toast]);
   
@@ -230,6 +243,7 @@ export function StockManagement() {
     <Card>
       <CardHeader>
         <CardTitle>Stock Management</CardTitle>
+        <CardDescription>Select a stock item to view its transaction history and update quantities.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="flex items-end gap-4">
@@ -264,6 +278,19 @@ export function StockManagement() {
                     <p className="text-sm"><strong className="block text-muted-foreground">MRP:</strong> ₹{selectedStock.mrp}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Last Updated:</strong> {new Date(selectedStock.lastUpdatedAt).toLocaleDateString()}</p>
                  </div>
+                 <Separator className="my-4" />
+                {isLoadingDetails ? <Loader2 className="h-4 w-4 animate-spin"/> : (
+                    <div className="space-y-2">
+                        <Label>Available Lengths</Label>
+                        <div className="flex flex-wrap gap-2">
+                            {availableLengths.length > 0 ? (
+                                availableLengths.map((len, index) => <Badge key={index} variant="secondary">{len.toFixed(2)}</Badge>)
+                            ) : (
+                                <p className="text-xs text-muted-foreground">No specific lengths available or tracked.</p>
+                            )}
+                        </div>
+                    </div>
+                )}
                  <div className="flex justify-end mt-4 gap-2">
                     <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
                         {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -287,7 +314,7 @@ export function StockManagement() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                 {isLoadingTransactions ? (
+                                 {isLoadingDetails ? (
                                     <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
                                 ) : stockSoldTransactions.length > 0 ? (
                                     stockSoldTransactions.map(tx => (
@@ -322,7 +349,7 @@ export function StockManagement() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {isLoadingTransactions ? (
+                                {isLoadingDetails ? (
                                     <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
                                 ) : stockAddedTransactions.length > 0 ? (
                                     stockAddedTransactions.map(tx => (
@@ -351,3 +378,4 @@ export function StockManagement() {
     </Card>
   );
 }
+

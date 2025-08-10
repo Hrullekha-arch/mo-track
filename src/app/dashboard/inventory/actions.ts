@@ -242,6 +242,42 @@ export async function getStockTransactions(stockId: string): Promise<StockTransa
   }
 }
 
+export async function getAvailableStockLengths(stockId: string): Promise<{ success: boolean; message: string; lengths?: number[] }> {
+    try {
+        const stockAddedSnapshot = await adminDb.collection('stocks').doc(stockId).collection('stockAdded').get();
+        const stockSoldSnapshot = await adminDb.collection('stocks').doc(stockId).collection('stockSold').get();
+
+        const addedLengths: number[] = [];
+        stockAddedSnapshot.docs.forEach(doc => {
+            const data = doc.data() as StockTransaction;
+            addedLengths.push(...(data.lengths || []));
+        });
+
+        const soldLengths: number[] = [];
+        stockSoldSnapshot.docs.forEach(doc => {
+            const data = doc.data() as StockTransaction;
+            soldLengths.push(...(data.lengths || []));
+        });
+
+        // To correctly calculate available lengths, we need to remove each sold length
+        // from the list of added lengths one by one.
+        const availableLengths = [...addedLengths];
+        for (const soldLength of soldLengths) {
+            const indexToRemove = availableLengths.indexOf(soldLength);
+            if (indexToRemove > -1) {
+                availableLengths.splice(indexToRemove, 1);
+            }
+        }
+
+        return { success: true, message: 'Lengths fetched.', lengths: availableLengths.sort((a, b) => a - b) };
+
+    } catch (error: any) {
+        console.error("Error fetching available stock lengths:", error);
+        return { success: false, message: 'Failed to fetch available stock.' };
+    }
+}
+
+
 export async function getAllStockTransactions(): Promise<StockTransaction[]> {
   try {
     const allTransactions: StockTransaction[] = [];
