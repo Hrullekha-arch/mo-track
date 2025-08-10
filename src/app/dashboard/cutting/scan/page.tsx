@@ -53,49 +53,55 @@ function CuttingScanner() {
     }, [taskId, router, toast]);
 
     useEffect(() => {
-        const getCameraPermission = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                setHasCameraPermission(true);
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    await videoRef.current.play();
-
-                    codeReader.current.decodeFromVideoDevice(
-                        undefined,
-                        videoRef.current,
-                        (result, err) => {
-                            if (result) {
-                                if (!isScanningRef.current) {
-                                    handleScan(result.getText());
-                                }
-                            }
-                            if (err && !(err instanceof NotFoundException)) {
-                                console.error("Decode error:", err);
-                            }
-                        }
-                    );
+        const startCamera = async () => {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            setHasCameraPermission(true);
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              // Let the video element handle playing when it's ready.
+              videoRef.current.onloadedmetadata = () => {
+                videoRef.current?.play().catch(e => console.error("Play error:", e));
+              };
+    
+              codeReader.current.decodeFromVideoDevice(
+                undefined,
+                videoRef.current,
+                (result, err) => {
+                  if (result) {
+                    if (!isScanningRef.current) {
+                      handleScan(result.getText());
+                    }
+                  }
+                  if (err && !(err instanceof NotFoundException)) {
+                    console.error("Decode error:", err);
+                  }
                 }
-            } catch (error) {
-                console.error('Error accessing camera:', error);
-                setHasCameraPermission(false);
-                toast({
-                    variant: 'destructive',
-                    title: 'Camera Access Denied',
-                    description: 'Please enable camera permissions in your browser settings to use the scanner.',
-                    duration: 5000,
-                });
+              );
             }
+          } catch (error) {
+            console.error('Error accessing camera:', error);
+            setHasCameraPermission(false);
+            toast({
+              variant: 'destructive',
+              title: 'Camera Access Denied',
+              description: 'Please enable camera permissions in your browser settings to use the scanner.',
+              duration: 5000,
+            });
+          }
         };
-        getCameraPermission();
-         return () => {
-            if (videoRef.current && videoRef.current.srcObject) {
-                const stream = videoRef.current.srcObject as MediaStream;
-                stream.getTracks().forEach(track => track.stop());
-            }
-            codeReader.current.reset();
+    
+        startCamera();
+    
+        return () => {
+          if (videoRef.current && videoRef.current.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach(track => track.stop());
+          }
+          codeReader.current.reset();
         };
-    }, [toast]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
     
     const handleScan = async (scannedBcn: string) => {
         if (!task || scanning) return;
