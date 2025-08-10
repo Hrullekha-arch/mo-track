@@ -1,11 +1,12 @@
 
+
 "use client";
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch, limit, Query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { CuttingTask } from '@/lib/types';
+import { CuttingTask, StockTransaction } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,6 +17,7 @@ import Link from 'next/link';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
 
 type ScanStatus = 'success' | 'warning' | 'error';
 
@@ -47,6 +49,7 @@ function CuttingScannerComponent() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const { toast } = useToast();
+    const { user } = useAuth();
 
     const taskId = searchParams.get('taskId');
     const bcn = searchParams.get('bcn');
@@ -59,12 +62,12 @@ function CuttingScannerComponent() {
     const scannerId = "reader";
     
     const handleScan = async (scannedValue: string) => {
-        if (!task || isScanningRef.current) return;
-
+        if (!task || !user || isScanningRef.current) return;
+    
         isScanningRef.current = true;
         
         const itemToUpdate = task.items.find(item => item.bcn === bcn && item.status !== 'cut');
-
+    
         if (!itemToUpdate) {
             setScanResult({ status: 'warning', message: 'Item not found or already cut.' });
             setIsPopupOpen(true);
@@ -74,7 +77,7 @@ function CuttingScannerComponent() {
             }, 1500);
             return;
         }
-
+    
         const [scannedBcn, scannedLengthStr] = scannedValue.split('|');
         if (!scannedBcn || !scannedLengthStr) {
             setScanResult({ status: 'error', message: 'Invalid barcode format. Expected BCN|Length.' });
@@ -98,9 +101,9 @@ function CuttingScannerComponent() {
         
         const scannedLength = parseFloat(scannedLengthStr);
         const expectedOriginalLength = itemToUpdate.originalLength;
-
-        if (scannedLength !== expectedOriginalLength) {
-             setScanResult({ status: 'error', message: `Wrong Roll. Expected roll of length ${expectedOriginalLength}, but scanned ${scannedLength}.` });
+    
+        if (scannedLength.toFixed(2) !== expectedOriginalLength?.toFixed(2)) {
+             setScanResult({ status: 'error', message: `Wrong Roll. Expected roll of length ${expectedOriginalLength?.toFixed(2)}, but scanned ${scannedLength.toFixed(2)}.` });
              setIsPopupOpen(true);
             setTimeout(() => {
                 setIsPopupOpen(false);
@@ -110,19 +113,49 @@ function CuttingScannerComponent() {
         }
         
         try {
+            const batch = writeBatch(db);
+
+            // 1. Update the Cutting Task
             const updatedItems = task.items.map(item =>
                 item.bcn === bcn ? { ...item, status: 'cut' as const } : item
             );
-
             const allItemsCut = updatedItems.every(item => item.status === 'cut');
             const newStatus = allItemsCut ? 'Completed' : 'In Progress';
-
             const taskRef = doc(db, "Cutting", task.id);
-            await updateDoc(taskRef, { items: updatedItems, status: newStatus });
+            batch.update(taskRef, { items: updatedItems, status: newStatus });
+
+            // 2. Find and update the corresponding stockSold transaction
+            const stockId = bcn.replace(/\//g, '-');
+            const stockRef = doc(db, 'stocks', stockId);
+            const stockAddedSnapshot = await getDocs(query(collection(stockRef, 'stockAdded'), where('lengths', 'array-contains', expectedOriginalLength)));
+            
+            if (!stockAddedSnapshot.empty) {
+                const stockAddedDocRef = stockAddedSnapshot.docs[0].ref;
+                // Find the specific deduction that is pending
+                const stockSoldQuery = query(
+                    collection(stockAddedDocRef, 'stockSold'),
+                    where('orderId', '==', task.orderId),
+                    where('quantityChange', '==', -itemToUpdate.quantityAllocated),
+                    where('status', '==', 'pending for cutting'),
+                    limit(1)
+                );
+                const stockSoldSnapshot = await getDocs(stockSoldQuery);
+
+                if (!stockSoldSnapshot.empty) {
+                    const stockSoldDocRef = stockSoldSnapshot.docs[0].ref;
+                    batch.update(stockSoldDocRef, { status: 'cut' });
+                } else {
+                    console.warn("Could not find matching 'pending for cutting' transaction to update.");
+                }
+            } else {
+                console.warn(`Could not find parent stock roll for BCN ${bcn} with original length ${expectedOriginalLength}.`);
+            }
+            
+            await batch.commit();
 
             setScanResult({ status: 'success', message: 'Verified!' });
             setIsPopupOpen(true);
-
+    
             if (newStatus === 'Completed') {
                 toast({ title: "Task Complete!", description: `All items for order ${task.orderId} have been cut.`});
             }
@@ -131,7 +164,7 @@ function CuttingScannerComponent() {
                 setIsPopupOpen(false);
                 router.push(`/dashboard/cutting?taskId=${task.id}`);
             }, 1500);
-
+    
         } catch (error) {
             console.error('Error updating status on scan:', error);
             setScanResult({ status: 'error', message: 'Update Failed. Check console for details.' });
@@ -142,43 +175,49 @@ function CuttingScannerComponent() {
             }, 1500);
         }
     };
+    
 
     useEffect(() => {
-        if (!document.getElementById(scannerId)) {
+        if (loading || !document.getElementById(scannerId)) {
             return;
         }
 
-        const scanner = new Html5QrcodeScanner(
-            scannerId,
-            {
-                fps: 10,
-                qrbox: { width: 250, height: 250 },
-                supportedScanTypes: [], // Use all scan types
-            },
-            false
-        );
+        let scanner: Html5QrcodeScanner | undefined;
+        try {
+            scanner = new Html5QrcodeScanner(
+                scannerId,
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 },
+                    supportedScanTypes: [],
+                },
+                false
+            );
 
-        function onScanSuccess(decodedText: string) {
-            if (!isScanningRef.current) {
-                handleScan(decodedText);
-            }
+            const onScanSuccess = (decodedText: string) => {
+                if (!isScanningRef.current) {
+                    handleScan(decodedText);
+                }
+            };
+
+            const onScanFailure = (error: any) => {
+                // ignore
+            };
+            
+            scanner.render(onScanSuccess, onScanFailure);
+        } catch(e) {
+            console.error(e);
         }
         
-        function onScanFailure(error: any) {
-            // console.error(`Code scan error = ${error}`);
-        }
-        
-        scanner.render(onScanSuccess, onScanFailure).catch(err => {
-            console.error("Scanner render failed", err);
-        });
-
         return () => {
-            scanner.clear().catch(err => {
-                console.error("Failed to clear scanner cleanly", err);
-            });
+            if (scanner) {
+                scanner.clear().catch(err => {
+                    console.error("Failed to clear scanner cleanly", err);
+                });
+            }
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [task]); // Re-run effect when task data is loaded to ensure scanner is ready
+    }, [task, loading]); 
 
 
     useEffect(() => {
@@ -287,12 +326,10 @@ function CuttingScannerComponent() {
 }
 
 
-export default function CuttingScanPage() {
+export default function Page() {
     return (
         <Suspense fallback={<Skeleton className="h-screen w-full" />}>
             <CuttingScannerComponent />
         </Suspense>
     )
 }
-
-    

@@ -98,6 +98,7 @@ export async function allocateStockToAction(
                     orderId: orderId,
                     createdAt: new Date().toISOString(),
                     createdBy: userName,
+                    status: 'pending for cutting', // Set initial status
                 };
                 transaction.set(stockSoldRef, stockSoldData);
             }

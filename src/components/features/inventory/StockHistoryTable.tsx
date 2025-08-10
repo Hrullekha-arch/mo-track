@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -155,6 +156,16 @@ export function StockHistoryTable() {
       filterFn: (row, id, value) => {
         return value === 'all' ? true : value.includes(row.getValue(id));
       }
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => {
+        const tx = row.original;
+        if (tx.type !== 'deduction') return 'N/A';
+        const status = tx.status || 'pending for cutting';
+        return <Badge variant={status === 'cut' ? 'default' : 'outline'} className="capitalize">{status}</Badge>;
+      },
     },
     {
       accessorKey: "bcn",

@@ -263,6 +263,7 @@ export interface StockTransaction {
   originalLength?: number;
   createdAt: string; // ISO string
   createdBy: string;
+  status?: 'pending for cutting' | 'cut';
 }
 
 export interface Customer {
