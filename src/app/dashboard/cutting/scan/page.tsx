@@ -56,12 +56,13 @@ function CuttingScanner() {
         const startCamera = async () => {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            setHasCameraPermission(true);
+            
             if (videoRef.current) {
               videoRef.current.srcObject = stream;
               
               videoRef.current.onloadedmetadata = () => {
                   videoRef.current?.play().catch(e => console.error("Play error:", e));
+                  setHasCameraPermission(true);
               };
     
               codeReader.current.decodeFromVideoDevice(
@@ -74,7 +75,7 @@ function CuttingScanner() {
                     }
                   }
                   if (err && !(err instanceof NotFoundException)) {
-                    console.error("Decode error:", err);
+                    // console.error("Decode error:", err);
                   }
                 }
               );
@@ -103,31 +104,43 @@ function CuttingScanner() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
     
-    const handleScan = async (scannedBcn: string) => {
+    const handleScan = async (scannedValue: string) => {
         if (!task || scanning) return;
         
         isScanningRef.current = true;
         setScanning(true);
         
-        const itemToUpdateIndex = task.items.findIndex(item => item.bcn === bcn && item.status !== 'cut');
+        const itemToUpdate = task.items.find(item => item.bcn === bcn && item.status !== 'cut');
         
-        if (itemToUpdateIndex === -1) {
+        if (!itemToUpdate) {
             toast({ title: 'Item not found or already cut.' });
             setScanning(false);
             isScanningRef.current = false;
             return;
         }
         
-        if (!scannedBcn.startsWith(bcn!)) {
-            toast({ variant: 'destructive', title: 'Incorrect Barcode', description: `Scanned ${scannedBcn}, but expected ${bcn}`});
+        const [scannedBcn, scannedLengthStr] = scannedValue.split('|');
+        const scannedLength = parseFloat(scannedLengthStr);
+        const expectedLength = parseFloat(itemToUpdate.quantityAllocated.toFixed(2));
+
+        if (scannedBcn !== bcn) {
+            toast({ variant: 'destructive', title: 'Incorrect Barcode', description: `Scanned BCN ${scannedBcn}, but expected ${bcn}`});
+            setScanning(false);
+            isScanningRef.current = false;
+            return;
+        }
+
+        if (scannedLength !== expectedLength) {
+             toast({ variant: 'destructive', title: 'Incorrect Length', description: `Scanned length ${scannedLength}, but expected ${expectedLength}`});
             setScanning(false);
             isScanningRef.current = false;
             return;
         }
         
         try {
-            const updatedItems = [...task.items];
-            updatedItems[itemToUpdateIndex].status = 'cut';
+            const updatedItems = task.items.map(item =>
+                item.bcn === bcn ? { ...item, status: 'cut' as const } : item
+            );
 
             const allItemsCut = updatedItems.every(item => item.status === 'cut');
             const newStatus = allItemsCut ? 'Completed' : 'In Progress';
@@ -183,7 +196,7 @@ function CuttingScanner() {
                     </CardHeader>
                     <CardContent>
                         <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                            <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                            <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
                             {hasCameraPermission === false && (
                                  <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
                                     <Camera className="h-12 w-12 text-muted-foreground mb-4"/>
