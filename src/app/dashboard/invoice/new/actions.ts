@@ -101,7 +101,7 @@ export async function createDealOrderAction(
 
     // 3. Update the quotation status
     batch.update(quotationRef, { 
-      status: 'Converted to Order',
+      status: 'Pending Approval', // Corrected Status
       orderNo: newOrder.id,
     });
 
