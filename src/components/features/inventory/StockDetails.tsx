@@ -62,7 +62,7 @@ export function StockDetails() {
     }
   }, [toast]);
   
-  const stockAddedTransactions = transactions.filter(t => t.type === 'addition');
+  const stockAddedTransactions = transactions.filter(t => t.type === 'addition' && t.quantityChange > 0);
 
   const handlePrint = () => {
     const printContent = document.getElementById('sticker-print-area');
@@ -146,7 +146,7 @@ export function StockDetails() {
                  <DialogHeader>
                     <DialogTitle>Print Stickers for {selectedStock.bcn}</DialogTitle>
                     <DialogDescription>
-                        A sticker will be generated for each individual length of this stock item.
+                        A sticker will be generated for each available length of this stock item.
                     </DialogDescription>
                 </DialogHeader>
                 <div id="sticker-print-area" className="flex-grow overflow-y-auto p-4 bg-muted/50 rounded-md grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -155,16 +155,14 @@ export function StockDetails() {
                             <Loader2 className="h-8 w-8 animate-spin" />
                         </div>
                     ) : (
-                        stockAddedTransactions.flatMap(tx => 
-                            (tx.lengths || [tx.quantityChange]).map((len, index) => (
-                                <StockLengthSticker
-                                    key={`${tx.id}-${index}`}
-                                    stock={selectedStock}
-                                    length={len}
-                                    uniqueId={`${tx.id}-${index}`}
-                                />
-                            ))
-                        )
+                        stockAddedTransactions.map((tx, index) => (
+                            <StockLengthSticker
+                                key={`${tx.id}-${index}`}
+                                stock={selectedStock}
+                                length={tx.quantityChange}
+                                uniqueId={`${tx.id}-${index}`}
+                            />
+                        ))
                     )}
                 </div>
                 <DialogFooter>
