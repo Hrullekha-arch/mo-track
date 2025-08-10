@@ -1,19 +1,19 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { CuttingTask, StockTransaction } from '@/lib/types';
+import { CuttingTask } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ArrowLeft, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle, CameraOff } from 'lucide-react';
 import Link from 'next/link';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -44,11 +44,13 @@ const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult 
     );
 };
 
-export function CuttingScannerComponent() {
+function CuttingScannerComponent() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const { toast } = useToast();
     const { user } = useAuth();
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const codeReaderRef = useRef(new BrowserMultiFormatReader());
 
     const taskId = searchParams.get('taskId');
     const targetBcn = searchParams.get('bcn');
@@ -57,21 +59,20 @@ export function CuttingScannerComponent() {
     const [loading, setLoading] = useState(true);
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
-    const isScanningRef = useRef(false);
-    const scannerRef = useRef<Html5Qrcode | null>(null);
-    const readerContainerId = "scanner-reader";
+    const [permissionError, setPermissionError] = useState<string | null>(null);
+    const isProcessingRef = useRef(false);
 
-    const handleScan = async (scannedData: string) => {
-        if (!task || !user || isScanningRef.current) return;
+    const handleScan = useCallback(async (scannedData: string) => {
+        if (!task || !user || isProcessingRef.current) return;
         
-        isScanningRef.current = true;
+        isProcessingRef.current = true;
 
         const itemToUpdate = task.items.find(item => item.bcn === targetBcn && item.status !== 'cut');
 
         if (!itemToUpdate) {
             setScanResult({ status: 'warning', message: 'Item not found or already cut.' });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 2000);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2000);
             return;
         }
 
@@ -79,7 +80,7 @@ export function CuttingScannerComponent() {
         if (parts.length !== 2) {
             setScanResult({ status: 'error', message: 'Invalid Barcode Format. Expected BCN|Length.' });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 2000);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2000);
             return;
         }
 
@@ -90,22 +91,19 @@ export function CuttingScannerComponent() {
         if (scannedBcn !== targetBcn) {
             setScanResult({ status: 'error', message: `Wrong Barcode. Scanned ${scannedBcn}, expected ${targetBcn}.` });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 2000);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2000);
             return;
         }
 
         if (isNaN(scannedLength) || scannedLength.toFixed(2) !== expectedOriginalLength?.toFixed(2)) {
             setScanResult({ status: 'error', message: `Wrong Roll. Scanned length ${scannedLength.toFixed(2)}, expected ${expectedOriginalLength?.toFixed(2)}.` });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 2500);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2500);
             return;
         }
 
-        // Barcode and Length are confirmed, proceed with update
         try {
             const batch = writeBatch(db);
-
-            // 1. Update the Cutting Task
             const updatedItems = task.items.map(item =>
                 item.bcn === targetBcn ? { ...item, status: 'cut' as const } : item
             );
@@ -114,7 +112,6 @@ export function CuttingScannerComponent() {
             const taskRef = doc(db, "Cutting", task.id);
             batch.update(taskRef, { items: updatedItems, status: newStatus });
 
-            // 2. Find and update the corresponding stockSold transaction
             const stockId = targetBcn.replace(/\//g, '-');
             const stockRef = doc(db, 'stocks', stockId);
             const stockAddedSnapshot = await getDocs(query(collection(stockRef, 'stockAdded'), where('lengths', 'array-contains', expectedOriginalLength)));
@@ -131,13 +128,8 @@ export function CuttingScannerComponent() {
                 const stockSoldSnapshot = await getDocs(stockSoldQuery);
 
                 if (!stockSoldSnapshot.empty) {
-                    const stockSoldDocRef = stockSoldSnapshot.docs[0].ref;
-                    batch.update(stockSoldDocRef, { status: 'cut' });
-                } else {
-                    console.warn("Could not find matching 'pending for cutting' transaction to update.");
+                    batch.update(stockSoldSnapshot.docs[0].ref, { status: 'cut' });
                 }
-            } else {
-                console.warn(`Could not find parent stock roll for BCN ${targetBcn} with original length ${expectedOriginalLength}.`);
             }
             
             await batch.commit();
@@ -159,61 +151,43 @@ export function CuttingScannerComponent() {
             setIsPopupOpen(true);
             setTimeout(() => {
                 setIsPopupOpen(false);
-                isScanningRef.current = false;
+                isProcessingRef.current = false;
             }, 2000);
         }
-    };
+    }, [task, user, targetBcn, toast, router]);
     
-    useEffect(() => {
-        // This effect runs only once after the component mounts
-        // It initializes the scanner and sets up the success/error callbacks
-        const html5QrCode = new Html5Qrcode(readerContainerId, false); // verbose = false
-        scannerRef.current = html5QrCode;
-
-        function onScanSuccess(decodedText: string) {
-            if (html5QrCode.isScanning && !isScanningRef.current) {
-                html5QrCode.pause(true); // Pause scanning to process
-                handleScan(decodedText).finally(() => {
-                   if(html5QrCode.isScanning) {
-                       html5QrCode.resume();
-                   }
-                });
+     useEffect(() => {
+        const startScanner = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    videoRef.current.play(); // Important for some browsers
+                    
+                    codeReaderRef.current.decodeFromVideoElement(videoRef.current).then(result => {
+                         handleScan(result.getText());
+                    }).catch(err => {
+                        if (!(err instanceof NotFoundException)) {
+                             console.error("ZXing Decode Error:", err);
+                        }
+                    });
+                }
+            } catch (err) {
+                 console.error("Camera permission error:", err);
+                 setPermissionError("Camera permission denied. Please enable camera access in your browser settings.");
             }
-        }
-
-        function onScanError(errorMessage: string) {
-            // handle scan error (called every frame where no code is detected)
-        }
-
-        const config = {
-            fps: 10,
-            qrbox: { width: 300, height: 100 },
-            aspectRatio: 1.777778,
-            formatsToSupport: [
-                Html5QrcodeSupportedFormats.CODE_128,
-            ],
-            disableFlip: false,
         };
 
-        html5QrCode.start(
-            { facingMode: "environment" },
-            config,
-            onScanSuccess,
-            onScanError
-        ).catch((err) => {
-            console.error("Failed to start scanner:", err);
-            toast({ variant: 'destructive', title: 'Scanner Error', description: 'Unable to access camera. Please check permissions.' });
-        });
+        startScanner();
 
         return () => {
-            if (scannerRef.current && scannerRef.current.isScanning) {
-                scannerRef.current.stop().catch(error => {
-                    console.error("Failed to stop html5-qrcode.", error);
-                });
+            codeReaderRef.current.reset();
+            if (videoRef.current?.srcObject) {
+                const stream = videoRef.current.srcObject as MediaStream;
+                stream.getTracks().forEach(track => track.stop());
             }
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [handleScan]);
 
     useEffect(() => {
         if (!taskId) {
@@ -275,9 +249,16 @@ export function CuttingScannerComponent() {
                             <CardDescription>Scan the barcode of the fabric roll.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                             <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                                <div id={readerContainerId} className="w-full h-full"></div>
-                             </div>
+                            <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
+                                <video ref={videoRef} className="w-full h-full object-cover" />
+                                {permissionError && (
+                                     <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
+                                        <CameraOff className="h-12 w-12 text-muted-foreground mb-4"/>
+                                        <p className="font-semibold">Camera Error</p>
+                                        <p className="text-sm text-muted-foreground">{permissionError}</p>
+                                    </div>
+                                )}
+                            </div>
                         </CardContent>
                     </Card>
                     <Card>
