@@ -59,9 +59,9 @@ function CuttingScanner() {
             setHasCameraPermission(true);
             if (videoRef.current) {
               videoRef.current.srcObject = stream;
-              // Let the video element handle playing when it's ready.
+              
               videoRef.current.onloadedmetadata = () => {
-                videoRef.current?.play().catch(e => console.error("Play error:", e));
+                  videoRef.current?.play().catch(e => console.error("Play error:", e));
               };
     
               codeReader.current.decodeFromVideoDevice(
@@ -118,8 +118,6 @@ function CuttingScanner() {
             return;
         }
         
-        // The barcode for a roll will contain the BCN and a unique identifier for the roll.
-        // For this simulation, we check if the scanned barcode *starts with* the expected BCN.
         if (!scannedBcn.startsWith(bcn!)) {
             toast({ variant: 'destructive', title: 'Incorrect Barcode', description: `Scanned ${scannedBcn}, but expected ${bcn}`});
             setScanning(false);
@@ -142,7 +140,6 @@ function CuttingScanner() {
             if (newStatus === 'Completed') {
                 router.push('/dashboard/cutting');
             } else {
-                 // Manually update local state to reflect change immediately
                 setTask(prev => prev ? { ...prev, items: updatedItems, status: newStatus } : null);
             }
 
@@ -232,9 +229,6 @@ function CuttingScanner() {
                                 )}
                              </div>
                         )}
-                         <Button onClick={() => handleScan(bcn!)} disabled={scanning || isItemCut}>
-                            <ScanLine className="mr-2 h-4 w-4" /> Simulate Scan
-                         </Button>
                     </CardContent>
                 </Card>
             </div>
