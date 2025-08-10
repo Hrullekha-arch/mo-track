@@ -13,9 +13,10 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeScanner } from 'html5-qrcode';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { BarcodeFormat, DecodeHintType, NotFoundException } from '@zxing/library';
 
 type ScanStatus = 'success' | 'warning' | 'error';
 
@@ -43,9 +44,13 @@ const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult 
     );
 };
 
-function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: string | null }) {
+function CuttingScannerComponent() {
+    const searchParams = useSearchParams();
     const router = useRouter();
     const { toast } = useToast();
+
+    const taskId = searchParams.get('taskId');
+    const bcn = searchParams.get('bcn');
 
     const [task, setTask] = useState<CuttingTask | null>(null);
     const [loading, setLoading] = useState(true);
@@ -55,8 +60,7 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
     const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
     const scannerId = "reader";
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-    const videoRef = useRef<HTMLVideoElement>(null);
-
+    
     const handleScan = async (scannedValue: string) => {
         if (!task || isScanningRef.current) return;
 
@@ -107,7 +111,7 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
             }, 2500);
             return;
         }
-
+        
         try {
             const updatedItems = task.items.map(item =>
                 item.bcn === bcn ? { ...item, status: 'cut' as const } : item
@@ -142,45 +146,36 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
         }
     };
 
-     useEffect(() => {
-        html5QrCodeRef.current = new Html5Qrcode(scannerId);
-        let scannerIsRunning = true;
-        const startScanner = async () => {
-            try {
-                await html5QrCodeRef.current?.start(
-                    { facingMode: "environment" },
-                    {
-                        fps: 10,
-                        qrbox: { width: 250, height: 250 },
-                    },
-                    (decodedText: string) => {
-                        if (scannerIsRunning && !isScanningRef.current) {
-                            handleScan(decodedText);
-                        }
-                    },
-                    () => {}
-                );
-            } catch (err) {
-                 console.error("Failed to start scanner", err);
-                 setHasCameraPermission(false);
-                 toast({ variant: 'destructive', title: 'Scanner Error', description: 'Could not start the camera.'});
-            }
-        };
+    useEffect(() => {
+        const scanner = new Html5QrcodeScanner(
+            scannerId,
+            {
+                fps: 10,
+                qrbox: { width: 250, height: 250 },
+                supportedScanTypes: [], // Use all scan types
+            },
+            false
+        );
 
-        if(!loading) {
-            startScanner();
+        function onScanSuccess(decodedText: string) {
+            if (!isScanningRef.current) {
+                handleScan(decodedText);
+            }
         }
+        
+        function onScanFailure(error: any) {
+            // console.error(`Code scan error = ${error}`);
+        }
+        
+        scanner.render(onScanSuccess, onScanFailure);
 
         return () => {
-            scannerIsRunning = false;
-            if (html5QrCodeRef.current?.isScanning) {
-                html5QrCodeRef.current.stop().catch(err => {
-                    console.error("Failed to stop scanner cleanly", err);
-                });
-            }
+            scanner.clear().catch(err => {
+                console.error("Failed to clear scanner cleanly", err);
+            });
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [loading]);
+    }, [task]);
 
 
     useEffect(() => {
@@ -291,14 +286,7 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
 export default function CuttingScanPage() {
     return (
         <Suspense fallback={<Skeleton className="h-screen w-full" />}>
-            <CuttingScannerWrapper />
+            <CuttingScannerComponent />
         </Suspense>
-    );
-}
-
-function CuttingScannerWrapper() {
-    const searchParams = useSearchParams();
-    const taskId = searchParams.get('taskId');
-    const bcn = searchParams.get('bcn');
-    return <CuttingScannerContent taskId={taskId} bcn={bcn} />
+    )
 }
