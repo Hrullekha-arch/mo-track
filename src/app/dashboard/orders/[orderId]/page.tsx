@@ -84,21 +84,24 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
         const selectedIndex = fields.findIndex(f => f.transactionId === transactionId && f.length === length);
         
         if (checked) {
-            if (selectedIndex === -1) {
-                const currentTotal = form.getValues('selectedLengths').reduce((acc, curr) => acc + curr.length, 0);
-                if (currentTotal + length > itemRequiredQty) {
-                    toast({
-                        variant: 'destructive',
-                        title: 'Allocation Limit Exceeded',
-                        description: `You cannot allocate more than the required quantity of ${itemRequiredQty.toFixed(2)}.`,
-                    });
-                    // This is a visual correction. The actual form state is not changed, so the box remains unchecked.
-                    const checkbox = document.getElementById(`len-${transactionId}-${length}`) as HTMLInputElement;
-                    if (checkbox) checkbox.checked = false;
-                    return;
-                }
-                append({ length, transactionId });
+            if (selectedIndex !== -1) return; // Already selected
+    
+            const currentTotal = form.getValues('selectedLengths').reduce((acc, curr) => acc + curr.length, 0);
+            const remainingNeeded = itemRequiredQty - currentTotal;
+    
+            if (remainingNeeded <= 0) {
+                toast({
+                    title: 'Allocation Met',
+                    description: 'You have already selected enough quantity to fulfill the requirement.',
+                });
+                return;
             }
+    
+            // If the available piece is larger than what's needed, only take what's needed.
+            const quantityToAllocate = Math.min(length, remainingNeeded);
+            
+            append({ length: quantityToAllocate, transactionId });
+    
         } else {
             if (selectedIndex !== -1) {
                 remove(selectedIndex);
@@ -162,11 +165,11 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
                                      {availableLengths.length > 0 ? availableLengths.map((l, i) => (
                                          <div key={`${l.transactionId}-${i}`} className="flex items-center gap-4 p-2 border rounded-md">
                                              <Checkbox 
-                                                id={`len-${l.transactionId}-${l.length}`}
+                                                id={`len-${l.transactionId}-${l.length}-${i}`}
                                                 onCheckedChange={(checked) => handleCheckboxChange(!!checked, l.length, l.transactionId)}
                                                 checked={fields.some(f => f.transactionId === l.transactionId && f.length === l.length)}
                                              />
-                                             <Label htmlFor={`len-${l.transactionId}-${l.length}`} className="flex-grow">
+                                             <Label htmlFor={`len-${l.transactionId}-${l.length}-${i}`} className="flex-grow">
                                                 Length: <span className="font-mono font-bold">{l.length.toFixed(2)}</span>
                                              </Label>
                                          </div>
@@ -472,5 +475,3 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
         </div>
     );
 }
-
-    
