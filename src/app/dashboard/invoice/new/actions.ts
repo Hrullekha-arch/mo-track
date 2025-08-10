@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -55,7 +56,7 @@ export async function createDealOrderAction(
     const newDealOrderRef = dealOrdersRef.doc();
 
     // 1. Create the new order in the main orders collection
-    const orderId = `MOTRACK-${quotation.quotationNo}`;
+    const orderId = `MOTRACK-${'${'}quotation.quotationNo}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
 
     const allFabricDetails: FabricDetail[] = quotation.items.map(item => ({
@@ -77,7 +78,7 @@ export async function createDealOrderAction(
       crmOrderNo: quotation.quotationNo,
       customerName: quotation.customerName,
       customerPhone: customerData.mobileNo || '',
-      customerAddress: customerData.addressPinCode || `${customerData.city}, ${customerData.state}`,
+      customerAddress: customerData.addressPinCode || `${'${'}customerData.city}, ${'${'}customerData.state}`,
       salesPerson: salesmanName,
       orderType: 'stitching', // Default, should be determined
       milestones: initialMilestones,
@@ -123,6 +124,6 @@ export async function createDealOrderAction(
     };
   } catch (error: any) {
     console.error('Error creating deal order:', error);
-    return { success: false, message: `Server error: ${error.message}` };
+    return { success: false, message: `Server error: ${'${'}error.message}` };
   }
 }

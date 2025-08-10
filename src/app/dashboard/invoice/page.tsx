@@ -29,7 +29,7 @@ import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, add
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format, isWithinInterval } from "date-fns";
-import { InvoiceBatch, Order, Invoice, CuttingTask } from "@/lib/types";
+import { InvoiceBatch, Order, Invoice, CuttingTask, CuttingTaskItem } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
 import { Input } from "@/components/ui/input";
@@ -130,7 +130,11 @@ function GenerateInvoiceDialog({
             customerName: primaryOrder.customerName,
             customerPhone: primaryOrder.customerPhone,
             salesPerson: primaryOrder.salesPerson,
-            items: allItems.map(item => ({ ...item, status: 'pending' })),
+            items: allItems.map(item => ({ 
+                ...item, 
+                status: 'pending',
+                originalLength: item.originalLength || 0, // Ensure originalLength is passed
+            })),
             createdAt: new Date().toISOString(),
             status: "Pending",
         };
@@ -145,7 +149,7 @@ function GenerateInvoiceDialog({
         
         await batch.commit();
 
-        toast({ title: "Invoice Generated!", description: `Invoice ${newInvoiceRef.id} has been created and sent for cutting.`});
+        toast({ title: "Invoice Generated!", description: `Invoice ${'${'}newInvoiceRef.id} has been created and sent for cutting.`});
         onClose();
     } catch (error) {
         console.error("Error finalizing invoice:", error);
@@ -315,7 +319,7 @@ function InvoiceTable({
         const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
         const totalAmount = subtotal + tax;
         const roundedAmount = Math.round(totalAmount);
-        return `₹${roundedAmount.toFixed(2)}`;
+        return `₹${'${'}roundedAmount.toFixed(2)}`;
       },
     },
     {
@@ -326,7 +330,7 @@ function InvoiceTable({
         const tallyBillNo = row.original.tallyBillNo;
         const variant = status === 'pending' ? 'secondary' : 'default';
         const color = status === 'pending' ? '' : 'bg-green-600';
-        return <Badge variant={variant} className={color}>{tallyBillNo ? `${status}: ${tallyBillNo}` : status}</Badge>;
+        return <Badge variant={variant} className={color}>{'${'}tallyBillNo ? `${'${'}status}: ${'${'}tallyBillNo}` : status}</Badge>;
       }
     },
     {

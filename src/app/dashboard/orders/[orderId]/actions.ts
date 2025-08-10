@@ -74,13 +74,17 @@ export async function allocateStockToAction(
                 const originalTxDoc = originalTxDocs[i];
 
                 if (!originalTxDoc.exists) {
-                    throw new Error(`Original stock roll with ID ${allocatedPiece.transactionId} not found.`);
+                    throw new Error(`Original stock roll with ID ${'${'}allocatedPiece.transactionId} not found.`);
                 }
                 const originalTxData = originalTxDoc.data() as StockTransaction;
 
-                if (i === 0) {
-                    originalLengthForInvoice = originalTxData.quantityChange;
+                // This logic was flawed. We need the original length of the roll being cut from.
+                const parentRollDoc = await transaction.get(stockRef.collection('stockAdded').doc(allocatedPiece.transactionId));
+                if (!parentRollDoc.exists) {
+                     throw new Error(`Parent stock roll not found for transaction ${'${'}allocatedPiece.transactionId}`);
                 }
+                originalLengthForInvoice = (parentRollDoc.data() as StockTransaction).quantityChange;
+
 
                 // 1. Decrement the quantity from the original roll.
                 transaction.update(originalTxDoc.ref, {
@@ -122,7 +126,7 @@ export async function allocateStockToAction(
                 quantityAllocated: totalAllocatedQty,
                 rate: stockData.mrp || 0,
                 bcn: stockData.bcn || '',
-                originalLength: originalLengthForInvoice,
+                originalLength: originalLengthForInvoice, // Correctly set here
             };
 
             if (recentBatchDoc) {
@@ -144,16 +148,16 @@ export async function allocateStockToAction(
 
             // 5. Recalculate total quantity for the stock item.
             let totalQuantity = 0;
-            allAddedTransactionsSnapshot.forEach(doc => {
+            const updatedAllAddedSnapshot = await transaction.get(stockRef.collection('stockAdded')); // Re-read after updates
+            updatedAllAddedSnapshot.forEach(doc => {
                 const data = doc.data() as StockTransaction;
                 totalQuantity += data.quantityChange;
             });
-
-            // Adjust for the current allocation
-            totalQuantity -= totalAllocatedQty;
-
+            
+            // This recalculation was flawed. The transaction will handle it atomically.
+            // Let's rely on atomic increments instead of manual recalculation.
             transaction.update(stockRef, { 
-              quantity: totalQuantity,
+              quantity: FieldValue.increment(-totalAllocatedQty),
               lastUpdatedAt: new Date().toISOString()
             });
        });
@@ -162,7 +166,7 @@ export async function allocateStockToAction(
 
     } catch (error: any) {
         console.error("Error in allocateStockToAction:", error);
-        return { success: false, message: `Failed to allocate stock: ${error.message}` };
+        return { success: false, message: `Failed to allocate stock: ${'${'}error.message}` };
     }
 }
 
