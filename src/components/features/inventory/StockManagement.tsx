@@ -282,7 +282,7 @@ export function StockManagement() {
                                 <TableRow>
                                     <TableHead>Date</TableHead>
                                     <TableHead>By</TableHead>
-                                    <TableHead>Qty</TableHead>
+                                    <TableHead>Lengths</TableHead>
                                     <TableHead>Order ID</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -294,7 +294,7 @@ export function StockManagement() {
                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
                                             <TableCell>{tx.createdBy}</TableCell>
-                                            <TableCell>{tx.quantityChange}</TableCell>
+                                            <TableCell>{tx.lengths ? tx.lengths.join(', ') : tx.quantityChange}</TableCell>
                                             <TableCell>{tx.orderId}</TableCell>
                                         </TableRow>
                                     ))
@@ -317,7 +317,7 @@ export function StockManagement() {
                                 <TableRow>
                                     <TableHead>Date</TableHead>
                                     <TableHead>Added By</TableHead>
-                                    <TableHead>Qty</TableHead>
+                                    <TableHead>Lengths</TableHead>
                                     <TableHead>Po Number</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -329,7 +329,7 @@ export function StockManagement() {
                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
                                             <TableCell>{tx.createdBy}</TableCell>
-                                            <TableCell>{tx.quantityChange}</TableCell>
+                                            <TableCell>{tx.lengths ? tx.lengths.join(', ') : tx.quantityChange}</TableCell>
                                             <TableCell>{tx.poNumber}</TableCell>
                                         </TableRow>
                                     ))
