@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, CheckCircle, Loader2, ScanLine } from "lucide-react";
 import { getStockById } from "../inventory/actions";
+import Link from 'next/link';
 
 function CuttingTaskDetail({ task, onBack, onUpdate }: { task: CuttingTask, onBack: () => void, onUpdate: (taskId: string, updatedItems: CuttingTask['items']) => void }) {
     const [loadingStock, setLoadingStock] = useState<Record<string, boolean>>({});
@@ -34,12 +35,6 @@ function CuttingTaskDetail({ task, onBack, onUpdate }: { task: CuttingTask, onBa
         fetchStockDetails();
     }, [task.items]);
     
-    const handleScan = (itemIndex: number) => {
-        const updatedItems = [...task.items];
-        updatedItems[itemIndex].status = 'cut';
-        onUpdate(task.id, updatedItems);
-    }
-
     return (
         <div>
             <Button variant="ghost" onClick={onBack} className="mb-4">
@@ -68,7 +63,7 @@ function CuttingTaskDetail({ task, onBack, onUpdate }: { task: CuttingTask, onBa
                                 <Card key={index} className="p-3">
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                                         <div><span className="font-semibold text-xs">BCN:</span><p className="font-mono">{item.bcn}</p></div>
-                                        <div><span className="font-semibold text-xs">Last Length:</span><p>{stock?.quantity.toFixed(2) || 'N/A'}</p></div>
+                                        <div><span className="font-semibold text-xs">Last Length:</span><p>{loadingStock[item.bcn] ? <Loader2 className="h-4 w-4 animate-spin"/> : (stock?.quantity.toFixed(2) || 'N/A')}</p></div>
                                         <div><span className="font-semibold text-xs">Qty to Cut:</span><p className="font-bold text-lg">{item.quantityAllocated.toFixed(2)}</p></div>
                                         <div><span className="font-semibold text-xs">Category:</span><p>{stock?.category || 'N/A'}</p></div>
                                         <div><span className="font-semibold text-xs">Rack:</span><p>{stock?.rack || 'N/A'}</p></div>
@@ -78,9 +73,11 @@ function CuttingTaskDetail({ task, onBack, onUpdate }: { task: CuttingTask, onBa
                                                 <CheckCircle className="h-5 w-5"/> Cut
                                             </div>
                                         ) : (
-                                            <Button size="sm" onClick={() => handleScan(index)}>
-                                                <ScanLine className="mr-2 h-4 w-4" />
-                                                Scan to Verify Cut
+                                            <Button asChild size="sm">
+                                                <Link href={`/dashboard/cutting/scan?taskId=${task.id}&bcn=${item.bcn}`}>
+                                                    <ScanLine className="mr-2 h-4 w-4" />
+                                                    Scan to Verify Cut
+                                                </Link>
                                             </Button>
                                         )}
                                         </div>
@@ -120,7 +117,6 @@ export default function CuttingPage() {
         try {
             const taskRef = doc(db, 'Cutting', taskId);
             
-            // Check if all items are now cut
             const allItemsCut = updatedItems.every(item => item.status === 'cut');
             const newStatus = allItemsCut ? 'Completed' : 'In Progress';
 
@@ -131,7 +127,7 @@ export default function CuttingPage() {
             toast({ title: "Item Cut Verified!" });
             if (newStatus === 'Completed') {
                 toast({ title: "Task Complete!", description: "All items for this order have been cut." });
-                setSelectedTask(null); // Go back to the list view
+                setSelectedTask(null);
             }
         } catch (error) {
             console.error("Error updating item status:", error);
