@@ -260,7 +260,7 @@ export interface StockTransaction {
   poNumber?: string;
   orderId?: string;
   lengths?: number[]; // if addition, original lengths. if deduction, length(s) cut.
-  originalLength?: number; // For 'deduction' type, the original length of the roll it was cut from
+  originalLength?: number;
   createdAt: string; // ISO string
   createdBy: string;
 }
@@ -486,6 +486,14 @@ export interface Invoice {
     createdBy: string; // User name
 }
 
+export interface CuttingTaskItem {
+    itemName: string;
+    bcn: string;
+    quantityAllocated: number;
+    rate: number;
+    status: 'pending' | 'cut';
+}
+
 export interface CuttingTask {
   id: string; // Firestore doc id, can be same as invoiceId
   invoiceId: string;
@@ -493,7 +501,7 @@ export interface CuttingTask {
   customerName: string;
   customerPhone: string;
   salesPerson: string;
-  items: InvoiceBatchItem[];
+  items: CuttingTaskItem[];
   createdAt: string; // ISO Date string
   status: 'Pending' | 'In Progress' | 'Completed';
 }
