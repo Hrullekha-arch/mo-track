@@ -179,34 +179,41 @@ export async function updateStockQuantityAction(
 
 export async function revertStockAdditionAction(
   stockId: string,
-  transactionId: string,
+  poNumber: string,
+  itemName: string,
   revertedBy: string
 ): Promise<{ success: boolean; message: string; }> {
   try {
     const stockRef = adminDb.collection('stocks').doc(stockId);
-    const transactionRef = stockRef.collection('stockAdded').doc(transactionId);
     
-    const batch = adminDb.batch();
+    const addedTxQuery = stockRef.collection('stockAdded')
+        .where('poNumber', '==', poNumber)
+        .where('bcn', '==', itemName);
 
-    const txDoc = await transactionRef.get();
-    if (!txDoc.exists) {
-        return { success: false, message: "Transaction to revert not found."};
+    const snapshot = await addedTxQuery.get();
+
+    if (snapshot.empty) {
+        return { success: false, message: "Transaction to revert not found. It might have already been reverted or never existed." };
     }
-    const txData = txDoc.data() as StockTransaction;
-    const quantityToRevert = txData.quantityChange;
 
-    // Delete the 'stockAdded' transaction
-    batch.delete(transactionRef);
+    const batch = adminDb.batch();
+    let totalRevertedQuantity = 0;
+
+    snapshot.forEach(doc => {
+        const txData = doc.data() as StockTransaction;
+        totalRevertedQuantity += txData.quantityChange;
+        batch.delete(doc.ref);
+    });
 
     // Update the main stock quantity
     batch.update(stockRef, {
-        quantity: FieldValue.increment(-quantityToRevert),
+        quantity: FieldValue.increment(-totalRevertedQuantity),
         lastUpdatedAt: new Date().toISOString()
     });
 
     await batch.commit();
     
-    return { success: true, message: `Successfully reverted stock addition of ${quantityToRevert} for ${txData.bcn}.` };
+    return { success: true, message: `Successfully reverted stock addition of ${totalRevertedQuantity.toFixed(2)} for ${itemName}.` };
   } catch (error: any) {
     console.error(`Error reverting stock addition for ${stockId}:`, error);
     return { success: false, message: `Failed to revert stock addition: ${error.message}` };
