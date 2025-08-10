@@ -2,7 +2,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock } from '@/lib/types';
+import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
 
 export async function createDealOrderAction(
@@ -81,6 +81,7 @@ export async function createDealOrderAction(
       storeName: quotation.store,
       fabricDetails: allFabricDetails,
       totalAmount: quotation.totalAmount, // Store the final amount from the quotation
+      vasDetails: quotation.vasDetails || [], // Include VAS details
     };
 
     batch.set(newOrderRef, newOrder);

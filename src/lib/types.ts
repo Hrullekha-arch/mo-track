@@ -130,12 +130,14 @@ export interface Order {
   completedAt?: string; // ISO Date string
   fabricDetails?: FabricDetail[];
   furnitureDetails?: FurnitureDetail[];
+  vasDetails?: VasDetail[];
   status?: 'Pending Approval' | 'Approved';
   
   // Reference back to the deal
   customerId?: string;
   dealId?: string;
   dealOrderDocId?: string;
+  totalAmount?: number;
 }
 
 export interface SalesmanCrmAssignment {
