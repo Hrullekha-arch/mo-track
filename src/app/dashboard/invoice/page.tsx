@@ -41,12 +41,13 @@ export default function InvoicePage() {
     setLoading(true);
     const batchesQuery = query(
         collection(db, "invoiceBatches"), 
-        where("status", "==", "pending"),
-        orderBy("createdAt", "desc")
+        where("status", "==", "pending")
     );
 
     const unsubscribe = onSnapshot(batchesQuery, (snapshot) => {
         const batchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvoiceBatch));
+        // Sort manually since we removed orderBy from query
+        batchesData.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
         setBatches(batchesData);
         setLoading(false);
     }, (error) => {
