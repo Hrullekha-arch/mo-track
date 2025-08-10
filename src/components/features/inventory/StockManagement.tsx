@@ -268,9 +268,10 @@ export function StockManagement() {
         {selectedStock && (
           <div className="space-y-4">
             <Card className="p-4">
-                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 items-center">
+                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 items-center">
                     <p className="text-sm"><strong className="block text-muted-foreground">BCN:</strong> {selectedStock.bcn}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Sr No:</strong> {selectedStock.serialNo}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Rack:</strong> {selectedStock.rack || 'N/A'}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Current Stock Qty:</strong> {selectedStock.quantity}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Vendor:</strong> {selectedStock.vendorName}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Category:</strong> {selectedStock.category}</p>
