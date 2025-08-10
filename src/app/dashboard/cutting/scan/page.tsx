@@ -43,11 +43,8 @@ const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult 
     );
 };
 
-function CuttingScanner() {
-    const searchParams = useSearchParams();
+function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | null}) {
     const router = useRouter();
-    const taskId = searchParams.get('taskId');
-    const bcn = searchParams.get('bcn');
     const { toast } = useToast();
 
     const [task, setTask] = useState<CuttingTask | null>(null);
@@ -178,7 +175,7 @@ function CuttingScanner() {
         );
 
         function onScanSuccess(decodedText: string, decodedResult: any) {
-            scanner.clear();
+            //scanner.clear();
             handleScan(decodedText);
         }
 
@@ -273,10 +270,19 @@ function CuttingScanner() {
     );
 }
 
+function CuttingScanPageContent() {
+    const searchParams = useSearchParams();
+    const taskId = searchParams.get('taskId');
+    const bcn = searchParams.get('bcn');
+
+    return <CuttingScanner taskId={taskId} bcn={bcn} />;
+}
+
+
 export default function CuttingScanPage() {
     return (
-        <Suspense fallback={<p>Loading...</p>}>
-            <CuttingScanner />
+        <Suspense fallback={<Skeleton className="h-screen w-full" />}>
+            <CuttingScanPageContent />
         </Suspense>
     );
 }
