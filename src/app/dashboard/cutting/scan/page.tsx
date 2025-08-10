@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, Camera, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
-import { Html5Qrcode, Html5QrcodeScanner, Html5QrcodeResult, Html5QrcodeError } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
@@ -53,7 +53,6 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
     
-    // This ref will hold the Html5Qrcode instance
     const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
     const scannerId = "reader";
 
@@ -153,6 +152,7 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
         }
 
         const fetchTask = async () => {
+            setLoading(true);
             const docRef = doc(db, 'Cutting', taskId);
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
@@ -166,8 +166,9 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
     }, [taskId, router, toast]);
 
     useEffect(() => {
-        // Initialize the scanner when the component mounts
-        html5QrCodeRef.current = new Html5Qrcode(scannerId);
+        html5QrCodeRef.current = new Html5Qrcode(scannerId, {
+            formatsToSupport: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] // All formats
+        });
         let scannerIsRunning = true;
 
         const startScanner = async () => {
@@ -178,12 +179,12 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
                         fps: 10,
                         qrbox: { width: 250, height: 250 },
                     },
-                    (decodedText: string, result: Html5QrcodeResult) => {
+                    (decodedText: string) => {
                         if (scannerIsRunning && !isScanningRef.current) {
                             handleScan(decodedText);
                         }
                     },
-                    (errorMessage: string, error: Html5QrcodeError) => {
+                    () => {
                        // Errors are frequent, we can ignore them unless needed for debugging
                     }
                 );
@@ -208,7 +209,15 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
 
 
     if (loading) {
-        return <Skeleton className="h-[400px] w-full max-w-2xl mx-auto" />;
+        return (
+             <div className="container mx-auto p-4 md:p-6 lg:p-8 max-w-4xl space-y-4">
+                <Skeleton className="h-12 w-96" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <Skeleton className="h-96 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                </div>
+            </div>
+        );
     }
 
     if (!task) {
@@ -291,7 +300,6 @@ function CuttingScanPageContent() {
     return <CuttingScanner taskId={taskId} bcn={bcn} />;
 }
 
-
 export default function CuttingScanPage() {
     return (
         <Suspense fallback={<Skeleton className="h-screen w-full" />}>
@@ -299,5 +307,3 @@ export default function CuttingScanPage() {
         </Suspense>
     );
 }
-
-    
