@@ -1,5 +1,10 @@
 
 {
     "name": "inventory",
-    "main": "./StockTable.tsx"
+    "main": "./StockTable.tsx",
+    "components": [
+        "./StockManagement.tsx",
+        "./StockDetails.tsx",
+        "./UpdateBatchTaxDialog.tsx"
+    ]
 }
