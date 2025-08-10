@@ -8,6 +8,7 @@ import { getStockData } from "./actions";
 import { Stock } from "@/lib/types";
 import { StockManagement } from "@/components/features/inventory/StockManagement";
 import { StockHistoryTable } from "@/components/features/inventory/StockHistoryTable";
+import { StockDetails } from "@/components/features/inventory/StockDetails";
 
 
 export default async function InventoryPage() {
@@ -23,9 +24,10 @@ export default async function InventoryPage() {
                 </p>
             </header>
             <Tabs defaultValue="stock" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="stock">Stock List</TabsTrigger>
                     <TabsTrigger value="stock-management">Stock Management</TabsTrigger>
+                    <TabsTrigger value="stock-details">Stock Details</TabsTrigger>
                     <TabsTrigger value="history">History</TabsTrigger>
                 </TabsList>
                 <TabsContent value="stock">
@@ -36,6 +38,11 @@ export default async function InventoryPage() {
                 <TabsContent value="stock-management">
                      <Suspense fallback={<InventorySkeleton />}>
                         <StockManagement />
+                    </Suspense>
+                </TabsContent>
+                <TabsContent value="stock-details">
+                     <Suspense fallback={<InventorySkeleton />}>
+                        <StockDetails />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="history">
