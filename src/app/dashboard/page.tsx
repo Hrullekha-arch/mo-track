@@ -1,7 +1,7 @@
 
 
 import { Card, CardDescription, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle, Warehouse, Contact, HomeIcon, FileSignature, CheckSquare as CheckSquareIcon } from "lucide-react";
+import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle, Warehouse, Contact, HomeIcon, FileSignature, CheckSquare as CheckSquareIcon, FileText } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -78,6 +78,14 @@ const dashboardItems = [
         icon: Warehouse,
         color: "bg-yellow-500",
         id: "inventory"
+    },
+     {
+        href: "/dashboard/invoice",
+        title: "Invoice",
+        description: "Create and manage invoices.",
+        icon: FileText,
+        color: "bg-sky-500",
+        id: "invoice"
     },
      {
         href: "/dashboard/pms",
