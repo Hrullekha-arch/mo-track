@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { completePmsProcess } from '@/ai/flows/complete-pms-process';
 import { Order, PurchaseRequest, Stock, StockTransaction } from '@/lib/types';
 import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -203,7 +203,7 @@ function UniversalScanner() {
     const codeReaderRef = useRef(new BrowserMultiFormatReader());
     const isProcessingRef = useRef(false);
 
-    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+    const [hasCameraPermission, setHasCameraPermission] = React.useState<boolean | null>(null);
     const [manualId, setManualId] = useState('');
     const [loading, setLoading] = useState(false);
     const [stream, setStream] = useState<MediaStream | null>(null);
@@ -299,7 +299,13 @@ function UniversalScanner() {
             const codeReader = codeReaderRef.current;
             codeReader.decodeFromVideoElement(videoRef.current, (result, err) => {
                 if (result) {
+                    console.log('Barcode detected:', result.getText());
                     handleScan(result.getText());
+                }
+                if (err && !(err instanceof NotFoundException)) {
+                    console.error("ZXing Decode Error:", err);
+                } else if (err) {
+                    console.log('No barcode detected in frame.');
                 }
             }).catch(err => console.error("Scanner decode error:", err));
         }
