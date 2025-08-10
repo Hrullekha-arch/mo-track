@@ -12,7 +12,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, Checkbox, PlusCircle } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { collection, onSnapshot, query, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -206,7 +207,7 @@ function InvoiceTable({
         const subtotal = row.original.items.reduce((sum, item) => {
           return sum + (item.quantityAllocated * item.rate);
         }, 0);
-        const tax = subtotal * 0.05; // 5% total tax
+        const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
         const totalAmount = subtotal + tax;
         return `₹${totalAmount.toFixed(2)}`;
       },
