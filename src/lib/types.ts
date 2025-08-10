@@ -248,6 +248,7 @@ export interface Stock {
   unit: string;
   type: 'fabric' | 'furniture' | string; // Making it flexible
   lastUpdatedAt: string; // ISO Date
+  rack?: string;
 }
 
 export interface StockTransaction {

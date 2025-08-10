@@ -159,10 +159,8 @@ export function StockDetails() {
                             (tx.lengths || [tx.quantityChange]).map((len, index) => (
                                 <StockLengthSticker
                                     key={`${tx.id}-${index}`}
-                                    bcn={selectedStock.bcn || 'N/A'}
-                                    itemName={selectedStock.itemName}
+                                    stock={selectedStock}
                                     length={len}
-                                    poNumber={tx.poNumber || 'N/A'}
                                     uniqueId={`${tx.id}-${index}`}
                                 />
                             ))
