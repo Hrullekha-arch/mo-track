@@ -311,7 +311,17 @@ function InvoiceTable({
     },
     {
         id: 'actions',
-        cell: ({ row }) => <Button variant="ghost" size="icon" onClick={() => handleViewClick(row.original)}><ChevronRight className="h-4 w-4"/></Button>
+        cell: ({ row }) => {
+            const batch = row.original;
+            if (batch.status === 'invoiced') {
+                return (
+                    <Button variant="ghost" size="icon" onClick={() => handleViewClick(batch)}>
+                        <ChevronRight className="h-4 w-4" />
+                    </Button>
+                );
+            }
+            return null;
+        },
     }
   ];
 
