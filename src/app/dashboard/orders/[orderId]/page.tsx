@@ -44,7 +44,7 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
     const [isOpen, setIsOpen] = useState(false);
     const [availableLengths, setAvailableLengths] = useState<{ length: number; transactionId: string }[]>([]);
     const [loadingLengths, setLoadingLengths] = useState(true);
-    const [isSubmitting, setIsSubmitting] useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
     const { user } = useAuth();
     
@@ -473,3 +473,4 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
     );
 }
 
+    

@@ -76,22 +76,11 @@ async function recalculateStockQuantity(stockId: string) {
     });
     
     soldSnapshot.forEach(doc => {
-        totalQuantity += (doc.data() as StockTransaction).quantityChange;
+        totalQuantity += (doc.data() as StockTransaction).quantityChange; // quantityChange is already negative
     });
-
-    // This is incorrect as deductions are negative. We should sum them up.
-    // The FieldValue.increment approach is better, but a full recalc needs this:
-    let recalcQuantity = 0;
-    addedSnapshot.forEach(doc => {
-        recalcQuantity += (doc.data() as StockTransaction).quantityChange;
-    });
-    soldSnapshot.forEach(doc => {
-        recalcQuantity += (doc.data() as StockTransaction).quantityChange; // quantityChange is already negative
-    });
-
 
     await stockRef.update({ 
-      quantity: recalcQuantity,
+      quantity: totalQuantity,
       lastUpdatedAt: new Date().toISOString()
     });
 }
@@ -102,24 +91,24 @@ export async function allocateStockToAction(
     { orderId: string, stockId: string, itemName: string, allocatedLengths: { length: number, transactionId: string }[], userId: string, userName: string }
 ): Promise<{ success: boolean; message: string }> {
     try {
-        const batch = adminDb.batch();
         const stockRef = adminDb.collection('stocks').doc(stockId);
         const orderRef = adminDb.collection('orders').doc(orderId);
-        const allocationRef = orderRef.collection('allocations').doc(); // New allocation document
-        const stockSoldRef = stockRef.collection('stockSold').doc(); // New transaction document
-        
-        const totalAllocatedQty = allocatedLengths.reduce((sum, l) => sum + l.length, 0);
-
         const stockDoc = await stockRef.get();
         if (!stockDoc.exists) {
             throw new Error("Stock item not found.");
         }
         
+        const totalAllocatedQty = allocatedLengths.reduce((sum, l) => sum + l.length, 0);
+
         const currentQuantity = stockDoc.data()?.quantity || 0;
         if (currentQuantity < totalAllocatedQty) {
             throw new Error("Insufficient stock quantity.");
         }
 
+        const batch = adminDb.batch();
+        const allocationRef = orderRef.collection('allocations').doc(); // New allocation document
+        const stockSoldRef = stockRef.collection('stockSold').doc(); // New transaction document
+        
         // Create a new deduction transaction
         const stockSoldData: Omit<StockTransaction, 'id'> = {
             stockId: stockId,
@@ -158,7 +147,6 @@ export async function allocateStockToAction(
             
             // This logic is imperfect for batching. A better approach would be to get allocations after commit
             // For now, let's assume this check is against PREVIOUSLY allocated amounts + current allocation.
-            // This part of the logic might need refinement if race conditions occur.
             return true; 
         });
 
@@ -203,3 +191,5 @@ export async function getOrderAllocations(orderId: string): Promise<any[]> {
         return [];
     }
 }
+
+    
