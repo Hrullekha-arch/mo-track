@@ -10,30 +10,14 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 export async function getAvailableStockLengths(stockId: string): Promise<{ success: boolean; message: string; lengths?: { length: number; transactionId: string }[] }> {
     try {
         const stockAddedSnapshot = await adminDb.collection('stocks').doc(stockId).collection('stockAdded').get();
-        const stockSoldSnapshot = await adminDb.collection('stocks').doc(stockId).collection('stockSold').get();
-
-        // Create a frequency map of sold lengths for efficient lookup
-        const soldLengthCounts: { [key: number]: number } = {};
-        stockSoldSnapshot.docs.forEach(doc => {
-            const data = doc.data() as StockTransaction;
-            (data.lengths || []).forEach(length => {
-                soldLengthCounts[length] = (soldLengthCounts[length] || 0) + 1;
-            });
-        });
         
         const availableLengths: { length: number; transactionId: string }[] = [];
         stockAddedSnapshot.docs.forEach(doc => {
             const data = doc.data() as StockTransaction;
-            (data.lengths || []).forEach(length => {
-                // Check if a specific length has been sold
-                if (soldLengthCounts[length] && soldLengthCounts[length] > 0) {
-                    // This specific length value has been sold, so decrement the count and don't add it as available
-                    soldLengthCounts[length]--;
-                } else {
-                    // This length has not been sold, so it's available
-                    availableLengths.push({ length, transactionId: doc.id });
-                }
-            });
+            // The quantityChange of a stockAdded document now represents the current available length of that roll.
+            if (data.quantityChange > 0) {
+                 availableLengths.push({ length: data.quantityChange, transactionId: doc.id });
+            }
         });
 
         return { success: true, message: 'Lengths fetched.', lengths: availableLengths.sort((a,b) => a.length - b.length) };
@@ -49,9 +33,8 @@ async function recalculateStockQuantity(stockId: string, transaction: FirebaseFi
     
     // Important: These reads must be part of the transaction
     const addedTransactionsPromise = transaction.get(stockRef.collection('stockAdded'));
-    const soldTransactionsPromise = transaction.get(stockRef.collection('stockSold'));
     
-    const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
+    const [addedSnapshot] = await Promise.all([addedTransactionsPromise]);
 
     let totalQuantity = 0;
     
@@ -59,10 +42,6 @@ async function recalculateStockQuantity(stockId: string, transaction: FirebaseFi
         totalQuantity += (doc.data() as StockTransaction).quantityChange;
     });
     
-    soldSnapshot.forEach(doc => {
-        totalQuantity += (doc.data() as StockTransaction).quantityChange; // quantityChange is already negative
-    });
-
     transaction.update(stockRef, { 
       quantity: totalQuantity,
       lastUpdatedAt: new Date().toISOString()
@@ -95,49 +74,21 @@ export async function allocateStockToAction(
             // Group allocations by their original transaction ID
             const allocationsByTxId = allocatedLengths.reduce((acc, current) => {
                 if (!acc[current.transactionId]) {
-                    acc[current.transactionId] = [];
+                    acc[current.transactionId] = 0;
                 }
-                acc[current.transactionId].push(current.length);
+                acc[current.transactionId] += current.length;
                 return acc;
-            }, {} as Record<string, number[]>);
+            }, {} as Record<string, number>);
             
             // For each original 'stockAdded' transaction that we are allocating from...
             for (const txId in allocationsByTxId) {
                 const originalTxRef = stockRef.collection('stockAdded').doc(txId);
-                const originalTxDoc = await transaction.get(originalTxRef);
-                if (!originalTxDoc.exists) throw new Error(`Original stock transaction ${txId} not found.`);
-
-                const originalTxData = originalTxDoc.data() as StockTransaction;
-                const lengthsToAllocateFromThisTx = allocationsByTxId[txId];
+                const allocatedAmount = allocationsByTxId[txId];
                 
-                // Create a mutable copy of the original lengths
-                const remainingLengthsInTx = [...(originalTxData.lengths || [])];
-                
-                // Remove the allocated lengths from the copy
-                for (const allocated of lengthsToAllocateFromThisTx) {
-                    const indexToRemove = remainingLengthsInTx.indexOf(allocated);
-                    if (indexToRemove === -1) {
-                        throw new Error(`Cannot allocate length ${allocated} as it does not exist in transaction ${txId}.`);
-                    }
-                    remainingLengthsInTx.splice(indexToRemove, 1);
-                }
-
-                // Delete the original 'stockAdded' transaction
-                transaction.delete(originalTxRef);
-                
-                // If there are any remaining lengths, create a new 'stockAdded' transaction for them
-                if (remainingLengthsInTx.length > 0) {
-                    const newAddedTxRef = stockRef.collection('stockAdded').doc(); // Create a new doc
-                    const newQuantity = remainingLengthsInTx.reduce((sum, l) => sum + l, 0);
-                    const newAddedTxData: Omit<StockTransaction, 'id'> = {
-                        ...originalTxData,
-                        quantityChange: newQuantity,
-                        lengths: remainingLengthsInTx,
-                        createdAt: new Date().toISOString(),
-                        createdBy: `System (Split from ${txId})`
-                    };
-                    transaction.set(newAddedTxRef, newAddedTxData);
-                }
+                // Decrement the quantity from the original roll.
+                transaction.update(originalTxRef, {
+                    quantityChange: FieldValue.increment(-allocatedAmount)
+                });
             }
             
             const allocationRef = orderRef.collection('allocations').doc(); // New allocation document
@@ -148,9 +99,9 @@ export async function allocateStockToAction(
                 stockId: stockId,
                 bcn: stockData.bcn || '',
                 type: 'deduction',
-                quantityChange: -totalAllocatedQty,
+                quantityChange: -totalAllocatedQty, // Stored as a negative number
                 orderId: orderId,
-                lengths: allocatedLengths.map(l => l.length),
+                lengths: allocatedLengths.map(l => l.length), // Record the lengths that were cut
                 createdAt: new Date().toISOString(),
                 createdBy: userName,
             };

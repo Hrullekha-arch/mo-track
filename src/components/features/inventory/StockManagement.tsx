@@ -159,7 +159,7 @@ export function StockManagement() {
   const [bcnOptions, setBcnOptions] = React.useState<ComboboxOption[]>([]);
   const [selectedStock, setSelectedStock] = React.useState<Stock | null>(null);
   const [transactions, setTransactions] = React.useState<StockTransaction[]>([]);
-  const [availableLengths, setAvailableLengths] = React.useState<number[]>([]);
+  const [availableLengths, setAvailableLengths] = React.useState<{ length: number; transactionId: string }[]>([]);
   const [isSearching, setIsSearching] = React.useState(false);
   const [isLoadingDetails, setIsLoadingDetails] = React.useState(false);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -284,7 +284,7 @@ export function StockManagement() {
                         <Label>Available Lengths</Label>
                         <div className="flex flex-wrap gap-2">
                             {availableLengths.length > 0 ? (
-                                availableLengths.map((len, index) => <Badge key={index} variant="secondary">{len.toFixed(2)}</Badge>)
+                                availableLengths.map((len, index) => <Badge key={index} variant="secondary">{len.length.toFixed(2)}</Badge>)
                             ) : (
                                 <p className="text-xs text-muted-foreground">No specific lengths available or tracked.</p>
                             )}
@@ -378,4 +378,5 @@ export function StockManagement() {
     </Card>
   );
 }
+
 
