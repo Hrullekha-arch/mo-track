@@ -20,10 +20,18 @@ export async function approveOrderAndCreatePurchaseRequest(
         const orderData = orderSnap.data() as Order;
         const batch = adminDb.batch();
 
-        // 1. Update the Order status
+        // 1. Update the root Order status
         batch.update(orderRef, { status: 'Approved', approvedBy: approver, approvedAt: new Date().toISOString() });
         
-        // 2. Check stock and prepare purchase request if needed
+        // 2. Update the DealOrder status in the customer's subcollection
+        if (orderData.customerId && orderData.dealId && orderData.dealOrderDocId) {
+            const dealOrderRef = adminDb.collection('customers').doc(orderData.customerId)
+                                        .collection('deals').doc(orderData.dealId)
+                                        .collection('orders').doc(orderData.dealOrderDocId);
+            batch.update(dealOrderRef, { status: 'Approved' });
+        }
+
+        // 3. Check stock and prepare purchase request if needed
         const itemsToPurchase: FabricDetail[] = [];
         const allItems: FabricDetail[] = orderData.fabricDetails || [];
 
@@ -43,7 +51,7 @@ export async function approveOrderAndCreatePurchaseRequest(
         }
         
         let purchaseMessage = "";
-        // 3. Create a new Purchase Request document if there are items to purchase
+        // 4. Create a new Purchase Request document if there are items to purchase
         if (itemsToPurchase.length > 0) {
             const prRef = adminDb.collection('purchaseRequests').doc(orderData.crmOrderNo);
             const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
