@@ -33,11 +33,12 @@ async function recalculateStockQuantity(stockId: string, transaction: FirebaseFi
     
     // Important: These reads must be part of the transaction
     const addedTransactionsPromise = transaction.get(stockRef.collection('stockAdded'));
+    const soldTransactionsPromise = transaction.get(stockRef.collection('stockSold'));
     
-    const [addedSnapshot] = await Promise.all([addedTransactionsPromise]);
+    const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
 
     let totalQuantity = 0;
-    
+
     addedSnapshot.forEach(doc => {
         totalQuantity += (doc.data() as StockTransaction).quantityChange;
     });
@@ -60,7 +61,7 @@ export async function allocateStockToAction(
             
             const [stockDoc, orderDoc] = await Promise.all([
                 transaction.get(stockRef),
-                transaction.get(orderDoc)
+                transaction.get(orderRef)
             ]);
 
             if (!stockDoc.exists) throw new Error("Stock item not found.");
@@ -71,41 +72,26 @@ export async function allocateStockToAction(
 
             const totalAllocatedQty = allocatedLengths.reduce((sum, l) => sum + l.length, 0);
 
-            // Group allocations by their original transaction ID to fetch original lengths
-            const allocationsByTxId = allocatedLengths.reduce((acc, current) => {
-                if (!acc[current.transactionId]) {
-                    acc[current.transactionId] = {
-                        totalAllocated: 0,
-                        originalLength: 0 // We'll fill this in next
-                    };
+            // Fetch all original transaction documents first to get their lengths
+            const originalTxRefs = allocatedLengths.map(l => stockRef.collection('stockAdded').doc(l.transactionId));
+            const originalTxDocs = await transaction.getAll(...originalTxRefs);
+            const originalLengthsMap = new Map<string, number>();
+            originalTxDocs.forEach(doc => {
+                if (doc.exists) {
+                    originalLengthsMap.set(doc.id, (doc.data() as StockTransaction).quantityChange);
                 }
-                acc[current.transactionId].totalAllocated += current.length;
-                return acc;
-            }, {} as Record<string, { totalAllocated: number, originalLength: number }>);
-            
-            // For each original 'stockAdded' transaction that we are allocating from...
-            for (const txId in allocationsByTxId) {
-                const originalTxRef = stockRef.collection('stockAdded').doc(txId);
-                const originalTxDoc = await transaction.get(originalTxRef);
+            });
 
-                if (!originalTxDoc.exists) {
-                    throw new Error(`Original stock roll with ID ${txId} not found.`);
-                }
-                const originalTxData = originalTxDoc.data() as StockTransaction;
-                allocationsByTxId[txId].originalLength = originalTxData.quantityChange;
-
-                const allocatedAmount = allocationsByTxId[txId].totalAllocated;
+            // For each piece of stock we are allocating...
+            for (const allocatedPiece of allocatedLengths) {
+                const originalTxRef = stockRef.collection('stockAdded').doc(allocatedPiece.transactionId);
                 
                 // Decrement the quantity from the original roll.
                 transaction.update(originalTxRef, {
-                    quantityChange: FieldValue.increment(-allocatedAmount)
+                    quantityChange: FieldValue.increment(-allocatedPiece.length)
                 });
-            }
-            
-            const allocationRef = orderRef.collection('allocations').doc(); // New allocation document
-            
-            // Create a new deduction transaction for each piece cut
-            for (const allocatedPiece of allocatedLengths) {
+
+                // Create a new deduction transaction for each piece cut
                 const stockSoldRef = stockRef.collection('stockSold').doc();
                 const stockSoldData: Omit<StockTransaction, 'id'> = {
                     stockId: stockId,
@@ -113,13 +99,15 @@ export async function allocateStockToAction(
                     type: 'deduction',
                     quantityChange: -allocatedPiece.length,
                     lengths: [allocatedPiece.length],
-                    originalLength: allocationsByTxId[allocatedPiece.transactionId]?.originalLength || 0,
+                    originalLength: originalLengthsMap.get(allocatedPiece.transactionId) || 0,
                     orderId: orderId,
                     createdAt: new Date().toISOString(),
                     createdBy: userName,
                 };
                 transaction.set(stockSoldRef, stockSoldData);
             }
+            
+            const allocationRef = orderRef.collection('allocations').doc(); // New allocation document
             
             // Create one allocation record under the order for the total
             const allocationData = {
@@ -192,3 +180,4 @@ export async function getOrderAllocations(orderId: string): Promise<any[]> {
         return [];
     }
 }
+
