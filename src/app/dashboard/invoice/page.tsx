@@ -10,8 +10,9 @@ import {
   getSortedRowModel,
   useReactTable,
   SortingState,
+  RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2 } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText, Checkbox } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,11 +24,83 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, where, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { InvoiceBatch } from "@/lib/types";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+function GenerateInvoiceDialog({
+  isOpen,
+  onClose,
+  batches,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  batches: InvoiceBatch[];
+}) {
+  const [isGenerating, setIsGenerating] = React.useState(false);
+  const { toast } = useToast();
+
+  const handleGenerate = () => {
+    setIsGenerating(true);
+    // In a real app, you would call a server action here to create the invoice PDFs,
+    // update the batch status, etc.
+    setTimeout(() => {
+        toast({ title: "Invoice Generated!", description: "The invoice has been successfully generated."});
+        setIsGenerating(false);
+        onClose();
+    }, 1500);
+  }
+
+  const allItems = batches.flatMap(b => b.items.map(item => ({...item, orderId: b.orderId})));
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+        <DialogContent className="max-w-4xl">
+            <DialogHeader>
+                <DialogTitle>Generate Invoice</DialogTitle>
+                <DialogDescription>
+                    Review the items below. An invoice will be generated for the selected orders.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[60vh] overflow-y-auto pr-4">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Order ID</TableHead>
+                            <TableHead>Item Name (BCN)</TableHead>
+                            <TableHead>Qty</TableHead>
+                            <TableHead className="text-right">Rate</TableHead>
+                            <TableHead className="text-right">Amount</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {allItems.map((item, index) => (
+                            <TableRow key={index}>
+                                <TableCell>{item.orderId}</TableCell>
+                                <TableCell>{item.bcn}</TableCell>
+                                <TableCell>{item.quantityAllocated}</TableCell>
+                                <TableCell className="text-right">₹{item.rate.toFixed(2)}</TableCell>
+                                <TableCell className="text-right">₹{(item.quantityAllocated * item.rate).toFixed(2)}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
+            <DialogFooter>
+                <Button variant="ghost" onClick={onClose}>Cancel</Button>
+                <Button onClick={handleGenerate} disabled={isGenerating}>
+                    {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Confirm & Generate
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+  )
+}
+
 
 export default function InvoicePage() {
   const [batches, setBatches] = React.useState<InvoiceBatch[]>([]);
@@ -35,6 +108,8 @@ export default function InvoicePage() {
   const [sorting, setSorting] = React.useState<SortingState>([
     { id: "createdAt", desc: true },
   ]);
+  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
+  const [isGenerateDialogOpen, setIsGenerateDialogOpen] = React.useState(false);
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -46,7 +121,6 @@ export default function InvoicePage() {
 
     const unsubscribe = onSnapshot(batchesQuery, (snapshot) => {
         const batchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvoiceBatch));
-        // Sort manually since we removed orderBy from query
         batchesData.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
         setBatches(batchesData);
         setLoading(false);
@@ -65,17 +139,31 @@ export default function InvoicePage() {
 
   const columns: ColumnDef<InvoiceBatch>[] = [
     {
-      id: "index",
-      header: "#",
-      cell: ({ row, table }) => {
-        const sortedRowModel = table.getSortedRowModel().rows;
-        const rowIndex = sortedRowModel.findIndex(sortedRow => sortedRow.id === row.id);
-        return <span>{rowIndex + 1}</span>;
-      },
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          checked={table.getIsAllPageRowsSelected()}
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label="Select all"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false,
     },
     {
-        accessorKey: "orderId",
-        header: "Order No",
+      accessorKey: "orderId",
+      header: "Order No",
+      cell: ({ row }) => {
+        const orderId = row.getValue("orderId") as string;
+        return orderId.replace("MOTRACK-", "");
+      }
     },
     {
       accessorKey: "createdAt",
@@ -122,15 +210,20 @@ export default function InvoicePage() {
     data: batches,
     columns,
     onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     state: {
       sorting,
+      rowSelection,
     },
   });
 
+  const selectedBatches = table.getFilteredSelectedRowModel().rows.map(row => row.original);
+
   return (
+    <>
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
       <header className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Invoice</h1>
@@ -181,11 +274,28 @@ export default function InvoicePage() {
                 </Table>
             </div>
              <div className="flex items-center justify-end space-x-2 py-4">
+                <div className="flex-1 text-sm text-muted-foreground">
+                    {table.getFilteredSelectedRowModel().rows.length} of{" "}
+                    {table.getFilteredRowModel().rows.length} row(s) selected.
+                </div>
+                <Button 
+                  onClick={() => setIsGenerateDialogOpen(true)}
+                  disabled={table.getFilteredSelectedRowModel().rows.length === 0}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Generate
+                </Button>
                 <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>Previous</Button>
                 <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next</Button>
             </div>
         </CardContent>
       </Card>
     </div>
+    <GenerateInvoiceDialog
+      isOpen={isGenerateDialogOpen}
+      onClose={() => setIsGenerateDialogOpen(false)}
+      batches={selectedBatches}
+    />
+    </>
   );
 }
