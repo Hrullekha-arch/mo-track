@@ -1,5 +1,6 @@
 
 
+
 import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp } from "firebase/firestore";
 
@@ -454,6 +455,7 @@ export interface InvoiceBatch {
     createdAt: Timestamp;
     status: 'pending' | 'invoiced';
     items: InvoiceBatchItem[];
+    tallyBillNo?: string;
 }
 
 

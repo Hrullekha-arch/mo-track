@@ -1,10 +1,11 @@
 
+
 "use client";
 
 import { useState, useEffect, use } from 'react';
-import { doc, onSnapshot, updateDoc, collection, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, collection, getDoc, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest } from "@/lib/types";
+import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest, InvoiceBatch } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2 } from 'lucide-react';
@@ -215,7 +216,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
     const [stockInfo, setStockInfo] = useState<Stock | null>(null);
     const [loading, setLoading] = useState(true);
     const [allocatedQty, setAllocatedQty] = useState(0);
-    const [status, setStatus] = useState<{ text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline', poNumber?: string }>({ text: 'Loading...', variant: 'secondary' });
+    const [status, setStatus] = useState<{ text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline', poNumber?: string, tallyBillNo?: string }>({ text: 'Loading...', variant: 'secondary' });
 
     const isOrderApproved = order.status === 'Approved';
 
@@ -223,42 +224,64 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
         const fetchItemData = async () => {
             setLoading(true);
             const itemName = (item as any).fabricName || (item as any).furnitureName;
-            if (itemName) {
-                const stockId = itemName.replace(/\//g, '-');
-                const stock = await getStockById(stockId);
-                setStockInfo(stock);
-                
-                const allocations = await getOrderAllocations(orderId);
-                const itemAllocations = allocations.filter(a => a.itemName === itemName);
-                const totalAllocated = itemAllocations.reduce((sum, alloc) => sum + alloc.quantityAllocated, 0);
-                setAllocatedQty(totalAllocated);
-                
-                const requiredQty = parseFloat((item as any).quantity || '0');
-                if (totalAllocated >= requiredQty) {
-                    setStatus({ text: 'Allocated', variant: 'default' });
-                } else if ((stock?.quantity || 0) >= (requiredQty - totalAllocated)) {
-                    setStatus({ text: 'In Stock', variant: 'default' });
-                } else {
-                    const poRef = doc(db, 'purchaseRequests', orderCrmNo);
-                    const poSnap = await getDoc(poRef);
-                    if (poSnap.exists()) {
-                        const poData = poSnap.data() as PurchaseRequest;
-                        const poItem = (poData.fabricDetails || []).find(pi => pi.fabricName === itemName);
-                        
-                        if (poItem?.poNumber) {
-                             setStatus({ text: 'PO Generated', variant: 'outline', poNumber: poItem.poNumber });
-                        } else {
-                             setStatus({ text: 'Pending for PO', variant: 'destructive' });
-                        }
+            if (!itemName) {
+                setLoading(false);
+                setStatus({ text: 'Invalid Item', variant: 'destructive' });
+                return;
+            }
+
+            // Fetch all related data in parallel
+            const stockId = itemName.replace(/\//g, '-');
+            const stockPromise = getStockById(stockId);
+            const allocationsPromise = getOrderAllocations(orderId);
+            const poPromise = getDoc(doc(db, 'purchaseRequests', orderCrmNo));
+            const invoiceQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', orderId));
+            const invoicePromise = getDocs(invoiceQuery);
+
+            const [stock, allocations, poSnap, invoiceSnaps] = await Promise.all([stockPromise, allocationsPromise, poPromise, invoicePromise]);
+
+            setStockInfo(stock);
+            
+            const itemAllocations = allocations.filter(a => a.itemName === itemName);
+            const totalAllocated = itemAllocations.reduce((sum, alloc) => sum + alloc.quantityAllocated, 0);
+            setAllocatedQty(totalAllocated);
+            
+            const requiredQty = parseFloat((item as any).quantity || '0');
+            const itemNameInInvoice = invoiceSnaps.docs.some(doc => {
+                const batch = doc.data() as InvoiceBatch;
+                return batch.items.some(batchItem => batchItem.itemName === itemName);
+            });
+            const invoiceWithTally = invoiceSnaps.docs.find(doc => (doc.data() as InvoiceBatch).tallyBillNo);
+
+            if (itemNameInInvoice) {
+                const tallyBillNo = (invoiceWithTally?.data() as InvoiceBatch)?.tallyBillNo;
+                setStatus({ 
+                    text: tallyBillNo ? `Invoice Generated: ${tallyBillNo}` : 'Invoice Generated', 
+                    variant: 'default',
+                    tallyBillNo: tallyBillNo
+                });
+            } else if (totalAllocated >= requiredQty) {
+                setStatus({ text: 'Pending for Invoice', variant: 'outline' });
+            } else if ((stock?.quantity || 0) >= (requiredQty - totalAllocated)) {
+                setStatus({ text: 'In Stock', variant: 'default' });
+            } else {
+                if (poSnap.exists()) {
+                    const poData = poSnap.data() as PurchaseRequest;
+                    const poItem = (poData.fabricDetails || []).find(pi => pi.fabricName === itemName);
+                    if (poItem?.poNumber) {
+                         setStatus({ text: 'PO Generated', variant: 'outline', poNumber: poItem.poNumber });
                     } else {
-                        setStatus({ text: 'Pending for PO', variant: 'destructive' });
+                         setStatus({ text: 'Pending for PO', variant: 'destructive' });
                     }
+                } else {
+                    setStatus({ text: 'Pending for PO', variant: 'destructive' });
                 }
             }
             setLoading(false);
         };
         fetchItemData();
     }, [item, orderId, onAllocationSuccess, orderCrmNo]);
+
 
     const name = (item as any).fabricName || (item as any).furnitureName;
     const unit = item.type === 'Fabric' ? 'Mtr' : '';
@@ -288,9 +311,8 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             </TableCell>
             <TableCell>
                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 
-                 <Badge variant={status.variant}>
+                 <Badge variant={status.variant} className={status.text.includes('Invoice Generated') ? 'bg-green-600' : ''}>
                     {status.text}
-                    {status.poNumber && `: ${status.poNumber}`}
                  </Badge>
                 }
             </TableCell>

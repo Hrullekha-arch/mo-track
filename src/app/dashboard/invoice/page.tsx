@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -13,7 +14,7 @@ import {
   RowSelectionState,
 } from "@tanstack/react-table";
 import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle } from "lucide-react";
-
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -23,9 +24,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -54,17 +54,26 @@ function GenerateInvoiceDialog({
   const [tallyBillNo, setTallyBillNo] = React.useState('');
   const { toast } = useToast();
 
-  const handleFinalGenerate = () => {
+  const handleFinalGenerate = async () => {
     setIsTallyDialogOpen(false);
     setIsGenerating(true);
-    // In a real app, you would call a server action here to create the invoice PDFs,
-    // update the batch status, and save the tallyBillNo.
-    console.log("Finalizing invoice with Tally Bill No:", tallyBillNo || "None");
-    setTimeout(() => {
+    
+    // Create a batch write to update all selected batches
+    const batch = batches.map(b => {
+        const batchRef = doc(db, "invoiceBatches", b.id);
+        return updateDoc(batchRef, { status: "invoiced", tallyBillNo: tallyBillNo || null });
+    });
+    
+    try {
+        await Promise.all(batch);
         toast({ title: "Invoice Generated!", description: "The invoice has been successfully generated."});
-        setIsGenerating(false);
         onClose();
-    }, 1500);
+    } catch (error) {
+        console.error("Error finalizing invoice:", error);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not finalize the invoice.' });
+    } finally {
+        setIsGenerating(false);
+    }
   }
   
   const handlePrint = () => {

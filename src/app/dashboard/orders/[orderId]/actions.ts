@@ -1,4 +1,5 @@
 
+
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -169,7 +170,7 @@ export async function allocateStockToAction(
             });
         } else {
             // No recent batch, create a new one
-            const newBatch: Omit<InvoiceBatch, 'id'> = {
+            const newBatch: Omit<InvoiceBatch, 'id' | 'tallyBillNo'> = {
                 orderId: orderId,
                 customerName: orderData.customerName,
                 customerPhone: orderData.customerPhone,
