@@ -11,13 +11,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, CheckCircle, Loader2, ScanLine } from "lucide-react";
+import { ArrowLeft, CheckCircle, Loader2, ScanLine, Undo } from "lucide-react";
 import { getStockById } from "../inventory/actions";
 import Link from 'next/link';
+import { useAuth } from "@/context/AuthContext";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 
-function CuttingTaskDetail({ task, onBack, onUpdate }: { task: CuttingTask, onBack: () => void, onUpdate: (taskId: string, updatedItems: CuttingTask['items']) => void }) {
+
+function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => void }) {
     const [loadingStock, setLoadingStock] = useState<Record<string, boolean>>({});
     const [stockDetails, setStockDetails] = useState<Record<string, Stock>>({});
+    const [revertingBcn, setRevertingBcn] = useState<string | null>(null);
+    const { toast } = useToast();
+    const { role } = useAuth();
+    const isAdmin = role === 'admin';
 
     useEffect(() => {
         const fetchStockDetails = async () => {
@@ -35,60 +42,110 @@ function CuttingTaskDetail({ task, onBack, onUpdate }: { task: CuttingTask, onBa
         fetchStockDetails();
     }, [task.items]);
     
+    const handleRevertCut = async () => {
+        if (!revertingBcn) return;
+
+        try {
+            const updatedItems = task.items.map(item =>
+                item.bcn === revertingBcn ? { ...item, status: 'pending' } : item
+            );
+
+            // If the overall task was 'Completed', it should now be 'In Progress'
+            const newStatus = task.status === 'Completed' ? 'In Progress' : task.status;
+
+            const taskRef = doc(db, 'Cutting', task.id);
+            await updateDoc(taskRef, {
+                items: updatedItems,
+                status: newStatus
+            });
+
+            toast({ title: "Cut Reverted!", description: `${revertingBcn} has been marked as pending again.` });
+        } catch (error) {
+            console.error("Error reverting cut:", error);
+            toast({ variant: 'destructive', title: 'Revert Failed' });
+        } finally {
+            setRevertingBcn(null);
+        }
+    }
+
+
     return (
-        <div>
-            <Button variant="ghost" onClick={onBack} className="mb-4">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Pending List
-            </Button>
-            <Card>
-                <CardHeader>
-                    <div className="flex justify-between items-start">
-                         <div>
-                            <CardTitle>Order {task.orderId}</CardTitle>
-                            <CardDescription>{task.customerName} - {task.customerPhone}</CardDescription>
-                         </div>
-                         <Badge variant={task.status === 'Completed' ? 'default' : 'secondary'} className={task.status === 'Completed' ? 'bg-green-600' : ''}>
-                            {task.status}
-                        </Badge>
-                    </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                     <p className="text-sm text-muted-foreground">Sales Person: {task.salesPerson}</p>
-                     <h3 className="font-semibold pt-4 border-t">List of Items to Cut</h3>
-                     <div className="space-y-3">
-                        {task.items.map((item, index) => {
-                            const stock = stockDetails[item.bcn];
-                            return (
-                                <Card key={index} className="p-3">
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                                        <div><span className="font-semibold text-xs">BCN:</span><p className="font-mono">{item.bcn}</p></div>
-                                        <div><span className="font-semibold text-xs">Last Length:</span><p>{loadingStock[item.bcn] ? <Loader2 className="h-4 w-4 animate-spin"/> : (stock?.quantity.toFixed(2) || 'N/A')}</p></div>
-                                        <div><span className="font-semibold text-xs">Qty to Cut:</span><p className="font-bold text-lg">{item.quantityAllocated.toFixed(2)}</p></div>
-                                        <div><span className="font-semibold text-xs">Category:</span><p>{stock?.category || 'N/A'}</p></div>
-                                        <div><span className="font-semibold text-xs">Rack:</span><p>{stock?.rack || 'N/A'}</p></div>
-                                        <div className="flex items-end justify-end">
-                                        {item.status === 'cut' ? (
-                                            <div className="flex items-center gap-2 text-green-600 font-bold">
-                                                <CheckCircle className="h-5 w-5"/> Cut
+         <AlertDialog>
+            <div>
+                <Button variant="ghost" onClick={onBack} className="mb-4">
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to Pending List
+                </Button>
+                <Card>
+                    <CardHeader>
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <CardTitle>Order {task.orderId}</CardTitle>
+                                <CardDescription>{task.customerName} - {task.customerPhone}</CardDescription>
+                            </div>
+                            <Badge variant={task.status === 'Completed' ? 'default' : 'secondary'} className={task.status === 'Completed' ? 'bg-green-600' : ''}>
+                                {task.status}
+                            </Badge>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <p className="text-sm text-muted-foreground">Sales Person: {task.salesPerson}</p>
+                        <h3 className="font-semibold pt-4 border-t">List of Items to Cut</h3>
+                        <div className="space-y-3">
+                            {task.items.map((item, index) => {
+                                const stock = stockDetails[item.bcn];
+                                return (
+                                    <Card key={index} className="p-3">
+                                        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                                            <div><span className="font-semibold text-xs">BCN:</span><p className="font-mono">{item.bcn}</p></div>
+                                            <div><span className="font-semibold text-xs">Last Length:</span><p>{loadingStock[item.bcn] ? <Loader2 className="h-4 w-4 animate-spin"/> : (stock?.quantity.toFixed(2) || 'N/A')}</p></div>
+                                            <div><span className="font-semibold text-xs">Qty to Cut:</span><p className="font-bold text-lg">{item.quantityAllocated.toFixed(2)}</p></div>
+                                            <div><span className="font-semibold text-xs">Category:</span><p>{stock?.category || 'N/A'}</p></div>
+                                            <div><span className="font-semibold text-xs">Rack:</span><p>{stock?.rack || 'N/A'}</p></div>
+                                            <div className="flex items-center justify-end gap-2">
+                                                {item.status === 'cut' ? (
+                                                    <>
+                                                        <div className="flex items-center gap-2 text-green-600 font-bold">
+                                                            <CheckCircle className="h-5 w-5"/> Cut
+                                                        </div>
+                                                        {isAdmin && (
+                                                            <AlertDialogTrigger asChild>
+                                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => setRevertingBcn(item.bcn)}>
+                                                                    <Undo className="h-4 w-4" />
+                                                                </Button>
+                                                            </AlertDialogTrigger>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <Button asChild size="sm">
+                                                        <Link href={`/dashboard/cutting/scan?taskId=${task.id}&bcn=${item.bcn}`}>
+                                                            <ScanLine className="mr-2 h-4 w-4" />
+                                                            Scan to Verify Cut
+                                                        </Link>
+                                                    </Button>
+                                                )}
                                             </div>
-                                        ) : (
-                                            <Button asChild size="sm">
-                                                <Link href={`/dashboard/cutting/scan?taskId=${task.id}&bcn=${item.bcn}`}>
-                                                    <ScanLine className="mr-2 h-4 w-4" />
-                                                    Scan to Verify Cut
-                                                </Link>
-                                            </Button>
-                                        )}
                                         </div>
-                                    </div>
-                                </Card>
-                            )
-                        })}
-                     </div>
-                </CardContent>
-            </Card>
-        </div>
+                                    </Card>
+                                )
+                            })}
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+             <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This action will revert the cut status for item <strong>{revertingBcn}</strong>. This should only be done if a mistake was made during verification.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setRevertingBcn(null)}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleRevertCut}>Revert Cut</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     )
 }
 
@@ -113,27 +170,6 @@ export default function CuttingPage() {
         return () => unsubscribe();
     }, [toast]);
 
-    const handleItemStatusUpdate = async (taskId: string, updatedItems: CuttingTask['items']) => {
-        try {
-            const taskRef = doc(db, 'Cutting', taskId);
-            
-            const allItemsCut = updatedItems.every(item => item.status === 'cut');
-            const newStatus = allItemsCut ? 'Completed' : 'In Progress';
-
-            await updateDoc(taskRef, {
-                items: updatedItems,
-                status: newStatus
-            });
-            toast({ title: "Item Cut Verified!" });
-            if (newStatus === 'Completed') {
-                toast({ title: "Task Complete!", description: "All items for this order have been cut." });
-                setSelectedTask(null);
-            }
-        } catch (error) {
-            console.error("Error updating item status:", error);
-            toast({ variant: 'destructive', title: "Update Failed" });
-        }
-    };
 
     if (loading) {
         return (
@@ -147,7 +183,7 @@ export default function CuttingPage() {
     if (selectedTask) {
         return (
             <div className="w-full p-4 md:p-6 lg:p-8">
-                <CuttingTaskDetail task={selectedTask} onBack={() => setSelectedTask(null)} onUpdate={handleItemStatusUpdate} />
+                <CuttingTaskDetail task={selectedTask} onBack={() => setSelectedTask(null)} />
             </div>
         )
     }
