@@ -12,7 +12,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText, Checkbox } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,13 +23,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { Card, CardContent } from "@/components/ui/card";
+import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { InvoiceBatch } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+
 
 function GenerateInvoiceDialog({
   isOpen,
@@ -105,23 +107,17 @@ function GenerateInvoiceDialog({
 export default function InvoicePage() {
   const [batches, setBatches] = React.useState<InvoiceBatch[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [sorting, setSorting] = React.useState<SortingState>([
-    { id: "createdAt", desc: true },
-  ]);
+  const [sorting, setSorting] = React.useState<SortingState>([]);
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
   const [isGenerateDialogOpen, setIsGenerateDialogOpen] = React.useState(false);
   const { toast } = useToast();
 
   React.useEffect(() => {
     setLoading(true);
-    const batchesQuery = query(
-        collection(db, "invoiceBatches"), 
-        where("status", "==", "pending")
-    );
+    const batchesQuery = query(collection(db, "invoiceBatches"));
 
     const unsubscribe = onSnapshot(batchesQuery, (snapshot) => {
         const batchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvoiceBatch));
-        batchesData.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
         setBatches(batchesData);
         setLoading(false);
     }, (error) => {
