@@ -31,14 +31,11 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
 async function recalculateStockQuantity(stockId: string, transaction: FirebaseFirestore.Transaction) {
     const stockRef = adminDb.collection('stocks').doc(stockId);
     
-    // Important: These reads must be part of the transaction
-    const addedTransactionsPromise = transaction.get(stockRef.collection('stockAdded'));
-    
-    const [addedSnapshot] = await Promise.all([addedTransactionsPromise]);
+    // This read must be part of the transaction
+    const addedTransactionsSnapshot = await transaction.get(stockRef.collection('stockAdded'));
 
     let totalQuantity = 0;
-
-    addedSnapshot.forEach(doc => {
+    addedTransactionsSnapshot.forEach(doc => {
         totalQuantity += (doc.data() as StockTransaction).quantityChange;
     });
     
@@ -57,10 +54,18 @@ export async function allocateStockToAction(
        await adminDb.runTransaction(async (transaction) => {
             const stockRef = adminDb.collection('stocks').doc(stockId);
             const orderRef = adminDb.collection('orders').doc(orderId);
-            
-            const [stockDoc, orderDoc] = await Promise.all([
+            const invoiceBatchRef = adminDb.collection('invoiceBatches');
+            const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+            const recentBatchesQuery = invoiceBatchRef
+                .where('orderId', '==', orderId)
+                .where('status', '==', 'pending')
+                .where('createdAt', '>=', tenMinutesAgo);
+
+            // --- ALL READS MUST BE EXECUTED FIRST ---
+            const [stockDoc, orderDoc, recentBatchesSnapshot] = await Promise.all([
                 transaction.get(stockRef),
-                transaction.get(orderRef)
+                transaction.get(orderRef),
+                transaction.get(recentBatchesQuery)
             ]);
 
             if (!stockDoc.exists) throw new Error("Stock item not found.");
@@ -68,26 +73,38 @@ export async function allocateStockToAction(
             
             const stockData = stockDoc.data() as Stock;
             const orderData = orderDoc.data() as Order;
-
             const totalAllocatedQty = allocatedLengths.reduce((sum, l) => sum + l.length, 0);
 
+            // Fetch all original transaction docs that need to be read before writing.
+            const originalTxRefs = allocatedLengths.map(p => stockRef.collection('stockAdded').doc(p.transactionId));
+            const originalTxDocs = await Promise.all(originalTxRefs.map(ref => transaction.get(ref)));
+
+            // --- ALL WRITES MUST BE EXECUTED AFTER ALL READS ---
+
             // For each piece of stock we are allocating...
-            for (const allocatedPiece of allocatedLengths) {
-                const originalTxRef = stockRef.collection('stockAdded').doc(allocatedPiece.transactionId);
-                
-                // Decrement the quantity from the original roll.
-                transaction.update(originalTxRef, {
+            for (let i = 0; i < allocatedLengths.length; i++) {
+                const allocatedPiece = allocatedLengths[i];
+                const originalTxDoc = originalTxDocs[i];
+
+                if (!originalTxDoc.exists) {
+                    throw new Error(`Original stock roll with ID ${allocatedPiece.transactionId} not found.`);
+                }
+                const originalTxData = originalTxDoc.data() as StockTransaction;
+
+                // 1. Decrement the quantity from the original roll.
+                transaction.update(originalTxDoc.ref, {
                     quantityChange: FieldValue.increment(-allocatedPiece.length)
                 });
 
-                // Create a new deduction transaction for each piece cut
-                const stockSoldRef = originalTxRef.collection('stockSold').doc();
-                const stockSoldData: Omit<StockTransaction, 'id'> = {
+                // 2. Create a new deduction transaction for each piece cut
+                const stockSoldRef = originalTxDoc.ref.collection('stockSold').doc();
+                const stockSoldData: Omit<StockTransaction, 'id' | 'originalLength'> = {
                     stockId: stockId,
                     bcn: stockData.bcn || '',
                     type: 'deduction',
                     quantityChange: -allocatedPiece.length,
                     lengths: [allocatedPiece.length],
+                    originalLength: originalTxData.quantityChange,
                     orderId: orderId,
                     createdAt: new Date().toISOString(),
                     createdBy: userName,
@@ -95,9 +112,8 @@ export async function allocateStockToAction(
                 transaction.set(stockSoldRef, stockSoldData);
             }
             
-            const allocationRef = orderRef.collection('allocations').doc(); // New allocation document
-            
-            // Create one allocation record under the order for the total
+            // 3. Create one allocation record under the order for the total
+            const allocationRef = orderRef.collection('allocations').doc();
             const allocationData = {
                 stockId,
                 itemName,
@@ -107,22 +123,9 @@ export async function allocateStockToAction(
                 allocatedBy: userName,
             };
             transaction.set(allocationRef, allocationData);
-
-            // Recalculate total quantity for the stock item
-            await recalculateStockQuantity(stockId, transaction);
             
-             // --- Logic for Invoice Batching ---
-            const invoiceBatchRef = adminDb.collection('invoiceBatches');
-            const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-
-            const recentBatchesQuery = invoiceBatchRef
-                .where('orderId', '==', orderId)
-                .where('status', '==', 'pending')
-                .where('createdAt', '>=', tenMinutesAgo);
-            
-            const recentBatchesSnapshot = await transaction.get(recentBatchesQuery);
+            // 4. Update or create an invoice batch
             const recentBatchDoc = recentBatchesSnapshot.docs[0];
-
             const newItemForBatch: InvoiceBatchItem = {
                 itemName: itemName,
                 quantityAllocated: totalAllocatedQty,
@@ -146,6 +149,20 @@ export async function allocateStockToAction(
                 };
                 transaction.set(newBatchRef, newBatch);
             }
+
+            // 5. Recalculate total quantity for the stock item.
+            // This function internally does a read (get all stockAdded docs) followed by a write (update total quantity).
+            // It's wrapped in the main transaction, so we pass the transaction object to it.
+            const addedTransactionsSnapshot = await transaction.get(stockRef.collection('stockAdded'));
+            let totalQuantity = 0;
+            addedTransactionsSnapshot.forEach(doc => {
+                totalQuantity += (doc.data() as StockTransaction).quantityChange;
+            });
+            transaction.update(stockRef, { 
+              quantity: totalQuantity,
+              lastUpdatedAt: new Date().toISOString()
+            });
+
        });
 
         return { success: true, message: 'Stock allocated and prepared for invoicing.' };
@@ -155,6 +172,7 @@ export async function allocateStockToAction(
         return { success: false, message: `Failed to allocate stock: ${error.message}` };
     }
 }
+
 
 export async function getOrderAllocations(orderId: string): Promise<any[]> {
     try {
@@ -168,5 +186,3 @@ export async function getOrderAllocations(orderId: string): Promise<any[]> {
         return [];
     }
 }
-
-    
