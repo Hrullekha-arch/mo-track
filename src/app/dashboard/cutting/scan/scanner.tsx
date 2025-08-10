@@ -59,8 +59,9 @@ export function CuttingScannerComponent() {
     const [loading, setLoading] = useState(true);
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
-    const [permissionError, setPermissionError] = useState<string | null>(null);
     const isProcessingRef = useRef(false);
+    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+
 
     const handleScan = useCallback(async (scannedData: string) => {
         if (!task || !user || isProcessingRef.current) return;
@@ -157,39 +158,41 @@ export function CuttingScannerComponent() {
     }, [task, user, targetBcn, toast, router]);
 
      useEffect(() => {
-        const startScanner = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    await videoRef.current.play(); // Ensure video is playing before decoding
-                    
-                    codeReaderRef.current.decodeFromVideoElement(videoRef.current, (result, err) => {
-                         if (result && !isProcessingRef.current) {
-                            handleScan(result.getText());
-                         }
-                         if (err && !(err instanceof NotFoundException)) {
-                             console.error("ZXing Decode Error:", err);
-                             setPermissionError("An error occurred during scanning.")
-                         }
-                    });
-                }
-            } catch (err) {
-                 console.error("Camera permission error:", err);
-                 setPermissionError("Camera permission denied. Please enable camera access in your browser settings.");
+        const getCameraPermission = async () => {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            setHasCameraPermission(true);
+    
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              await videoRef.current.play(); // Ensure video is playing
+              
+              codeReaderRef.current.decodeFromVideoElement(videoRef.current, (result, err) => {
+                 if (result && !isProcessingRef.current) {
+                    handleScan(result.getText());
+                 }
+                 if (err && !(err instanceof NotFoundException)) {
+                     console.error("ZXing Decode Error:", err);
+                 }
+              });
             }
+          } catch (error) {
+            console.error('Error accessing camera:', error);
+            setHasCameraPermission(false);
+            toast({
+              variant: 'destructive',
+              title: 'Camera Access Denied',
+              description: 'Please enable camera permissions in your browser settings to use this app.',
+            });
+          }
         };
-
-        startScanner();
-
+    
+        getCameraPermission();
+    
         return () => {
-            codeReaderRef.current.reset();
-            if (videoRef.current?.srcObject) {
-                const stream = videoRef.current.srcObject as MediaStream;
-                stream.getTracks().forEach(track => track.stop());
-            }
+          codeReaderRef.current.reset();
         };
-    }, [handleScan]);
+      }, [handleScan, toast]);
 
     useEffect(() => {
         if (!taskId) {
@@ -253,11 +256,11 @@ export function CuttingScannerComponent() {
                         <CardContent>
                             <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
                                 <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
-                                {permissionError && (
+                                {hasCameraPermission === false && (
                                      <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
                                         <CameraOff className="h-12 w-12 text-muted-foreground mb-4"/>
                                         <p className="font-semibold">Camera Error</p>
-                                        <p className="text-sm text-muted-foreground">{permissionError}</p>
+                                        <p className="text-sm text-muted-foreground">Camera permission denied. Please enable camera access in your browser settings.</p>
                                     </div>
                                 )}
                             </div>
