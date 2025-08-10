@@ -11,9 +11,40 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ArrowLeft, Camera, CheckCircle, Loader2, ScanLine } from 'lucide-react';
+import { ArrowLeft, Camera, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
+
+type ScanStatus = 'success' | 'warning' | 'error';
+
+interface ScanResult {
+    status: ScanStatus;
+    message: string;
+}
+
+const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult | null, isOpen: boolean, onOpenChange: (open: boolean) => void }) => {
+    if (!result) return null;
+
+    const { status, message } = result;
+    const Icon = status === 'success' ? CheckCircle : status === 'warning' ? AlertTriangle : XCircle;
+    const iconColor = status === 'success' ? 'text-green-500' : status === 'warning' ? 'text-orange-400' : 'text-red-500';
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md p-0" hideCloseButton>
+                <div className={cn(
+                    "flex flex-col items-center justify-center p-8 rounded-lg text-center space-y-4",
+                )}>
+                    <Icon className={cn("h-20 w-20", iconColor)} />
+                    <p className="text-xl font-bold">{message}</p>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 
 function CuttingScanner() {
     const searchParams = useSearchParams();
@@ -30,6 +61,8 @@ function CuttingScanner() {
     const [loading, setLoading] = useState(true);
     const [scanning, setScanning] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+    const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+    const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
     
     useEffect(() => {
@@ -123,8 +156,10 @@ function CuttingScanner() {
         const scannedLength = parseFloat(scannedLengthStr);
         const expectedLength = parseFloat(itemToUpdate.quantityAllocated.toFixed(2));
 
-        if (scannedBcn !== bcn) {
-            toast({ variant: 'destructive', title: 'Incorrect Barcode', description: `Scanned BCN ${scannedBcn}, but expected ${bcn}`});
+        if (scannedBcn !== bcn || isNaN(scannedLength)) {
+            setScanResult({ status: 'error', message: 'Wrong Barcode' });
+            setIsPopupOpen(true);
+            setTimeout(() => setIsPopupOpen(false), 1500);
             setScanning(false);
             isScanningRef.current = false;
             return;
@@ -132,7 +167,9 @@ function CuttingScanner() {
 
         // Verify that the roll has enough length for the required cut
         if (scannedLength < expectedLength) {
-             toast({ variant: 'destructive', title: 'Insufficient Length', description: `Scanned roll length is ${scannedLength}, but required cut is ${expectedLength}`});
+            setScanResult({ status: 'error', message: 'Insufficient Length' });
+            setIsPopupOpen(true);
+            setTimeout(() => setIsPopupOpen(false), 1500);
             setScanning(false);
             isScanningRef.current = false;
             return;
@@ -149,7 +186,9 @@ function CuttingScanner() {
             const taskRef = doc(db, "Cutting", task.id);
             await updateDoc(taskRef, { items: updatedItems, status: newStatus });
             
-            toast({ title: 'Item Cut Verified!', description: `${bcn} has been marked as cut.` });
+            setScanResult({ status: 'success', message: 'Verified!' });
+            setIsPopupOpen(true);
+            setTimeout(() => setIsPopupOpen(false), 1500);
             
             if (newStatus === 'Completed') {
                 router.push('/dashboard/cutting');
@@ -159,7 +198,9 @@ function CuttingScanner() {
 
         } catch (error) {
             console.error('Error updating status on scan:', error);
-            toast({ variant: 'destructive', title: 'Update Failed' });
+            setScanResult({ status: 'error', message: 'Update Failed' });
+            setIsPopupOpen(true);
+            setTimeout(() => setIsPopupOpen(false), 1500);
         } finally {
             setScanning(false);
             setTimeout(() => { isScanningRef.current = false; }, 2000); // Cooldown
@@ -178,6 +219,7 @@ function CuttingScanner() {
     const isItemCut = itemToScan?.status === 'cut';
 
     return (
+        <>
         <div className="container mx-auto p-4 md:p-6 lg:p-8 max-w-4xl">
              <div className="flex items-center gap-4 mb-4">
                 <Button asChild variant="outline" size="icon">
@@ -247,6 +289,8 @@ function CuttingScanner() {
                 </Card>
             </div>
         </div>
+        <ScanResultPopup result={scanResult} isOpen={isPopupOpen} onOpenChange={setIsPopupOpen} />
+        </>
     );
 }
 
