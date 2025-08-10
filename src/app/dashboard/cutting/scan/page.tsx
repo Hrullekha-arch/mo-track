@@ -1,6 +1,4 @@
 
-"use client";
-
 import { Suspense } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CuttingScannerComponent } from './scanner';
