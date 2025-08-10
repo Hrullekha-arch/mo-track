@@ -96,16 +96,19 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
 
     return (
         <div style={{ width: '210mm', minHeight: '297mm', margin: 'auto', padding: '1rem', backgroundColor: 'white', color: 'black', fontFamily: 'Arial, sans-serif', fontSize: '10px' }}>
-            <header style={{ textAlign: 'center', marginBottom: '1rem', position: 'relative' }}>
-                 <div style={{ position: 'absolute', left: 0, top: 0 }}>
+            <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', borderBottom: '1px solid black', paddingBottom: '0.5rem' }}>
+                 <div style={{ flex: '0 0 120px' }}>
                     <Image src="/logo.png" alt="MoTrack Logo" width={100} height={50} data-ai-hint="logo" />
                  </div>
-                <h1 style={{ fontSize: '14px', fontWeight: 'bold', margin: 0, borderBottom: '1px solid black', paddingBottom: '4px' }}>TAX INVOICE</h1>
-                <h2 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0.5rem 0 0.25rem' }}>MO DESIGNS PRIVATE LIMITED</h2>
-                <p style={{ margin: 0, fontSize: '10px' }}>
-                    A6 SUSHANT LOK 1, M G ROAD, GURGAON<br />
-                    GURGAON-122002 (HARYANA) INDIA
-                </p>
+                <div style={{ flex: '1', textAlign: 'center' }}>
+                    <h1 style={{ fontSize: '14px', fontWeight: 'bold', margin: 0, borderBottom: '1px solid black', paddingBottom: '4px' }}>TAX INVOICE</h1>
+                    <h2 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0.5rem 0 0.25rem' }}>MO DESIGNS PRIVATE LIMITED</h2>
+                    <p style={{ margin: 0, fontSize: '10px' }}>
+                        A6 SUSHANT LOK 1, M G ROAD, GURGAON<br />
+                        GURGAON-122002 (HARYANA) INDIA
+                    </p>
+                </div>
+                 <div style={{ flex: '0 0 120px' }}></div>
             </header>
             
             <section style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid black', borderBottom: '1px solid black', padding: '0.5rem 0' }}>

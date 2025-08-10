@@ -12,7 +12,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, Checkbox, PlusCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,18 +23,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { collection, onSnapshot, query, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { InvoiceBatch, Order } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 
 function GenerateInvoiceDialog({
@@ -73,16 +73,13 @@ function GenerateInvoiceDialog({
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    printWindow.document.write('<html><head><title>Print Invoice</title>');
-    printWindow.document.write('<style>@media print { body { -webkit-print-color-adjust: exact; } table { page-break-inside: auto; } tr { page-break-inside: avoid; page-break-after: auto; } thead { display: table-header-group; } tfoot { display: table-footer-group; } }</style>');
-    printWindow.document.write('</head><body>');
+    printWindow.document.write('<html><head><title>Print Invoice</title></head><body>');
     printWindow.document.write(printContent.innerHTML);
     printWindow.document.write('</body></html>');
     printWindow.document.close();
     setTimeout(() => {
         printWindow.focus();
         printWindow.print();
-        printWindow.close();
     }, 250);
   };
 
@@ -136,48 +133,20 @@ function GenerateInvoiceDialog({
   )
 }
 
+function InvoiceTable({ 
+    batches, 
+    orders, 
+    loading 
+}: { 
+    batches: InvoiceBatch[], 
+    orders: Order[], 
+    loading: boolean 
+}) {
+    const [sorting, setSorting] = React.useState<SortingState>([]);
+    const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
+    const [isGenerateDialogOpen, setIsGenerateDialogOpen] = React.useState(false);
 
-export default function InvoicePage() {
-  const [batches, setBatches] = React.useState<InvoiceBatch[]>([]);
-  const [orders, setOrders] = React.useState<Order[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
-  const [isGenerateDialogOpen, setIsGenerateDialogOpen] = React.useState(false);
-  const { toast } = useToast();
-
-  React.useEffect(() => {
-    setLoading(true);
-    const batchesQuery = query(collection(db, "invoiceBatches"));
-    const ordersQuery = query(collection(db, "orders"));
-
-    const unsubscribeBatches = onSnapshot(batchesQuery, (snapshot) => {
-        const batchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvoiceBatch));
-        setBatches(batchesData);
-    }, (error) => {
-        console.error("Error fetching invoice batches:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not load invoice data." });
-    });
-
-    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-        const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        setOrders(ordersData);
-    }, (error) => {
-        console.error("Error fetching orders:", error);
-    });
-
-    Promise.all([
-        getDocs(batchesQuery),
-        getDocs(ordersQuery)
-    ]).finally(() => setLoading(false));
-
-    return () => {
-      unsubscribeBatches();
-      unsubscribeOrders();
-    };
-  }, [toast]);
-
-  const columns: ColumnDef<InvoiceBatch>[] = [
+    const columns: ColumnDef<InvoiceBatch>[] = [
     {
       id: "select",
       header: ({ table }) => (
@@ -265,17 +234,9 @@ export default function InvoicePage() {
   const selectedBatches = table.getFilteredSelectedRowModel().rows.map(row => row.original);
   const selectedOrders = orders.filter(order => selectedBatches.some(batch => batch.orderId === order.id));
 
-
   return (
     <>
-    <div className="container mx-auto p-4 md:p-6 lg:p-8">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Invoice</h1>
-        <p className="text-muted-foreground">
-          Items that have been allocated and are ready for invoicing.
-        </p>
-      </header>
-      <Card>
+    <Card>
         <CardContent className="p-4">
             <div className="rounded-md border">
                 <Table>
@@ -334,13 +295,79 @@ export default function InvoicePage() {
             </div>
         </CardContent>
       </Card>
+       <GenerateInvoiceDialog
+            isOpen={isGenerateDialogOpen}
+            onClose={() => setIsGenerateDialogOpen(false)}
+            batches={selectedBatches}
+            orders={selectedOrders}
+        />
+    </>
+  )
+}
+
+
+export default function InvoicePage() {
+  const [batches, setBatches] = React.useState<InvoiceBatch[]>([]);
+  const [orders, setOrders] = React.useState<Order[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    setLoading(true);
+    const batchesQuery = query(collection(db, "invoiceBatches"));
+    const ordersQuery = query(collection(db, "orders"));
+
+    const unsubscribeBatches = onSnapshot(batchesQuery, (snapshot) => {
+        const batchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvoiceBatch));
+        setBatches(batchesData);
+    }, (error) => {
+        console.error("Error fetching invoice batches:", error);
+        toast({ variant: "destructive", title: "Error", description: "Could not load invoice data." });
+    });
+
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+        const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+        setOrders(ordersData);
+    }, (error) => {
+        console.error("Error fetching orders:", error);
+    });
+
+    Promise.all([
+        getDocs(batchesQuery),
+        getDocs(ordersQuery)
+    ]).finally(() => setLoading(false));
+
+    return () => {
+      unsubscribeBatches();
+      unsubscribeOrders();
+    };
+  }, [toast]);
+
+  const activeBatches = React.useMemo(() => batches.filter(b => b.status === 'pending'), [batches]);
+
+
+  return (
+    <>
+    <div className="container mx-auto p-4 md:p-6 lg:p-8">
+      <header className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Invoice</h1>
+        <p className="text-muted-foreground">
+          Items that have been allocated and are ready for invoicing.
+        </p>
+      </header>
+       <Tabs defaultValue="active" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="active">Active Invoices</TabsTrigger>
+                <TabsTrigger value="all">All Invoices</TabsTrigger>
+            </TabsList>
+            <TabsContent value="active" className="pt-4">
+                <InvoiceTable batches={activeBatches} orders={orders} loading={loading} />
+            </TabsContent>
+            <TabsContent value="all" className="pt-4">
+                <InvoiceTable batches={batches} orders={orders} loading={loading} />
+            </TabsContent>
+        </Tabs>
     </div>
-    <GenerateInvoiceDialog
-      isOpen={isGenerateDialogOpen}
-      onClose={() => setIsGenerateDialogOpen(false)}
-      batches={selectedBatches}
-      orders={selectedOrders}
-    />
     </>
   );
 }
