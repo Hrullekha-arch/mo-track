@@ -1,7 +1,7 @@
 
 
 import { Card, CardDescription, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle, Warehouse, Contact, HomeIcon, FileSignature, CheckSquare as CheckSquareIcon, FileText } from "lucide-react";
+import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle, Warehouse, Contact, HomeIcon, FileSignature, CheckSquare as CheckSquareIcon, FileText, Scissors } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -94,6 +94,14 @@ const dashboardItems = [
         icon: GanttChartSquare,
         color: "bg-cyan-500",
         id: "pms"
+    },
+    {
+        href: "#",
+        title: "Cutting & Details",
+        description: "Manage fabric cutting and production details.",
+        icon: Scissors,
+        color: "bg-pink-500",
+        id: "cutting"
     },
     {
         href: "/dashboard/users",
