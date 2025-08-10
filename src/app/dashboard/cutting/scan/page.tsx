@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, Camera, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeScanner, Html5QrcodeResult, Html5QrcodeError } from 'html5-qrcode';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
@@ -52,14 +52,16 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
+    
+    // This ref will hold the Html5Qrcode instance
+    const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+    const scannerId = "reader";
 
     const handleScan = async (scannedValue: string) => {
         if (!task || isScanningRef.current) return;
 
         isScanningRef.current = true;
         
-        console.log("Scanned Value:", scannedValue);
-
         const itemToUpdate = task.items.find(item => item.bcn === bcn && item.status !== 'cut');
 
         if (!itemToUpdate) {
@@ -82,7 +84,7 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
             }, 1500);
             return;
         }
-
+        
         const scannedLength = parseFloat(scannedLengthStr);
         const expectedLength = parseFloat(itemToUpdate.quantityAllocated.toFixed(2));
 
@@ -97,7 +99,7 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
         }
 
         if (isNaN(scannedLength) || scannedLength < expectedLength) {
-            setScanResult({ status: 'error', message: `Insufficient Length. Expected at least ${expectedLength}, but roll has ${scannedLength}` });
+            setScanResult({ status: 'error', message: `Insufficient Length. Expected ${expectedLength}, but roll has ${scannedLength}` });
             setIsPopupOpen(true);
             setTimeout(() => {
                 setIsPopupOpen(false);
@@ -116,7 +118,6 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
 
             const taskRef = doc(db, "Cutting", task.id);
             await updateDoc(taskRef, { items: updatedItems, status: newStatus });
-            console.log("Task updated:", { items: updatedItems, status: newStatus }); // Debug log
 
             setScanResult({ status: 'success', message: 'Verified!' });
             setIsPopupOpen(true);
@@ -165,33 +166,45 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
     }, [taskId, router, toast]);
 
     useEffect(() => {
-        const scanner = new Html5QrcodeScanner(
-            'reader', 
-            { 
-                qrbox: { width: 250, height: 250 },
-                fps: 10,
-            }, 
-            false
-        );
+        // Initialize the scanner when the component mounts
+        html5QrCodeRef.current = new Html5Qrcode(scannerId);
+        let scannerIsRunning = true;
 
-        function onScanSuccess(decodedText: string, decodedResult: any) {
-            //scanner.clear();
-            handleScan(decodedText);
-        }
+        const startScanner = async () => {
+            try {
+                await html5QrCodeRef.current?.start(
+                    { facingMode: "environment" },
+                    {
+                        fps: 10,
+                        qrbox: { width: 250, height: 250 },
+                    },
+                    (decodedText: string, result: Html5QrcodeResult) => {
+                        if (scannerIsRunning && !isScanningRef.current) {
+                            handleScan(decodedText);
+                        }
+                    },
+                    (errorMessage: string, error: Html5QrcodeError) => {
+                       // Errors are frequent, we can ignore them unless needed for debugging
+                    }
+                );
+            } catch (err) {
+                 console.error("Failed to start scanner", err);
+                 toast({ variant: 'destructive', title: 'Scanner Error', description: 'Could not start the camera.'});
+            }
+        };
 
-        function onScanFailure(error: any) {
-            // handle scan failure, usually better to ignore and keep scanning.
-        }
-
-        scanner.render(onScanSuccess, onScanFailure);
+        startScanner();
 
         return () => {
-            scanner.clear().catch(error => {
-                console.error("Failed to clear html5-qrcode-scanner.", error);
-            });
+            scannerIsRunning = false;
+            if (html5QrCodeRef.current?.isScanning) {
+                html5QrCodeRef.current.stop().catch(err => {
+                    console.error("Failed to stop scanner cleanly", err);
+                });
+            }
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [task]);
+    }, []);
 
 
     if (loading) {
@@ -225,7 +238,7 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
                             <CardDescription>Scan the barcode of the fabric roll.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                             <div id="reader" className="w-full"></div>
+                             <div id={scannerId} className="w-full"></div>
                         </CardContent>
                     </Card>
                     <Card>
@@ -286,3 +299,5 @@ export default function CuttingScanPage() {
         </Suspense>
     );
 }
+
+    

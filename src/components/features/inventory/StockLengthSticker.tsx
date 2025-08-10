@@ -4,7 +4,6 @@
 import { useEffect, useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 import Image from 'next/image';
-import { Stock } from '@/lib/types';
 
 interface StockLengthStickerProps {
     bcn: string;
@@ -13,7 +12,7 @@ interface StockLengthStickerProps {
     rack: string;
 }
 
-// 72.2mm x 49.8mm at 96 DPI
+// 72.1mm x 48.9mm at 96 DPI
 const STICKER_WIDTH_PX = 272;
 const STICKER_HEIGHT_PX = 188;
 
@@ -72,3 +71,5 @@ export function StockLengthSticker({ bcn, length, mrp, rack }: StockLengthSticke
         </div>
     );
 }
+
+    

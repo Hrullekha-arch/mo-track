@@ -35,13 +35,7 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
             for (const item of task.items) {
                 setLoadingStock(prev => ({...prev, [item.bcn]: true}));
                 const stock = await getStockById(item.bcn.replace(/\//g, '-'));
-                
-                let transaction: StockTransaction | null = null;
-                // Simplified fetch, assuming there's a unique identifier for the transaction if needed
-                // For now, we'll just fetch the stock item for simplicity.
-                // A more robust solution might need to query the stockSold subcollection for the orderId.
-
-                newStockDetails[item.bcn] = { stock, transaction };
+                newStockDetails[item.bcn] = { stock, transaction: null };
                 setLoadingStock(prev => ({...prev, [item.bcn]: false}));
             }
             setStockDetails(newStockDetails);
@@ -57,8 +51,7 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
                 item.bcn === revertingBcn ? { ...item, status: 'pending' } : item
             );
 
-            // If the overall task was 'Completed', it should now be 'In Progress'
-            let newStatus = task.status;
+            let newStatus: CuttingTask['status'] = task.status;
             if (task.status === 'Completed' && updatedItems.some(i => i.status === 'pending')) {
                 newStatus = 'In Progress';
             }
@@ -167,28 +160,28 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
                     </CardContent>
                 </Card>
                  <Dialog open={!!printingItem} onOpenChange={() => setPrintingItem(null)}>
-                     <DialogContent>
-                         <DialogHeader>
-                             <DialogTitle>Print Sticker</DialogTitle>
-                             <DialogDescription>
-                                 Sticker for {printingItem?.item.bcn} with length {printingItem?.item.quantityAllocated.toFixed(2)}.
-                             </DialogDescription>
-                         </DialogHeader>
-                         {printingItem && (
-                              <div id="sticker-print-area-cutting" className="py-4 flex justify-center">
-                                 <StockLengthSticker 
-                                     bcn={printingItem.item.bcn}
-                                     length={printingItem.item.quantityAllocated}
-                                     mrp={printingItem.stock?.mrp || 0}
-                                     rack={printingItem.stock?.rack || 'N/A'}
-                                 />
-                             </div>
-                         )}
-                         <DialogFooter>
-                             <Button variant="ghost" onClick={() => setPrintingItem(null)}>Cancel</Button>
-                             <Button onClick={handlePrint}>Print</Button>
-                         </DialogFooter>
-                     </DialogContent>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Print Sticker</DialogTitle>
+                            <DialogDescription>
+                                Sticker for {printingItem?.item.bcn} with length {printingItem?.item.quantityAllocated.toFixed(2)}.
+                            </DialogDescription>
+                        </DialogHeader>
+                        {printingItem && (
+                             <div id="sticker-print-area-cutting" className="py-4 flex justify-center">
+                                <StockLengthSticker 
+                                    bcn={printingItem.item.bcn}
+                                    length={printingItem.item.quantityAllocated}
+                                    mrp={printingItem.stock?.mrp || 0}
+                                    rack={printingItem.stock?.rack || 'N/A'}
+                                />
+                            </div>
+                        )}
+                        <DialogFooter>
+                            <Button variant="ghost" onClick={() => setPrintingItem(null)}>Cancel</Button>
+                            <Button onClick={handlePrint}>Print</Button>
+                        </DialogFooter>
+                    </DialogContent>
                  </Dialog>
             </div>
              <AlertDialogContent>
@@ -302,3 +295,5 @@ export default function CuttingPage() {
         </div>
     );
 }
+
+    
