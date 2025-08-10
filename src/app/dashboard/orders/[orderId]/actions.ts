@@ -41,10 +41,9 @@ export async function allocateStockToAction(
             const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
             
             // --- ALL READS MUST BE EXECUTED FIRST ---
-            const [stockDoc, orderDoc, allAddedTransactionsSnapshot] = await Promise.all([
+            const [stockDoc, orderDoc] = await Promise.all([
                 transaction.get(stockRef),
                 transaction.get(orderRef),
-                transaction.get(stockRef.collection('stockAdded'))
             ]);
 
             const recentBatchesQuery = invoiceBatchRef
@@ -74,32 +73,28 @@ export async function allocateStockToAction(
                 const originalTxDoc = originalTxDocs[i];
 
                 if (!originalTxDoc.exists) {
-                    throw new Error(`Original stock roll with ID ${'${'}allocatedPiece.transactionId} not found.`);
+                    throw new Error(`Original stock roll with ID ${allocatedPiece.transactionId} not found.`);
                 }
                 const originalTxData = originalTxDoc.data() as StockTransaction;
+                
+                // Set the originalLength to be stored in the invoice batch.
+                // This is the full length of the roll from which the piece is being cut.
+                originalLengthForInvoice = originalTxData.quantityChange;
 
-                // This logic was flawed. We need the original length of the roll being cut from.
-                const parentRollDoc = await transaction.get(stockRef.collection('stockAdded').doc(allocatedPiece.transactionId));
-                if (!parentRollDoc.exists) {
-                     throw new Error(`Parent stock roll not found for transaction ${'${'}allocatedPiece.transactionId}`);
-                }
-                originalLengthForInvoice = (parentRollDoc.data() as StockTransaction).quantityChange;
-
-
-                // 1. Decrement the quantity from the original roll.
+                // 1. Decrement the quantity from the original roll document in 'stockAdded'.
                 transaction.update(originalTxDoc.ref, {
                     quantityChange: FieldValue.increment(-allocatedPiece.length)
                 });
 
-                // 2. Create a new deduction transaction for each piece cut
+                // 2. Create a new deduction transaction for each piece cut under its parent roll
                 const stockSoldRef = originalTxDoc.ref.collection('stockSold').doc();
                 const stockSoldData: Omit<StockTransaction, 'id'> = {
                     stockId: stockId,
                     bcn: stockData.bcn || '',
                     type: 'deduction',
-                    quantityChange: -allocatedPiece.length,
+                    quantityChange: -allocatedPiece.length, // The actual amount cut
                     lengths: [allocatedPiece.length],
-                    originalLength: originalTxData.quantityChange,
+                    originalLength: originalTxData.quantityChange, // The roll's length *before* this cut
                     orderId: orderId,
                     createdAt: new Date().toISOString(),
                     createdBy: userName,
@@ -146,16 +141,7 @@ export async function allocateStockToAction(
                 transaction.set(newBatchRef, newBatch);
             }
 
-            // 5. Recalculate total quantity for the stock item.
-            let totalQuantity = 0;
-            const updatedAllAddedSnapshot = await transaction.get(stockRef.collection('stockAdded')); // Re-read after updates
-            updatedAllAddedSnapshot.forEach(doc => {
-                const data = doc.data() as StockTransaction;
-                totalQuantity += data.quantityChange;
-            });
-            
-            // This recalculation was flawed. The transaction will handle it atomically.
-            // Let's rely on atomic increments instead of manual recalculation.
+            // 5. Update the main stock quantity atomically.
             transaction.update(stockRef, { 
               quantity: FieldValue.increment(-totalAllocatedQty),
               lastUpdatedAt: new Date().toISOString()
@@ -166,7 +152,7 @@ export async function allocateStockToAction(
 
     } catch (error: any) {
         console.error("Error in allocateStockToAction:", error);
-        return { success: false, message: `Failed to allocate stock: ${'${'}error.message}` };
+        return { success: false, message: `Failed to allocate stock: ${error.message}` };
     }
 }
 
