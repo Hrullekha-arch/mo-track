@@ -16,7 +16,7 @@ import { getStockById } from "../inventory/actions";
 import Link from 'next/link';
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Dialog, DialogBody, DialogFooter as NewDialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StockLengthSticker } from "@/components/features/inventory/StockLengthSticker";
 
 function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => void }) {
