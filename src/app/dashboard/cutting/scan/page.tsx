@@ -63,86 +63,6 @@ function CuttingScanner() {
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
     
-    useEffect(() => {
-        if (!taskId) {
-            toast({ variant: 'destructive', title: 'Error', description: 'No Task ID provided.' });
-            router.push('/dashboard/cutting');
-            return;
-        }
-
-        const fetchTask = async () => {
-            const docRef = doc(db, 'Cutting', taskId);
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-                setTask({ id: docSnap.id, ...docSnap.data() } as CuttingTask);
-            } else {
-                toast({ variant: 'destructive', title: 'Error', description: 'Cutting task not found.' });
-            }
-            setLoading(false);
-        };
-        fetchTask();
-    }, [taskId, router, toast]);
-
-    useEffect(() => {
-        const startCamera = async () => {
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: { exact: 'environment' } } 
-            }).catch(() => {
-                return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            });
-            
-            setHasCameraPermission(true);
-
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                videoRef.current.play().catch(e => console.error("Play error:", e));
-                
-                // Allow all formats for testing
-                codeReader.current = new BrowserMultiFormatReader(new Map([
-                  [DecodeHintType.POSSIBLE_FORMATS, Object.values(BarcodeFormat)]
-                ]));
-
-                codeReader.current.decodeFromVideoDevice(
-                    undefined,
-                    videoRef.current,
-                    (result, err) => {
-                      if (result) {
-                        console.log("DETECTED:", result.getText());
-                        if (!isScanningRef.current) {
-                          handleScan(result.getText());
-                        }
-                      }
-                      if (err && !(err instanceof NotFoundException)) {
-                        // console.error("Decode error:", err);
-                      }
-                    }
-                );
-            }
-          } catch (error) {
-            console.error('Error accessing camera:', error);
-            setHasCameraPermission(false);
-            toast({
-              variant: 'destructive',
-              title: 'Camera Access Denied',
-              description: 'Please enable camera permissions in your browser settings to use the scanner.',
-              duration: 5000,
-            });
-          }
-        };
-    
-        startCamera();
-    
-        return () => {
-          if (videoRef.current && videoRef.current.srcObject) {
-            const stream = videoRef.current.srcObject as MediaStream;
-            stream.getTracks().forEach(track => track.stop());
-          }
-          codeReader.current.reset();
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-    
     const handleScan = async (scannedValue: string) => {
         if (!task || scanning) return;
         
@@ -227,6 +147,86 @@ function CuttingScanner() {
             }, 1500);
         }
     };
+    
+    useEffect(() => {
+        if (!taskId) {
+            toast({ variant: 'destructive', title: 'Error', description: 'No Task ID provided.' });
+            router.push('/dashboard/cutting');
+            return;
+        }
+
+        const fetchTask = async () => {
+            const docRef = doc(db, 'Cutting', taskId);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                setTask({ id: docSnap.id, ...docSnap.data() } as CuttingTask);
+            } else {
+                toast({ variant: 'destructive', title: 'Error', description: 'Cutting task not found.' });
+            }
+            setLoading(false);
+        };
+        fetchTask();
+    }, [taskId, router, toast]);
+
+    useEffect(() => {
+        const startCamera = async () => {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: { exact: 'environment' } } 
+            }).catch(() => {
+                return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            });
+            
+            setHasCameraPermission(true);
+
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.play().catch(e => console.error("Play error:", e));
+                
+                // Allow all formats for testing
+                codeReader.current = new BrowserMultiFormatReader(new Map([
+                  [DecodeHintType.POSSIBLE_FORMATS, Object.values(BarcodeFormat)]
+                ]));
+
+                codeReader.current.decodeFromVideoDevice(
+                    undefined,
+                    videoRef.current,
+                    (result, err) => {
+                      if (result) {
+                        console.log("DETECTED:", result.getText());
+                        if (!isScanningRef.current) {
+                          handleScan(result.getText());
+                        }
+                      }
+                      if (err && !(err instanceof NotFoundException)) {
+                        // console.error("Decode error:", err);
+                      }
+                    }
+                );
+            }
+          } catch (error) {
+            console.error('Error accessing camera:', error);
+            setHasCameraPermission(false);
+            toast({
+              variant: 'destructive',
+              title: 'Camera Access Denied',
+              description: 'Please enable camera permissions in your browser settings to use the scanner.',
+              duration: 5000,
+            });
+          }
+        };
+    
+        startCamera();
+    
+        return () => {
+          if (videoRef.current && videoRef.current.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach(track => track.stop());
+          }
+          codeReader.current.reset();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     if (loading) {
         return <Skeleton className="h-[400px] w-full max-w-2xl mx-auto" />;
