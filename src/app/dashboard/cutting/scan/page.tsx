@@ -43,11 +43,8 @@ const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult 
     );
 };
 
-function CuttingScanner() {
+function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: string | null }) {
     const router = useRouter();
-    const searchParams = useSearchParams();
-    const taskId = searchParams.get('taskId');
-    const bcn = searchParams.get('bcn');
     const { toast } = useToast();
 
     const [task, setTask] = useState<CuttingTask | null>(null);
@@ -87,9 +84,6 @@ function CuttingScanner() {
             return;
         }
         
-        const scannedLength = parseFloat(scannedLengthStr);
-        const expectedLength = parseFloat(itemToUpdate.quantityAllocated.toFixed(2));
-
         if (scannedBcn !== bcn) {
             setScanResult({ status: 'error', message: 'Wrong Barcode' });
             setIsPopupOpen(true);
@@ -99,6 +93,9 @@ function CuttingScanner() {
             }, 1500);
             return;
         }
+        
+        const scannedLength = parseFloat(scannedLengthStr);
+        const expectedLength = parseFloat(itemToUpdate.quantityAllocated.toFixed(2));
 
         if (isNaN(scannedLength) || scannedLength < expectedLength) {
             setScanResult({ status: 'error', message: `Insufficient Length. Expected ${expectedLength}, but roll has ${scannedLength}` });
@@ -170,7 +167,7 @@ function CuttingScanner() {
     }, [taskId, router, toast]);
 
     useEffect(() => {
-        if (loading) return; // Don't start scanner until task data is loaded
+        if (loading) return;
 
         html5QrCodeRef.current = new Html5Qrcode(scannerId, {
              formatsToSupport: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
@@ -209,7 +206,7 @@ function CuttingScanner() {
             }
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [loading]); // Rerun effect if loading state changes
+    }, [loading]);
 
 
     if (loading) {
@@ -297,9 +294,13 @@ function CuttingScanner() {
 }
 
 export default function CuttingScanPage() {
+    const searchParams = useSearchParams();
+    const taskId = searchParams.get('taskId');
+    const bcn = searchParams.get('bcn');
+    
     return (
         <Suspense fallback={<Skeleton className="h-screen w-full" />}>
-            <CuttingScanner />
+            <CuttingScannerContent taskId={taskId} bcn={bcn} />
         </Suspense>
     );
 }
