@@ -54,7 +54,7 @@ function CuttingScanner() {
     const { toast } = useToast();
     const videoRef = useRef<HTMLVideoElement>(null);
     const codeReader = useRef(new BrowserMultiFormatReader(new Map([
-        [DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128, BarcodeFormat.QR_CODE]]
+        [DecodeHintType.POSSIBLE_FORMATS, Object.values(BarcodeFormat)]
     ])));
 
     const [task, setTask] = useState<CuttingTask | null>(null);
@@ -91,15 +91,12 @@ function CuttingScanner() {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             setHasCameraPermission(true);
             if (videoRef.current) {
-              videoRef.current.srcObject = stream;
-              // Wait for the video to be ready to play
-              videoRef.current.onloadedmetadata = () => {
-                  videoRef.current?.play().catch(e => console.error("Play error:", e));
-                  
-                  // Start decoding only after the video is playing
-                  codeReader.current.decodeFromVideoDevice(
+                videoRef.current.srcObject = stream;
+                videoRef.current.play().catch(e => console.error("Play error:", e));
+
+                codeReader.current.decodeFromVideoDevice(
                     undefined,
-                    videoRef.current!,
+                    videoRef.current,
                     (result, err) => {
                       if (result) {
                         if (!isScanningRef.current) {
@@ -110,8 +107,7 @@ function CuttingScanner() {
                         // console.error("Decode error:", err);
                       }
                     }
-                  );
-              };
+                );
             }
           } catch (error) {
             console.error('Error accessing camera:', error);
