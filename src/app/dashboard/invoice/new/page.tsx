@@ -30,6 +30,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { createDealOrderAction } from "./actions";
 import { useAuth } from "@/context/AuthContext";
 import { DialogFooter } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 
 const productSchema = z.object({
   id: z.string().optional(),
@@ -138,31 +139,37 @@ function ConvertToOrderContent() {
       control: form.control,
       name: "vasDetails"
   });
+  
+  const watchedValues = form.watch();
 
-  const productTotal = useMemo(() => {
-    return fields.reduce((acc, item) => {
+  const totals = useMemo(() => {
+    const productTotals = watchedValues.products.reduce((acc, item) => {
         const qty = Number(item.quantity) || 0;
         const rate = Number(item.mrp) || 0;
         const discountPercent = Number(item.discountPercent) || 0;
         const subtotal = qty * rate;
         const discountAmount = subtotal * (discountPercent / 100);
+        const taxableAmount = subtotal - discountAmount;
         
         acc.quantity += qty;
-        acc.amount += subtotal - discountAmount;
+        acc.amount += taxableAmount;
         return acc;
     }, { quantity: 0, amount: 0 });
-  }, [fields]);
 
-  const vasTotal = useMemo(() => {
-      return (form.getValues('vasDetails') || []).reduce((acc, item) => {
-          const qty = Number(item.quantity) || 0;
-          const rate = Number(item.rate) || 0;
-          acc.amount += qty * rate;
-          return acc;
-      }, { amount: 0 });
-  }, [form]);
+    const vasTotals = (watchedValues.vasDetails || []).reduce((acc, item) => {
+        const qty = Number(item.quantity) || 0;
+        const rate = Number(item.rate) || 0;
+        acc.amount += qty * rate;
+        return acc;
+    }, { amount: 0 });
 
-  const grandTotal = productTotal.amount + vasTotal.amount;
+    const totalTaxable = productTotals.amount + vasTotals.amount;
+    const cgst = totalTaxable * 0.025; // 2.5%
+    const sgst = totalTaxable * 0.025; // 2.5%
+    const grandTotal = totalTaxable + cgst + sgst;
+
+    return { productTotals, vasTotals, grandTotal, cgst, sgst, totalTaxable };
+  }, [watchedValues]);
 
 
   useEffect(() => {
@@ -274,7 +281,7 @@ function ConvertToOrderContent() {
             })),
             vasDetails: data.vasDetails,
             billingName: data.billingName,
-            totalAmount: grandTotal, 
+            totalAmount: totals.grandTotal, 
         };
 
       const result = await createDealOrderAction(customerId, dealId, updatedQuotation, { id: user.id, name: user.name });
@@ -356,9 +363,9 @@ function ConvertToOrderContent() {
                 <TableFooter>
                   <TableRow>
                     <TableCell colSpan={4} className="font-semibold text-right">Total</TableCell>
-                    <TableCell className="font-semibold">{productTotal.quantity.toFixed(2)}</TableCell>
+                    <TableCell className="font-semibold">{totals.productTotals.quantity.toFixed(2)}</TableCell>
                     <TableCell colSpan={6}></TableCell>
-                    <TableCell className="font-semibold">{productTotal.amount.toFixed(2)}</TableCell>
+                    <TableCell className="font-semibold">{totals.productTotals.amount.toFixed(2)}</TableCell>
                     <TableCell colSpan={2}></TableCell>
                   </TableRow>
                 </TableFooter>
@@ -397,7 +404,7 @@ function ConvertToOrderContent() {
                         <TableFooter>
                             <TableRow>
                                 <TableCell colSpan={4} className="font-semibold text-right">VAS Total</TableCell>
-                                <TableCell className="font-semibold">{vasTotal.amount.toFixed(2)}</TableCell>
+                                <TableCell className="font-semibold">{totals.vasTotals.amount.toFixed(2)}</TableCell>
                             </TableRow>
                         </TableFooter>
                     </Table>
@@ -455,6 +462,28 @@ function ConvertToOrderContent() {
             )}
             />
             {form.watch('addVas') && <p>VAS form would go here.</p>}
+
+            <Separator />
+            <div className="flex justify-end">
+                <div className="w-full max-w-sm space-y-2 text-sm">
+                    <div className="flex justify-between">
+                        <span className="text-muted-foreground">Taxable Amount</span>
+                        <span>₹{totals.totalTaxable.toFixed(2)}</span>
+                    </div>
+                     <div className="flex justify-between">
+                        <span className="text-muted-foreground">CGST @2.5%</span>
+                        <span>₹{totals.cgst.toFixed(2)}</span>
+                    </div>
+                     <div className="flex justify-between">
+                        <span className="text-muted-foreground">SGST @2.5%</span>
+                        <span>₹{totals.sgst.toFixed(2)}</span>
+                    </div>
+                     <div className="flex justify-between font-bold text-base">
+                        <span>Grand Total</span>
+                        <span>₹{totals.grandTotal.toFixed(2)}</span>
+                    </div>
+                </div>
+            </div>
 
             <DialogFooter className="pt-4">
                 <Button type="button" variant="ghost" onClick={() => router.back()}>Cancel</Button>
