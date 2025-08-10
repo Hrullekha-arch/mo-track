@@ -53,9 +53,7 @@ function CuttingScanner() {
     const bcn = searchParams.get('bcn');
     const { toast } = useToast();
     const videoRef = useRef<HTMLVideoElement>(null);
-    const codeReader = useRef(new BrowserMultiFormatReader(new Map([
-        [DecodeHintType.POSSIBLE_FORMATS, Object.values(BarcodeFormat)]
-    ])));
+    const codeReader = useRef(new BrowserMultiFormatReader());
 
     const [task, setTask] = useState<CuttingTask | null>(null);
     const [loading, setLoading] = useState(true);
@@ -88,18 +86,29 @@ function CuttingScanner() {
     useEffect(() => {
         const startCamera = async () => {
           try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: { exact: 'environment' } } 
+            }).catch(() => {
+                return navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            });
+            
             setHasCameraPermission(true);
+
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                // Don't await play() here as it can cause issues on some browsers.
-                videoRef.current.play().catch(e => console.error("Video play error:", e));
+                videoRef.current.play().catch(e => console.error("Play error:", e));
+                
+                // Allow all formats for testing
+                codeReader.current = new BrowserMultiFormatReader(new Map([
+                  [DecodeHintType.POSSIBLE_FORMATS, Object.values(BarcodeFormat)]
+                ]));
 
                 codeReader.current.decodeFromVideoDevice(
                     undefined,
                     videoRef.current,
                     (result, err) => {
                       if (result) {
+                        console.log("DETECTED:", result.getText());
                         if (!isScanningRef.current) {
                           handleScan(result.getText());
                         }
@@ -199,10 +208,10 @@ function CuttingScanner() {
                     router.push('/dashboard/cutting');
                 }, 1500);
             } else {
-                setTimeout(() => {
+                 setTimeout(() => {
                     setIsPopupOpen(false);
-                    isScanningRef.current = false;
                     setScanning(false);
+                    isScanningRef.current = false;
                 }, 1500);
                 setTask(prev => prev ? { ...prev, items: updatedItems, status: newStatus } : null);
             }
@@ -251,7 +260,7 @@ function CuttingScanner() {
                     </CardHeader>
                     <CardContent>
                         <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                            <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+                            <video ref={videoRef} className="w-full h-full object-cover" />
                             {hasCameraPermission === false && (
                                  <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
                                     <Camera className="h-12 w-12 text-muted-foreground mb-4"/>
@@ -314,6 +323,3 @@ export default function CuttingScanPage() {
         </Suspense>
     )
 }
-
-
-    
