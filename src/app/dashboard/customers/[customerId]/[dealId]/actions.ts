@@ -58,9 +58,9 @@ export async function createQuotationAction(customerId: string, dealId: string, 
         totalAmount: totalAmount,
     };
     
-    await quotationRef.set(newQuotation);
+    // The quotation itself doesn't need to be written yet if the order creation handles it.
+    // However, we need its ID. Let's create the order first.
 
-    // After creating quotation, automatically create the order in pending state
     const orderResult = await createDealOrderAction(customerId, dealId, { ...newQuotation, id: quotationRef.id }, { id: values.createdBy || 'system', name: 'System' });
 
     if (!orderResult.success) {
@@ -68,6 +68,12 @@ export async function createQuotationAction(customerId: string, dealId: string, 
         console.error("Failed to create order automatically after quotation:", orderResult.message);
         return { success: false, message: `Quotation created, but failed to create order: ${orderResult.message}` };
     }
+
+    // Now set the quotation with the correct order number.
+    await quotationRef.set({
+        ...newQuotation,
+        orderNo: orderResult.order?.id
+    });
 
 
     return { success: true, message: 'Quotation created successfully and order sent for approval!', quotationId: quotationRef.id, order: orderResult.order };
