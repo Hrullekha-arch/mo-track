@@ -106,8 +106,10 @@ export default function InvoicePage() {
       id: 'totalAmount',
       header: "Invoice Amount",
       cell: ({ row }) => {
-        // Placeholder for amount calculation
-        return "N/A";
+        const totalAmount = row.original.items.reduce((sum, item) => {
+          return sum + (item.quantityAllocated * item.rate);
+        }, 0);
+        return `₹${totalAmount.toFixed(2)}`;
       },
     },
     {
