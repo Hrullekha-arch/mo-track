@@ -96,7 +96,10 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
 
     return (
         <div style={{ width: '210mm', minHeight: '297mm', margin: 'auto', padding: '1rem', backgroundColor: 'white', color: 'black', fontFamily: 'Arial, sans-serif', fontSize: '10px' }}>
-            <header style={{ textAlign: 'center', marginBottom: '1rem' }}>
+            <header style={{ textAlign: 'center', marginBottom: '1rem', position: 'relative' }}>
+                 <div style={{ position: 'absolute', left: 0, top: 0 }}>
+                    <Image src="/logo.png" alt="MoTrack Logo" width={100} height={50} data-ai-hint="logo" />
+                 </div>
                 <h1 style={{ fontSize: '14px', fontWeight: 'bold', margin: 0, borderBottom: '1px solid black', paddingBottom: '4px' }}>TAX INVOICE</h1>
                 <h2 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0.5rem 0 0.25rem' }}>MO DESIGNS PRIVATE LIMITED</h2>
                 <p style={{ margin: 0, fontSize: '10px' }}>
@@ -223,4 +226,3 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
         </div>
     );
 }
-

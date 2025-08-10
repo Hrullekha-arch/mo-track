@@ -32,6 +32,9 @@ import { InvoiceBatch, Order } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription } from "@/components/ui/alert-dialog";
 
 
 function GenerateInvoiceDialog({
@@ -46,12 +49,16 @@ function GenerateInvoiceDialog({
   orders: Order[];
 }) {
   const [isGenerating, setIsGenerating] = React.useState(false);
+  const [isTallyDialogOpen, setIsTallyDialogOpen] = React.useState(false);
+  const [tallyBillNo, setTallyBillNo] = React.useState('');
   const { toast } = useToast();
 
-  const handleGenerate = () => {
+  const handleFinalGenerate = () => {
+    setIsTallyDialogOpen(false);
     setIsGenerating(true);
     // In a real app, you would call a server action here to create the invoice PDFs,
-    // update the batch status, etc.
+    // update the batch status, and save the tallyBillNo.
+    console.log("Finalizing invoice with Tally Bill No:", tallyBillNo || "None");
     setTimeout(() => {
         toast({ title: "Invoice Generated!", description: "The invoice has been successfully generated."});
         setIsGenerating(false);
@@ -80,6 +87,7 @@ function GenerateInvoiceDialog({
   };
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
             <DialogHeader>
@@ -94,13 +102,37 @@ function GenerateInvoiceDialog({
             <DialogFooter>
                 <Button variant="ghost" onClick={onClose}>Cancel</Button>
                 <Button variant="outline" onClick={handlePrint}><Printer className="mr-2 h-4 w-4"/> Print</Button>
-                <Button onClick={handleGenerate} disabled={isGenerating}>
+                <Button onClick={() => setIsTallyDialogOpen(true)} disabled={isGenerating}>
                     {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Confirm & Generate
                 </Button>
             </DialogFooter>
         </DialogContent>
     </Dialog>
+     <AlertDialog open={isTallyDialogOpen} onOpenChange={setIsTallyDialogOpen}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Enter Tally Bill No.</AlertDialogTitle>
+                <AlertDialogDescription>
+                    Please enter the Tally Bill number for this invoice. This is optional.
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="py-4">
+                <Label htmlFor="tally-bill-no" className="sr-only">Tally Bill No.</Label>
+                <Input
+                    id="tally-bill-no"
+                    value={tallyBillNo}
+                    onChange={(e) => setTallyBillNo(e.target.value)}
+                    placeholder="Optional Tally Bill No..."
+                />
+            </div>
+            <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleFinalGenerate}>Submit</AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }
 
