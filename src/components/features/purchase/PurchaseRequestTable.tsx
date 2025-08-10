@@ -46,6 +46,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import Link from 'next/link';
 
 
 interface FlattenedPurchaseItem {
@@ -64,7 +65,7 @@ interface FlattenedPurchaseItem {
 }
 
 
-export function PurchaseRequestTable({ tableData }: { tableData: PurchaseRequest[] }) {
+export function PurchaseRequestTable({ tableData, view = "default" }: { tableData: PurchaseRequest[], view?: "default" | "all" | "po-tracking" }) {
   const [requests, setRequests] = React.useState<FlattenedPurchaseItem[]>([]);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -199,7 +200,13 @@ export function PurchaseRequestTable({ tableData }: { tableData: PurchaseRequest
         header: 'PO Number',
         cell: ({ row }) => {
           const poNumber = row.original.poNumber;
-          return poNumber ? <Badge variant="secondary">{poNumber}</Badge> : '-';
+          return poNumber ? (
+            <Button variant="link" asChild className="p-0 h-auto font-medium">
+                <Link href={`/dashboard/inbound/${poNumber}`}>
+                    {poNumber}
+                </Link>
+            </Button>
+          ) : '-';
         }
     },
     {
@@ -298,7 +305,7 @@ export function PurchaseRequestTable({ tableData }: { tableData: PurchaseRequest
     });
   }
   
-  if (!isAuthorized) {
+  if (!isAuthorized && view !== 'default') {
     return (
         <Card className="mt-8">
             <CardHeader className="text-center">
