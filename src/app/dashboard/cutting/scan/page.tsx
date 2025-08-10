@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, useRef, Suspense } from 'react';
@@ -66,6 +65,7 @@ function CuttingScannerComponent() {
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
     const [isConfirmationDialogOpen, setIsConfirmationDialogOpen] = useState(false);
     const [manualLength, setManualLength] = useState('');
+    const videoRef = useRef<HTMLVideoElement>(null);
 
 
     const handleScan = async (scannedBcn: string) => {
@@ -181,9 +181,32 @@ function CuttingScannerComponent() {
     };
     
     useEffect(() => {
-        const videoElement = document.getElementById('reader-video');
-        if (hasCameraPermission && videoElement && !html5QrCodeRef.current) {
-            const qrCodeScanner = new Html5Qrcode('reader-video');
+        const getCameraPermission = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    videoRef.current.play();
+                }
+                setHasCameraPermission(true);
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                setHasCameraPermission(false);
+                toast({
+                    variant: 'destructive',
+                    title: 'Camera Access Denied',
+                    description: 'Please enable camera permissions in your browser settings to use the scanner.',
+                    duration: 5000,
+                });
+            }
+        };
+        getCameraPermission();
+    }, [toast]);
+
+
+    useEffect(() => {
+        if (hasCameraPermission && videoRef.current && !html5QrCodeRef.current) {
+            const qrCodeScanner = new Html5Qrcode(videoRef.current);
             html5QrCodeRef.current = qrCodeScanner;
 
             qrCodeScanner.start(
@@ -208,30 +231,6 @@ function CuttingScannerComponent() {
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasCameraPermission]);
-
-    useEffect(() => {
-        const getCameraPermission = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                const videoElement = document.getElementById('reader-video') as HTMLVideoElement;
-                if (videoElement) {
-                    videoElement.srcObject = stream;
-                }
-                setHasCameraPermission(true);
-            } catch (error) {
-                console.error('Error accessing camera:', error);
-                setHasCameraPermission(false);
-                toast({
-                    variant: 'destructive',
-                    title: 'Camera Access Denied',
-                    description: 'Please enable camera permissions in your browser settings to use the scanner.',
-                    duration: 5000,
-                });
-            }
-        };
-
-        getCameraPermission();
-    }, [toast]);
 
 
     useEffect(() => {
@@ -295,7 +294,7 @@ function CuttingScannerComponent() {
                         </CardHeader>
                         <CardContent>
                              <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                                <video id="reader-video" className="w-full h-full object-cover" autoPlay muted playsInline />
+                                <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
                                 {hasCameraPermission === false && (
                                     <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
                                         <Camera className="h-12 w-12 text-muted-foreground mb-4"/>
