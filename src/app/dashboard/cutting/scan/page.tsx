@@ -11,9 +11,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ArrowLeft, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle, Camera } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -58,11 +58,8 @@ function CuttingScannerComponent() {
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
-    const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
-    
-    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-    const videoRef = useRef<HTMLVideoElement>(null);
-
+    const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+    const readerContainerId = "scanner-reader";
 
     const handleScan = async (scannedData: string) => {
         if (!task || !user || isScanningRef.current) return;
@@ -168,53 +165,39 @@ function CuttingScannerComponent() {
     };
     
     useEffect(() => {
-        const getCameraPermission = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    videoRef.current.play().catch(e => console.error("Video play error:", e));
-                }
-                setHasCameraPermission(true);
-            } catch (error) {
-                console.error('Error accessing camera:', error);
-                setHasCameraPermission(false);
-                toast({
-                    variant: 'destructive',
-                    title: 'Camera Access Denied',
-                    description: 'Please enable camera permissions in your browser settings to use the scanner.',
-                    duration: 5000,
+        // This effect runs only once after the component mounts
+        // It initializes the scanner and sets up the success/error callbacks
+        const scanner = new Html5QrcodeScanner(
+            readerContainerId,
+            { fps: 10, qrbox: 250 },
+            false // verbose
+        );
+        scannerRef.current = scanner;
+
+        function onScanSuccess(decodedText: string, decodedResult: any) {
+            scanner.pause();
+            if (!isScanningRef.current) {
+                handleScan(decodedText).finally(() => {
+                    if (scannerRef.current?.isScanning) {
+                        scannerRef.current?.resume();
+                    }
                 });
             }
-        };
-        getCameraPermission();
-    }, [toast]);
-
-    useEffect(() => {
-        if (hasCameraPermission && videoRef.current && !html5QrCodeRef.current) {
-            html5QrCodeRef.current = new Html5Qrcode(videoRef.current.id);
-            html5QrCodeRef.current.start(
-                { facingMode: 'environment' },
-                { fps: 10, qrbox: { width: 250, height: 150 } },
-                (decodedText, decodedResult) => {
-                    if (!isScanningRef.current) {
-                        handleScan(decodedText);
-                    }
-                },
-                (errorMessage) => { /* ignore */ }
-            ).catch(err => {
-                console.error("Unable to start scanning.", err);
-            });
         }
 
+        function onScanError(errorMessage: string) {
+            // handle scan error (called every frame where no QR code is detected)
+        }
+
+        scanner.render(onScanSuccess, onScanError);
+
         return () => {
-            if (html5QrCodeRef.current?.isScanning) {
-                html5QrCodeRef.current.stop().catch(err => console.error("Error stopping scanner:", err));
-                html5QrCodeRef.current = null;
-            }
+            scanner.clear().catch(error => {
+                console.error("Failed to clear html5-qrcode-scanner.", error);
+            });
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hasCameraPermission]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
         if (!taskId) {
@@ -272,24 +255,12 @@ function CuttingScannerComponent() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Camera Feed</CardTitle>
+                            <CardTitle>Scanner</CardTitle>
                             <CardDescription>Scan the barcode of the fabric roll.</CardDescription>
                         </CardHeader>
                         <CardContent>
                              <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                                <video id="scanner-video" ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                                {hasCameraPermission === false && (
-                                    <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
-                                        <Camera className="h-12 w-12 text-muted-foreground mb-4"/>
-                                        <p className="font-semibold">Camera Access Required</p>
-                                        <p className="text-sm text-muted-foreground">Please allow camera access to use this feature.</p>
-                                    </div>
-                                )}
-                                {hasCameraPermission === true && (
-                                     <div className="absolute inset-0 flex items-center justify-center">
-                                        <div className="w-4/5 h-2/5 border-4 border-red-500 rounded-lg bg-black/20" />
-                                     </div>
-                                )}
+                                <div id={readerContainerId} className="w-full h-full"></div>
                              </div>
                         </CardContent>
                     </Card>
