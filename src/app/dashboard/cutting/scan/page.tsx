@@ -52,9 +52,10 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
-    
     const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
     const scannerId = "reader";
+    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+    const videoRef = useRef<HTMLVideoElement>(null);
 
     const handleScan = async (scannedValue: string) => {
         if (!task || isScanningRef.current) return;
@@ -85,7 +86,7 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
         }
         
         if (scannedBcn !== bcn) {
-            setScanResult({ status: 'error', message: 'Wrong Barcode' });
+            setScanResult({ status: 'error', message: 'Wrong Barcode Scanned' });
             setIsPopupOpen(true);
             setTimeout(() => {
                 setIsPopupOpen(false);
@@ -94,16 +95,16 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
             return;
         }
         
-        const scannedLength = parseFloat(scannedLengthStr);
-        const expectedLength = parseFloat(itemToUpdate.quantityAllocated.toFixed(2));
+        const scannedLength = parseFloat(scannedLengthStr).toFixed(2);
+        const expectedOriginalLength = itemToUpdate.originalLength?.toFixed(2);
 
-        if (isNaN(scannedLength) || scannedLength < expectedLength) {
-            setScanResult({ status: 'error', message: `Insufficient Length. Expected ${expectedLength}, but roll has ${scannedLength}` });
-            setIsPopupOpen(true);
+        if (scannedLength !== expectedOriginalLength) {
+             setScanResult({ status: 'error', message: `Wrong Roll. Expected roll of length ${expectedOriginalLength}, but scanned ${scannedLength}.` });
+             setIsPopupOpen(true);
             setTimeout(() => {
                 setIsPopupOpen(false);
                 isScanningRef.current = false;
-            }, 1500);
+            }, 2500);
             return;
         }
 
@@ -123,17 +124,13 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
 
             if (newStatus === 'Completed') {
                 toast({ title: "Task Complete!", description: `All items for order ${task.orderId} have been cut.`});
-                setTimeout(() => {
-                    setIsPopupOpen(false);
-                    router.push('/dashboard/cutting');
-                }, 1500);
-            } else {
-                 setTimeout(() => {
-                    setIsPopupOpen(false);
-                    isScanningRef.current = false;
-                }, 1500);
-                setTask(prev => prev ? { ...prev, items: updatedItems, status: newStatus } : null);
             }
+            // Redirect back to the details page after a short delay
+            setTimeout(() => {
+                setIsPopupOpen(false);
+                router.push(`/dashboard/cutting?taskId=${task.id}`);
+            }, 1500);
+
         } catch (error) {
             console.error('Error updating status on scan:', error);
             setScanResult({ status: 'error', message: 'Update Failed. Check console for details.' });
@@ -144,6 +141,47 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
             }, 1500);
         }
     };
+
+     useEffect(() => {
+        html5QrCodeRef.current = new Html5Qrcode(scannerId);
+        let scannerIsRunning = true;
+        const startScanner = async () => {
+            try {
+                await html5QrCodeRef.current?.start(
+                    { facingMode: "environment" },
+                    {
+                        fps: 10,
+                        qrbox: { width: 250, height: 250 },
+                    },
+                    (decodedText: string) => {
+                        if (scannerIsRunning && !isScanningRef.current) {
+                            handleScan(decodedText);
+                        }
+                    },
+                    () => {}
+                );
+            } catch (err) {
+                 console.error("Failed to start scanner", err);
+                 setHasCameraPermission(false);
+                 toast({ variant: 'destructive', title: 'Scanner Error', description: 'Could not start the camera.'});
+            }
+        };
+
+        if(!loading) {
+            startScanner();
+        }
+
+        return () => {
+            scannerIsRunning = false;
+            if (html5QrCodeRef.current?.isScanning) {
+                html5QrCodeRef.current.stop().catch(err => {
+                    console.error("Failed to stop scanner cleanly", err);
+                });
+            }
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading]);
+
 
     useEffect(() => {
         if (!taskId) {
@@ -165,49 +203,6 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
         };
         fetchTask();
     }, [taskId, router, toast]);
-
-    useEffect(() => {
-        if (loading) return;
-
-        html5QrCodeRef.current = new Html5Qrcode(scannerId, {
-             formatsToSupport: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-        });
-        let scannerIsRunning = true;
-
-        const startScanner = async () => {
-            try {
-                await html5QrCodeRef.current?.start(
-                    { facingMode: "environment" },
-                    {
-                        fps: 10,
-                        qrbox: { width: 250, height: 250 },
-                    },
-                    (decodedText: string) => {
-                        if (scannerIsRunning && !isScanningRef.current) {
-                            handleScan(decodedText);
-                        }
-                    },
-                    () => {}
-                );
-            } catch (err) {
-                 console.error("Failed to start scanner", err);
-                 toast({ variant: 'destructive', title: 'Scanner Error', description: 'Could not start the camera.'});
-            }
-        };
-
-        startScanner();
-
-        return () => {
-            scannerIsRunning = false;
-            if (html5QrCodeRef.current?.isScanning) {
-                html5QrCodeRef.current.stop().catch(err => {
-                    console.error("Failed to stop scanner cleanly", err);
-                });
-            }
-        };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [loading]);
-
 
     if (loading) {
         return (
@@ -233,7 +228,7 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
             <div className="container mx-auto p-4 md:p-6 lg:p-8 max-w-4xl">
                 <div className="flex items-center gap-4 mb-4">
                     <Button asChild variant="outline" size="icon">
-                        <Link href={`/dashboard/cutting`}><ArrowLeft /></Link>
+                        <Link href={`/dashboard/cutting?taskId=${task.id}`}><ArrowLeft /></Link>
                     </Button>
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">Verify Cut</h1>
@@ -263,7 +258,7 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
                             {itemToScan && (
                                 <div className="p-4 border rounded-lg space-y-2">
                                     <p className="font-bold text-lg">{itemToScan.bcn}</p>
-                                     <p>Length from which this is Allocated: <span className="font-semibold">{itemToScan.originalLength?.toFixed(2) || 'N/A'}</span></p>
+                                    <p>Length from which this is Allocated: <span className="font-semibold">{itemToScan.originalLength?.toFixed(2) || 'N/A'}</span></p>
                                     <p>Quantity to Cut: <span className="font-semibold">{itemToScan.quantityAllocated.toFixed(2)}</span></p>
                                     {isItemCut ? (
                                         <Alert variant="default" className="border-green-500 text-green-700">
@@ -294,13 +289,16 @@ function CuttingScannerContent({ taskId, bcn }: { taskId: string | null; bcn: st
 }
 
 export default function CuttingScanPage() {
+    return (
+        <Suspense fallback={<Skeleton className="h-screen w-full" />}>
+            <CuttingScannerWrapper />
+        </Suspense>
+    );
+}
+
+function CuttingScannerWrapper() {
     const searchParams = useSearchParams();
     const taskId = searchParams.get('taskId');
     const bcn = searchParams.get('bcn');
-    
-    return (
-        <Suspense fallback={<Skeleton className="h-screen w-full" />}>
-            <CuttingScannerContent taskId={taskId} bcn={bcn} />
-        </Suspense>
-    );
+    return <CuttingScannerContent taskId={taskId} bcn={bcn} />
 }
