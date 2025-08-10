@@ -28,7 +28,7 @@ import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, add
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format, isWithinInterval } from "date-fns";
-import { InvoiceBatch, Order, Invoice } from "@/lib/types";
+import { InvoiceBatch, Order, Invoice, CuttingTask } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
 import { Input } from "@/components/ui/input";
@@ -121,7 +121,23 @@ function GenerateInvoiceDialog({
         };
         batch.set(newInvoiceRef, newInvoice);
 
-        // 2. Update all selected batches status
+        // 2. Create a new Cutting Task document
+        const newCuttingTaskRef = doc(collection(db, "Cutting"));
+        const newCuttingTask: CuttingTask = {
+            id: newCuttingTaskRef.id,
+            invoiceId: newInvoiceRef.id,
+            orderId: primaryOrder.id,
+            customerName: primaryOrder.customerName,
+            customerPhone: primaryOrder.customerPhone,
+            salesPerson: primaryOrder.salesPerson,
+            items: allItems,
+            createdAt: new Date().toISOString(),
+            status: "Pending",
+        };
+        batch.set(newCuttingTaskRef, newCuttingTask);
+
+
+        // 3. Update all selected batches status
         batches.forEach(b => {
             const batchRef = doc(db, "invoiceBatches", b.id);
             batch.update(batchRef, { status: "invoiced", tallyBillNo: tallyBillNo || null, invoiceId: newInvoiceRef.id });
@@ -129,7 +145,7 @@ function GenerateInvoiceDialog({
         
         await batch.commit();
 
-        toast({ title: "Invoice Generated!", description: `Invoice ${newInvoiceRef.id} has been created.`});
+        toast({ title: "Invoice Generated!", description: `Invoice ${newInvoiceRef.id} has been created and sent for cutting.`});
         onClose();
     } catch (error) {
         console.error("Error finalizing invoice:", error);

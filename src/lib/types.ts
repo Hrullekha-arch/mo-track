@@ -486,5 +486,17 @@ export interface Invoice {
     createdBy: string; // User name
 }
 
+export interface CuttingTask {
+  id: string; // Firestore doc id, can be same as invoiceId
+  invoiceId: string;
+  orderId: string;
+  customerName: string;
+  customerPhone: string;
+  salesPerson: string;
+  items: InvoiceBatchItem[];
+  createdAt: string; // ISO Date string
+  status: 'Pending' | 'In Progress' | 'Completed';
+}
+
 
 export { type ComboboxOption };

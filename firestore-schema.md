@@ -217,6 +217,29 @@ Stores final, generated invoices.
 
 ---
 
+## `Cutting`
+
+Stores cutting tasks generated from invoices.
+
+-   **Path**: `/Cutting/{cuttingId}` (where `cuttingId` is usually the `invoiceId`)
+-   **Operations**: Create, Read
+-   **Structure**:
+    ```typescript
+    interface CuttingTask {
+      id: string; 
+      invoiceId: string;
+      orderId: string;
+      customerName: string;
+      customerPhone: string;
+      salesPerson: string;
+      items: InvoiceBatchItem[];
+      createdAt: string; // ISO Date string
+      status: 'Pending' | 'In Progress' | 'Completed';
+    }
+    ```
+
+---
+
 ## `stocks`
 
 The main inventory collection.
@@ -268,5 +291,3 @@ The main inventory collection.
       createdBy: string; // User name
     }
     ```
-
-    
