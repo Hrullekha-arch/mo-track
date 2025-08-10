@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -149,7 +148,7 @@ function GenerateInvoiceDialog({
         
         await batch.commit();
 
-        toast({ title: "Invoice Generated!", description: `Invoice ${'${'}newInvoiceRef.id} has been created and sent for cutting.`});
+        toast({ title: "Invoice Generated!", description: `Invoice ${newInvoiceRef.id} has been created and sent for cutting.`});
         onClose();
     } catch (error) {
         console.error("Error finalizing invoice:", error);
@@ -319,7 +318,7 @@ function InvoiceTable({
         const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
         const totalAmount = subtotal + tax;
         const roundedAmount = Math.round(totalAmount);
-        return `₹${'${'}roundedAmount.toFixed(2)}`;
+        return `₹${roundedAmount.toFixed(2)}`;
       },
     },
     {
@@ -330,7 +329,7 @@ function InvoiceTable({
         const tallyBillNo = row.original.tallyBillNo;
         const variant = status === 'pending' ? 'secondary' : 'default';
         const color = status === 'pending' ? '' : 'bg-green-600';
-        return <Badge variant={variant} className={color}>{'${'}tallyBillNo ? `${'${'}status}: ${'${'}tallyBillNo}` : status}</Badge>;
+        return <Badge variant={variant} className={color}>{tallyBillNo ? `${status}: ${tallyBillNo}` : status}</Badge>;
       }
     },
     {
