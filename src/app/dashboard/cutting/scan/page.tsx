@@ -85,14 +85,15 @@ function CuttingScanner() {
         fetchTask();
     }, [taskId, router, toast]);
 
-    useEffect(() => {
+     useEffect(() => {
         const startCamera = async () => {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             setHasCameraPermission(true);
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                videoRef.current.play().catch(e => console.error("Play error:", e));
+                // Important: Don't await play() here as it can cause issues on some browsers.
+                videoRef.current.play().catch(e => console.error("Video play error:", e));
 
                 codeReader.current.decodeFromVideoDevice(
                     undefined,
@@ -142,9 +143,13 @@ function CuttingScanner() {
         const itemToUpdate = task.items.find(item => item.bcn === bcn && item.status !== 'cut');
         
         if (!itemToUpdate) {
-            toast({ title: 'Item not found or already cut.' });
-            setScanning(false);
-            isScanningRef.current = false;
+            setScanResult({ status: 'warning', message: 'Item not found or already cut.' });
+            setIsPopupOpen(true);
+            setTimeout(() => {
+                setIsPopupOpen(false);
+                isScanningRef.current = false;
+                setScanning(false);
+            }, 1500);
             return;
         }
         
@@ -152,22 +157,25 @@ function CuttingScanner() {
         const scannedLength = parseFloat(scannedLengthStr);
         const expectedLength = parseFloat(itemToUpdate.quantityAllocated.toFixed(2));
 
-        if (scannedBcn !== bcn || isNaN(scannedLength)) {
+        if (scannedBcn !== bcn) {
             setScanResult({ status: 'error', message: 'Wrong Barcode' });
             setIsPopupOpen(true);
-            setTimeout(() => setIsPopupOpen(false), 1500);
-            setScanning(false);
-            isScanningRef.current = false;
+            setTimeout(() => {
+                setIsPopupOpen(false);
+                isScanningRef.current = false;
+                setScanning(false);
+            }, 1500);
             return;
         }
 
-        // Verify that the roll has enough length for the required cut
-        if (scannedLength < expectedLength) {
+        if (isNaN(scannedLength) || scannedLength < expectedLength) {
             setScanResult({ status: 'error', message: 'Insufficient Length' });
             setIsPopupOpen(true);
-            setTimeout(() => setIsPopupOpen(false), 1500);
-            setScanning(false);
-            isScanningRef.current = false;
+            setTimeout(() => {
+                setIsPopupOpen(false);
+                isScanningRef.current = false;
+                setScanning(false);
+            }, 1500);
             return;
         }
         
@@ -191,7 +199,11 @@ function CuttingScanner() {
                     router.push('/dashboard/cutting');
                 }, 1500);
             } else {
-                setTimeout(() => setIsPopupOpen(false), 1500);
+                setTimeout(() => {
+                    setIsPopupOpen(false);
+                    isScanningRef.current = false;
+                    setScanning(false);
+                }, 1500);
                 setTask(prev => prev ? { ...prev, items: updatedItems, status: newStatus } : null);
             }
 
@@ -199,12 +211,11 @@ function CuttingScanner() {
             console.error('Error updating status on scan:', error);
             setScanResult({ status: 'error', message: 'Update Failed' });
             setIsPopupOpen(true);
-            setTimeout(() => setIsPopupOpen(false), 1500);
-        } finally {
-            setTimeout(() => { 
+            setTimeout(() => {
+                setIsPopupOpen(false);
                 isScanningRef.current = false;
                 setScanning(false);
-            }, 2000); // Cooldown
+            }, 1500);
         }
     };
 
@@ -303,3 +314,4 @@ export default function CuttingScanPage() {
         </Suspense>
     )
 }
+
