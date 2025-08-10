@@ -43,40 +43,31 @@ export async function updateDealProducts(customerId: string, dealId: string, pro
 }
 
 
-export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormValues, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string, order?: Order }> {
+export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormValues, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string, quotation?: Quotation }> {
   try {
     const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
     
     // Generate a new quotation ID
     const quotationRef = dealRef.collection('quotations').doc();
 
-    const newQuotation: Omit<Quotation, 'id'> = {
+    const newQuotation: Quotation = {
+        id: quotationRef.id,
         quotationNo: Math.floor(1000 + Math.random() * 9000).toString(),
         ...values,
         createdAt: new Date().toISOString(),
-        status: 'Pending Approval',
+        status: 'Pending Approval', // Initially pending
         totalAmount: totalAmount,
     };
     
-    // The quotation itself doesn't need to be written yet if the order creation handles it.
-    // However, we need its ID. Let's create the order first.
+    await quotationRef.set(newQuotation);
 
-    const orderResult = await createDealOrderAction(customerId, dealId, { ...newQuotation, id: quotationRef.id }, { id: values.createdBy || 'system', name: 'System' });
+    return { 
+        success: true, 
+        message: 'Quotation created successfully!', 
+        quotationId: quotationRef.id,
+        quotation: JSON.parse(JSON.stringify(newQuotation))
+    };
 
-    if (!orderResult.success) {
-        // If order creation fails, we might want to revert the quotation creation or just log the error
-        console.error("Failed to create order automatically after quotation:", orderResult.message);
-        return { success: false, message: `Quotation created, but failed to create order: ${orderResult.message}` };
-    }
-
-    // Now set the quotation with the correct order number.
-    await quotationRef.set({
-        ...newQuotation,
-        orderNo: orderResult.order?.id
-    });
-
-
-    return { success: true, message: 'Quotation created successfully and order sent for approval!', quotationId: quotationRef.id, order: orderResult.order };
   } catch (error: any) {
     console.error("Error creating quotation:", error);
     return { success: false, message: `Failed to create quotation: ${error.message}` };

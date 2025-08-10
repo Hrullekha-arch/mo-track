@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { createQuotationAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import { createDealOrderAction } from "@/app/dashboard/invoice/new/actions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
@@ -780,7 +781,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
                             <AlertDialogHeader>
                                 <AlertDialogTitle>Confirm Quotation</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                    Have you selected the correct CPD for reference? This cannot be changed after creation.
+                                    This will create a quotation and a corresponding order pending for approval. Continue?
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
@@ -859,13 +860,14 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
   }, [isOpen, deal, customer, initialItems, form]);
 
 
-  async function createQuotation() {
+  async function handleCreateQuotationAndOrder() {
     const values = form.getValues();
     if (!user) {
         toast({ variant: "destructive", title: "Not authenticated." });
         return;
     }
-
+    setLoading(true);
+    
     const totalAmount = values.items.reduce((sum, item) => {
         const subtotal = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
         const discount = subtotal * ((Number(item.discountPercent) || 0) / 100);
@@ -880,22 +882,26 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
         return sum + taxableAmt + tax;
     }, 0);
 
-    setLoading(true);
     try {
-        const quotationPayload = { ...values, status: 'Pending Approval' };
-        const result = await createQuotationAction(customer.id, deal.id, quotationPayload, totalAmount + vasTotal);
+        const quotationResult = await createQuotationAction(customer.id, deal.id, values, totalAmount + vasTotal);
 
-        if (result.success) {
-            toast({ title: "Quotation Created", description: "The new quotation is now pending approval." });
-            form.reset();
-            onSuccess();
-            onClose();
+        if (quotationResult.success && quotationResult.quotation) {
+            const orderResult = await createDealOrderAction(customer.id, deal.id, quotationResult.quotation, { id: user.id, name: user.name });
+
+            if (orderResult.success) {
+                toast({ title: "Quotation & Order Created", description: "The quotation has been created and the order is pending approval." });
+                form.reset();
+                onSuccess();
+                onClose();
+            } else {
+                 toast({ variant: "destructive", title: "Order Creation Failed", description: orderResult.message });
+            }
         } else {
-             toast({ variant: "destructive", title: "Error", description: result.message });
+            toast({ variant: "destructive", title: "Quotation Creation Failed", description: quotationResult.message });
         }
     } catch (error) {
-      console.error("Error creating purchase request: ", error);
-      toast({ variant: "destructive", title: "Error", description: "Failed to create the quotation." });
+      console.error("Error creating quotation and order: ", error);
+      toast({ variant: "destructive", title: "Error", description: "Failed to create the quotation and order." });
     } finally {
       setLoading(false);
     }
@@ -966,7 +972,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
             </form>
             </FormProvider>
         ) : (
-            <QuotationPreview form={form} onBack={() => setView('edit')} onSubmit={createQuotation} loading={loading} />
+            <QuotationPreview form={form} onBack={() => setView('edit')} onSubmit={handleCreateQuotationAndOrder} loading={loading} />
         )}
         </div>
         
