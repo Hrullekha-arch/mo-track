@@ -227,8 +227,17 @@ function InvoiceTable({
       id: "select",
       header: ({ table }) => (
         <Checkbox
-          checked={table.getIsAllPageRowsSelected()}
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          checked={
+            table.getIsAllPageRowsSelected() ||
+            (table.getIsSomePageRowsSelected() && "indeterminate")
+          }
+          onCheckedChange={(value) => {
+            table.getFilteredRowModel().rows.forEach(row => {
+              if (row.original.status !== 'invoiced') {
+                row.toggleSelected(!!value);
+              }
+            });
+          }}
           aria-label="Select all"
         />
       ),
@@ -237,6 +246,7 @@ function InvoiceTable({
           checked={row.getIsSelected()}
           onCheckedChange={(value) => row.toggleSelected(!!value)}
           aria-label="Select row"
+          disabled={row.original.status === "invoiced"}
         />
       ),
       enableSorting: false,
@@ -284,7 +294,8 @@ function InvoiceTable({
         }, 0);
         const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
         const totalAmount = subtotal + tax;
-        return `₹${totalAmount.toFixed(2)}`;
+        const roundedAmount = Math.round(totalAmount);
+        return `₹${roundedAmount.toFixed(2)}`;
       },
     },
     {
@@ -316,10 +327,12 @@ function InvoiceTable({
       sorting,
       rowSelection,
     },
+    enableRowSelection: row => row.original.status !== 'invoiced',
   });
 
   const selectedBatches = table.getFilteredSelectedRowModel().rows.map(row => row.original);
   const selectedOrders = orders.filter(order => selectedBatches.some(batch => batch.orderId === order.id));
+  const canGenerate = selectedBatches.length > 0 && selectedBatches.every(b => b.status === 'pending');
 
   return (
     <>
@@ -372,7 +385,7 @@ function InvoiceTable({
                 </div>
                 <Button 
                   onClick={() => setIsGenerateDialogOpen(true)}
-                  disabled={table.getFilteredSelectedRowModel().rows.length === 0}
+                  disabled={!canGenerate}
                 >
                   <FileText className="mr-2 h-4 w-4" />
                   Generate
@@ -411,7 +424,9 @@ function InvoiceTable({
                                 if (!printContent) return;
                                 const printWindow = window.open('', '_blank');
                                 if (!printWindow) return;
+                                printWindow.document.write('<html><head><title>Print Invoice</title></head><body>');
                                 printWindow.document.write(printContent.innerHTML);
+                                printWindow.document.write('</body></html>');
                                 printWindow.document.close();
                                 setTimeout(() => {
                                     printWindow.focus();
@@ -444,7 +459,7 @@ export default function InvoicePage() {
 
     const unsubscribeBatches = onSnapshot(batchesQuery, (snapshot) => {
         const batchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvoiceBatch));
-        setBatches(batchesData);
+        setBatches(batchesData.sort((a,b) => b.createdAt.toMillis() - a.createdAt.toMillis()));
     }, (error) => {
         console.error("Error fetching invoice batches:", error);
         toast({ variant: "destructive", title: "Error", description: "Could not load invoice data." });
