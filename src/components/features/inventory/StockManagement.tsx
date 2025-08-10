@@ -309,7 +309,7 @@ export function StockManagement() {
                                 <TableRow>
                                     <TableHead>Date</TableHead>
                                     <TableHead>Sold Length</TableHead>
-                                    <TableHead>Original Length</TableHead>
+                                    <TableHead>Status</TableHead>
                                     <TableHead>Order ID</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -321,7 +321,9 @@ export function StockManagement() {
                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
                                             <TableCell>{tx.lengths ? tx.lengths.join(', ') : Math.abs(tx.quantityChange)}</TableCell>
-                                            <TableCell>{tx.originalLength?.toFixed(2) || 'N/A'}</TableCell>
+                                            <TableCell>
+                                                <Badge variant={tx.status === 'cut' ? 'default' : 'outline'} className="capitalize">{tx.status || 'pending'}</Badge>
+                                            </TableCell>
                                             <TableCell>{tx.orderId}</TableCell>
                                         </TableRow>
                                     ))
