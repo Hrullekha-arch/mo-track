@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem } from "@/lib/types";
+import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem, VasDetail } from "@/lib/types";
 import React, { useEffect, useState, useMemo } from "react";
 import { getCustomerById } from "@/app/dashboard/customers/actions";
 import { getDealById, getQuotationsForDeal } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
@@ -66,8 +66,15 @@ const addProductSchema = z.object({
   file: z.any().optional(),
 });
 
+const vasSchema = z.object({
+    vasName: z.string(),
+    rate: z.string(),
+    quantity: z.string(),
+});
+
 const convertToOrderSchema = z.object({
   products: z.array(productSchema),
+  vasDetails: z.array(vasSchema).optional(),
   addProduct: addProductSchema,
   orderRemark: z.string().optional(),
   billingName: z.string().optional(),
@@ -98,6 +105,7 @@ function ConvertToOrderContent() {
     resolver: zodResolver(convertToOrderSchema),
     defaultValues: {
       products: [],
+      vasDetails: [],
       addProduct: {
           productCategory: "",
           collectionBrand: "",
@@ -126,6 +134,11 @@ function ConvertToOrderContent() {
     name: "products"
   });
 
+  const { fields: vasFields } = useFieldArray({
+      control: form.control,
+      name: "vasDetails"
+  });
+
   const productTotal = useMemo(() => {
     return fields.reduce((acc, item) => {
         const qty = Number(item.quantity) || 0;
@@ -139,6 +152,18 @@ function ConvertToOrderContent() {
         return acc;
     }, { quantity: 0, amount: 0 });
   }, [fields]);
+
+  const vasTotal = useMemo(() => {
+      return (form.getValues('vasDetails') || []).reduce((acc, item) => {
+          const qty = Number(item.quantity) || 0;
+          const rate = Number(item.rate) || 0;
+          acc.amount += qty * rate;
+          return acc;
+      }, { amount: 0 });
+  }, [form]);
+
+  const grandTotal = productTotal.amount + vasTotal.amount;
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -172,6 +197,7 @@ function ConvertToOrderContent() {
             };
           });
           form.setValue("products", productsFromQuotation);
+          form.setValue("vasDetails", specificQuotation.vasDetails || []);
         } else {
           toast({ variant: "destructive", title: "Error", description: "Quotation not found." });
         }
@@ -246,8 +272,9 @@ function ConvertToOrderContent() {
                 ...p,
                 discountPercent: Number(p.discountPercent) || 0,
             })),
+            vasDetails: data.vasDetails,
             billingName: data.billingName,
-            totalAmount: productTotal.amount, // Pass the final calculated amount
+            totalAmount: grandTotal, 
         };
 
       const result = await createDealOrderAction(customerId, dealId, updatedQuotation, { id: user.id, name: user.name });
@@ -338,6 +365,45 @@ function ConvertToOrderContent() {
               </Table>
             </div>
           </div>
+          
+           {vasFields.length > 0 && (
+            <div>
+                <h2 className="text-xl font-semibold mb-4">Value Added Services (VAS)</h2>
+                 <div className="border rounded-lg overflow-x-auto">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>#</TableHead>
+                                <TableHead>Service Name</TableHead>
+                                <TableHead>Quantity</TableHead>
+                                <TableHead>Rate</TableHead>
+                                <TableHead>Amount</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {vasFields.map((item, index) => {
+                                const amount = (Number(item.rate) || 0) * (Number(item.quantity) || 0);
+                                return (
+                                    <TableRow key={item.id}>
+                                        <TableCell>{index + 1}</TableCell>
+                                        <TableCell>{item.vasName}</TableCell>
+                                        <TableCell>{item.quantity}</TableCell>
+                                        <TableCell>{item.rate}</TableCell>
+                                        <TableCell>{amount.toFixed(2)}</TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                        <TableFooter>
+                            <TableRow>
+                                <TableCell colSpan={4} className="font-semibold text-right">VAS Total</TableCell>
+                                <TableCell className="font-semibold">{vasTotal.amount.toFixed(2)}</TableCell>
+                            </TableRow>
+                        </TableFooter>
+                    </Table>
+                 </div>
+            </div>
+           )}
 
           <div>
             <h2 className="text-xl font-semibold mb-4">Add More Product</h2>
