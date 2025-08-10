@@ -173,7 +173,7 @@ export default function InvoicePage() {
                         ) : (
                             <TableRow>
                                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                                Auto Fetch
+                                No results.
                                 </TableCell>
                             </TableRow>
                         )}
