@@ -143,14 +143,17 @@ export async function allocateStockToAction(
         const invoiceBatchRef = adminDb.collection('invoiceBatches');
         const tenMinutesAgo = Timestamp.fromMillis(Date.now() - 10 * 60 * 1000);
 
+        // Simpler query to avoid composite index requirement
         const recentBatchesQuery = invoiceBatchRef
             .where('orderId', '==', orderId)
-            .where('status', '==', 'pending')
-            .where('createdAt', '>=', tenMinutesAgo)
-            .orderBy('createdAt', 'desc')
-            .limit(1);
+            .where('status', '==', 'pending');
         
-        const recentBatchesSnapshot = await recentBatchesQuery.get();
+        const allPendingBatchesSnapshot = await recentBatchesQuery.get();
+        
+        // Filter by time in code
+        const recentBatchDoc = allPendingBatchesSnapshot.docs
+            .sort((a, b) => b.data().createdAt.toMillis() - a.data().createdAt.toMillis())
+            .find(doc => doc.data().createdAt.toMillis() >= tenMinutesAgo.toMillis());
 
         const newItemForBatch: InvoiceBatchItem = {
             itemName: itemName,
@@ -159,10 +162,9 @@ export async function allocateStockToAction(
             bcn: stockData.bcn || '',
         };
 
-        if (!recentBatchesSnapshot.empty) {
+        if (recentBatchDoc) {
             // Found a recent batch, update it
-            const batchDoc = recentBatchesSnapshot.docs[0];
-            await batchDoc.ref.update({
+            await recentBatchDoc.ref.update({
                 items: FieldValue.arrayUnion(newItemForBatch)
             });
         } else {
