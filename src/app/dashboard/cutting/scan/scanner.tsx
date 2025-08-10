@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -44,7 +43,7 @@ const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult 
     );
 };
 
-function CuttingScannerComponent() {
+export function CuttingScannerComponent() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const { toast } = useToast();
