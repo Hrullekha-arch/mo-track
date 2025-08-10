@@ -62,6 +62,15 @@ export async function createDealOrderAction(
       fabricName: item.collectionBrand,
       quantity: String(item.quantity),
     }));
+    
+    const initialMilestones = getMilestonesForOrder('stitching');
+    const firstMilestone = initialMilestones.find(m => m.id === 1);
+    if (firstMilestone) {
+        firstMilestone.completed = true;
+        firstMilestone.completedAt = new Date().toISOString();
+        firstMilestone.completedBy = creator.name;
+    }
+
 
     const newOrder: Order = {
       id: orderId,
@@ -71,7 +80,7 @@ export async function createDealOrderAction(
       customerAddress: customerData.addressPinCode || `${customerData.city}, ${customerData.state}`,
       salesPerson: salesmanName,
       orderType: 'stitching', // Default, should be determined
-      milestones: getMilestonesForOrder('stitching'), // Initialize with default milestones
+      milestones: initialMilestones,
       createdAt: new Date().toISOString(),
       isAcknowledged: true,
       status: 'Pending Approval', // Set status to Pending Approval
@@ -101,7 +110,7 @@ export async function createDealOrderAction(
 
     // 3. Update the quotation status
     batch.update(quotationRef, { 
-      status: 'Pending Approval', // Corrected Status
+      status: 'Pending Approval',
       orderNo: newOrder.id,
     });
 
