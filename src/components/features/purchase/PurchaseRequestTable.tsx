@@ -142,6 +142,20 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
       cell: ({ row }) => <div className="font-mono">{row.getValue("dealId")}</div>,
     },
     {
+        accessorKey: 'poNumber',
+        header: 'PO Number',
+        cell: ({ row }) => {
+          const poNumber = row.original.poNumber;
+          return poNumber ? (
+            <Button variant="link" asChild className="p-0 h-auto font-medium">
+                <Link href={`/dashboard/inbound/${poNumber}`}>
+                    {poNumber}
+                </Link>
+            </Button>
+          ) : '-';
+        }
+    },
+    {
       accessorKey: "customerName",
       header: ({ column }) => (
         <Button
@@ -193,20 +207,6 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
         },
         filterFn: (row, id, value) => {
             return value.includes(row.getValue(id))
-        }
-    },
-    {
-        accessorKey: 'poNumber',
-        header: 'PO Number',
-        cell: ({ row }) => {
-          const poNumber = row.original.poNumber;
-          return poNumber ? (
-            <Button variant="link" asChild className="p-0 h-auto font-medium">
-                <Link href={`/dashboard/inbound/${poNumber}`}>
-                    {poNumber}
-                </Link>
-            </Button>
-          ) : '-';
         }
     },
     {
