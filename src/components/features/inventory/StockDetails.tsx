@@ -98,7 +98,7 @@ export function StockDetails() {
       <CardHeader>
         <CardTitle>Stock Details</CardTitle>
         <CardDescription>
-          Search for a stock item to view details. Sticker printing has been moved to the cutting page for accuracy.
+          Search for a stock item to view details and print stickers for available rolls.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -120,6 +120,10 @@ export function StockDetails() {
                     onSearch={handleBcnSearch}
                 />
             </div>
+             <Button onClick={() => setIsPrintDialogOpen(true)} disabled={!selectedStock || stockAddedTransactions.length === 0}>
+                <Printer className="mr-2 h-4 w-4" />
+                Print Stickers
+            </Button>
         </div>
         
         <div className="flex gap-4">
@@ -132,6 +136,41 @@ export function StockDetails() {
     <UpdateBatchTaxDialog isOpen={isTaxDialogOpen} onClose={() => setIsTaxDialogOpen(false)} />
     <UpdateBatchRackDialog isOpen={isRackDialogOpen} onClose={() => setIsRackDialogOpen(false)} />
 
+     <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+        <DialogContent className="max-w-4xl">
+            <DialogHeader>
+                <DialogTitle>Print Stock Stickers</DialogTitle>
+                <DialogDescription>
+                    Print stickers for available rolls of {selectedStock?.bcn}. Each sticker represents a physical roll.
+                </DialogDescription>
+            </DialogHeader>
+            <div id="sticker-print-area" className="py-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[70vh] overflow-y-auto">
+                {isLoadingTransactions ? (
+                    <div className="col-span-full flex justify-center items-center h-40">
+                         <Loader2 className="h-8 w-8 animate-spin" />
+                    </div>
+                ) : stockAddedTransactions.length > 0 ? (
+                    stockAddedTransactions.map(tx => (
+                        <StockLengthSticker
+                            key={tx.id}
+                            bcn={selectedStock!.bcn!}
+                            length={tx.quantityChange}
+                            mrp={selectedStock!.mrp!}
+                            rack={selectedStock!.rack!}
+                        />
+                    ))
+                ) : (
+                    <div className="col-span-full text-center text-muted-foreground py-10">
+                        No available rolls to print for this item.
+                    </div>
+                )}
+            </div>
+            <DialogFooter>
+                <Button variant="ghost" onClick={() => setIsPrintDialogOpen(false)}>Cancel</Button>
+                <Button onClick={handlePrint} disabled={stockAddedTransactions.length === 0}>Print</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
     </>
   );
 }

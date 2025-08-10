@@ -52,7 +52,7 @@ function CuttingScanner() {
         fetchTask();
     }, [taskId, router, toast]);
 
-    useEffect(() => {
+     useEffect(() => {
         const startCamera = async () => {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
@@ -130,8 +130,9 @@ function CuttingScanner() {
             return;
         }
 
-        if (scannedLength !== expectedLength) {
-             toast({ variant: 'destructive', title: 'Incorrect Length', description: `Scanned length ${scannedLength}, but expected ${expectedLength}`});
+        // Verify that the roll has enough length for the required cut
+        if (scannedLength < expectedLength) {
+             toast({ variant: 'destructive', title: 'Insufficient Length', description: `Scanned roll length is ${scannedLength}, but required cut is ${expectedLength}`});
             setScanning(false);
             isScanningRef.current = false;
             return;
