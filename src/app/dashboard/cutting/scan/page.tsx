@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
-import { Html5Qrcode, Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
@@ -144,41 +144,41 @@ function CuttingScannerComponent() {
     };
 
     useEffect(() => {
-        let scanner: Html5QrcodeScanner | null = null;
-        try {
-            scanner = new Html5QrcodeScanner(
-                scannerId,
-                {
-                    fps: 10,
-                    qrbox: { width: 250, height: 250 },
-                    supportedScanTypes: [], // Use all scan types
-                },
-                false
-            );
-
-            function onScanSuccess(decodedText: string) {
-                if (!isScanningRef.current) {
-                    handleScan(decodedText);
-                }
-            }
-            
-            function onScanFailure(error: any) {
-                // console.error(`Code scan error = ${error}`);
-            }
-            
-            scanner.render(onScanSuccess, onScanFailure);
-        } catch(e) {
-            // Can happen if element not found
-            console.error(e);
+        if (!document.getElementById(scannerId)) {
+            return;
         }
 
+        const scanner = new Html5QrcodeScanner(
+            scannerId,
+            {
+                fps: 10,
+                qrbox: { width: 250, height: 250 },
+                supportedScanTypes: [], // Use all scan types
+            },
+            false
+        );
+
+        function onScanSuccess(decodedText: string) {
+            if (!isScanningRef.current) {
+                handleScan(decodedText);
+            }
+        }
+        
+        function onScanFailure(error: any) {
+            // console.error(`Code scan error = ${error}`);
+        }
+        
+        scanner.render(onScanSuccess, onScanFailure).catch(err => {
+            console.error("Scanner render failed", err);
+        });
+
         return () => {
-            scanner?.clear().catch(err => {
+            scanner.clear().catch(err => {
                 console.error("Failed to clear scanner cleanly", err);
             });
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [task]);
+    }, [task]); // Re-run effect when task data is loaded to ensure scanner is ready
 
 
     useEffect(() => {
@@ -294,3 +294,5 @@ export default function CuttingScanPage() {
         </Suspense>
     )
 }
+
+    
