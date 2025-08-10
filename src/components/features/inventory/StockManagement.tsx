@@ -309,18 +309,20 @@ export function StockManagement() {
                                 <TableRow>
                                     <TableHead>Date</TableHead>
                                     <TableHead>Sold Length</TableHead>
+                                    <TableHead>From Length</TableHead>
                                     <TableHead>Status</TableHead>
                                     <TableHead>Order ID</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                  {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
                                 ) : stockSoldTransactions.length > 0 ? (
                                     stockSoldTransactions.map(tx => (
                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
                                             <TableCell>{tx.lengths ? tx.lengths.join(', ') : Math.abs(tx.quantityChange)}</TableCell>
+                                            <TableCell>{tx.originalLength?.toFixed(2) || 'N/A'}</TableCell>
                                             <TableCell>
                                                 <Badge variant={tx.status === 'cut' ? 'default' : 'outline'} className="capitalize">{tx.status || 'pending'}</Badge>
                                             </TableCell>
@@ -329,7 +331,7 @@ export function StockManagement() {
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={4} className="h-24 text-center">
+                                        <TableCell colSpan={5} className="h-24 text-center">
                                             No sold data available.
                                         </TableCell>
                                     </TableRow>
