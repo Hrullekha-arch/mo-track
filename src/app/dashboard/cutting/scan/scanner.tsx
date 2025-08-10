@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, Suspense, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -61,6 +60,7 @@ export function CuttingScannerComponent() {
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isProcessingRef = useRef(false);
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+    const [stream, setStream] = useState<MediaStream | null>(null);
 
 
     const handleScan = useCallback(async (scannedData: string) => {
@@ -81,7 +81,7 @@ export function CuttingScannerComponent() {
         if (parts.length !== 2) {
             setScanResult({ status: 'error', message: 'Invalid Barcode Format. Expected BCN|Length.' });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2000);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 5000);
             return;
         }
 
@@ -92,14 +92,14 @@ export function CuttingScannerComponent() {
         if (scannedBcn !== targetBcn) {
             setScanResult({ status: 'error', message: `Wrong Barcode. Scanned ${scannedBcn}, expected ${targetBcn}.` });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2000);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 5000);
             return;
         }
 
         if (isNaN(scannedLength) || scannedLength.toFixed(2) !== expectedOriginalLength?.toFixed(2)) {
             setScanResult({ status: 'error', message: `Wrong Roll. Scanned length ${scannedLength.toFixed(2)}, expected ${expectedOriginalLength?.toFixed(2)}.` });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2500);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 5000);
             return;
         }
 
@@ -155,28 +155,15 @@ export function CuttingScannerComponent() {
                 isProcessingRef.current = false;
             }, 5000);
         }
-    }, [task, user, targetBcn, toast, router]);
+    }, [task, user, targetBcn, router, toast]);
 
-     useEffect(() => {
+    // Effect to request camera permission
+    useEffect(() => {
         const getCameraPermission = async () => {
           try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             setHasCameraPermission(true);
-    
-            if (videoRef.current) {
-              videoRef.current.srcObject = stream;
-              // Add the 'await' here to ensure the play promise resolves
-              await videoRef.current.play(); 
-              
-              codeReaderRef.current.decodeFromVideoElement(videoRef.current, (result, err) => {
-                 if (result && !isProcessingRef.current) {
-                    handleScan(result.getText());
-                 }
-                 if (err && !(err instanceof NotFoundException)) {
-                     // console.error("ZXing Decode Error:", err); // This can be noisy, optional to log
-                 }
-              });
-            }
+            setStream(mediaStream);
           } catch (error) {
             console.error('Error accessing camera:', error);
             setHasCameraPermission(false);
@@ -189,11 +176,35 @@ export function CuttingScannerComponent() {
         };
     
         getCameraPermission();
+    }, [toast]);
     
+    // Effect to start the scanner once we have the stream
+    useEffect(() => {
+        if (stream && videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.play();
+
+            const codeReader = codeReaderRef.current;
+            codeReader.decodeFromVideoElement(videoRef.current, (result, err) => {
+                if (result && !isProcessingRef.current) {
+                    handleScan(result.getText());
+                }
+                if (err && !(err instanceof NotFoundException)) {
+                    // console.error("ZXing Decode Error:", err);
+                }
+            }).catch(err => console.error("Scanner decode error:", err));
+        }
+
         return () => {
-          codeReaderRef.current.reset();
+          if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+          }
+          if (codeReaderRef.current) {
+            codeReaderRef.current.reset();
+          }
         };
-      }, [handleScan]);
+    }, [stream, handleScan]);
+
 
     useEffect(() => {
         if (!taskId) {
