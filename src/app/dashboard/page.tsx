@@ -96,7 +96,7 @@ const dashboardItems = [
         id: "pms"
     },
     {
-        href: "#",
+        href: "/dashboard/cutting",
         title: "Cutting & Details",
         description: "Manage fabric cutting and production details.",
         icon: Scissors,
