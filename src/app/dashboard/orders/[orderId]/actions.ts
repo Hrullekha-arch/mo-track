@@ -79,8 +79,19 @@ async function recalculateStockQuantity(stockId: string) {
         totalQuantity += (doc.data() as StockTransaction).quantityChange;
     });
 
+    // This is incorrect as deductions are negative. We should sum them up.
+    // The FieldValue.increment approach is better, but a full recalc needs this:
+    let recalcQuantity = 0;
+    addedSnapshot.forEach(doc => {
+        recalcQuantity += (doc.data() as StockTransaction).quantityChange;
+    });
+    soldSnapshot.forEach(doc => {
+        recalcQuantity += (doc.data() as StockTransaction).quantityChange; // quantityChange is already negative
+    });
+
+
     await stockRef.update({ 
-      quantity: totalQuantity,
+      quantity: recalcQuantity,
       lastUpdatedAt: new Date().toISOString()
     });
 }
@@ -146,7 +157,7 @@ export async function allocateStockToAction(
             const itemName = (item as any).fabricName || (item as any).furnitureName;
             
             // This logic is imperfect for batching. A better approach would be to get allocations after commit
-            // But for now, let's assume this check is against PREVIOUSLY allocated amounts + current allocation.
+            // For now, let's assume this check is against PREVIOUSLY allocated amounts + current allocation.
             // This part of the logic might need refinement if race conditions occur.
             return true; 
         });
@@ -167,7 +178,7 @@ export async function allocateStockToAction(
         }
         // --- END AUTOMATION LOGIC ---
 
-        await batch.commit(); // This was missing
+        await batch.commit(); 
 
         // Recalculate and update the stock quantity
         await recalculateStockQuantity(stockId);
