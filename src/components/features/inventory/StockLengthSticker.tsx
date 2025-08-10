@@ -18,10 +18,11 @@ const STICKER_HEIGHT_PX = 188;
 
 export function StockLengthSticker({ stock, length, uniqueId }: StockLengthStickerProps) {
     const barcodeRef = useRef<SVGSVGElement>(null);
-    const barcodeValue = `${stock.bcn}-${uniqueId}`;
+    // The barcode value should just be the BCN for the scanner to recognize it.
+    const barcodeValue = stock.bcn || '';
 
     useEffect(() => {
-        if (barcodeRef.current) {
+        if (barcodeRef.current && barcodeValue) {
             try {
                 JsBarcode(barcodeRef.current, barcodeValue, {
                     format: "CODE128",
