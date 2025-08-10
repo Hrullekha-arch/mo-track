@@ -5,6 +5,7 @@
     "components": [
         "./StockManagement.tsx",
         "./StockDetails.tsx",
-        "./UpdateBatchTaxDialog.tsx"
+        "./UpdateBatchTaxDialog.tsx",
+        "./UpdateBatchRackDialog.tsx"
     ]
 }
