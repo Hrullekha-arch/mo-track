@@ -234,20 +234,39 @@ The main inventory collection.
     }
     ```
 
-### Subcollection: `stockAdded` & `stockSold`
+### Subcollection: `stockAdded`
 
--   **Path**: `/stocks/{stockId}/stockAdded/{transactionId}` or `/stocks/{stockId}/stockSold/{transactionId}`
--   **Operations**: Read, Create, Delete
--   **Structure**:
+-   **Path**: `/stocks/{stockId}/stockAdded/{transactionId}`
+-   **Operations**: Read, Create, Update, Delete
+-   **Structure**: A `StockTransaction` document representing a roll of fabric.
     ```typescript
     interface StockTransaction {
       id: string;
       stockId: string;
-      type: 'addition' | 'deduction';
-      quantityChange: number;
-      poNumber?: string; // for additions
-      orderId?: string; // for deductions
+      type: 'addition';
+      quantityChange: number; // Represents the CURRENT available length of this roll
+      poNumber?: string;
+      lengths?: number[]; // The original lengths added in this transaction
       createdAt: string; // ISO Date
       createdBy: string; // User name
     }
     ```
+
+### Sub-subcollection: `stockSold`
+
+-   **Path**: `/stocks/{stockId}/stockAdded/{transactionId}/stockSold/{soldTransactionId}`
+-   **Operations**: Create
+-   **Structure**: A `StockTransaction` document representing a piece cut from the parent roll.
+    ```typescript
+    interface StockTransaction {
+      id: string;
+      stockId: string;
+      type: 'deduction';
+      quantityChange: number; // The amount that was CUT (-ve value)
+      orderId?: string;
+      createdAt: string; // ISO Date
+      createdBy: string; // User name
+    }
+    ```
+
+    

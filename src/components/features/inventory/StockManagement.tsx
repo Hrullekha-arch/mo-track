@@ -308,26 +308,24 @@ export function StockManagement() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Date</TableHead>
-                                    <TableHead>Full Length</TableHead>
                                     <TableHead>Sold Length</TableHead>
                                     <TableHead>Order ID</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                  {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={3} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
                                 ) : stockSoldTransactions.length > 0 ? (
                                     stockSoldTransactions.map(tx => (
                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
-                                            <TableCell>{tx.originalLength?.toFixed(2) || 'N/A'}</TableCell>
                                             <TableCell>{tx.lengths ? tx.lengths.join(', ') : Math.abs(tx.quantityChange)}</TableCell>
                                             <TableCell>{tx.orderId}</TableCell>
                                         </TableRow>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={4} className="h-24 text-center">
+                                        <TableCell colSpan={3} className="h-24 text-center">
                                             No sold data available.
                                         </TableCell>
                                     </TableRow>
@@ -378,3 +376,5 @@ export function StockManagement() {
     </Card>
   );
 }
+
+    

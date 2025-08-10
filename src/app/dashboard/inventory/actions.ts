@@ -179,43 +179,40 @@ export async function updateStockQuantityAction(
 
 export async function revertStockAdditionAction(
   stockId: string,
-  poNumber: string,
-  itemName: string,
+  transactionId: string,
   revertedBy: string
 ): Promise<{ success: boolean; message: string; }> {
   try {
     const stockRef = adminDb.collection('stocks').doc(stockId);
-    const transactionsRef = stockRef.collection('stockAdded');
-
-    const q = transactionsRef.where('poNumber', '==', poNumber).where('bcn', '==', itemName);
-    const snapshot = await q.get();
-
-    if (snapshot.empty) {
-      return { success: false, message: `No matching stock addition transaction found for PO ${poNumber} and item ${itemName}.` };
-    }
+    const transactionRef = stockRef.collection('stockAdded').doc(transactionId);
     
     const batch = adminDb.batch();
-    let totalRevertedQuantity = 0;
 
-    snapshot.docs.forEach(doc => {
-      const transaction = doc.data() as StockTransaction;
-      totalRevertedQuantity += transaction.quantityChange;
-      batch.delete(doc.ref);
-    });
+    const txDoc = await transactionRef.get();
+    if (!txDoc.exists) {
+        return { success: false, message: "Transaction to revert not found."};
+    }
+    const txData = txDoc.data() as StockTransaction;
+    const quantityToRevert = txData.quantityChange;
 
+    // Delete the 'stockAdded' transaction
+    batch.delete(transactionRef);
+
+    // Update the main stock quantity
     batch.update(stockRef, {
-        quantity: FieldValue.increment(-totalRevertedQuantity),
+        quantity: FieldValue.increment(-quantityToRevert),
         lastUpdatedAt: new Date().toISOString()
     });
 
     await batch.commit();
     
-    return { success: true, message: `Successfully reverted stock addition of ${totalRevertedQuantity} for ${itemName}.` };
+    return { success: true, message: `Successfully reverted stock addition of ${quantityToRevert} for ${txData.bcn}.` };
   } catch (error: any) {
     console.error(`Error reverting stock addition for ${stockId}:`, error);
     return { success: false, message: `Failed to revert stock addition: ${error.message}` };
   }
 }
+
 
 export async function getStockTransactions(stockId: string): Promise<StockTransaction[]> {
   try {
@@ -223,15 +220,20 @@ export async function getStockTransactions(stockId: string): Promise<StockTransa
 
     // Fetch from both sub-collections
     const addedTransactionsPromise = stockRef.collection('stockAdded').orderBy('createdAt', 'desc').get();
-    const soldTransactionsPromise = stockRef.collection('stockSold').orderBy('createdAt', 'desc').get();
+    
+    // To get sold transactions, we need to iterate through added transactions
+    const [addedSnapshot] = await Promise.all([addedTransactionsPromise]);
 
-    const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
+    const allTransactions: StockTransaction[] = [];
 
-    const addedTransactions = addedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
-    const soldTransactions = soldSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
-
-    const allTransactions = [...addedTransactions, ...soldTransactions];
-
+    for (const addedDoc of addedSnapshot.docs) {
+        allTransactions.push({ ...addedDoc.data(), id: addedDoc.id } as StockTransaction);
+        const soldSnapshot = await addedDoc.ref.collection('stockSold').orderBy('createdAt', 'desc').get();
+        soldSnapshot.forEach(soldDoc => {
+            allTransactions.push({ ...soldDoc.data(), id: soldDoc.id } as StockTransaction)
+        })
+    }
+    
     // Sort by creation date descending
     allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -274,17 +276,15 @@ export async function getAllStockTransactions(): Promise<StockTransaction[]> {
       const stockRef = adminDb.collection('stocks').doc(stockId);
 
       const addedPromise = stockRef.collection('stockAdded').get();
-      const soldPromise = stockRef.collection('stockSold').get();
+      const [addedSnapshot] = await Promise.all([addedPromise]);
 
-      const [addedSnapshot, soldSnapshot] = await Promise.all([addedPromise, soldPromise]);
-
-      addedSnapshot.forEach(doc => {
+      for (const doc of addedSnapshot.docs) {
         allTransactions.push({ ...doc.data(), id: doc.id } as StockTransaction);
-      });
-
-      soldSnapshot.forEach(doc => {
-        allTransactions.push({ ...doc.data(), id: doc.id } as StockTransaction);
-      });
+        const soldSnapshot = await doc.ref.collection('stockSold').get();
+        soldSnapshot.forEach(soldDoc => {
+            allTransactions.push({ ...soldDoc.data(), id: soldDoc.id } as StockTransaction);
+        });
+      }
     }
 
     allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -297,39 +297,14 @@ export async function getAllStockTransactions(): Promise<StockTransaction[]> {
 }
 
 export async function deleteStockTransaction(stockId: string, transactionId: string, type: 'addition' | 'deduction'): Promise<{ success: boolean; message: string }> {
-  try {
-    const stockRef = adminDb.collection('stocks').doc(stockId);
-    const collectionName = type === 'addition' ? 'stockAdded' : 'stockSold';
-    const transactionRef = stockRef.collection(collectionName).doc(transactionId);
-    
-    const transactionDoc = await transactionRef.get();
-    if (!transactionDoc.exists) {
-      throw new Error("Transaction not found.");
-    }
-
-    const transactionData = transactionDoc.data() as StockTransaction;
-    const quantityChange = transactionData.quantityChange;
-
-    const batch = adminDb.batch();
-    
-    // Delete the transaction document
-    batch.delete(transactionRef);
-
-    // Revert the quantity change on the main stock item
-    batch.update(stockRef, { 
-      quantity: FieldValue.increment(-quantityChange), // Negating the change (e.g., if it was +50, this adds -50)
-      lastUpdatedAt: new Date().toISOString()
-    });
-
-    await batch.commit();
-
-    return { success: true, message: `Transaction ${transactionId} deleted and stock quantity updated.` };
-
-  } catch (error: any) {
-    console.error("Error deleting stock transaction:", error);
-    return { success: false, message: `Failed to delete transaction: ${error.message}` };
-  }
+  // This logic becomes more complex with nested subcollections.
+  // Deleting a 'deduction' would require finding its parent 'addition' and reverting the quantity.
+  // Deleting an 'addition' would require deleting all its 'deduction' subcollections.
+  // For now, we will prevent this action until a clear business rule is defined.
+  
+  return { success: false, message: "Direct deletion of individual transactions is currently disabled due to the new data structure. Please revert from the source (e.g., order page)." };
 }
+
 
 export async function deleteStockTransactions(transactions: StockTransaction[]): Promise<{ success: boolean; message: string }> {
   try {
@@ -338,13 +313,12 @@ export async function deleteStockTransactions(transactions: StockTransaction[]):
 
     transactions.forEach(tx => {
       const collectionName = tx.type === 'addition' ? 'stockAdded' : 'stockSold';
-      const transactionRef = adminDb.collection('stocks').doc(tx.stockId).collection(collectionName).doc(tx.id);
-      batch.delete(transactionRef);
-
-      if (!quantityReversals[tx.stockId]) {
-        quantityReversals[tx.stockId] = 0;
-      }
-      quantityReversals[tx.stockId] -= tx.quantityChange;
+      
+      // The path to the transaction is now more complex for 'stockSold'
+      // This bulk delete logic would need to be significantly more complex to handle the new nested structure
+      // For now, we will disable it for safety.
+      throw new Error("Bulk deletion is disabled for the new nested stock structure.");
+      
     });
 
     for (const stockId in quantityReversals) {
@@ -390,4 +364,6 @@ export async function updateStockBatchAction(
         return { success: false, message: `Failed to update batch: ${error.message}` };
     }
 }
+    
+
     

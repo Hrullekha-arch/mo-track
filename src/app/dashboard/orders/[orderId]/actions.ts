@@ -33,9 +33,8 @@ async function recalculateStockQuantity(stockId: string, transaction: FirebaseFi
     
     // Important: These reads must be part of the transaction
     const addedTransactionsPromise = transaction.get(stockRef.collection('stockAdded'));
-    const soldTransactionsPromise = transaction.get(stockRef.collection('stockSold'));
     
-    const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
+    const [addedSnapshot] = await Promise.all([addedTransactionsPromise]);
 
     let totalQuantity = 0;
 
@@ -72,16 +71,6 @@ export async function allocateStockToAction(
 
             const totalAllocatedQty = allocatedLengths.reduce((sum, l) => sum + l.length, 0);
 
-            // Fetch all original transaction documents first to get their lengths
-            const originalTxRefs = allocatedLengths.map(l => stockRef.collection('stockAdded').doc(l.transactionId));
-            const originalTxDocs = await transaction.getAll(...originalTxRefs);
-            const originalLengthsMap = new Map<string, number>();
-            originalTxDocs.forEach(doc => {
-                if (doc.exists) {
-                    originalLengthsMap.set(doc.id, (doc.data() as StockTransaction).quantityChange);
-                }
-            });
-
             // For each piece of stock we are allocating...
             for (const allocatedPiece of allocatedLengths) {
                 const originalTxRef = stockRef.collection('stockAdded').doc(allocatedPiece.transactionId);
@@ -92,14 +81,13 @@ export async function allocateStockToAction(
                 });
 
                 // Create a new deduction transaction for each piece cut
-                const stockSoldRef = stockRef.collection('stockSold').doc();
+                const stockSoldRef = originalTxRef.collection('stockSold').doc();
                 const stockSoldData: Omit<StockTransaction, 'id'> = {
                     stockId: stockId,
                     bcn: stockData.bcn || '',
                     type: 'deduction',
                     quantityChange: -allocatedPiece.length,
                     lengths: [allocatedPiece.length],
-                    originalLength: originalLengthsMap.get(allocatedPiece.transactionId) || 0,
                     orderId: orderId,
                     createdAt: new Date().toISOString(),
                     createdBy: userName,
@@ -181,3 +169,4 @@ export async function getOrderAllocations(orderId: string): Promise<any[]> {
     }
 }
 
+    

@@ -256,11 +256,10 @@ export interface StockTransaction {
   stockId: string;
   bcn: string;
   type: 'addition' | 'deduction';
-  quantityChange: number;
+  quantityChange: number; // if addition, total length. If deduction, length cut.
   poNumber?: string;
   orderId?: string;
-  lengths?: number[];
-  originalLength?: number;
+  lengths?: number[]; // if addition, original lengths. if deduction, length(s) cut.
   createdAt: string; // ISO string
   createdBy: string;
 }
@@ -488,3 +487,5 @@ export interface Invoice {
 
 
 export { type ComboboxOption };
+
+    
