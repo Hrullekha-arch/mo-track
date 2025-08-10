@@ -9,6 +9,9 @@ import { Stock } from "@/lib/types";
 import { StockManagement } from "@/components/features/inventory/StockManagement";
 import { StockHistoryTable } from "@/components/features/inventory/StockHistoryTable";
 import { StockDetails } from "@/components/features/inventory/StockDetails";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { ScanLine } from "lucide-react";
 
 
 export default async function InventoryPage() {
@@ -17,11 +20,19 @@ export default async function InventoryPage() {
 
     return (
         <div className="w-full p-4 md:p-6 lg:p-8 space-y-4">
-             <header>
-                <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
-                <p className="text-muted-foreground">
-                    View and manage your stock. Total Items: <span className="font-bold text-foreground">{totalStock.toLocaleString()}</span>
-                </p>
+             <header className="flex justify-between items-start">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Inventory</h1>
+                    <p className="text-muted-foreground">
+                        View and manage your stock. Total Items: <span className="font-bold text-foreground">{totalStock.toLocaleString()}</span>
+                    </p>
+                </div>
+                <Button asChild>
+                    <Link href="/dashboard/inventory/scan">
+                        <ScanLine className="mr-2 h-4 w-4" />
+                        Scan Stock
+                    </Link>
+                </Button>
             </header>
             <Tabs defaultValue="stock" className="w-full">
                 <TabsList className="grid w-full grid-cols-4">
