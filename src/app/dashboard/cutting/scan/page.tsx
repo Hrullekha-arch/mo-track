@@ -16,7 +16,6 @@ import Link from 'next/link';
 import { Html5Qrcode, Html5QrcodeScanner } from 'html5-qrcode';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { BarcodeFormat, DecodeHintType, NotFoundException } from '@zxing/library';
 
 type ScanStatus = 'success' | 'warning' | 'error';
 
@@ -57,9 +56,7 @@ function CuttingScannerComponent() {
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
-    const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
     const scannerId = "reader";
-    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
     
     const handleScan = async (scannedValue: string) => {
         if (!task || isScanningRef.current) return;
@@ -99,8 +96,8 @@ function CuttingScannerComponent() {
             return;
         }
         
-        const scannedLength = parseFloat(scannedLengthStr).toFixed(2);
-        const expectedOriginalLength = itemToUpdate.originalLength?.toFixed(2);
+        const scannedLength = parseFloat(scannedLengthStr);
+        const expectedOriginalLength = itemToUpdate.originalLength;
 
         if (scannedLength !== expectedOriginalLength) {
              setScanResult({ status: 'error', message: `Wrong Roll. Expected roll of length ${expectedOriginalLength}, but scanned ${scannedLength}.` });
@@ -147,30 +144,36 @@ function CuttingScannerComponent() {
     };
 
     useEffect(() => {
-        const scanner = new Html5QrcodeScanner(
-            scannerId,
-            {
-                fps: 10,
-                qrbox: { width: 250, height: 250 },
-                supportedScanTypes: [], // Use all scan types
-            },
-            false
-        );
+        let scanner: Html5QrcodeScanner | null = null;
+        try {
+            scanner = new Html5QrcodeScanner(
+                scannerId,
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 },
+                    supportedScanTypes: [], // Use all scan types
+                },
+                false
+            );
 
-        function onScanSuccess(decodedText: string) {
-            if (!isScanningRef.current) {
-                handleScan(decodedText);
+            function onScanSuccess(decodedText: string) {
+                if (!isScanningRef.current) {
+                    handleScan(decodedText);
+                }
             }
+            
+            function onScanFailure(error: any) {
+                // console.error(`Code scan error = ${error}`);
+            }
+            
+            scanner.render(onScanSuccess, onScanFailure);
+        } catch(e) {
+            // Can happen if element not found
+            console.error(e);
         }
-        
-        function onScanFailure(error: any) {
-            // console.error(`Code scan error = ${error}`);
-        }
-        
-        scanner.render(onScanSuccess, onScanFailure);
 
         return () => {
-            scanner.clear().catch(err => {
+            scanner?.clear().catch(err => {
                 console.error("Failed to clear scanner cleanly", err);
             });
         };
@@ -282,6 +285,7 @@ function CuttingScannerComponent() {
         </>
     );
 }
+
 
 export default function CuttingScanPage() {
     return (
