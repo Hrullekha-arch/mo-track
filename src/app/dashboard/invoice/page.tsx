@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -123,14 +124,13 @@ function GenerateInvoiceDialog({
 
         // 2. Create a new Cutting Task document
         const newCuttingTaskRef = doc(collection(db, "Cutting"));
-        const newCuttingTask: CuttingTask = {
-            id: newCuttingTaskRef.id,
+        const newCuttingTask: Omit<CuttingTask, 'id'> = {
             invoiceId: newInvoiceRef.id,
             orderId: primaryOrder.id,
             customerName: primaryOrder.customerName,
             customerPhone: primaryOrder.customerPhone,
             salesPerson: primaryOrder.salesPerson,
-            items: allItems,
+            items: allItems.map(item => ({ ...item, status: 'pending' })),
             createdAt: new Date().toISOString(),
             status: "Pending",
         };

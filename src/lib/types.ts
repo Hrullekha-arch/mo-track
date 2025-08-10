@@ -446,6 +446,7 @@ export interface InvoiceBatchItem {
     bcn: string;
     quantityAllocated: number;
     rate: number;
+    originalLength?: number;
 }
 
 export interface InvoiceBatch {
@@ -492,6 +493,7 @@ export interface CuttingTaskItem {
     quantityAllocated: number;
     rate: number;
     status: 'pending' | 'cut';
+    originalLength?: number;
 }
 
 export interface CuttingTask {

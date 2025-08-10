@@ -201,7 +201,7 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
             <footer style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'space-between', borderTop: '1px solid black', paddingTop: '0.5rem' }}>
                 <div style={{ width: '60%' }}>
                      <p style={{ margin: '2px 0' }}><strong>Amount in Words :</strong> {numberToWords(roundedAmount)} only</p>
-                     <p style={{ margin: '2px 0' }}><strong>Bank Name :</strong> HDFC BANK LTD, Account No: 50200034305041 ,</p>
+                     <p style={{ margin: '2px 0' }}><strong>Bank Name :</strong> HDFC BANK LTD, Account No: 50200094305041 ,</p>
                      <p style={{ margin: '2px 0' }}><strong>IFSC Code :</strong> HDFC0003871 Branch : SCO-39, SECOR-56, HUDA DISTRICT CENTRE, GURGAON-122001</p>
                      <p style={{ margin: '8px 0 2px' }}><strong>ADVANCE :</strong> 0 ₹</p>
                 </div>

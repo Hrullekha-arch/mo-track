@@ -66,6 +66,7 @@ export async function allocateStockToAction(
             const originalTxDocs = await Promise.all(originalTxRefs.map(ref => transaction.get(ref)));
 
             // --- ALL WRITES MUST BE EXECUTED AFTER ALL READS ---
+            let originalLengthForInvoice = 0;
 
             // For each piece of stock we are allocating...
             for (let i = 0; i < allocatedLengths.length; i++) {
@@ -76,6 +77,10 @@ export async function allocateStockToAction(
                     throw new Error(`Original stock roll with ID ${allocatedPiece.transactionId} not found.`);
                 }
                 const originalTxData = originalTxDoc.data() as StockTransaction;
+
+                if (i === 0) {
+                    originalLengthForInvoice = originalTxData.quantityChange;
+                }
 
                 // 1. Decrement the quantity from the original roll.
                 transaction.update(originalTxDoc.ref, {
@@ -117,6 +122,7 @@ export async function allocateStockToAction(
                 quantityAllocated: totalAllocatedQty,
                 rate: stockData.mrp || 0,
                 bcn: stockData.bcn || '',
+                originalLength: originalLengthForInvoice,
             };
 
             if (recentBatchDoc) {

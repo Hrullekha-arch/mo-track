@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { collection, onSnapshot, query, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { CuttingTask, Stock } from "@/lib/types";
+import { CuttingTask, Stock, StockTransaction } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,7 @@ import { StockLengthSticker } from "@/components/features/inventory/StockLengthS
 
 function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => void }) {
     const [loadingStock, setLoadingStock] = useState<Record<string, boolean>>({});
-    const [stockDetails, setStockDetails] = useState<Record<string, Stock>>({});
+    const [stockDetails, setStockDetails] = useState<Record<string, { stock: Stock | null, transaction: StockTransaction | null }>>({});
     const [revertingBcn, setRevertingBcn] = useState<string | null>(null);
     const [printingItem, setPrintingItem] = useState<any>(null);
 
@@ -31,13 +31,17 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
 
     useEffect(() => {
         const fetchStockDetails = async () => {
-            const newStockDetails: Record<string, Stock> = {};
+            const newStockDetails: Record<string, { stock: Stock | null, transaction: StockTransaction | null }> = {};
             for (const item of task.items) {
                 setLoadingStock(prev => ({...prev, [item.bcn]: true}));
                 const stock = await getStockById(item.bcn.replace(/\//g, '-'));
-                if (stock) {
-                    newStockDetails[item.bcn] = stock;
-                }
+                
+                let transaction: StockTransaction | null = null;
+                // Simplified fetch, assuming there's a unique identifier for the transaction if needed
+                // For now, we'll just fetch the stock item for simplicity.
+                // A more robust solution might need to query the stockSold subcollection for the orderId.
+
+                newStockDetails[item.bcn] = { stock, transaction };
                 setLoadingStock(prev => ({...prev, [item.bcn]: false}));
             }
             setStockDetails(newStockDetails);
@@ -114,12 +118,17 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
                         <h3 className="font-semibold pt-4 border-t">List of Items to Cut</h3>
                         <div className="space-y-3">
                             {task.items.map((item, index) => {
-                                const stock = stockDetails[item.bcn];
+                                const stockData = stockDetails[item.bcn];
+                                const stock = stockData?.stock;
+                                const originalLength = item.originalLength;
                                 return (
                                     <Card key={index} className="p-3">
                                         <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                                             <div><span className="font-semibold text-xs">BCN:</span><p className="font-mono">{item.bcn}</p></div>
-                                            <div><span className="font-semibold text-xs">Available Stock:</span><p>{loadingStock[item.bcn] ? <Loader2 className="h-4 w-4 animate-spin"/> : (stock?.quantity.toFixed(2) || 'N/A')}</p></div>
+                                            <div>
+                                                <span className="font-semibold text-xs">Length from which this is Allocated:</span>
+                                                <p>{loadingStock[item.bcn] ? <Loader2 className="h-4 w-4 animate-spin"/> : (originalLength?.toFixed(2) || 'N/A')}</p>
+                                            </div>
                                             <div><span className="font-semibold text-xs">Qty to Cut:</span><p className="font-bold text-lg">{item.quantityAllocated.toFixed(2)}</p></div>
                                             <div><span className="font-semibold text-xs">Category:</span><p>{stock?.category || 'N/A'}</p></div>
                                             <div><span className="font-semibold text-xs">Rack:</span><p>{stock?.rack || 'N/A'}</p></div>
@@ -158,29 +167,29 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
                     </CardContent>
                 </Card>
                  <Dialog open={!!printingItem} onOpenChange={() => setPrintingItem(null)}>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Print Sticker</DialogTitle>
-                            <DialogDescription>
-                                Sticker for {printingItem?.item.bcn} with length {printingItem?.item.quantityAllocated.toFixed(2)}.
-                            </DialogDescription>
-                        </DialogHeader>
-                        {printingItem && (
-                             <div id="sticker-print-area-cutting" className="py-4 flex justify-center">
-                                <StockLengthSticker 
-                                    bcn={printingItem.item.bcn}
-                                    length={printingItem.item.quantityAllocated}
-                                    mrp={printingItem.stock?.mrp || 0}
-                                    rack={printingItem.stock?.rack || 'N/A'}
-                                />
-                            </div>
-                        )}
-                        <DialogFooter>
-                            <Button variant="ghost" onClick={() => setPrintingItem(null)}>Cancel</Button>
-                            <Button onClick={handlePrint}>Print</Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                     <DialogContent>
+                         <DialogHeader>
+                             <DialogTitle>Print Sticker</DialogTitle>
+                             <DialogDescription>
+                                 Sticker for {printingItem?.item.bcn} with length {printingItem?.item.quantityAllocated.toFixed(2)}.
+                             </DialogDescription>
+                         </DialogHeader>
+                         {printingItem && (
+                              <div id="sticker-print-area-cutting" className="py-4 flex justify-center">
+                                 <StockLengthSticker 
+                                     bcn={printingItem.item.bcn}
+                                     length={printingItem.item.quantityAllocated}
+                                     mrp={printingItem.stock?.mrp || 0}
+                                     rack={printingItem.stock?.rack || 'N/A'}
+                                 />
+                             </div>
+                         )}
+                         <DialogFooter>
+                             <Button variant="ghost" onClick={() => setPrintingItem(null)}>Cancel</Button>
+                             <Button onClick={handlePrint}>Print</Button>
+                         </DialogFooter>
+                     </DialogContent>
+                 </Dialog>
             </div>
              <AlertDialogContent>
                 <AlertDialogHeader>
