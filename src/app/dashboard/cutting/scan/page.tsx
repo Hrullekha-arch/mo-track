@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ArrowLeft, Camera, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -43,8 +43,11 @@ const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult 
     );
 };
 
-function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | null}) {
+function CuttingScanner() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const taskId = searchParams.get('taskId');
+    const bcn = searchParams.get('bcn');
     const { toast } = useToast();
 
     const [task, setTask] = useState<CuttingTask | null>(null);
@@ -122,12 +125,13 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
             setIsPopupOpen(true);
 
             if (newStatus === 'Completed') {
+                toast({ title: "Task Complete!", description: `All items for order ${task.orderId} have been cut.`});
                 setTimeout(() => {
                     setIsPopupOpen(false);
                     router.push('/dashboard/cutting');
                 }, 1500);
             } else {
-                setTimeout(() => {
+                 setTimeout(() => {
                     setIsPopupOpen(false);
                     isScanningRef.current = false;
                 }, 1500);
@@ -166,8 +170,10 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
     }, [taskId, router, toast]);
 
     useEffect(() => {
+        if (loading) return; // Don't start scanner until task data is loaded
+
         html5QrCodeRef.current = new Html5Qrcode(scannerId, {
-            formatsToSupport: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] // All formats
+             formatsToSupport: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
         });
         let scannerIsRunning = true;
 
@@ -184,9 +190,7 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
                             handleScan(decodedText);
                         }
                     },
-                    () => {
-                       // Errors are frequent, we can ignore them unless needed for debugging
-                    }
+                    () => {}
                 );
             } catch (err) {
                  console.error("Failed to start scanner", err);
@@ -205,7 +209,7 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
             }
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [loading]); // Rerun effect if loading state changes
 
 
     if (loading) {
@@ -292,18 +296,10 @@ function CuttingScanner({ taskId, bcn }: { taskId: string | null, bcn: string | 
     );
 }
 
-function CuttingScanPageContent() {
-    const searchParams = useSearchParams();
-    const taskId = searchParams.get('taskId');
-    const bcn = searchParams.get('bcn');
-
-    return <CuttingScanner taskId={taskId} bcn={bcn} />;
-}
-
 export default function CuttingScanPage() {
     return (
         <Suspense fallback={<Skeleton className="h-screen w-full" />}>
-            <CuttingScanPageContent />
+            <CuttingScanner />
         </Suspense>
     );
 }
