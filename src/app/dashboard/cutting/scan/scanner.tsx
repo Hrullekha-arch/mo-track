@@ -1,10 +1,11 @@
+
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { CuttingTask } from '@/lib/types';
+import { CuttingTask, StockTransaction } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -154,21 +155,23 @@ export function CuttingScannerComponent() {
             }, 2000);
         }
     }, [task, user, targetBcn, toast, router]);
-    
+
      useEffect(() => {
         const startScanner = async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
-                    videoRef.current.play(); // Important for some browsers
+                    await videoRef.current.play(); // Ensure video is playing before decoding
                     
-                    codeReaderRef.current.decodeFromVideoElement(videoRef.current).then(result => {
-                         handleScan(result.getText());
-                    }).catch(err => {
-                        if (!(err instanceof NotFoundException)) {
+                    codeReaderRef.current.decodeFromVideoElement(videoRef.current, (result, err) => {
+                         if (result) {
+                            handleScan(result.getText());
+                         }
+                         if (err && !(err instanceof NotFoundException)) {
                              console.error("ZXing Decode Error:", err);
-                        }
+                             setPermissionError("An error occurred during scanning.")
+                         }
                     });
                 }
             } catch (err) {
@@ -249,7 +252,7 @@ export function CuttingScannerComponent() {
                         </CardHeader>
                         <CardContent>
                             <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                                <video ref={videoRef} className="w-full h-full object-cover" />
+                                <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
                                 {permissionError && (
                                      <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
                                         <CameraOff className="h-12 w-12 text-muted-foreground mb-4"/>
@@ -301,3 +304,4 @@ export function CuttingScannerComponent() {
         </>
     );
 }
+
