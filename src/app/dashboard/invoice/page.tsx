@@ -209,11 +209,13 @@ function GenerateInvoiceDialog({
 function InvoiceTable({ 
     batches, 
     orders, 
-    loading 
+    loading,
+    view
 }: { 
     batches: InvoiceBatch[], 
     orders: Order[], 
-    loading: boolean 
+    loading: boolean,
+    view: 'active' | 'all'
 }) {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
@@ -395,13 +397,15 @@ function InvoiceTable({
                     {table.getFilteredSelectedRowModel().rows.length} of{" "}
                     {table.getFilteredRowModel().rows.length} row(s) selected.
                 </div>
-                <Button 
-                  onClick={() => setIsGenerateDialogOpen(true)}
-                  disabled={!canGenerate}
-                >
-                  <FileText className="mr-2 h-4 w-4" />
-                  Generate
-                </Button>
+                {view === 'active' && (
+                  <Button 
+                    onClick={() => setIsGenerateDialogOpen(true)}
+                    disabled={!canGenerate}
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    Generate
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>Previous</Button>
                 <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next</Button>
             </div>
@@ -536,7 +540,7 @@ export default function InvoicePage() {
                 <TabsTrigger value="all">All Invoices</TabsTrigger>
             </TabsList>
             <TabsContent value="active" className="pt-4">
-                <InvoiceTable batches={activeBatches} orders={orders} loading={loading} />
+                <InvoiceTable batches={activeBatches} orders={orders} loading={loading} view="active" />
             </TabsContent>
             <TabsContent value="all" className="pt-4">
                 <div className="mb-6 p-4 border rounded-lg bg-card space-y-4">
@@ -595,7 +599,7 @@ export default function InvoicePage() {
                         <Button variant="outline" onClick={clearFilters}><X className="mr-2 h-4 w-4"/>Clear</Button>
                     </div>
                 </div>
-                <InvoiceTable batches={filteredBatches} orders={orders} loading={loading} />
+                <InvoiceTable batches={filteredBatches} orders={orders} loading={loading} view="all" />
             </TabsContent>
         </Tabs>
     </div>
