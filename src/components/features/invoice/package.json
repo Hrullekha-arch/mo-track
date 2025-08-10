@@ -1,0 +1,5 @@
+
+{
+    "name": "invoice",
+    "main": "./PrintableInvoice.tsx"
+}

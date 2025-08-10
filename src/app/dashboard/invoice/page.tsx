@@ -12,7 +12,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -24,23 +24,26 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
-import { collection, onSnapshot, query } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import { InvoiceBatch } from "@/lib/types";
+import { InvoiceBatch, Order } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
 
 
 function GenerateInvoiceDialog({
   isOpen,
   onClose,
   batches,
+  orders,
 }: {
   isOpen: boolean;
   onClose: () => void;
   batches: InvoiceBatch[];
+  orders: Order[];
 }) {
   const [isGenerating, setIsGenerating] = React.useState(false);
   const { toast } = useToast();
@@ -55,44 +58,42 @@ function GenerateInvoiceDialog({
         onClose();
     }, 1500);
   }
+  
+  const handlePrint = () => {
+    const printContent = document.getElementById('printable-invoice-content');
+    if (!printContent) return;
 
-  const allItems = batches.flatMap(b => b.items.map(item => ({...item, orderId: b.orderId})));
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    printWindow.document.write('<html><head><title>Print Invoice</title>');
+    printWindow.document.write('<style>@media print { body { -webkit-print-color-adjust: exact; } table { page-break-inside: auto; } tr { page-break-inside: avoid; page-break-after: auto; } thead { display: table-header-group; } tfoot { display: table-footer-group; } }</style>');
+    printWindow.document.write('</head><body>');
+    printWindow.document.write(printContent.innerHTML);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+        printWindow.close();
+    }, 250);
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
             <DialogHeader>
                 <DialogTitle>Generate Invoice</DialogTitle>
                 <DialogDescription>
                     Review the items below. An invoice will be generated for the selected orders.
                 </DialogDescription>
             </DialogHeader>
-            <div className="max-h-[60vh] overflow-y-auto pr-4">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Order ID</TableHead>
-                            <TableHead>Item Name (BCN)</TableHead>
-                            <TableHead>Qty</TableHead>
-                            <TableHead className="text-right">Rate</TableHead>
-                            <TableHead className="text-right">Amount</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {allItems.map((item, index) => (
-                            <TableRow key={index}>
-                                <TableCell>{item.orderId}</TableCell>
-                                <TableCell>{item.bcn}</TableCell>
-                                <TableCell>{item.quantityAllocated}</TableCell>
-                                <TableCell className="text-right">₹{item.rate.toFixed(2)}</TableCell>
-                                <TableCell className="text-right">₹{(item.quantityAllocated * item.rate).toFixed(2)}</TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
+            <div className="flex-grow overflow-y-auto pr-4" id="printable-invoice-content">
+                <PrintableInvoice batches={batches} orders={orders} />
             </div>
             <DialogFooter>
                 <Button variant="ghost" onClick={onClose}>Cancel</Button>
+                <Button variant="outline" onClick={handlePrint}><Printer className="mr-2 h-4 w-4"/> Print</Button>
                 <Button onClick={handleGenerate} disabled={isGenerating}>
                     {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Confirm & Generate
@@ -106,6 +107,7 @@ function GenerateInvoiceDialog({
 
 export default function InvoicePage() {
   const [batches, setBatches] = React.useState<InvoiceBatch[]>([]);
+  const [orders, setOrders] = React.useState<Order[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
@@ -115,22 +117,32 @@ export default function InvoicePage() {
   React.useEffect(() => {
     setLoading(true);
     const batchesQuery = query(collection(db, "invoiceBatches"));
+    const ordersQuery = query(collection(db, "orders"));
 
-    const unsubscribe = onSnapshot(batchesQuery, (snapshot) => {
+    const unsubscribeBatches = onSnapshot(batchesQuery, (snapshot) => {
         const batchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvoiceBatch));
         setBatches(batchesData);
-        setLoading(false);
     }, (error) => {
         console.error("Error fetching invoice batches:", error);
-        toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Could not load invoice data.",
-        });
-        setLoading(false);
+        toast({ variant: "destructive", title: "Error", description: "Could not load invoice data." });
     });
 
-    return () => unsubscribe();
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+        const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+        setOrders(ordersData);
+    }, (error) => {
+        console.error("Error fetching orders:", error);
+    });
+
+    Promise.all([
+        getDocs(batchesQuery),
+        getDocs(ordersQuery)
+    ]).finally(() => setLoading(false));
+
+    return () => {
+      unsubscribeBatches();
+      unsubscribeOrders();
+    };
   }, [toast]);
 
   const columns: ColumnDef<InvoiceBatch>[] = [
@@ -217,6 +229,8 @@ export default function InvoicePage() {
   });
 
   const selectedBatches = table.getFilteredSelectedRowModel().rows.map(row => row.original);
+  const selectedOrders = orders.filter(order => selectedBatches.some(batch => batch.orderId === order.id));
+
 
   return (
     <>
@@ -291,6 +305,7 @@ export default function InvoicePage() {
       isOpen={isGenerateDialogOpen}
       onClose={() => setIsGenerateDialogOpen(false)}
       batches={selectedBatches}
+      orders={selectedOrders}
     />
     </>
   );
