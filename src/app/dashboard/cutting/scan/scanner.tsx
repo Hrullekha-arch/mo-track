@@ -72,7 +72,7 @@ export function CuttingScannerComponent() {
         if (!itemToUpdate) {
             setScanResult({ status: 'warning', message: 'Item not found or already cut.' });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2000);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 5000);
             return;
         }
 
@@ -80,7 +80,7 @@ export function CuttingScannerComponent() {
         if (parts.length !== 2) {
             setScanResult({ status: 'error', message: 'Invalid Barcode Format. Expected BCN|Length.' });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2000);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 5000);
             return;
         }
 
@@ -91,14 +91,14 @@ export function CuttingScannerComponent() {
         if (scannedBcn !== targetBcn) {
             setScanResult({ status: 'error', message: `Wrong Barcode. Scanned ${scannedBcn}, expected ${targetBcn}.` });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2000);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 5000);
             return;
         }
 
         if (isNaN(scannedLength) || scannedLength.toFixed(2) !== expectedOriginalLength?.toFixed(2)) {
             setScanResult({ status: 'error', message: `Wrong Roll. Scanned length ${scannedLength.toFixed(2)}, expected ${expectedOriginalLength?.toFixed(2)}.` });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2500);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 5000);
             return;
         }
 
@@ -152,7 +152,7 @@ export function CuttingScannerComponent() {
             setTimeout(() => {
                 setIsPopupOpen(false);
                 isProcessingRef.current = false;
-            }, 2000);
+            }, 5000);
         }
     }, [task, user, targetBcn, toast, router]);
 
@@ -165,7 +165,7 @@ export function CuttingScannerComponent() {
                     await videoRef.current.play(); // Ensure video is playing before decoding
                     
                     codeReaderRef.current.decodeFromVideoElement(videoRef.current, (result, err) => {
-                         if (result) {
+                         if (result && !isProcessingRef.current) {
                             handleScan(result.getText());
                          }
                          if (err && !(err instanceof NotFoundException)) {
@@ -304,4 +304,3 @@ export function CuttingScannerComponent() {
         </>
     );
 }
-
