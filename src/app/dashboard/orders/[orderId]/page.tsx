@@ -247,18 +247,19 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             setAllocatedQty(totalAllocated);
             
             const requiredQty = parseFloat((item as any).quantity || '0');
-            const itemNameInInvoice = invoiceSnaps.docs.some(doc => {
+            
+            // Find the specific invoice batch that contains this item and is invoiced
+            const invoicedBatch = invoiceSnaps.docs.find(doc => {
                 const batch = doc.data() as InvoiceBatch;
-                return batch.items.some(batchItem => batchItem.itemName === itemName);
-            });
-            const invoiceWithTally = invoiceSnaps.docs.find(doc => (doc.data() as InvoiceBatch).tallyBillNo);
+                return batch.status === 'invoiced' && batch.items.some(batchItem => batchItem.itemName === itemName);
+            })?.data() as InvoiceBatch | undefined;
 
-            if (itemNameInInvoice) {
-                const tallyBillNo = (invoiceWithTally?.data() as InvoiceBatch)?.tallyBillNo;
+
+            if (invoicedBatch) {
                 setStatus({ 
-                    text: tallyBillNo ? `Invoice Generated: ${tallyBillNo}` : 'Invoice Generated', 
+                    text: invoicedBatch.tallyBillNo ? `Invoice Generated: ${invoicedBatch.tallyBillNo}` : 'Invoice Generated', 
                     variant: 'default',
-                    tallyBillNo: tallyBillNo
+                    tallyBillNo: invoicedBatch.tallyBillNo
                 });
             } else if (totalAllocated >= requiredQty) {
                 setStatus({ text: 'Pending for Invoice', variant: 'outline' });
@@ -299,15 +300,13 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (stockInfo?.quantity ?? 'N/A')}
             </TableCell>
             <TableCell>
-                {loading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                ) : allocatedQty > 0 ? (
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (allocatedQty > 0 ? (
                     <span className="font-semibold text-green-600">{allocatedQty.toFixed(2)}</span>
                 ) : isOrderApproved && stockInfo ? (
                     <AllocateDialog item={item} stock={stockInfo} orderId={orderId} onAllocationSuccess={onAllocationSuccess} />
                 ) : (
                     <Badge variant="outline">{order.status || 'Pending'}</Badge>
-                )}
+                ))}
             </TableCell>
             <TableCell>
                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 
