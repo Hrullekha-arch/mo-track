@@ -36,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 
 
 function GenerateInvoiceDialog({
@@ -278,6 +279,16 @@ function InvoiceTable({
         const totalAmount = subtotal + tax;
         return `₹${totalAmount.toFixed(2)}`;
       },
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => {
+        const status = row.getValue("status") as string;
+        const variant = status === 'pending' ? 'secondary' : 'default';
+        const color = status === 'pending' ? '' : 'bg-green-600';
+        return <Badge variant={variant} className={color}>{status}</Badge>;
+      }
     },
     {
         id: 'actions',
