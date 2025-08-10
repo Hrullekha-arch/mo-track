@@ -85,14 +85,14 @@ function CuttingScanner() {
         fetchTask();
     }, [taskId, router, toast]);
 
-     useEffect(() => {
+    useEffect(() => {
         const startCamera = async () => {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             setHasCameraPermission(true);
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
-                // Important: Don't await play() here as it can cause issues on some browsers.
+                // Don't await play() here as it can cause issues on some browsers.
                 videoRef.current.play().catch(e => console.error("Video play error:", e));
 
                 codeReader.current.decodeFromVideoDevice(
@@ -315,3 +315,5 @@ export default function CuttingScanPage() {
     )
 }
 
+
+    
