@@ -4,7 +4,6 @@
 import * as React from "react";
 import { InvoiceBatch, Order, Stock } from "@/lib/types";
 import { format } from "date-fns";
-import Image from 'next/image';
 import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 
@@ -96,9 +95,9 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
 
     return (
         <div style={{ width: '210mm', minHeight: '297mm', margin: 'auto', padding: '1rem', backgroundColor: 'white', color: 'black', fontFamily: 'Arial, sans-serif', fontSize: '10px' }}>
-            <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', borderBottom: '1px solid black', paddingBottom: '0.5rem' }}>
+            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid black', paddingBottom: '0.5rem' }}>
                  <div style={{ flex: '0 0 120px' }}>
-                    <Image src="/logo.png" alt="MoTrack Logo" width={100} height={50} data-ai-hint="logo" />
+                    <img src="/logo.png" alt="MoTrack Logo" style={{width: '100px', height: 'auto'}} />
                  </div>
                 <div style={{ flex: '1', textAlign: 'center' }}>
                     <h1 style={{ fontSize: '14px', fontWeight: 'bold', margin: 0, borderBottom: '1px solid black', paddingBottom: '4px' }}>TAX INVOICE</h1>
@@ -190,7 +189,7 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
             
             <footer style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'space-between', borderTop: '1px solid black', paddingTop: '0.5rem' }}>
                 <div style={{ width: '60%' }}>
-                     <p style={{ margin: '2px 0' }}><strong>Amount in Words :</strong> {numberToWords(roundedAmount)} only</p>
+                     <p style={{ margin: '2px 0' }}><strong>Amount in Words :</strong> {numberToWords(roundedTotal)} only</p>
                      <p style={{ margin: '2px 0' }}><strong>Bank Name :</strong> HDFC BANK LTD, Account No: 50200034305041 ,</p>
                      <p style={{ margin: '2px 0' }}><strong>IFSC Code :</strong> HDFC0003871 Branch : SCO-39, SECOR-56, HUDA DISTRICT CENTRE, GURGAON-122001</p>
                      <p style={{ margin: '8px 0 2px' }}><strong>ADVANCE :</strong> 0 ₹</p>
@@ -212,7 +211,7 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
                         <p style={{ margin: '2px 0', borderBottom: '1px solid black', paddingBottom: '1px' }}>{formatToINR(totals.totalCgst)}</p>
                         <p style={{ margin: '2px 0', borderBottom: '1px solid black', paddingBottom: '1px' }}>{formatToINR(totals.totalSgst)}</p>
                         <p style={{ margin: '2px 0', borderBottom: '1px solid black', paddingBottom: '1px' }}>{formatToINR(roundOff)}</p>
-                        <p style={{ margin: '2px 0', fontWeight: 'bold' }}>{formatToINR(roundedAmount)}</p>
+                        <p style={{ margin: '2px 0', fontWeight: 'bold' }}>{formatToINR(roundedTotal)}</p>
                     </div>
                  </div>
             </footer>
