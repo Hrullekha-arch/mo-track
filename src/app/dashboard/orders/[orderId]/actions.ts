@@ -28,23 +28,6 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
     }
 }
 
-async function recalculateStockQuantity(stockId: string, transaction: FirebaseFirestore.Transaction) {
-    const stockRef = adminDb.collection('stocks').doc(stockId);
-    
-    // This read must be part of the transaction
-    const addedTransactionsSnapshot = await transaction.get(stockRef.collection('stockAdded'));
-
-    let totalQuantity = 0;
-    addedTransactionsSnapshot.forEach(doc => {
-        totalQuantity += (doc.data() as StockTransaction).quantityChange;
-    });
-    
-    transaction.update(stockRef, { 
-      quantity: totalQuantity,
-      lastUpdatedAt: new Date().toISOString()
-    });
-}
-
 
 export async function allocateStockToAction(
     { orderId, stockId, itemName, allocatedLengths, userId, userName }: 
@@ -62,10 +45,11 @@ export async function allocateStockToAction(
                 .where('createdAt', '>=', tenMinutesAgo);
 
             // --- ALL READS MUST BE EXECUTED FIRST ---
-            const [stockDoc, orderDoc, recentBatchesSnapshot] = await Promise.all([
+            const [stockDoc, orderDoc, recentBatchesSnapshot, allAddedTransactionsSnapshot] = await Promise.all([
                 transaction.get(stockRef),
                 transaction.get(orderRef),
-                transaction.get(recentBatchesQuery)
+                transaction.get(recentBatchesQuery),
+                transaction.get(stockRef.collection('stockAdded'))
             ]);
 
             if (!stockDoc.exists) throw new Error("Stock item not found.");
@@ -98,7 +82,7 @@ export async function allocateStockToAction(
 
                 // 2. Create a new deduction transaction for each piece cut
                 const stockSoldRef = originalTxDoc.ref.collection('stockSold').doc();
-                const stockSoldData: Omit<StockTransaction, 'id' | 'originalLength'> = {
+                const stockSoldData: Omit<StockTransaction, 'id'> = {
                     stockId: stockId,
                     bcn: stockData.bcn || '',
                     type: 'deduction',
@@ -151,18 +135,19 @@ export async function allocateStockToAction(
             }
 
             // 5. Recalculate total quantity for the stock item.
-            // This function internally does a read (get all stockAdded docs) followed by a write (update total quantity).
-            // It's wrapped in the main transaction, so we pass the transaction object to it.
-            const addedTransactionsSnapshot = await transaction.get(stockRef.collection('stockAdded'));
             let totalQuantity = 0;
-            addedTransactionsSnapshot.forEach(doc => {
-                totalQuantity += (doc.data() as StockTransaction).quantityChange;
+            allAddedTransactionsSnapshot.forEach(doc => {
+                const data = doc.data() as StockTransaction;
+                totalQuantity += data.quantityChange;
             });
+
+            // Adjust for the current allocation
+            totalQuantity -= totalAllocatedQty;
+
             transaction.update(stockRef, { 
               quantity: totalQuantity,
               lastUpdatedAt: new Date().toISOString()
             });
-
        });
 
         return { success: true, message: 'Stock allocated and prepared for invoicing.' };
