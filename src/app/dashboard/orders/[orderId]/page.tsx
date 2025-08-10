@@ -473,4 +473,3 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
     );
 }
 
-    
