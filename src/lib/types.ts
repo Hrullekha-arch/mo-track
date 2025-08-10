@@ -1,6 +1,7 @@
 
 
 import { ComboboxOption } from "@/components/ui/combobox";
+import { Timestamp } from "firebase/firestore";
 
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
@@ -437,5 +438,23 @@ export interface DealOrder {
     items: QuotationItem[];
     status: 'Pending Approval' | 'Approved';
 }
+
+export interface InvoiceBatchItem {
+    itemName: string;
+    bcn: string;
+    quantityAllocated: number;
+    rate: number;
+}
+
+export interface InvoiceBatch {
+    id: string;
+    orderId: string;
+    customerName: string;
+    customerPhone: string;
+    createdAt: Timestamp;
+    status: 'pending' | 'invoiced';
+    items: InvoiceBatchItem[];
+}
+
 
 export { type ComboboxOption };

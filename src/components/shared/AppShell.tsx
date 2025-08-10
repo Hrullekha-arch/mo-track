@@ -36,6 +36,7 @@ import {
   Users,
   Contact2,
   FileSignature,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -51,6 +52,7 @@ const allNavItems = [
   { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
   { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
   { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
+  { href: "/dashboard/invoice", icon: FileText, label: "Invoice", roles: ['admin', 'Accounts', 'employee'] },
   { href: "/dashboard/pms", icon: GanttChartSquare, label: "PMS", roles: ['admin', 'employee'] },
   { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin'] },
   { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin', 'employee'] },

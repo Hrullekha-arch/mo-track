@@ -1,10 +1,9 @@
 
-
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Order, Stock, StockTransaction } from '@/lib/types';
-import { FieldValue, writeBatch } from 'firebase-admin/firestore';
+import { Order, Stock, StockTransaction, InvoiceBatch, InvoiceBatchItem } from '@/lib/types';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 
 export async function getAvailableStockLengths(stockId: string): Promise<{ success: boolean; message: string; lengths?: { length: number; transactionId: string }[] }> {
@@ -93,15 +92,18 @@ export async function allocateStockToAction(
     try {
         const stockRef = adminDb.collection('stocks').doc(stockId);
         const orderRef = adminDb.collection('orders').doc(orderId);
-        const stockDoc = await stockRef.get();
-        if (!stockDoc.exists) {
-            throw new Error("Stock item not found.");
-        }
         
+        const [stockDoc, orderDoc] = await Promise.all([stockRef.get(), orderRef.get()]);
+
+        if (!stockDoc.exists) throw new Error("Stock item not found.");
+        if (!orderDoc.exists) throw new Error("Order not found.");
+        
+        const stockData = stockDoc.data() as Stock;
+        const orderData = orderDoc.data() as Order;
+
         const totalAllocatedQty = allocatedLengths.reduce((sum, l) => sum + l.length, 0);
 
-        const currentQuantity = stockDoc.data()?.quantity || 0;
-        if (currentQuantity < totalAllocatedQty) {
+        if (stockData.quantity < totalAllocatedQty) {
             throw new Error("Insufficient stock quantity.");
         }
 
@@ -112,7 +114,7 @@ export async function allocateStockToAction(
         // Create a new deduction transaction
         const stockSoldData: Omit<StockTransaction, 'id'> = {
             stockId: stockId,
-            bcn: stockDoc.data()?.bcn || '',
+            bcn: stockData.bcn || '',
             type: 'deduction',
             quantityChange: -totalAllocatedQty,
             orderId: orderId,
@@ -133,46 +135,51 @@ export async function allocateStockToAction(
         };
         batch.set(allocationRef, allocationData);
 
-        // --- AUTOMATION LOGIC ---
-        // After successful transaction, check if all items are allocated
-        const orderData = (await orderRef.get()).data() as Order;
-        
-        const allItems = [
-            ...(orderData.fabricDetails || []).map(d => ({ ...d, type: 'Fabric' })),
-        ];
-        
-        const isAllAllocated = allItems.every(item => {
-            const requiredQty = parseFloat((item as any).quantity || '0');
-            const itemName = (item as any).fabricName || (item as any).furnitureName;
-            
-            // This logic is imperfect for batching. A better approach would be to get allocations after commit
-            // For now, let's assume this check is against PREVIOUSLY allocated amounts + current allocation.
-            return true; 
-        });
-
-        if (isAllAllocated) {
-            const fabricMilestone = orderData.milestones.find(m => m.id === 2);
-            if (fabricMilestone && !fabricMilestone.completed) {
-                const updatedMilestones = orderData.milestones.map(m =>
-                    m.id === 2 ? {
-                        ...m,
-                        completed: true,
-                        completedAt: new Date().toISOString(),
-                        completedBy: userName,
-                    } : m
-                );
-                batch.update(orderRef, { milestones: updatedMilestones });
-            }
-        }
-        // --- END AUTOMATION LOGIC ---
-
         await batch.commit(); 
 
-        // Recalculate and update the stock quantity
         await recalculateStockQuantity(stockId);
 
+        // --- Logic for Invoice Batching ---
+        const invoiceBatchRef = adminDb.collection('invoiceBatches');
+        const tenMinutesAgo = Timestamp.fromMillis(Date.now() - 10 * 60 * 1000);
 
-        return { success: true, message: 'Stock allocated successfully.' };
+        const recentBatchesQuery = invoiceBatchRef
+            .where('orderId', '==', orderId)
+            .where('status', '==', 'pending')
+            .where('createdAt', '>=', tenMinutesAgo)
+            .orderBy('createdAt', 'desc')
+            .limit(1);
+        
+        const recentBatchesSnapshot = await recentBatchesQuery.get();
+
+        const newItemForBatch: InvoiceBatchItem = {
+            itemName: itemName,
+            quantityAllocated: totalAllocatedQty,
+            rate: stockData.mrp || 0, // Use MRP as the rate
+            bcn: stockData.bcn || '',
+        };
+
+        if (!recentBatchesSnapshot.empty) {
+            // Found a recent batch, update it
+            const batchDoc = recentBatchesSnapshot.docs[0];
+            await batchDoc.ref.update({
+                items: FieldValue.arrayUnion(newItemForBatch)
+            });
+        } else {
+            // No recent batch, create a new one
+            const newBatch: Omit<InvoiceBatch, 'id'> = {
+                orderId: orderId,
+                customerName: orderData.customerName,
+                customerPhone: orderData.customerPhone,
+                createdAt: Timestamp.now(),
+                status: 'pending',
+                items: [newItemForBatch]
+            };
+            await invoiceBatchRef.add(newBatch);
+        }
+
+        return { success: true, message: 'Stock allocated and prepared for invoicing.' };
+
     } catch (error: any) {
         console.error("Error in allocateStockToAction:", error);
         return { success: false, message: `Failed to allocate stock: ${error.message}` };
@@ -191,5 +198,3 @@ export async function getOrderAllocations(orderId: string): Promise<any[]> {
         return [];
     }
 }
-
-    
