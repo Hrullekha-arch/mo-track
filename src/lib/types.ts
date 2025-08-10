@@ -260,6 +260,7 @@ export interface StockTransaction {
   poNumber?: string;
   orderId?: string;
   lengths?: number[]; // if addition, original lengths. if deduction, length(s) cut.
+  originalLength?: number; // For 'deduction' type, the original length of the roll it was cut from
   createdAt: string; // ISO string
   createdBy: string;
 }
@@ -487,5 +488,3 @@ export interface Invoice {
 
 
 export { type ComboboxOption };
-
-    

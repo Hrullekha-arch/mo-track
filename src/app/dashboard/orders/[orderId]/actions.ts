@@ -39,18 +39,20 @@ export async function allocateStockToAction(
             const orderRef = adminDb.collection('orders').doc(orderId);
             const invoiceBatchRef = adminDb.collection('invoiceBatches');
             const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+            
+            // --- ALL READS MUST BE EXECUTED FIRST ---
+            const [stockDoc, orderDoc, allAddedTransactionsSnapshot] = await Promise.all([
+                transaction.get(stockRef),
+                transaction.get(orderRef),
+                transaction.get(stockRef.collection('stockAdded'))
+            ]);
+
             const recentBatchesQuery = invoiceBatchRef
                 .where('orderId', '==', orderId)
                 .where('status', '==', 'pending')
                 .where('createdAt', '>=', tenMinutesAgo);
 
-            // --- ALL READS MUST BE EXECUTED FIRST ---
-            const [stockDoc, orderDoc, recentBatchesSnapshot, allAddedTransactionsSnapshot] = await Promise.all([
-                transaction.get(stockRef),
-                transaction.get(orderRef),
-                transaction.get(recentBatchesQuery),
-                transaction.get(stockRef.collection('stockAdded'))
-            ]);
+            const recentBatchesSnapshot = await transaction.get(recentBatchesQuery);
 
             if (!stockDoc.exists) throw new Error("Stock item not found.");
             if (!orderDoc.exists) throw new Error("Order not found.");
