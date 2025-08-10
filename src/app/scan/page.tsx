@@ -1,6 +1,7 @@
 
 "use client";
 
+import * as React from "react";
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -202,7 +203,7 @@ function UniversalScanner() {
     const codeReaderRef = useRef(new BrowserMultiFormatReader());
     const isProcessingRef = useRef(false);
 
-    const [hasCameraPermission, setHasCameraPermission] = React.useState<boolean | null>(null);
+    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
     const [manualId, setManualId] = useState('');
     const [loading, setLoading] = useState(false);
     const [stream, setStream] = useState<MediaStream | null>(null);
@@ -231,7 +232,7 @@ function UniversalScanner() {
         getCameraPermission();
     }, []);
     
-    const handleScan = async (scannedData: string) => {
+    const handleScan = React.useCallback(async (scannedData: string) => {
         if (!scannedData || isProcessingRef.current) return;
         isProcessingRef.current = true;
         setLoading(true);
@@ -288,7 +289,7 @@ function UniversalScanner() {
         
         setLoading(false);
         setTimeout(() => { isProcessingRef.current = false; }, 2500); // Cooldown
-    };
+    }, [toast]);
 
     useEffect(() => {
         if (stream && videoRef.current) {
