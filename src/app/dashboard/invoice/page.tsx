@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -13,7 +12,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
+import { format, isWithinInterval } from "date-fns";
 import { InvoiceBatch, Order, Invoice } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
@@ -37,6 +36,11 @@ import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { DateRange } from "react-day-picker";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 
 function GenerateInvoiceDialog({
@@ -232,11 +236,9 @@ function InvoiceTable({
             (table.getIsSomePageRowsSelected() && "indeterminate")
           }
           onCheckedChange={(value) => {
-            table.getFilteredRowModel().rows.forEach(row => {
-              if (row.original.status !== 'invoiced') {
-                row.toggleSelected(!!value);
-              }
-            });
+            const allRows = table.getFilteredRowModel().rows;
+            const availableRows = allRows.filter(row => row.original.status !== 'invoiced');
+            availableRows.forEach(row => row.toggleSelected(!!value));
           }}
           aria-label="Select all"
         />
@@ -462,6 +464,10 @@ export default function InvoicePage() {
   const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();
 
+  const [orderNoFilter, setOrderNoFilter] = React.useState("");
+  const [dateRangeFilter, setDateRangeFilter] = React.useState<DateRange | undefined>();
+  const [storeFilter, setStoreFilter] = React.useState("all");
+
   React.useEffect(() => {
     setLoading(true);
     const batchesQuery = query(collection(db, "invoiceBatches"));
@@ -492,9 +498,28 @@ export default function InvoicePage() {
       unsubscribeOrders();
     };
   }, [toast]);
+  
+  const clearFilters = () => {
+    setOrderNoFilter("");
+    setDateRangeFilter(undefined);
+    setStoreFilter("all");
+  };
+
+  const filteredBatches = React.useMemo(() => {
+    return batches.filter(batch => {
+      const order = orders.find(o => o.id === batch.orderId);
+      if (!order) return false; // Should not happen if data is consistent
+
+      const orderNoMatch = orderNoFilter ? batch.orderId.includes(orderNoFilter.toUpperCase()) : true;
+      const dateMatch = dateRangeFilter?.from ? isWithinInterval(batch.createdAt.toDate(), { start: dateRangeFilter.from, end: dateRangeFilter.to || dateRangeFilter.from }) : true;
+      const storeMatch = storeFilter === 'all' ? true : order.storeName === storeFilter;
+
+      return orderNoMatch && dateMatch && storeMatch;
+    });
+  }, [batches, orders, orderNoFilter, dateRangeFilter, storeFilter]);
 
   const activeBatches = React.useMemo(() => batches.filter(b => b.status === 'pending'), [batches]);
-
+  const uniqueStores = [...new Set(orders.map(o => o.storeName).filter(Boolean))];
 
   return (
     <>
@@ -514,7 +539,63 @@ export default function InvoicePage() {
                 <InvoiceTable batches={activeBatches} orders={orders} loading={loading} />
             </TabsContent>
             <TabsContent value="all" className="pt-4">
-                <InvoiceTable batches={batches} orders={orders} loading={loading} />
+                <div className="mb-6 p-4 border rounded-lg bg-card space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <Input
+                            placeholder="Order No (e.g. MOTRACK-...)"
+                            value={orderNoFilter}
+                            onChange={(e) => setOrderNoFilter(e.target.value)}
+                        />
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button
+                                id="date"
+                                variant={"outline"}
+                                className={cn(
+                                    "justify-start text-left font-normal",
+                                    !dateRangeFilter && "text-muted-foreground"
+                                )}
+                                >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {dateRangeFilter?.from ? (
+                                    dateRangeFilter.to ? (
+                                    <>
+                                        {format(dateRangeFilter.from, "LLL dd, y")} -{" "}
+                                        {format(dateRangeFilter.to, "LLL dd, y")}
+                                    </>
+                                    ) : (
+                                    format(dateRangeFilter.from, "LLL dd, y")
+                                    )
+                                ) : (
+                                    <span>Pick a date range</span>
+                                )}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                initialFocus
+                                mode="range"
+                                defaultMonth={dateRangeFilter?.from}
+                                selected={dateRangeFilter}
+                                onSelect={setDateRangeFilter}
+                                numberOfMonths={2}
+                                />
+                            </PopoverContent>
+                        </Popover>
+                         <Select value={storeFilter} onValueChange={setStoreFilter}>
+                            <SelectTrigger><SelectValue placeholder="Store" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Stores</SelectItem>
+                                {uniqueStores.map(store => <SelectItem key={store} value={store!}>{store}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                     <div className="flex gap-2">
+                        <Button onClick={() => { /* The filtering is now automatic */ }}><Search className="mr-2 h-4 w-4"/>Search</Button>
+                        <Button variant="outline" onClick={clearFilters}><X className="mr-2 h-4 w-4"/>Clear</Button>
+                    </div>
+                </div>
+                <InvoiceTable batches={filteredBatches} orders={orders} loading={loading} />
             </TabsContent>
         </Tabs>
     </div>
