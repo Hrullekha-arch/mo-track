@@ -58,7 +58,7 @@ function CuttingScannerComponent() {
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
-    const scannerRef = useRef<Html5Qrcode | null>(null);
+    const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
     const readerContainerId = "scanner-reader";
 
     const handleScan = async (scannedData: string) => {
@@ -165,45 +165,45 @@ function CuttingScannerComponent() {
     };
     
     useEffect(() => {
-        // This effect runs only once after the component mounts
-        // It initializes the scanner and sets up the success/error callbacks
-        const html5QrCode = new Html5Qrcode(readerContainerId);
-        scannerRef.current = html5QrCode;
+        if (!html5QrCodeRef.current) {
+            html5QrCodeRef.current = new Html5Qrcode(readerContainerId, {
+                formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128]
+            });
+        }
+        const html5QrCode = html5QrCodeRef.current;
 
-        function onScanSuccess(decodedText: string) {
-            html5QrCode.pause(true); // Pause scanning to process
-            if (!isScanningRef.current) {
+        const onScanSuccess = (decodedText: string) => {
+            if (html5QrCode.isScanning && !isScanningRef.current) {
+                html5QrCode.pause(true); 
                 handleScan(decodedText).finally(() => {
                     if (html5QrCode.isScanning) {
                         html5QrCode.resume();
                     }
                 });
             }
-        }
+        };
 
-        function onScanError(errorMessage: string) {
+        const onScanError = (errorMessage: string) => {
             // handle scan error (called every frame where no code is detected)
-        }
+        };
 
         const config = {
             fps: 10,
-            qrbox: { width: 300, height: 100 }, // Adjusted for barcodes (wider and shorter box)
-            aspectRatio: 1.777778, // 16:9 aspect ratio for video
-            formatsToSupport: [
-                Html5QrcodeSupportedFormats.CODE_128, // Assuming Code 128; add others if needed e.g., CODE_39, EAN_13
-            ],
-            disableFlip: false,
+            qrbox: { width: 300, height: 100 },
+            aspectRatio: 1.777778,
         };
 
-        html5QrCode.start(
-            { facingMode: "environment" }, // Rear camera
-            config,
-            onScanSuccess,
-            onScanError
-        ).catch((err) => {
-            console.error("Failed to start scanner:", err);
-            toast({ variant: 'destructive', title: 'Scanner Error', description: 'Unable to access camera. Please check permissions.' });
-        });
+        if (document.getElementById(readerContainerId)) {
+            html5QrCode.start(
+                { facingMode: "environment" },
+                config,
+                onScanSuccess,
+                onScanError
+            ).catch((err) => {
+                console.error("Failed to start scanner:", err);
+                toast({ variant: 'destructive', title: 'Scanner Error', description: 'Unable to access camera. Please check permissions.' });
+            });
+        }
 
         return () => {
             if (html5QrCode.isScanning) {
@@ -213,7 +213,7 @@ function CuttingScannerComponent() {
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [task]); // Re-run effect if task changes, to ensure scanner is active.
 
     useEffect(() => {
         if (!taskId) {
@@ -327,5 +327,5 @@ export default function Page() {
         <Suspense fallback={<Skeleton className="h-screen w-full" />}>
             <CuttingScannerComponent />
         </Suspense>
-    )
+    );
 }
