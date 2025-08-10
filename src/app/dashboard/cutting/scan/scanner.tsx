@@ -62,7 +62,6 @@ export function CuttingScannerComponent() {
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
     const [stream, setStream] = useState<MediaStream | null>(null);
 
-
     const handleScan = useCallback(async (scannedData: string) => {
         if (!task || !user || isProcessingRef.current) return;
         
@@ -73,7 +72,7 @@ export function CuttingScannerComponent() {
         if (!itemToUpdate) {
             setScanResult({ status: 'warning', message: 'Item not found or already cut.' });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 2000);
+            setTimeout(() => { setIsPopupOpen(false); isProcessingRef.current = false; }, 5000);
             return;
         }
 
@@ -157,7 +156,6 @@ export function CuttingScannerComponent() {
         }
     }, [task, user, targetBcn, router, toast]);
 
-    // Effect to request camera permission
     useEffect(() => {
         const getCameraPermission = async () => {
           try {
@@ -178,7 +176,6 @@ export function CuttingScannerComponent() {
         getCameraPermission();
     }, [toast]);
     
-    // Effect to start the scanner once we have the stream
     useEffect(() => {
         if (stream && videoRef.current) {
             videoRef.current.srcObject = stream;
@@ -187,10 +184,15 @@ export function CuttingScannerComponent() {
             const codeReader = codeReaderRef.current;
             codeReader.decodeFromVideoElement(videoRef.current, (result, err) => {
                 if (result && !isProcessingRef.current) {
+                    console.log('Barcode detected:', result.getText());
                     handleScan(result.getText());
                 }
                 if (err && !(err instanceof NotFoundException)) {
-                    // console.error("ZXing Decode Error:", err);
+                    console.error("ZXing Decode Error:", err);
+                } else if (err) {
+                    // This will log every time a frame is processed without finding a barcode.
+                    // It can be noisy, but it's useful for debugging detection issues.
+                    console.log('No barcode detected in frame.');
                 }
             }).catch(err => console.error("Scanner decode error:", err));
         }
