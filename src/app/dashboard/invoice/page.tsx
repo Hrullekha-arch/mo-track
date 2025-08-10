@@ -234,9 +234,11 @@ export default function InvoicePage() {
       id: 'totalAmount',
       header: "Invoice Amount",
       cell: ({ row }) => {
-        const totalAmount = row.original.items.reduce((sum, item) => {
+        const subtotal = row.original.items.reduce((sum, item) => {
           return sum + (item.quantityAllocated * item.rate);
         }, 0);
+        const tax = subtotal * 0.05; // 5% total tax
+        const totalAmount = subtotal + tax;
         return `₹${totalAmount.toFixed(2)}`;
       },
     },
