@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -341,4 +342,30 @@ export async function deleteStockTransactions(transactions: StockTransaction[]):
   }
 }
 
+export async function updateStockBatchAction(
+    itemsToUpdate: { id: string; [key: string]: any }[]
+): Promise<{ success: boolean; message: string }> {
+    try {
+        const batch = adminDb.batch();
+        
+        itemsToUpdate.forEach(item => {
+            const { id, ...updateData } = item;
+            if (!id) return;
+
+            const docRef = adminDb.collection('stocks').doc(id);
+            // We need to remove any undefined fields before updating
+            const cleanedData = Object.fromEntries(Object.entries(updateData).filter(([_, v]) => v !== undefined));
+            
+            if (Object.keys(cleanedData).length > 0) {
+                batch.update(docRef, { ...cleanedData, lastUpdatedAt: new Date().toISOString() });
+            }
+        });
+
+        await batch.commit();
+        return { success: true, message: "Batch update successful." };
+    } catch (error: any) {
+        console.error("Error updating stock batch:", error);
+        return { success: false, message: `Failed to update batch: ${error.message}` };
+    }
+}
     

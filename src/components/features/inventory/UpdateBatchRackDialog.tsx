@@ -11,7 +11,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Stock } from "@/lib/types";
-import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
+import { searchStockByBcn, updateStockBatchAction } from "@/app/dashboard/inventory/actions";
 import { Loader2, PlusCircle, Trash2 } from "lucide-react";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -22,7 +22,7 @@ const updateRackSchema = z.object({
     bcn: z.string(),
     itemName: z.string(),
     rack: z.string().optional(),
-  }))
+  })).min(1, "Please add at least one item to update.")
 });
 
 type UpdateRackFormValues = z.infer<typeof updateRackSchema>;
@@ -82,20 +82,31 @@ export function UpdateBatchRackDialog({ isOpen, onClose }: UpdateBatchRackDialog
       id: stockItem.id,
       bcn: stockItem.bcn || '',
       itemName: stockItem.itemName,
-      rack: "", // Default empty rack
+      rack: stockItem.rack || "", // Default to existing or empty
     });
   };
 
   const onSubmit = async (data: UpdateRackFormValues) => {
     setIsSubmitting(true);
-    console.log("Updating rack for:", data.items);
-    // Here you would call a server action to update the rack for each item.
-    // For now, we'll just simulate it.
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    toast({ title: "Success", description: `${data.items.length} items have been updated.` });
-    setIsSubmitting(false);
-    onClose();
-    form.reset();
+    try {
+      const itemsToUpdate = data.items.map(item => ({
+        id: item.id,
+        rack: item.rack,
+      }));
+      const result = await updateStockBatchAction(itemsToUpdate);
+      if (result.success) {
+        toast({ title: "Success", description: `${data.items.length} items have been updated.` });
+        onClose();
+        form.reset();
+      } else {
+        toast({ variant: "destructive", title: "Update Failed", description: result.message });
+      }
+    } catch (error) {
+      console.error("Error updating racks:", error);
+      toast({ variant: "destructive", title: "Error", description: "An unexpected server error occurred." });
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   return (

@@ -11,7 +11,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Stock } from "@/lib/types";
-import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
+import { searchStockByBcn, updateStockBatchAction } from "@/app/dashboard/inventory/actions";
 import { Loader2, PlusCircle, Trash2 } from "lucide-react";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -22,10 +22,10 @@ const updateTaxSchema = z.object({
     bcn: z.string(),
     itemName: z.string(),
     hsnCode: z.string().optional(),
-    mrp: z.number().optional(),
-    tax: z.string().optional(),
+    mrp: z.string().optional(),
+    tax: z.string().optional(), // This field is for display/entry, won't be saved directly
     vendorName: z.string().optional(),
-  }))
+  })).min(1, "Please add at least one item to update.")
 });
 
 type UpdateTaxFormValues = z.infer<typeof updateTaxSchema>;
@@ -86,7 +86,7 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
       bcn: stockItem.bcn || '',
       itemName: stockItem.itemName,
       hsnCode: stockItem.hsnCode,
-      mrp: stockItem.mrp,
+      mrp: String(stockItem.mrp || ''),
       tax: "", // Default empty tax
       vendorName: stockItem.vendorName,
     });
@@ -94,14 +94,31 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
 
   const onSubmit = async (data: UpdateTaxFormValues) => {
     setIsSubmitting(true);
-    console.log("Updating tax for:", data.items);
-    // Here you would call a server action to update the tax for each item.
-    // For now, we'll just simulate it.
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    toast({ title: "Success", description: `${data.items.length} items have been updated.` });
-    setIsSubmitting(false);
-    onClose();
-    form.reset();
+    try {
+        const itemsToUpdate = data.items.map(item => ({
+            id: item.id,
+            hsnCode: item.hsnCode,
+            vendorName: item.vendorName,
+            mrp: item.mrp ? parseFloat(item.mrp) : undefined,
+            // 'tax' is not in the schema, so we don't include it.
+            // If it needs to be saved, the Stock type and Firestore structure must be updated.
+        }));
+        
+        const result = await updateStockBatchAction(itemsToUpdate);
+
+        if (result.success) {
+            toast({ title: "Success", description: `${data.items.length} items have been updated.` });
+            onClose();
+            form.reset();
+        } else {
+            toast({ variant: "destructive", title: "Update Failed", description: result.message });
+        }
+    } catch (error) {
+      console.error("Error submitting batch tax update:", error);
+      toast({ variant: "destructive", title: "Error", description: "An unexpected server error occurred." });
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   return (
@@ -159,8 +176,20 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
                           <p className="font-semibold">{field.bcn}</p>
                           <p className="text-xs text-muted-foreground">{field.itemName}</p>
                         </TableCell>
-                        <TableCell>{field.hsnCode}</TableCell>
-                        <TableCell>{field.mrp?.toFixed(2)}</TableCell>
+                        <TableCell>
+                           <FormField
+                              control={form.control}
+                              name={`items.${index}.hsnCode`}
+                              render={({ field }) => ( <FormControl><Input placeholder="HSN" {...field} /></FormControl>)}
+                            />
+                        </TableCell>
+                        <TableCell>
+                           <FormField
+                              control={form.control}
+                              name={`items.${index}.mrp`}
+                              render={({ field }) => ( <FormControl><Input type="number" placeholder="MRP" {...field} /></FormControl>)}
+                            />
+                        </TableCell>
                         <TableCell>
                            <FormField
                               control={form.control}
@@ -172,7 +201,13 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
                               )}
                             />
                         </TableCell>
-                        <TableCell>{field.vendorName}</TableCell>
+                         <TableCell>
+                           <FormField
+                              control={form.control}
+                              name={`items.${index}.vendorName`}
+                              render={({ field }) => ( <FormControl><Input placeholder="Vendor" {...field} /></FormControl>)}
+                            />
+                        </TableCell>
                         <TableCell>
                           <Button variant="destructive" size="icon" onClick={() => remove(index)}>
                             <Trash2 className="h-4 w-4" />
