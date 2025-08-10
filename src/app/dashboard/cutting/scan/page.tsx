@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, Camera, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
-import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
@@ -49,15 +49,9 @@ function CuttingScanner() {
     const taskId = searchParams.get('taskId');
     const bcn = searchParams.get('bcn');
     const { toast } = useToast();
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const codeReader = useRef(new BrowserMultiFormatReader(new Map([
-        [DecodeHintType.POSSIBLE_FORMATS, Object.values(BarcodeFormat)]
-    ])));
 
     const [task, setTask] = useState<CuttingTask | null>(null);
     const [loading, setLoading] = useState(true);
-    const [scanning, setScanning] = useState(false);
-    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
@@ -66,7 +60,7 @@ function CuttingScanner() {
         if (!task || isScanningRef.current) return;
 
         isScanningRef.current = true;
-        setScanning(true);
+        
         console.log("Scanned Value:", scannedValue);
 
         const itemToUpdate = task.items.find(item => item.bcn === bcn && item.status !== 'cut');
@@ -77,7 +71,6 @@ function CuttingScanner() {
             setTimeout(() => {
                 setIsPopupOpen(false);
                 isScanningRef.current = false;
-                setScanning(false);
             }, 1500);
             return;
         }
@@ -89,7 +82,6 @@ function CuttingScanner() {
             setTimeout(() => {
                 setIsPopupOpen(false);
                 isScanningRef.current = false;
-                setScanning(false);
             }, 1500);
             return;
         }
@@ -103,7 +95,6 @@ function CuttingScanner() {
             setTimeout(() => {
                 setIsPopupOpen(false);
                 isScanningRef.current = false;
-                setScanning(false);
             }, 1500);
             return;
         }
@@ -114,7 +105,6 @@ function CuttingScanner() {
             setTimeout(() => {
                 setIsPopupOpen(false);
                 isScanningRef.current = false;
-                setScanning(false);
             }, 1500);
             return;
         }
@@ -142,7 +132,6 @@ function CuttingScanner() {
             } else {
                 setTimeout(() => {
                     setIsPopupOpen(false);
-                    setScanning(false);
                     isScanningRef.current = false;
                 }, 1500);
                 setTask(prev => prev ? { ...prev, items: updatedItems, status: newStatus } : null);
@@ -154,7 +143,6 @@ function CuttingScanner() {
             setTimeout(() => {
                 setIsPopupOpen(false);
                 isScanningRef.current = false;
-                setScanning(false);
             }, 1500);
         }
     };
@@ -180,59 +168,34 @@ function CuttingScanner() {
     }, [taskId, router, toast]);
 
     useEffect(() => {
-        const startCamera = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment' }
-                });
+        const scanner = new Html5QrcodeScanner(
+            'reader', 
+            { 
+                qrbox: { width: 250, height: 250 },
+                fps: 10,
+            }, 
+            false
+        );
 
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    setHasCameraPermission(true);
-                }
-            } catch (error) {
-                console.error('Error accessing camera:', error);
-                setHasCameraPermission(false);
-                toast({
-                    variant: 'destructive',
-                    title: 'Camera Access Denied',
-                    description: 'Please enable camera permissions in your browser settings to use the scanner.',
-                    duration: 5000,
-                });
-            }
-        };
+        function onScanSuccess(decodedText: string, decodedResult: any) {
+            scanner.clear();
+            handleScan(decodedText);
+        }
 
-        startCamera();
+        function onScanFailure(error: any) {
+            // handle scan failure, usually better to ignore and keep scanning.
+        }
+
+        scanner.render(onScanSuccess, onScanFailure);
 
         return () => {
-            if (videoRef.current && videoRef.current.srcObject) {
-                const stream = videoRef.current.srcObject as MediaStream;
-                stream.getTracks().forEach(track => track.stop());
-            }
-            codeReader.current.reset();
+            scanner.clear().catch(error => {
+                console.error("Failed to clear html5-qrcode-scanner.", error);
+            });
         };
-    }, [toast]);
-    
-    const handleCanPlay = () => {
-        if (videoRef.current) {
-             videoRef.current.play().catch(e => console.error("Play error:", e));
-             codeReader.current.decodeFromVideoDevice(
-                undefined,
-                videoRef.current,
-                (result, err) => {
-                    if (result) {
-                        console.log("DETECTED:", result.getText()); // Raw detection log
-                        if (!isScanningRef.current) {
-                            handleScan(result.getText());
-                        }
-                    }
-                    if (err && !(err instanceof NotFoundException)) {
-                        console.error("Decode error:", err);
-                    }
-                }
-            );
-        }
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [task]);
+
 
     if (loading) {
         return <Skeleton className="h-[400px] w-full max-w-2xl mx-auto" />;
@@ -265,23 +228,7 @@ function CuttingScanner() {
                             <CardDescription>Scan the barcode of the fabric roll.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                                <video 
-                                    ref={videoRef} 
-                                    className="w-full h-full object-cover" 
-                                    onCanPlay={handleCanPlay} 
-                                />
-                                {hasCameraPermission === false && (
-                                    <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
-                                        <Camera className="h-12 w-12 text-muted-foreground mb-4"/>
-                                        <p className="font-semibold">Camera Access Required</p>
-                                        <p className="text-sm text-muted-foreground">Please allow camera access.</p>
-                                    </div>
-                                )}
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                    <div className="w-4/5 h-2/5 border-4 border-red-500 rounded-lg bg-black/20" />
-                                </div>
-                            </div>
+                             <div id="reader" className="w-full"></div>
                         </CardContent>
                     </Card>
                     <Card>

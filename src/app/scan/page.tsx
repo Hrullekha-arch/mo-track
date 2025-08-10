@@ -11,7 +11,7 @@ import { Camera, CheckCircle, Loader2, ScanLine, Home, User, ShoppingBag, XCircl
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { completePmsProcess } from '@/ai/flows/complete-pms-process';
-import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Order, PurchaseRequest } from '@/lib/types';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -50,15 +50,10 @@ const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult 
 
 function PmsScanner() {
     const { toast } = useToast();
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const codeReader = useRef(new BrowserMultiFormatReader(new Map([
-        [DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128]]
-    ])));
     
     const [manualId, setManualId] = useState('');
     const [order, setOrder] = useState<Order | null>(null);
     const [loading, setLoading] = useState(false);
-    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
@@ -125,58 +120,31 @@ function PmsScanner() {
     };
     
     useEffect(() => {
-        const startCamera = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: 'environment',
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 },
-                    },
-                });
+        const scanner = new Html5QrcodeScanner(
+            'reader', 
+            { 
+                qrbox: { width: 250, height: 250 },
+                fps: 10,
+            }, 
+            false
+        );
 
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    await videoRef.current.play();
-                    setHasCameraPermission(true);
+        function onScanSuccess(decodedText: string, decodedResult: any) {
+            scanner.clear();
+            setManualId(decodedText);
+            processScan(decodedText);
+        }
 
-                    codeReader.current.decodeFromVideoDevice(
-                        undefined,
-                        videoRef.current,
-                        (result, err) => {
-                            if (result) {
-                                const scannedText = result.getText();
-                                if (!isScanningRef.current) {
-                                    setManualId(scannedText);
-                                    processScan(scannedText);
-                                }
-                            }
-                            if (err && !(err instanceof NotFoundException)) {
-                                console.error("Decode error:", err);
-                            }
-                        }
-                    );
-                }
-            } catch (error) {
-                console.error("Error accessing camera:", error);
-                setHasCameraPermission(false);
-                toast({
-                    variant: "destructive",
-                    title: "Camera Access Denied",
-                    description: "Please enable camera permissions in your browser settings.",
-                    duration: 5000,
-                });
-            }
-        };
+        function onScanFailure(error: any) {
+            // handle scan failure, usually better to ignore and keep scanning.
+        }
 
-        startCamera();
-        
+        scanner.render(onScanSuccess, onScanFailure);
+
         return () => {
-             if (videoRef.current && videoRef.current.srcObject) {
-                const stream = videoRef.current.srcObject as MediaStream;
-                stream.getTracks().forEach(track => track.stop());
-            }
-            codeReader.current.reset();
+            scanner.clear().catch(error => {
+                console.error("Failed to clear html5-qrcode-scanner.", error);
+            });
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -208,26 +176,8 @@ function PmsScanner() {
                         <CardDescription>Point the camera at a barcode to automatically scan, or enter manually.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center mb-4">
-                            <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
-                            {hasCameraPermission === null && (
-                                 <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
-                                    <Loader2 className="h-12 w-12 text-muted-foreground mb-4 animate-spin"/>
-                                    <p className="font-semibold">Initializing Camera...</p>
-                                 </div>
-                            )}
-                            {hasCameraPermission === false && (
-                                 <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
-                                    <Camera className="h-12 w-12 text-muted-foreground mb-4"/>
-                                    <p className="font-semibold">Camera Access Required</p>
-                                    <p className="text-sm text-muted-foreground">Please allow camera access in your browser.</p>
-                                 </div>
-                            )}
-                             <div className="absolute inset-0 flex items-center justify-center">
-                                <div className="w-4/5 h-2/5 border-4 border-red-500/70 rounded-lg bg-black/20" />
-                             </div>
-                        </div>
-                         <form onSubmit={handleManualSubmit} className="space-y-2">
+                        <div id="reader" className="w-full"></div>
+                         <form onSubmit={handleManualSubmit} className="space-y-2 mt-4">
                              <p className="text-sm text-muted-foreground">Or enter ID manually:</p>
                              <div className="flex gap-2">
                                 <Input 
