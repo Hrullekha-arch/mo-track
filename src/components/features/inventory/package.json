@@ -6,6 +6,7 @@
         "./StockManagement.tsx",
         "./StockDetails.tsx",
         "./UpdateBatchTaxDialog.tsx",
-        "./UpdateBatchRackDialog.tsx"
+        "./UpdateBatchRackDialog.tsx",
+        "./StockLengthSticker.tsx"
     ]
 }
