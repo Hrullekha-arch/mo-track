@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch, limit, Query } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { CuttingTask, StockTransaction } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -58,7 +58,7 @@ function CuttingScannerComponent() {
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
-    const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+    const scannerRef = useRef<Html5Qrcode | null>(null);
     const readerContainerId = "scanner-reader";
 
     const handleScan = async (scannedData: string) => {
@@ -167,34 +167,50 @@ function CuttingScannerComponent() {
     useEffect(() => {
         // This effect runs only once after the component mounts
         // It initializes the scanner and sets up the success/error callbacks
-        const scanner = new Html5QrcodeScanner(
-            readerContainerId,
-            { fps: 10, qrbox: 250 },
-            false // verbose
-        );
-        scannerRef.current = scanner;
+        const html5QrCode = new Html5Qrcode(readerContainerId);
+        scannerRef.current = html5QrCode;
 
-        function onScanSuccess(decodedText: string, decodedResult: any) {
-            scanner.pause();
+        function onScanSuccess(decodedText: string) {
+            html5QrCode.pause(true); // Pause scanning to process
             if (!isScanningRef.current) {
                 handleScan(decodedText).finally(() => {
-                    if (scannerRef.current?.isScanning) {
-                        scannerRef.current?.resume();
+                    if (html5QrCode.isScanning) {
+                        html5QrCode.resume();
                     }
                 });
             }
         }
 
         function onScanError(errorMessage: string) {
-            // handle scan error (called every frame where no QR code is detected)
+            // handle scan error (called every frame where no code is detected)
         }
 
-        scanner.render(onScanSuccess, onScanError);
+        const config = {
+            fps: 10,
+            qrbox: { width: 300, height: 100 }, // Adjusted for barcodes (wider and shorter box)
+            aspectRatio: 1.777778, // 16:9 aspect ratio for video
+            formatsToSupport: [
+                Html5QrcodeSupportedFormats.CODE_128, // Assuming Code 128; add others if needed e.g., CODE_39, EAN_13
+            ],
+            disableFlip: false,
+        };
+
+        html5QrCode.start(
+            { facingMode: "environment" }, // Rear camera
+            config,
+            onScanSuccess,
+            onScanError
+        ).catch((err) => {
+            console.error("Failed to start scanner:", err);
+            toast({ variant: 'destructive', title: 'Scanner Error', description: 'Unable to access camera. Please check permissions.' });
+        });
 
         return () => {
-            scanner.clear().catch(error => {
-                console.error("Failed to clear html5-qrcode-scanner.", error);
-            });
+            if (html5QrCode.isScanning) {
+                html5QrCode.stop().catch(error => {
+                    console.error("Failed to stop html5-qrcode.", error);
+                });
+            }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
