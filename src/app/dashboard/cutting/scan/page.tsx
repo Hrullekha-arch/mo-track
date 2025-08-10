@@ -85,33 +85,33 @@ function CuttingScanner() {
         fetchTask();
     }, [taskId, router, toast]);
 
-     useEffect(() => {
+    useEffect(() => {
         const startCamera = async () => {
           try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            
+            setHasCameraPermission(true);
             if (videoRef.current) {
               videoRef.current.srcObject = stream;
-              
+              // Wait for the video to be ready to play
               videoRef.current.onloadedmetadata = () => {
                   videoRef.current?.play().catch(e => console.error("Play error:", e));
-                  setHasCameraPermission(true);
-              };
-    
-              codeReader.current.decodeFromVideoDevice(
-                undefined,
-                videoRef.current,
-                (result, err) => {
-                  if (result) {
-                    if (!isScanningRef.current) {
-                      handleScan(result.getText());
+                  
+                  // Start decoding only after the video is playing
+                  codeReader.current.decodeFromVideoDevice(
+                    undefined,
+                    videoRef.current!,
+                    (result, err) => {
+                      if (result) {
+                        if (!isScanningRef.current) {
+                          handleScan(result.getText());
+                        }
+                      }
+                      if (err && !(err instanceof NotFoundException)) {
+                        // console.error("Decode error:", err);
+                      }
                     }
-                  }
-                  if (err && !(err instanceof NotFoundException)) {
-                    // console.error("Decode error:", err);
-                  }
-                }
-              );
+                  );
+              };
             }
           } catch (error) {
             console.error('Error accessing camera:', error);
@@ -135,7 +135,7 @@ function CuttingScanner() {
           codeReader.current.reset();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, []);
+    }, []);
     
     const handleScan = async (scannedValue: string) => {
         if (!task || scanning) return;
@@ -188,11 +188,14 @@ function CuttingScanner() {
             
             setScanResult({ status: 'success', message: 'Verified!' });
             setIsPopupOpen(true);
-            setTimeout(() => setIsPopupOpen(false), 1500);
             
             if (newStatus === 'Completed') {
-                router.push('/dashboard/cutting');
+                setTimeout(() => {
+                    setIsPopupOpen(false);
+                    router.push('/dashboard/cutting');
+                }, 1500);
             } else {
+                setTimeout(() => setIsPopupOpen(false), 1500);
                 setTask(prev => prev ? { ...prev, items: updatedItems, status: newStatus } : null);
             }
 
@@ -202,8 +205,10 @@ function CuttingScanner() {
             setIsPopupOpen(true);
             setTimeout(() => setIsPopupOpen(false), 1500);
         } finally {
-            setScanning(false);
-            setTimeout(() => { isScanningRef.current = false; }, 2000); // Cooldown
+            setTimeout(() => { 
+                isScanningRef.current = false;
+                setScanning(false);
+            }, 2000); // Cooldown
         }
     };
 
