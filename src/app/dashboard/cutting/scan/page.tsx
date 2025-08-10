@@ -14,11 +14,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle, Camera } from 'lucide-react';
 import Link from 'next/link';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 
 type ScanStatus = 'success' | 'warning' | 'error';
 
@@ -53,7 +51,7 @@ function CuttingScannerComponent() {
     const { user } = useAuth();
 
     const taskId = searchParams.get('taskId');
-    const bcn = searchParams.get('bcn');
+    const targetBcn = searchParams.get('bcn');
 
     const [task, setTask] = useState<CuttingTask | null>(null);
     const [loading, setLoading] = useState(true);
@@ -63,63 +61,56 @@ function CuttingScannerComponent() {
     const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
     
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-    const [isConfirmationDialogOpen, setIsConfirmationDialogOpen] = useState(false);
-    const [manualLength, setManualLength] = useState('');
     const videoRef = useRef<HTMLVideoElement>(null);
 
 
-    const handleScan = async (scannedBcn: string) => {
+    const handleScan = async (scannedData: string) => {
         if (!task || !user || isScanningRef.current) return;
         
-        isScanningRef.current = true; // Prevent multiple scans at once
+        isScanningRef.current = true;
 
-        const itemToUpdate = task.items.find(item => item.bcn === bcn && item.status !== 'cut');
+        const itemToUpdate = task.items.find(item => item.bcn === targetBcn && item.status !== 'cut');
 
         if (!itemToUpdate) {
             setScanResult({ status: 'warning', message: 'Item not found or already cut.' });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 1500);
+            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 2000);
             return;
         }
 
-        if (scannedBcn !== bcn) {
-            setScanResult({ status: 'error', message: 'Wrong Barcode Scanned' });
+        const parts = scannedData.split('|');
+        if (parts.length !== 2) {
+            setScanResult({ status: 'error', message: 'Invalid Barcode Format. Expected BCN|Length.' });
             setIsPopupOpen(true);
-            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 1500);
+            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 2000);
             return;
         }
-        
-        // If BCN is correct, open confirmation dialog
-        setIsConfirmationDialogOpen(true);
-    };
 
-    const handleLengthConfirmation = async () => {
-        if (!task || !user) return;
-
-        const itemToUpdate = task.items.find(item => item.bcn === bcn && item.status !== 'cut');
-        if (!itemToUpdate) return; // Should not happen if dialog is open
-
-        const enteredLength = parseFloat(manualLength);
+        const scannedBcn = parts[0];
+        const scannedLength = parseFloat(parts[1]);
         const expectedOriginalLength = itemToUpdate.originalLength;
         
-        if (isNaN(enteredLength) || enteredLength.toFixed(2) !== expectedOriginalLength?.toFixed(2)) {
-            setScanResult({ status: 'error', message: `Wrong Roll. Expected length ${expectedOriginalLength?.toFixed(2)}, but you entered ${manualLength}.` });
+        if (scannedBcn !== targetBcn) {
+            setScanResult({ status: 'error', message: `Wrong Barcode. Scanned ${scannedBcn}, expected ${targetBcn}.` });
             setIsPopupOpen(true);
-            setIsConfirmationDialogOpen(false);
-            setManualLength('');
+            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 2000);
+            return;
+        }
+
+        if (isNaN(scannedLength) || scannedLength.toFixed(2) !== expectedOriginalLength?.toFixed(2)) {
+            setScanResult({ status: 'error', message: `Wrong Roll. Scanned length ${scannedLength.toFixed(2)}, expected ${expectedOriginalLength?.toFixed(2)}.` });
+            setIsPopupOpen(true);
             setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 2500);
             return;
         }
 
-        // BCN and Length are confirmed, proceed with update
-        setIsConfirmationDialogOpen(false);
-
+        // Barcode and Length are confirmed, proceed with update
         try {
             const batch = writeBatch(db);
 
             // 1. Update the Cutting Task
             const updatedItems = task.items.map(item =>
-                item.bcn === bcn ? { ...item, status: 'cut' as const } : item
+                item.bcn === targetBcn ? { ...item, status: 'cut' as const } : item
             );
             const allItemsCut = updatedItems.every(item => item.status === 'cut');
             const newStatus = allItemsCut ? 'Completed' : 'In Progress';
@@ -127,13 +118,12 @@ function CuttingScannerComponent() {
             batch.update(taskRef, { items: updatedItems, status: newStatus });
 
             // 2. Find and update the corresponding stockSold transaction
-            const stockId = bcn.replace(/\//g, '-');
+            const stockId = targetBcn.replace(/\//g, '-');
             const stockRef = doc(db, 'stocks', stockId);
             const stockAddedSnapshot = await getDocs(query(collection(stockRef, 'stockAdded'), where('lengths', 'array-contains', expectedOriginalLength)));
             
             if (!stockAddedSnapshot.empty) {
                 const stockAddedDocRef = stockAddedSnapshot.docs[0].ref;
-                // Find the specific deduction that is pending
                 const stockSoldQuery = query(
                     collection(stockAddedDocRef, 'stockSold'),
                     where('orderId', '==', task.orderId),
@@ -150,7 +140,7 @@ function CuttingScannerComponent() {
                     console.warn("Could not find matching 'pending for cutting' transaction to update.");
                 }
             } else {
-                console.warn(`Could not find parent stock roll for BCN ${bcn} with original length ${expectedOriginalLength}.`);
+                console.warn(`Could not find parent stock roll for BCN ${targetBcn} with original length ${expectedOriginalLength}.`);
             }
             
             await batch.commit();
@@ -161,7 +151,6 @@ function CuttingScannerComponent() {
             if (newStatus === 'Completed') {
                 toast({ title: "Task Complete!", description: `All items for order ${task.orderId} have been cut.`});
             }
-            // Redirect back to the details page after a short delay
             setTimeout(() => {
                 setIsPopupOpen(false);
                 router.push(`/dashboard/cutting?taskId=${task.id}`);
@@ -174,9 +163,7 @@ function CuttingScannerComponent() {
             setTimeout(() => {
                 setIsPopupOpen(false);
                 isScanningRef.current = false;
-            }, 1500);
-        } finally {
-             setManualLength('');
+            }, 2000);
         }
     };
     
@@ -186,7 +173,7 @@ function CuttingScannerComponent() {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
-                    videoRef.current.play();
+                    videoRef.current.play().catch(e => console.error("Video play error:", e));
                 }
                 setHasCameraPermission(true);
             } catch (error) {
@@ -203,13 +190,10 @@ function CuttingScannerComponent() {
         getCameraPermission();
     }, [toast]);
 
-
     useEffect(() => {
         if (hasCameraPermission && videoRef.current && !html5QrCodeRef.current) {
-            const qrCodeScanner = new Html5Qrcode(videoRef.current);
-            html5QrCodeRef.current = qrCodeScanner;
-
-            qrCodeScanner.start(
+            html5QrCodeRef.current = new Html5Qrcode(videoRef.current.id);
+            html5QrCodeRef.current.start(
                 { facingMode: 'environment' },
                 { fps: 10, qrbox: { width: 250, height: 150 } },
                 (decodedText, decodedResult) => {
@@ -222,7 +206,7 @@ function CuttingScannerComponent() {
                 console.error("Unable to start scanning.", err);
             });
         }
-        
+
         return () => {
             if (html5QrCodeRef.current?.isScanning) {
                 html5QrCodeRef.current.stop().catch(err => console.error("Error stopping scanner:", err));
@@ -231,7 +215,6 @@ function CuttingScannerComponent() {
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasCameraPermission]);
-
 
     useEffect(() => {
         if (!taskId) {
@@ -270,7 +253,7 @@ function CuttingScannerComponent() {
         return <p>Task not found.</p>;
     }
 
-    const itemToScan = task.items.find(item => item.bcn === bcn);
+    const itemToScan = task.items.find(item => item.bcn === targetBcn);
     const isItemCut = itemToScan?.status === 'cut';
 
     return (
@@ -294,7 +277,7 @@ function CuttingScannerComponent() {
                         </CardHeader>
                         <CardContent>
                              <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                                <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                                <video id="scanner-video" ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
                                 {hasCameraPermission === false && (
                                     <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
                                         <Camera className="h-12 w-12 text-muted-foreground mb-4"/>
@@ -318,7 +301,7 @@ function CuttingScannerComponent() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            {!itemToScan && <p className="text-destructive">Item with BCN {bcn} not found in this task.</p>}
+                            {!itemToScan && <p className="text-destructive">Item with BCN {targetBcn} not found in this task.</p>}
                             {itemToScan && (
                                 <div className="p-4 border rounded-lg space-y-2">
                                     <p className="font-bold text-lg">{itemToScan.bcn}</p>
@@ -348,35 +331,9 @@ function CuttingScannerComponent() {
                 </div>
             </div>
             <ScanResultPopup result={scanResult} isOpen={isPopupOpen} onOpenChange={setIsPopupOpen} />
-            <Dialog open={isConfirmationDialogOpen} onOpenChange={setIsConfirmationDialogOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Confirm Roll Length</DialogTitle>
-                        <DialogDescription>
-                            BCN {bcn} matched. Please look at the sticker and manually enter the total length of the roll you are about to cut from.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="py-4 space-y-2">
-                        <Label htmlFor="manual-length">Roll Length</Label>
-                        <Input
-                            id="manual-length"
-                            type="number"
-                            value={manualLength}
-                            onChange={(e) => setManualLength(e.target.value)}
-                            placeholder="e.g., 45.00"
-                            autoFocus
-                        />
-                    </div>
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={() => { setIsConfirmationDialogOpen(false); isScanningRef.current = false; }}>Cancel</Button>
-                        <Button onClick={handleLengthConfirmation} disabled={!manualLength}>Confirm Length & Cut</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </>
     );
 }
-
 
 export default function Page() {
     return (

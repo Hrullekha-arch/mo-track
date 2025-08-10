@@ -71,5 +71,3 @@ export function StockLengthSticker({ bcn, length, mrp, rack }: StockLengthSticke
         </div>
     );
 }
-
-    
