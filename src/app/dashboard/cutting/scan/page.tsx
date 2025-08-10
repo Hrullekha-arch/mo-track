@@ -14,10 +14,12 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, CheckCircle, Loader2, ScanLine, XCircle, AlertTriangle, Camera } from 'lucide-react';
 import Link from 'next/link';
-import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Html5Qrcode } from 'html5-qrcode';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 type ScanStatus = 'success' | 'warning' | 'error';
 
@@ -59,62 +61,59 @@ function CuttingScannerComponent() {
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [isPopupOpen, setIsPopupOpen] = useState(false);
     const isScanningRef = useRef(false);
-    const scannerRef = useRef<Html5Qrcode | null>(null);
-    const videoRef = useRef<HTMLVideoElement>(null);
-
+    const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+    
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+    const [isConfirmationDialogOpen, setIsConfirmationDialogOpen] = useState(false);
+    const [manualLength, setManualLength] = useState('');
 
-    const handleScan = async (scannedValue: string) => {
+
+    const handleScan = async (scannedBcn: string) => {
         if (!task || !user || isScanningRef.current) return;
-    
-        isScanningRef.current = true;
         
+        isScanningRef.current = true; // Prevent multiple scans at once
+
         const itemToUpdate = task.items.find(item => item.bcn === bcn && item.status !== 'cut');
-    
+
         if (!itemToUpdate) {
             setScanResult({ status: 'warning', message: 'Item not found or already cut.' });
             setIsPopupOpen(true);
-            setTimeout(() => {
-                setIsPopupOpen(false);
-                isScanningRef.current = false;
-            }, 1500);
+            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 1500);
             return;
         }
-    
-        const [scannedBcn, scannedLengthStr] = scannedValue.split('|');
-        if (!scannedBcn || !scannedLengthStr) {
-            setScanResult({ status: 'error', message: 'Invalid barcode format. Expected BCN|Length.' });
-            setIsPopupOpen(true);
-            setTimeout(() => {
-                setIsPopupOpen(false);
-                isScanningRef.current = false;
-            }, 1500);
-            return;
-        }
-        
+
         if (scannedBcn !== bcn) {
             setScanResult({ status: 'error', message: 'Wrong Barcode Scanned' });
             setIsPopupOpen(true);
-            setTimeout(() => {
-                setIsPopupOpen(false);
-                isScanningRef.current = false;
-            }, 1500);
+            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 1500);
             return;
         }
         
-        const scannedLength = parseFloat(scannedLengthStr);
+        // If BCN is correct, open confirmation dialog
+        setIsConfirmationDialogOpen(true);
+    };
+
+    const handleLengthConfirmation = async () => {
+        if (!task || !user) return;
+
+        const itemToUpdate = task.items.find(item => item.bcn === bcn && item.status !== 'cut');
+        if (!itemToUpdate) return; // Should not happen if dialog is open
+
+        const enteredLength = parseFloat(manualLength);
         const expectedOriginalLength = itemToUpdate.originalLength;
-    
-        if (scannedLength.toFixed(2) !== expectedOriginalLength?.toFixed(2)) {
-             setScanResult({ status: 'error', message: `Wrong Roll. Expected roll of length ${expectedOriginalLength?.toFixed(2)}, but scanned ${scannedLength.toFixed(2)}.` });
-             setIsPopupOpen(true);
-            setTimeout(() => {
-                setIsPopupOpen(false);
-                isScanningRef.current = false;
-            }, 2500);
+        
+        if (isNaN(enteredLength) || enteredLength.toFixed(2) !== expectedOriginalLength?.toFixed(2)) {
+            setScanResult({ status: 'error', message: `Wrong Roll. Expected length ${expectedOriginalLength?.toFixed(2)}, but you entered ${manualLength}.` });
+            setIsPopupOpen(true);
+            setIsConfirmationDialogOpen(false);
+            setManualLength('');
+            setTimeout(() => { setIsPopupOpen(false); isScanningRef.current = false; }, 2500);
             return;
         }
-        
+
+        // BCN and Length are confirmed, proceed with update
+        setIsConfirmationDialogOpen(false);
+
         try {
             const batch = writeBatch(db);
 
@@ -176,73 +175,63 @@ function CuttingScannerComponent() {
                 setIsPopupOpen(false);
                 isScanningRef.current = false;
             }, 1500);
+        } finally {
+             setManualLength('');
         }
     };
     
-    // Request camera permission and set up video stream
     useEffect(() => {
-        const getCameraPermission = async () => {
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            setHasCameraPermission(true);
-    
-            if (videoRef.current) {
-              videoRef.current.srcObject = stream;
-            }
-          } catch (error) {
-            console.error('Error accessing camera:', error);
-            setHasCameraPermission(false);
-            toast({
-              variant: 'destructive',
-              title: 'Camera Access Denied',
-              description: 'Please enable camera permissions in your browser settings to use the scanner.',
-              duration: 5000,
-            });
-          }
-        };
-    
-        getCameraPermission();
-    
-        return () => {
-          if (videoRef.current && videoRef.current.srcObject) {
-            const stream = videoRef.current.srcObject as MediaStream;
-            stream.getTracks().forEach(track => track.stop());
-          }
-        };
-      }, [toast]);
-    
-    // Initialize and clean up scanner
-    useEffect(() => {
-        if (hasCameraPermission && videoRef.current && !scannerRef.current) {
-            const scanner = new Html5Qrcode(videoRef.current.id);
-            scannerRef.current = scanner;
+        const videoElement = document.getElementById('reader-video');
+        if (hasCameraPermission && videoElement && !html5QrCodeRef.current) {
+            const qrCodeScanner = new Html5Qrcode('reader-video');
+            html5QrCodeRef.current = qrCodeScanner;
 
-            const onScanSuccess = (decodedText: string) => {
-                if (!isScanningRef.current) {
-                    handleScan(decodedText);
-                }
-            };
-
-            const onScanFailure = (error: any) => { /* ignore */ };
-
-            scanner.start(
+            qrCodeScanner.start(
                 { facingMode: 'environment' },
                 { fps: 10, qrbox: { width: 250, height: 150 } },
-                onScanSuccess,
-                onScanFailure
+                (decodedText, decodedResult) => {
+                    if (!isScanningRef.current) {
+                        handleScan(decodedText);
+                    }
+                },
+                (errorMessage) => { /* ignore */ }
             ).catch(err => {
-                console.error("Failed to start scanner:", err);
+                console.error("Unable to start scanning.", err);
             });
         }
-
+        
         return () => {
-            if (scannerRef.current?.isScanning) {
-                scannerRef.current.stop().catch(err => console.error("Error stopping scanner:", err));
+            if (html5QrCodeRef.current?.isScanning) {
+                html5QrCodeRef.current.stop().catch(err => console.error("Error stopping scanner:", err));
+                html5QrCodeRef.current = null;
             }
-            scannerRef.current = null;
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasCameraPermission]);
+
+    useEffect(() => {
+        const getCameraPermission = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                const videoElement = document.getElementById('reader-video') as HTMLVideoElement;
+                if (videoElement) {
+                    videoElement.srcObject = stream;
+                }
+                setHasCameraPermission(true);
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                setHasCameraPermission(false);
+                toast({
+                    variant: 'destructive',
+                    title: 'Camera Access Denied',
+                    description: 'Please enable camera permissions in your browser settings to use the scanner.',
+                    duration: 5000,
+                });
+            }
+        };
+
+        getCameraPermission();
+    }, [toast]);
 
 
     useEffect(() => {
@@ -306,7 +295,7 @@ function CuttingScannerComponent() {
                         </CardHeader>
                         <CardContent>
                              <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                                <video id="reader-video" ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                                <video id="reader-video" className="w-full h-full object-cover" autoPlay muted playsInline />
                                 {hasCameraPermission === false && (
                                     <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
                                         <Camera className="h-12 w-12 text-muted-foreground mb-4"/>
@@ -360,6 +349,31 @@ function CuttingScannerComponent() {
                 </div>
             </div>
             <ScanResultPopup result={scanResult} isOpen={isPopupOpen} onOpenChange={setIsPopupOpen} />
+            <Dialog open={isConfirmationDialogOpen} onOpenChange={setIsConfirmationDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Confirm Roll Length</DialogTitle>
+                        <DialogDescription>
+                            BCN {bcn} matched. Please look at the sticker and manually enter the total length of the roll you are about to cut from.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4 space-y-2">
+                        <Label htmlFor="manual-length">Roll Length</Label>
+                        <Input
+                            id="manual-length"
+                            type="number"
+                            value={manualLength}
+                            onChange={(e) => setManualLength(e.target.value)}
+                            placeholder="e.g., 45.00"
+                            autoFocus
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => { setIsConfirmationDialogOpen(false); isScanningRef.current = false; }}>Cancel</Button>
+                        <Button onClick={handleLengthConfirmation} disabled={!manualLength}>Confirm Length & Cut</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }
