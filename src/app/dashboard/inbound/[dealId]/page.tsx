@@ -142,12 +142,19 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 completedBy: user.name,
             };
 
+            const existingMilestone = itemToUpdate.inboundMilestones?.find(m => m.stepId === stepId);
+            if (existingMilestone) {
+                toast({ variant: "destructive", title: "Step already completed for this item." });
+                setUpdating(null);
+                return;
+            }
+
             const newMilestones = [...(itemToUpdate.inboundMilestones || []), newMilestone];
             items[itemIndex] = {...itemToUpdate, inboundMilestones: newMilestones};
             
             await updateDoc(requestRef, { items: items });
 
-            toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete.`});
+            toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete for ${itemToUpdate.itemName}.`});
             
             const itemIsNowComplete = newMilestones.length === INBOUND_PROCESS_CONFIG.length;
 
@@ -174,6 +181,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 }
             }
             
+            // Check if all items in this PO are now fully processed
             const allItemsInCurrentInboundCompleted = items.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
             if (allItemsInCurrentInboundCompleted) {
@@ -183,9 +191,16 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     completedBy: user.name,
                 });
 
-                // Update the associated Purchase Request status to 'Completed'
                 const purchaseRequestRef = doc(db, 'purchaseRequests', request.purchaseRequestId);
-                await updateDoc(purchaseRequestRef, { status: 'Completed', completedAt: new Date().toISOString() });
+                const prSnap = await getDoc(purchaseRequestRef);
+                if (prSnap.exists()) {
+                    const prData = prSnap.data() as PurchaseRequest;
+                    const allItemsInPrHavePo = (prData.fabricDetails || []).every(d => d.poNumber);
+
+                    if (allItemsInPrHavePo) {
+                        await updateDoc(purchaseRequestRef, { status: 'Completed', completedAt: new Date().toISOString() });
+                    }
+                }
                 
                 toast({
                     title: "Inbound Complete!",
@@ -201,7 +216,6 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
                 
                 if (allPrsForDealAreComplete) {
-                    // All POs for this deal are done. Now we can update O2D.
                     const ordersRef = collection(db, "orders");
                     const q = query(ordersRef, where("crmOrderNo", "==", request.dealId));
                     const orderSnapshot = await getDocs(q);
@@ -263,7 +277,6 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
             const itemToUpdate = items[itemIndex];
             if (!itemToUpdate) throw new Error("Item not found");
 
-            // Check if this was the last step, which would have triggered a stock update
             const wasLastStep = itemToUpdate.inboundMilestones?.length === INBOUND_PROCESS_CONFIG.length;
             
             itemToUpdate.inboundMilestones = itemToUpdate.inboundMilestones?.filter(m => m.stepId !== milestone.stepId);
@@ -271,7 +284,6 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
             
             await updateDoc(requestRef, { items: items });
 
-            // If it was the last step, revert the stock update
             if (wasLastStep && itemToUpdate.poNumber) {
                 const stockId = itemToUpdate.itemName.replace(/\//g, '-');
                 const revertResult = await revertStockAdditionAction(stockId, itemToUpdate.poNumber, itemToUpdate.itemName, user.name);
@@ -279,7 +291,6 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     toast({ title: 'Stock Reverted', description: revertResult.message });
                 } else {
                     toast({ variant: 'destructive', title: 'Stock Revert Failed', description: revertResult.message });
-                    // Potentially handle this error more gracefully, e.g., don't revert the UI
                 }
             }
             
