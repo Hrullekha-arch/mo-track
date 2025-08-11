@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef, Suspense, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -50,8 +50,8 @@ export function CuttingScannerComponent() {
   const { toast } = useToast();
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const codeReaderRef = useRef(new BrowserMultiFormatReader());
-
+  const codeReaderRef = useRef(new BrowserMultiFormatReader(new Map([[BarcodeFormat.CODE_128, {}]])));
+  
   const taskId = searchParams.get('taskId');
   const targetBcn = searchParams.get('bcn');
 
@@ -61,11 +61,13 @@ export function CuttingScannerComponent() {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const isProcessingRef = useRef(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
   
   const handleScan = useCallback(async (scannedData: string) => {
     if (!task || !user || isProcessingRef.current) return;
 
     isProcessingRef.current = true;
+    console.log('Barcode detected:', scannedData);
 
     const itemToUpdate = task.items.find(item => item.bcn === targetBcn && item.status !== 'cut');
 
@@ -104,7 +106,7 @@ export function CuttingScannerComponent() {
       return;
     }
 
-    if (isNaN(scannedLength) || scannedLength.toFixed(2) !== expectedOriginalLength?.toFixed(2)) {
+    if (isNaN(scannedLength) || !expectedOriginalLength || scannedLength.toFixed(2) !== expectedOriginalLength.toFixed(2)) {
       setScanResult({ status: 'error', message: `Wrong Roll. Scanned length ${scannedLength.toFixed(2)}, expected ${expectedOriginalLength?.toFixed(2)}.` });
       setIsPopupOpen(true);
       setTimeout(() => {
@@ -126,7 +128,7 @@ export function CuttingScannerComponent() {
 
       const stockId = targetBcn.replace(/\//g, '-');
       const stockRef = doc(db, 'stocks', stockId);
-      const stockAddedSnapshot = await getDocs(query(collection(stockRef, 'stockAdded'), where('lengths', 'array-contains', expectedOriginalLength)));
+      const stockAddedSnapshot = await getDocs(query(collection(stockRef, 'stockAdded'), where('lengths', 'array-contains', expectedOriginalLength), limit(1)));
 
       if (!stockAddedSnapshot.empty) {
         const stockAddedDocRef = stockAddedSnapshot.docs[0].ref;
@@ -170,31 +172,9 @@ export function CuttingScannerComponent() {
   useEffect(() => {
     const getCameraPermission = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         setHasCameraPermission(true);
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-
-        const codeReader = codeReaderRef.current;
-        if (videoRef.current) {
-            codeReader.decodeFromVideoElement(videoRef.current, (result, err) => {
-                if (result) {
-                    console.log('Barcode detected:', result.getText());
-                    handleScan(result.getText());
-                }
-                if (err && !(err instanceof NotFoundException)) {
-                    console.error('ZXing Decode Error:', err);
-                } else if (err) {
-                    // This log is very helpful for debugging if the camera is working but not detecting.
-                    console.log('No barcode detected in frame.');
-                }
-            }).catch(err => {
-                console.error("Scanner decode error:", err);
-            });
-        }
-
+        setStream(mediaStream);
       } catch (error) {
         console.error('Error accessing camera:', error);
         setHasCameraPermission(false);
@@ -209,13 +189,36 @@ export function CuttingScannerComponent() {
     getCameraPermission();
 
     return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-      }
-      codeReaderRef.current.reset();
+        stream?.getTracks().forEach(track => track.stop());
+        codeReaderRef.current.reset();
     };
-  }, [toast, handleScan]);
+  }, []); // Run only once on mount
+
+  useEffect(() => {
+    if (stream && videoRef.current && hasCameraPermission) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+
+        const codeReader = codeReaderRef.current;
+        codeReader.decodeFromVideoElement(videoRef.current, (result, err) => {
+            if (result) {
+                handleScan(result.getText());
+            }
+            if (err && !(err instanceof NotFoundException)) {
+                console.error('ZXing Decode Error:', err);
+            } else if (err) {
+                // This log is helpful for debugging if the camera is working but not detecting.
+                console.log('No barcode detected in frame.');
+            }
+        }).catch(err => {
+            console.error("Scanner decode error:", err);
+        });
+    }
+
+    return () => {
+        codeReaderRef.current.reset();
+    };
+  }, [stream, hasCameraPermission, handleScan]);
 
 
   useEffect(() => {
@@ -284,13 +287,15 @@ export function CuttingScannerComponent() {
             </CardHeader>
             <CardContent>
               <div className="aspect-video bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                <video ref={videoRef} className="w-full h-full object-cover" />
                 {hasCameraPermission === false && (
-                  <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
-                    <CameraOff className="h-12 w-12 text-muted-foreground mb-4" />
-                    <p className="font-semibold">Camera Error</p>
-                    <p className="text-sm text-muted-foreground">Camera permission denied. Please enable camera access in your browser settings.</p>
-                  </div>
+                  <Alert variant="destructive" className="absolute m-4">
+                    <CameraOff className="h-4 w-4" />
+                    <AlertTitle>Camera Access Required</AlertTitle>
+                    <AlertDescription>
+                        Please allow camera access to use this feature.
+                    </AlertDescription>
+                  </Alert>
                 )}
                  {hasCameraPermission === null && (
                      <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
@@ -299,7 +304,7 @@ export function CuttingScannerComponent() {
                     </div>
                 )}
                 {hasCameraPermission === true && (
-                  <div className="absolute inset-0 border-2 border-red-500 m-4 pointer-events-none" /> // Scanning area indicator
+                  <div className="absolute inset-0 border-4 border-red-500/50 m-4 pointer-events-none rounded-lg" />
                 )}
               </div>
             </CardContent>
@@ -337,13 +342,5 @@ export function CuttingScannerComponent() {
       </div>
       <ScanResultPopup result={scanResult} isOpen={isPopupOpen} onOpenChange={setIsPopupOpen} />
     </>
-  );
-}
-
-export default function Page() {
-  return (
-    <Suspense fallback={<Skeleton className="h-screen w-full" />}>
-      <CuttingScannerComponent />
-    </Suspense>
   );
 }
