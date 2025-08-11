@@ -77,17 +77,22 @@ function SidebarNav({ className }: { className?: string }) {
 
   return (
     <nav className={cn("space-y-2 p-2", className)}>
-      {navItemsForUser.map((item) => (
-        <Link key={item.href} href={item.href} passHref>
-          <Button
-            variant={pathname.startsWith(item.href) ? "secondary" : "ghost"}
-            className="w-full justify-start items-center gap-3"
-          >
-            <item.icon className="mr-0 h-5 w-5 flex-shrink-0" />
-            <span className="truncate opacity-0 group-hover:opacity-100 transition-opacity duration-200">{item.label}</span>
-          </Button>
-        </Link>
-      ))}
+      {navItemsForUser.map((item) => {
+        const isActive = item.href === "/dashboard"
+          ? pathname === item.href
+          : pathname.startsWith(item.href);
+        return (
+            <Link key={item.href} href={item.href} passHref>
+            <Button
+                variant={isActive ? "secondary" : "ghost"}
+                className="w-full justify-start items-center gap-3"
+            >
+                <item.icon className="mr-0 h-5 w-5 flex-shrink-0" />
+                <span className="truncate opacity-0 group-hover:opacity-100 transition-opacity duration-200">{item.label}</span>
+            </Button>
+            </Link>
+        )
+      })}
     </nav>
   );
 }
@@ -165,7 +170,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             <span className="font-bold text-lg">MoTrack</span>
                         </div>
                         <div className="flex-1 overflow-y-auto">
-                            <SidebarNav className="opacity-100" />
+                             <nav className={cn("space-y-2 p-2")}>
+                                {navItems.map((item) => (
+                                    <Link key={item.href} href={item.href} passHref>
+                                    <Button
+                                        variant={usePathname().startsWith(item.href) ? "secondary" : "ghost"}
+                                        className="w-full justify-start items-center gap-3"
+                                    >
+                                        <item.icon className="mr-0 h-5 w-5 flex-shrink-0" />
+                                        <span className="truncate">{item.label}</span>
+                                    </Button>
+                                    </Link>
+                                ))}
+                            </nav>
                         </div>
                         <div className="opacity-100">
                            <UserProfile />
