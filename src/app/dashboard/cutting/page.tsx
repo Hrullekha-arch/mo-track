@@ -18,6 +18,7 @@ import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StockLengthSticker } from "@/components/features/inventory/StockLengthSticker";
+import { cn } from "@/lib/utils";
 
 function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => void }) {
     const [loadingStock, setLoadingStock] = useState<Record<string, boolean>>({});
@@ -316,4 +317,3 @@ export default function CuttingPage() {
         </div>
     );
 }
-
