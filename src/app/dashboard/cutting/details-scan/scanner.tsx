@@ -16,7 +16,7 @@ import { ArrowLeft, CheckCircle, Loader2, XCircle, AlertTriangle, CameraOff } fr
 import Link from 'next/link';
 import { BrowserMultiFormatReader, NotFoundException, BarcodeFormat } from '@zxing/library';
 import { cn } from '@/lib/utils';
-import { getStockById, getStockTransactions } from '@/app/dashboard/inventory/actions';
+import { getStockById, getStockTransactions, getAvailableStockLengths } from '@/app/dashboard/inventory/actions';
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
@@ -32,6 +32,7 @@ export function DetailsScannerComponent() {
   
   const [scannedStock, setScannedStock] = useState<Stock | null>(null);
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
+  const [availableLengths, setAvailableLengths] = useState<{ length: number; transactionId: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(true);
   const isProcessingRef = useRef(false);
@@ -50,6 +51,7 @@ export function DetailsScannerComponent() {
     setLoading(true);
     setScannedStock(null);
     setTransactions([]);
+    setAvailableLengths([]);
     
     console.log("Barcode detected, processed BCN:", bcn);
 
@@ -59,12 +61,22 @@ export function DetailsScannerComponent() {
 
       if (stock) {
         setScannedStock(stock);
-        const fetchedTransactions = await getStockTransactions(stockId);
+        const [fetchedTransactions, lengthsResult] = await Promise.all([
+            getStockTransactions(stockId),
+            getAvailableStockLengths(stockId)
+        ]);
+        
         setTransactions(fetchedTransactions);
+        if (lengthsResult.success && lengthsResult.lengths) {
+            setAvailableLengths(lengthsResult.lengths);
+        }
+
         toast({ title: 'Stock Found!', description: `Displaying details for ${stock.bcn}` });
         setIsScanning(false);
         codeReaderRef.current.reset();
-        stream?.getTracks().forEach(track => track.stop());
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
       } else {
         toast({ variant: 'destructive', title: 'Not Found', description: `No stock item found for BCN: ${bcn}` });
       }
@@ -83,7 +95,7 @@ export function DetailsScannerComponent() {
       videoRef.current.srcObject = stream;
       videoRef.current.onloadedmetadata = () => {
         if (videoRef.current && videoRef.current.videoWidth > 0) {
-          videoRef.current.play();
+          videoRef.current.play().catch(e => console.error("Video play error:", e));
   
           const codeReader = codeReaderRef.current;
           codeReader.decodeFromVideoDevice(undefined, videoRef.current, (result, err) => {
@@ -124,8 +136,7 @@ export function DetailsScannerComponent() {
         stream?.getTracks().forEach(track => track.stop());
         codeReaderRef.current.reset();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isScanning]);
+  }, [isScanning, toast]);
   
    useEffect(() => {
     if(isScanning) {
@@ -191,12 +202,24 @@ export function DetailsScannerComponent() {
                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-center">
                                 <p className="text-sm"><strong className="block text-muted-foreground">Sr No:</strong> {scannedStock.serialNo}</p>
                                 <p className="text-sm"><strong className="block text-muted-foreground">Rack:</strong> {scannedStock.rack || 'N/A'}</p>
-                                <p className="text-sm"><strong className="block text-muted-foreground">Current Stock Qty:</strong> {scannedStock.quantity}</p>
+                                <p className="text-sm"><strong className="block text-muted-foreground">Total Stock:</strong> {scannedStock.quantity}</p>
                                 <p className="text-sm"><strong className="block text-muted-foreground">Vendor:</strong> {scannedStock.vendorName}</p>
                                 <p className="text-sm"><strong className="block text-muted-foreground">Category:</strong> {scannedStock.category}</p>
+                                <p className="text-sm"><strong className="block text-muted-foreground">HSN:</strong> {scannedStock.hsnCode || 'N/A'}</p>
                                 <p className="text-sm"><strong className="block text-muted-foreground">MRP:</strong> ₹{scannedStock.mrp}</p>
                                 <p className="text-sm"><strong className="block text-muted-foreground">Last Updated:</strong> {new Date(scannedStock.lastUpdatedAt).toLocaleDateString()}</p>
                             </div>
+
+                            <Separator className="my-4" />
+                            <h3 className="font-semibold mb-2">Available Lengths</h3>
+                            <div className="flex flex-wrap gap-2">
+                                {availableLengths.length > 0 ? (
+                                    availableLengths.map((len, index) => <Badge key={index} variant="secondary">{len.length.toFixed(2)}</Badge>)
+                                ) : (
+                                    <p className="text-xs text-muted-foreground">No specific lengths available or tracked.</p>
+                                )}
+                            </div>
+
                             <Separator className="my-4" />
                             <h3 className="font-semibold mb-2">Transaction History</h3>
                             <div className="border rounded-md max-h-96 overflow-y-auto">
