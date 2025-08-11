@@ -1,5 +1,6 @@
 
 
+
 import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp } from "firebase/firestore";
 
@@ -508,6 +509,5 @@ export interface CuttingTask {
   createdAt: string; // ISO Date string
   status: 'Pending' | 'In Progress' | 'Completed';
 }
-
 
 export { type ComboboxOption };

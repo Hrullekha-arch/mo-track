@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -9,15 +10,129 @@ import { Calendar } from "@/components/ui/calendar";
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { DateRange } from "react-day-picker";
-import { User, Order } from "@/lib/types";
+import { User, Order, PurchaseRequest, StockTransaction } from "@/lib/types";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getReportData, ReportData } from "./actions";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import * as XLSX from "xlsx";
+import { Badge } from "@/components/ui/badge";
 
-type ReportType = 'order-summary' | 'sales-performance' | 'purchase-report' | 'stock-ledger';
+type ReportType = 'order-summary' | 'sales-performance' | 'purchase-report' | 'stock-ledger' | 'profit-loss';
+
+const ReportTable = ({ data, type }: { data: ReportData, type: ReportType }) => {
+    if (type === 'order-summary' && data.orders) {
+        return (
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Order ID</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Sales Person</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Date</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {data.orders.map(order => (
+                        <TableRow key={order.id}>
+                            <TableCell className="font-mono">{order.id}</TableCell>
+                            <TableCell>{order.customerName}</TableCell>
+                            <TableCell>{order.salesPerson}</TableCell>
+                            <TableCell>₹{order.totalAmount?.toFixed(2) ?? '0.00'}</TableCell>
+                            <TableCell>{order.milestones.slice().reverse().find(m => m.completed)?.name || "Order Received"}</TableCell>
+                            <TableCell>{format(new Date(order.createdAt), "PP")}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        )
+    }
+
+    if (type === 'sales-performance' && data.salesPerformance) {
+        return (
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Salesman</TableHead>
+                        <TableHead>Total Orders</TableHead>
+                        <TableHead>Total Value</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {data.salesPerformance.map(item => (
+                        <TableRow key={item.salesman}>
+                            <TableCell>{item.salesman}</TableCell>
+                            <TableCell>{item.totalOrders}</TableCell>
+                            <TableCell>₹{item.totalValue.toFixed(2)}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        )
+    }
+    
+    if (type === 'purchase-report' && data.purchaseReport) {
+        return (
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>PO Number</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Vendor</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Date</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {data.purchaseReport.map(item => (
+                        <TableRow key={item.id}>
+                            <TableCell>{item.id}</TableCell>
+                            <TableCell>{item.customerName}</TableCell>
+                            <TableCell>{item.vendor || 'N/A'}</TableCell>
+                            <TableCell><Badge>{item.status}</Badge></TableCell>
+                            <TableCell>{format(new Date(item.createdAt), "PP")}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        )
+    }
+
+    if (type === 'stock-ledger' && data.stockLedger) {
+        return (
+             <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>BCN</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Quantity Change</TableHead>
+                        <TableHead>Reference ID</TableHead>
+                        <TableHead>User</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {data.stockLedger.map(tx => (
+                        <TableRow key={tx.id}>
+                            <TableCell>{format(new Date(tx.createdAt), "PP p")}</TableCell>
+                            <TableCell className="font-mono">{tx.bcn}</TableCell>
+                            <TableCell><Badge variant={tx.type === 'addition' ? 'default' : 'destructive'} className="capitalize">{tx.type}</Badge></TableCell>
+                            <TableCell>{tx.quantityChange.toFixed(2)}</TableCell>
+                            <TableCell>{tx.poNumber || tx.orderId || 'N/A'}</TableCell>
+                            <TableCell>{tx.createdBy}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        )
+    }
+
+    return null;
+}
+
 
 export default function ReportsPage() {
   const [reportType, setReportType] = useState<ReportType>('order-summary');
@@ -47,7 +162,7 @@ export default function ReportsPage() {
         userId: selectedUserId
       });
       setReportData(data);
-       if (data.orders && data.orders.length === 0) {
+       if (!data || Object.values(data).every(arr => arr.length === 0)) {
         toast({ title: "No Data", description: "No data found for the selected criteria." });
       }
     } catch (error) {
@@ -58,25 +173,58 @@ export default function ReportsPage() {
   };
 
   const handleExport = () => {
-    if (!reportData || !reportData.orders || reportData.orders.length === 0) {
+    if (!reportData) {
+      toast({ variant: 'destructive', title: 'No data to export' });
+      return;
+    }
+    
+    let dataToExport: any[] = [];
+    let sheetName = "Report";
+
+    if (reportType === 'order-summary' && reportData.orders) {
+        sheetName = "Order Summary";
+        dataToExport = reportData.orders.map(order => ({
+            'Order ID': order.id,
+            'Customer Name': order.customerName,
+            'Sales Person': order.salesPerson,
+            'Order Type': order.orderType,
+            'Status': order.milestones.slice().reverse().find(m => m.completed)?.name || "Order Received",
+            'Total Amount': order.totalAmount || 0,
+            'Created At': format(new Date(order.createdAt), "yyyy-MM-dd HH:mm"),
+        }));
+    } else if (reportType === 'sales-performance' && reportData.salesPerformance) {
+        sheetName = "Sales Performance";
+        dataToExport = reportData.salesPerformance;
+    } else if (reportType === 'purchase-report' && reportData.purchaseReport) {
+        sheetName = "Purchase Report";
+        dataToExport = reportData.purchaseReport.map(item => ({
+             'PO Number': item.id,
+             'Customer Name': item.customerName,
+             'Vendor': item.vendor || 'N/A',
+             'Status': item.status,
+             'Date': format(new Date(item.createdAt), "yyyy-MM-dd"),
+        }));
+    } else if (reportType === 'stock-ledger' && reportData.stockLedger) {
+        sheetName = "Stock Ledger";
+        dataToExport = reportData.stockLedger.map(tx => ({
+            'Date': format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm"),
+            'BCN': tx.bcn,
+            'Type': tx.type,
+            'Quantity Change': tx.quantityChange,
+            'Reference ID': tx.poNumber || tx.orderId || 'N/A',
+            'User': tx.createdBy
+        }));
+    }
+
+    if (dataToExport.length === 0) {
       toast({ variant: 'destructive', title: 'No data to export' });
       return;
     }
 
-    const dataToExport = reportData.orders.map(order => ({
-      'Order ID': order.id,
-      'Customer Name': order.customerName,
-      'Sales Person': order.salesPerson,
-      'Order Type': order.orderType,
-      'Status': order.milestones.slice().reverse().find(m => m.completed)?.name || "Order Received",
-      'Total Amount': order.totalAmount || 0,
-      'Created At': format(new Date(order.createdAt), "yyyy-MM-dd HH:mm"),
-    }));
-
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Order Summary");
-    XLSX.writeFile(workbook, `order_summary_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    XLSX.writeFile(workbook, `${sheetName.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
     toast({ title: "Export Complete!" });
   };
 
@@ -103,10 +251,10 @@ export default function ReportsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="order-summary">Order Summary</SelectItem>
-                  <SelectItem value="sales-performance" disabled>Salesman Performance (soon)</SelectItem>
-                  <SelectItem value="purchase-report" disabled>Purchase Report (soon)</SelectItem>
-                  <SelectItem value="stock-ledger" disabled>Stock Ledger (soon)</SelectItem>
-                   <SelectItem value="profit-loss" disabled>Profit & Loss (soon)</SelectItem>
+                  <SelectItem value="sales-performance">Salesman Performance</SelectItem>
+                  <SelectItem value="purchase-report">Purchase Report</SelectItem>
+                  <SelectItem value="stock-ledger">Stock Ledger</SelectItem>
+                  <SelectItem value="profit-loss" disabled>Profit & Loss (soon)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -167,7 +315,7 @@ export default function ReportsPage() {
                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BarChart2 className="mr-2 h-4 w-4" />} 
                 Generate Report
             </Button>
-            <Button onClick={handleExport} disabled={!reportData || !reportData.orders || reportData.orders.length === 0}>
+            <Button onClick={handleExport} disabled={!reportData}>
                 <Download className="mr-2 h-4 w-4" /> Download CSV
             </Button>
           </div>
@@ -180,39 +328,16 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {reportData && reportData.orders && (
+      {reportData && (
         <Card className="mt-8">
             <CardHeader>
-                <CardTitle>Order Summary Report</CardTitle>
+                <CardTitle>{reportType.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} Report</CardTitle>
                 <CardDescription>
-                    Showing {reportData.orders.length} orders.
+                    Showing results for the selected criteria.
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Order ID</TableHead>
-                            <TableHead>Customer</TableHead>
-                            <TableHead>Sales Person</TableHead>
-                            <TableHead>Amount</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Date</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {reportData.orders.map(order => (
-                            <TableRow key={order.id}>
-                                <TableCell className="font-mono">{order.id}</TableCell>
-                                <TableCell>{order.customerName}</TableCell>
-                                <TableCell>{order.salesPerson}</TableCell>
-                                <TableCell>₹{order.totalAmount?.toFixed(2) ?? '0.00'}</TableCell>
-                                <TableCell>{order.milestones.slice().reverse().find(m => m.completed)?.name || "Order Received"}</TableCell>
-                                <TableCell>{format(new Date(order.createdAt), "PP")}</TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
+                <ReportTable data={reportData} type={reportType} />
             </CardContent>
         </Card>
       )}
