@@ -36,6 +36,7 @@ import { setBalanceFollowUp } from "@/app/dashboard/all-orders/actions";
 import { O2D_PROCESS_CONFIG, calculateExpectedDatesForOrder } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import Link from "next/link";
 
 interface O2DViewItem {
   dealId: string;
@@ -376,4 +377,3 @@ export function O2DTable() {
     </>
   );
 }
-
