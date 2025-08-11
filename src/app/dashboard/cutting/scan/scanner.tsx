@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, CheckCircle, Loader2, XCircle, AlertTriangle, CameraOff } from 'lucide-react';
 import Link from 'next/link';
-import { BrowserCode128Reader, NotFoundException } from '@zxing/library';
+import { BrowserMultiFormatReader, NotFoundException, BarcodeFormat } from '@zxing/library';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -55,7 +55,7 @@ export function CuttingScannerComponent() {
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
   
-  const codeReaderRef = useRef(new BrowserCode128Reader());
+  const codeReaderRef = useRef(new BrowserMultiFormatReader(new Map([[BarcodeFormat.CODE_128, {}]])));
   
   const taskId = searchParams.get('taskId');
   const targetBcn = searchParams.get('bcn');
@@ -353,4 +353,3 @@ export function CuttingScannerComponent() {
     </>
   );
 }
-
