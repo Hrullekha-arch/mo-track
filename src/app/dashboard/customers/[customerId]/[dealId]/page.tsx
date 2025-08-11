@@ -1718,9 +1718,6 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
-    const [confirmOrderQuotation, setConfirmOrderQuotation] = useState<Quotation | null>(null);
-    const { toast } = useToast();
-    const { user } = useAuth();
     const router = useRouter();
 
     const parseDate = (date: any): Date => {
@@ -1767,29 +1764,8 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
         fetchQuotations();
     }, [customerId, dealId]);
     
-    const handleConvertToOrder = async (quotation: Quotation, orderType: OrderType) => {
-        if (!user) {
-            toast({ variant: 'destructive', title: 'Not authenticated' });
-            return false;
-        }
-
-        try {
-            const result = await createDealOrderAction(customerId, dealId, quotation, { id: user.id, name: user.name }, orderType);
-            if (result.success) {
-                toast({ title: 'Order Created!', description: 'The order has been created and sent for approval.' });
-                setConfirmOrderQuotation(null);
-                onOrderCreated(); // Refresh orders tab
-                // Refresh quotations locally
-                setQuotations(prev => prev.map(q => q.id === quotation.id ? {...q, status: 'Converted to Order'} : q));
-                return true;
-            } else {
-                toast({ variant: 'destructive', title: 'Order Creation Failed', description: result.message });
-                return false;
-            }
-        } catch (error) {
-            toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred.' });
-            return false;
-        }
+    const handleConvertToOrder = (quotation: Quotation) => {
+        router.push(`/dashboard/invoice/new?customerId=${customerId}&dealId=${dealId}&quotationId=${quotation.id}`);
     };
 
     if (loading) {
@@ -1844,7 +1820,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
                                                                         if (q.status !== 'Approved') {
                                                                             e.preventDefault();
                                                                         } else {
-                                                                            setConfirmOrderQuotation(q);
+                                                                            handleConvertToOrder(q);
                                                                         }
                                                                     }}
                                                                 >
@@ -1906,62 +1882,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
                     cpds={cpds}
                 />
             )}
-            {confirmOrderQuotation && (
-                <ConfirmOrderTypeDialog 
-                    isOpen={!!confirmOrderQuotation}
-                    onClose={() => setConfirmOrderQuotation(null)}
-                    onConfirm={handleConvertToOrder}
-                    quotation={confirmOrderQuotation}
-                />
-            )}
         </>
-    );
-}
-
-function ConfirmOrderTypeDialog({ isOpen, onClose, quotation, onConfirm }: { isOpen: boolean, onClose: () => void, quotation: Quotation, onConfirm: (quotation: Quotation, orderType: OrderType) => Promise<boolean> }) {
-    const [orderType, setOrderType] = useState<OrderType>('stitching');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-
-    const handleConfirm = async () => {
-        setIsSubmitting(true);
-        const success = await onConfirm(quotation, orderType);
-        if (success) {
-            onClose();
-        }
-        setIsSubmitting(false);
-    };
-
-    return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Confirm Order Type</DialogTitle>
-                    <DialogDescription>
-                        Select the final order type for this quotation before creating the order. This will determine the production milestones.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="py-4 space-y-2">
-                    <Label htmlFor="order-type">Order Type</Label>
-                    <Select onValueChange={(v: OrderType) => setOrderType(v)} defaultValue={orderType}>
-                        <SelectTrigger id="order-type">
-                            <SelectValue placeholder="Select an order type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="delivery">Delivery</SelectItem>
-                            <SelectItem value="stitching">Stitching</SelectItem>
-                            <SelectItem value="stitching+installation">Stitching + Installation</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-                <DialogFooter>
-                    <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
-                    <Button onClick={handleConfirm} disabled={isSubmitting}>
-                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Confirm and Create Order
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
     );
 }
 

@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem, VasDetail, OrderType } from "@/lib/types";
 import React, { useEffect, useState, useMemo } from "react";
 import { getCustomerById } from "@/app/dashboard/customers/actions";
-import { getDealById, getQuotationsForDeal, createDealOrderAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import { getDealById, getQuotationsForDeal, createDealOrderAction } from "./actions";
 import Link from "next/link";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -79,6 +79,7 @@ const convertToOrderSchema = z.object({
   orderRemark: z.string().optional(),
   billingName: z.string().optional(),
   addVas: z.boolean().optional(),
+  orderType: z.enum(['delivery', 'stitching', 'stitching+installation'], { required_error: "Order type is required" }),
 });
 
 type ConvertToOrderFormValues = z.infer<typeof convertToOrderSchema>;
@@ -126,6 +127,7 @@ function ConvertToOrderContent() {
       orderRemark: "",
       billingName: "",
       addVas: false,
+      orderType: 'stitching',
     }
   });
 
@@ -283,7 +285,7 @@ function ConvertToOrderContent() {
             totalAmount: totals.grandTotal, 
         };
 
-      const result = await createDealOrderAction(customerId, dealId, updatedQuotation, { id: user.id, name: user.name }, 'stitching');
+      const result = await createDealOrderAction(customerId, dealId, updatedQuotation, { id: user.id, name: user.name }, data.orderType);
 
       if (result.success) {
         toast({ title: "Order Created!", description: "The sales order has been sent for approval." });
@@ -441,9 +443,31 @@ function ConvertToOrderContent() {
             </div>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <FormField control={form.control} name="orderRemark" render={({ field }) => (<FormItem><FormLabel>Order Remark</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
             <FormField control={form.control} name="billingName" render={({ field }) => (<FormItem><FormLabel>Billing Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+             <FormField
+                control={form.control}
+                name="orderType"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Order Type*</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select an order type" />
+                                </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                <SelectItem value="delivery">Delivery</SelectItem>
+                                <SelectItem value="stitching">Stitching</SelectItem>
+                                <SelectItem value="stitching+installation">Stitching + Installation</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
           </div>
 
           <FormField

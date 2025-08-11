@@ -6,6 +6,30 @@ import { adminDb } from '@/lib/firebase-admin';
 import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
 
+export async function getQuotationsForDeal(customerId: string, dealId: string): Promise<Quotation[]> {
+    try {
+        const snapshot = await adminDb
+            .collection('customers')
+            .doc(customerId)
+            .collection('deals')
+            .doc(dealId)
+            .collection('quotations')
+            .orderBy('createdAt', 'desc')
+            .get();
+
+        if (snapshot.empty) {
+            return [];
+        }
+
+        const quotations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quotation));
+        return JSON.parse(JSON.stringify(quotations));
+    } catch (error) {
+        console.error("Error fetching quotations for deal:", error);
+        return [];
+    }
+}
+
+
 export async function createDealOrderAction(
   customerId: string,
   dealId: string,
