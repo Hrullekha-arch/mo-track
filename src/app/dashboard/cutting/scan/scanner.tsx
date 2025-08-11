@@ -35,7 +35,7 @@ const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md p-0" hideCloseButton>
-        <DialogHeader className="sr-only">
+        <DialogHeader>
             <DialogTitle>Scan Result</DialogTitle>
             <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
@@ -136,10 +136,10 @@ export function CuttingScannerComponent() {
 
       if (!stockAddedSnapshot.empty) {
         const stockAddedDocRef = stockAddedSnapshot.docs[0].ref;
+        // Simplified query to find the correct pending transaction
         const stockSoldQuery = query(
           collection(stockAddedDocRef, 'stockSold'),
           where('orderId', '==', task.orderId),
-          where('quantityChange', '==', -itemToUpdate.quantityAllocated),
           where('status', '==', 'pending for cutting'),
           limit(1)
         );
@@ -147,6 +147,8 @@ export function CuttingScannerComponent() {
 
         if (!stockSoldSnapshot.empty) {
           batch.update(stockSoldSnapshot.docs[0].ref, { status: 'cut' });
+        } else {
+           console.warn(`Could not find a 'pending for cutting' stockSold transaction for order ${task.orderId} and item ${targetBcn} to update.`);
         }
       }
 
