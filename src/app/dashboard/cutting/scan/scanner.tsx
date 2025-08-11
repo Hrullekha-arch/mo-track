@@ -136,6 +136,7 @@ export function CuttingScannerComponent() {
 
       if (!stockAddedSnapshot.empty) {
         const stockAddedDocRef = stockAddedSnapshot.docs[0].ref;
+        
         // Simplified query to find the correct pending transaction
         const stockSoldQuery = query(
           collection(stockAddedDocRef, 'stockSold'),
