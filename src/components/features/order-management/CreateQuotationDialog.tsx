@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, ReactNode, useMemo } from "react";
@@ -781,7 +780,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
                             <AlertDialogHeader>
                                 <AlertDialogTitle>Confirm Quotation</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                    This will create a quotation and a corresponding order pending for approval. Continue?
+                                    This will create a quotation with status 'Pending Approval'. Are you sure you want to continue?
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
@@ -860,7 +859,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
   }, [isOpen, deal, customer, initialItems, form]);
 
 
-  async function handleCreateQuotationAndOrder() {
+  async function handleCreateQuotation() {
     const values = form.getValues();
     if (!user) {
         toast({ variant: "destructive", title: "Not authenticated." });
@@ -885,23 +884,17 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
     try {
         const quotationResult = await createQuotationAction(customer.id, deal.id, values, totalAmount + vasTotal);
 
-        if (quotationResult.success && quotationResult.quotation) {
-            const orderResult = await createDealOrderAction(customer.id, deal.id, quotationResult.quotation, { id: user.id, name: user.name });
-
-            if (orderResult.success) {
-                toast({ title: "Quotation & Order Created", description: "The quotation has been created and the order is pending approval." });
-                form.reset();
-                onSuccess();
-                onClose();
-            } else {
-                 toast({ variant: "destructive", title: "Order Creation Failed", description: orderResult.message });
-            }
+        if (quotationResult.success) {
+            toast({ title: "Quotation Created", description: "The quotation has been sent for approval." });
+            form.reset();
+            onSuccess();
+            onClose();
         } else {
             toast({ variant: "destructive", title: "Quotation Creation Failed", description: quotationResult.message });
         }
     } catch (error) {
-      console.error("Error creating quotation and order: ", error);
-      toast({ variant: "destructive", title: "Error", description: "Failed to create the quotation and order." });
+      console.error("Error creating quotation: ", error);
+      toast({ variant: "destructive", title: "Error", description: "Failed to create the quotation." });
     } finally {
       setLoading(false);
     }
@@ -972,7 +965,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
             </form>
             </FormProvider>
         ) : (
-            <QuotationPreview form={form} onBack={() => setView('edit')} onSubmit={handleCreateQuotationAndOrder} loading={loading} />
+            <QuotationPreview form={form} onBack={() => setView('edit')} onSubmit={handleCreateQuotation} loading={loading} />
         )}
         </div>
         
