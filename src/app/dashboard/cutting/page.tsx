@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { collection, onSnapshot, query, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, CheckCircle, Loader2, ScanLine, Undo2, Printer } from "lucide-react";
+import { ArrowLeft, CheckCircle, Loader2, ScanLine, Undo2, Printer, RefreshCw, Info } from "lucide-react";
 import { getStockById } from "../inventory/actions";
 import Link from 'next/link';
 import { useAuth } from "@/context/AuthContext";
@@ -206,8 +206,10 @@ export default function CuttingPage() {
     const [loading, setLoading] = useState(true);
     const [selectedTask, setSelectedTask] = useState<CuttingTask | null>(null);
     const { toast } = useToast();
+    const [refreshKey, setRefreshKey] = useState(0);
 
-    useEffect(() => {
+    const refreshData = useCallback(() => {
+        setLoading(true);
         const q = query(collection(db, "Cutting"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CuttingTask));
@@ -218,8 +220,13 @@ export default function CuttingPage() {
             toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch cutting tasks.' });
             setLoading(false);
         });
-        return () => unsubscribe();
+        return unsubscribe;
     }, [toast]);
+
+    useEffect(() => {
+        const unsubscribe = refreshData();
+        return () => unsubscribe();
+    }, [refreshKey, refreshData]);
 
 
     if (loading) {
@@ -242,12 +249,26 @@ export default function CuttingPage() {
     return (
         <div className="w-full p-4 md:p-6 lg:p-8">
              <Tabs defaultValue="pending">
-                <header className="mb-4">
-                    <h1 className="text-3xl font-bold tracking-tight">Cutting & Details</h1>
-                     <TabsList className="mt-4">
-                        <TabsTrigger value="pending">Pending Cutting</TabsTrigger>
-                        <TabsTrigger value="history">Cutting History</TabsTrigger>
-                    </TabsList>
+                <header className="flex justify-between items-start mb-4">
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight">Cutting & Details</h1>
+                        <TabsList className="mt-4">
+                            <TabsTrigger value="pending">Pending Cutting</TabsTrigger>
+                            <TabsTrigger value="history">Cutting History</TabsTrigger>
+                        </TabsList>
+                    </div>
+                    <div className="flex gap-2">
+                         <Button variant="outline" onClick={() => setRefreshKey(k => k + 1)} disabled={loading}>
+                            <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
+                            Refresh
+                        </Button>
+                        <Button asChild>
+                            <Link href="/dashboard/cutting/details-scan">
+                                <Info className="mr-2 h-4 w-4" />
+                                Details
+                            </Link>
+                        </Button>
+                    </div>
                 </header>
                 <TabsContent value="pending">
                      <div className="space-y-4">
@@ -296,4 +317,3 @@ export default function CuttingPage() {
     );
 }
 
-    
