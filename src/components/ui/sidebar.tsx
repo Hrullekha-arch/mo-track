@@ -215,7 +215,8 @@ const Sidebar = React.forwardRef<
           side === "right" && "right-0 border-l",
           state === "expanded" && "w-[--sidebar-width]",
           state === "collapsed" && "w-[--sidebar-width-icon]",
-          "transition-[width] ease-in-out duration-300",
+          "hover:w-[--sidebar-width]", 
+          "transition-all ease-in-out duration-300",
           className
         )}
         data-sidebar="sidebar"
@@ -486,7 +487,7 @@ const SidebarMenuItem = React.forwardRef<
 SidebarMenuItem.displayName = "SidebarMenuItem"
 
 const sidebarMenuButtonVariants = cva(
-  "relative peer/menu-button flex items-center gap-3 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-ring transition-all hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 active:bg-accent active:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-[[data-sidebar=menu-action]]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 group-data-[state=expanded]/sidebar-wrapper:w-full group-data-[state=collapsed]/sidebar-wrapper:w-9 group-data-[state=collapsed]/sidebar-wrapper:justify-center group-data-[state=collapsed]/sidebar-wrapper:p-2",
+  "relative peer/menu-button flex items-center gap-3 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-ring transition-all hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 active:bg-accent active:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-[[data-sidebar=menu-action]]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 w-full justify-start",
   {
     variants: {
       variant: {
