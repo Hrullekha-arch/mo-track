@@ -76,7 +76,7 @@ function SidebarNav({ className }: { className?: string }) {
   }, [role]);
 
   return (
-    <nav className={cn("space-y-2 p-2", className)}>
+    <nav className={cn("space-y-1 p-2", className)}>
       {navItemsForUser.map((item) => {
         const isActive = item.href === "/dashboard"
           ? pathname === item.href
@@ -103,7 +103,7 @@ function UserProfile() {
     const { theme, setTheme } = useTheme();
 
     return (
-        <div className="p-2 border-t">
+        <div className="p-2 mt-auto border-t">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="w-full justify-start items-center gap-3 p-2 h-auto">
@@ -121,8 +121,17 @@ function UserProfile() {
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="cursor-pointer">
-                    {theme === 'dark' ? <Sun className="mr-2 h-4 w-4"/> : <Moon className="mr-2 h-4 w-4"/>}
-                    <span>{theme === 'dark' ? 'Light' : 'Dark'} Mode</span>
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center">
+                        {theme === 'dark' ? <Sun className="mr-2 h-4 w-4"/> : <Moon className="mr-2 h-4 w-4"/>}
+                        <span>Toggle Theme</span>
+                      </div>
+                      <Switch
+                        checked={theme === 'dark'}
+                        aria-readonly
+                        className="pointer-events-none"
+                      />
+                    </div>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
@@ -139,8 +148,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   
   return (
     <div className="flex h-screen bg-background">
-      <aside className="group w-16 hover:w-64 transition-all duration-300 ease-in-out flex-col border-r bg-card/70 backdrop-blur-lg text-card-foreground hidden md:flex">
-        <div className="p-4 flex items-center gap-2 h-[65px] border-b">
+      <aside className="group fixed inset-y-0 left-0 z-50 w-16 hover:w-64 transition-all duration-300 ease-in-out flex-col border-r bg-card/70 backdrop-blur-lg text-card-foreground hidden md:flex dark">
+        <div className="p-4 flex items-center gap-2 h-[65px] border-b shrink-0">
             <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>
             <span className="font-bold text-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200">MoTrack</span>
         </div>
@@ -150,7 +159,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <UserProfile />
       </aside>
 
-      <div className="flex flex-col flex-1">
+      <div className="flex flex-col flex-1 md:pl-16">
         <header className="md:hidden flex h-[65px] items-center justify-between border-b bg-card px-4">
             <div className="flex items-center gap-2">
                  <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>
@@ -163,29 +172,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         <span className="sr-only">Toggle Menu</span>
                     </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="w-64 p-0 bg-card/80 backdrop-blur-lg">
+                <SheetContent side="left" className="w-64 p-0 bg-card/80 backdrop-blur-lg dark text-primary-foreground">
                     <div className="flex flex-col h-full">
                         <div className="p-4 flex items-center gap-2 h-[65px] border-b">
                             <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>
                             <span className="font-bold text-lg">MoTrack</span>
                         </div>
                         <div className="flex-1 overflow-y-auto">
-                             <nav className={cn("space-y-2 p-2")}>
-                                {navItems.map((item) => (
-                                    <Link key={item.href} href={item.href} passHref>
-                                    <Button
-                                        variant={usePathname().startsWith(item.href) ? "secondary" : "ghost"}
-                                        className="w-full justify-start items-center gap-3"
-                                    >
-                                        <item.icon className="mr-0 h-5 w-5 flex-shrink-0" />
-                                        <span className="truncate">{item.label}</span>
-                                    </Button>
-                                    </Link>
-                                ))}
+                             <nav className={cn("space-y-1 p-2")}>
+                                {navItems.map((item) => {
+                                    const isActive = item.href === "/dashboard"
+                                        ? usePathname() === item.href
+                                        : usePathname().startsWith(item.href);
+                                    return (
+                                        <Link key={item.href} href={item.href} passHref>
+                                        <Button
+                                            variant={isActive ? "secondary" : "ghost"}
+                                            className="w-full justify-start items-center gap-3"
+                                        >
+                                            <item.icon className="mr-0 h-5 w-5 flex-shrink-0" />
+                                            <span className="truncate">{item.label}</span>
+                                        </Button>
+                                        </Link>
+                                    )
+                                })}
                             </nav>
                         </div>
-                        <div className="opacity-100">
-                           <UserProfile />
+                        <div className="opacity-100 mt-auto">
+                            <UserProfile />
                         </div>
                     </div>
                 </SheetContent>
