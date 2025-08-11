@@ -80,3 +80,19 @@ export async function approveOrderAndCreatePurchaseRequest(
         return { success: false, message: `Server error: ${error.message}` };
     }
 }
+
+export async function confirmPaymentReceived(orderId: string, approver: { id: string; name: string }): Promise<{ success: boolean; message: string }> {
+    try {
+        const orderRef = adminDb.collection('orders').doc(orderId);
+        await orderRef.update({
+            paymentConfirmed: true,
+            balanceFollowUp: false, // Turn off the follow-up flag
+            paymentConfirmedBy: approver,
+            paymentConfirmedAt: new Date().toISOString()
+        });
+        return { success: true, message: `Payment confirmed for order ${orderId}.` };
+    } catch (error: any) {
+        console.error("Error confirming payment:", error);
+        return { success: false, message: `Failed to confirm payment: ${error.message}` };
+    }
+}
