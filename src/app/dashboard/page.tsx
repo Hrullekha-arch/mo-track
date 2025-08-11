@@ -1,8 +1,8 @@
 
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText } from "lucide-react";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where, collectionGroup, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -48,6 +48,7 @@ export default function DashboardPage() {
         pendingOrderApproval: null,
         pendingInvoice: null,
         pendingCutting: null,
+        paymentConfirmation: null,
     });
     const [loading, setLoading] = useState(true);
 
@@ -72,6 +73,7 @@ export default function DashboardPage() {
                         ...prev,
                         readyForDelivery: orders.filter(o => o.milestones.find(m => m.id === 5)?.completed && !o.milestones.find(m => m.id === 8)?.completed).length,
                         pendingOrderApproval: orders.filter(o => o.status === 'Pending Approval').length,
+                        paymentConfirmation: orders.filter(o => o.balanceFollowUp === true && o.paymentConfirmed !== true).length,
                     }));
                 }
                  if (key === 'quotations') {
@@ -104,12 +106,13 @@ export default function DashboardPage() {
     const dashboardItems = [
         { title: "Pending Quotation Approvals", count: counts.pendingQuotationApproval, href: "/dashboard/approvals", icon: FileSignature },
         { title: "Pending Order Approvals", count: counts.pendingOrderApproval, href: "/dashboard/approvals?tab=orders", icon: FileSignature },
+        { title: "Ready for Delivery", count: counts.readyForDelivery, href: "/dashboard/orders", icon: Truck },
         { title: "Pending Purchase", count: counts.pendingPurchase, href: "/dashboard/purchase/pending-po", icon: ShoppingCart },
         { title: "Pending Inbound", count: counts.pendingInbound, href: "/dashboard/inbound", icon: Archive },
-        { title: "Ready for Delivery", count: counts.readyForDelivery, href: "/dashboard/orders", icon: Truck },
+        { title: "All Visits", count: counts.pendingVisits, href: "/dashboard/visits", icon: CalendarCheck },
         { title: "Pending Invoice", count: counts.pendingInvoice, href: "/dashboard/invoice", icon: FileText },
         { title: "Pending Cutting", count: counts.pendingCutting, href: "/dashboard/cutting", icon: Scissors },
-        { title: "All Visits", count: counts.pendingVisits, href: "/dashboard/visits", icon: CalendarCheck },
+        { title: "Payment Confirmation", count: counts.paymentConfirmation, href: "/dashboard/approvals?tab=payment", icon: CheckCircle },
       ];
 
     return (
@@ -119,7 +122,7 @@ export default function DashboardPage() {
                 <p className="text-muted-foreground">Welcome! Here's a summary of your operations.</p>
             </header>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {dashboardItems.map(item => (
                     <SummaryCard 
                         key={item.title}

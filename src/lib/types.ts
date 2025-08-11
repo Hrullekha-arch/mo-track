@@ -132,7 +132,7 @@ export interface Order {
   fabricDetails?: FabricDetail[];
   furnitureDetails?: FurnitureDetail[];
   vasDetails?: VasDetail[];
-  status?: 'Pending Approval' | 'Approved';
+  status?: 'Pending Approval' | 'Approved' | 'BalanceFollowUp';
   
   // Reference back to the deal
   customerId?: string;
@@ -140,6 +140,10 @@ export interface Order {
   dealOrderDocId?: string;
   totalAmount?: number;
   representativeId?: string;
+
+  // Payment fields
+  balanceFollowUp?: boolean;
+  paymentConfirmed?: boolean;
 }
 
 export interface SalesmanCrmAssignment {
