@@ -345,7 +345,7 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
     
     const calculateTotalApprovedQuotationAmount = (dealId: string) => {
         return quotations
-            .filter(q => q.dealName === deals.find(d => d.id === dealId)?.dealName && q.status === 'Approved')
+            .filter(q => q.dealName === deals.find(d => d.id === dealId)?.dealName && (q.status === 'Approved' || q.status === 'Converted to Order'))
             .reduce((total, q) => total + q.totalAmount, 0);
     };
 
@@ -464,4 +464,6 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
         </>
     );
 
+    
+}
     
