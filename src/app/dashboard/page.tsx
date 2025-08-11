@@ -2,7 +2,7 @@
 "use client";
 
 import { Card, CardDescription, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { DollarSign, ShoppingCart, Users, Activity, FileText, UserCog, Archive, GanttChartSquare, ClipboardList, CheckSquare } from "lucide-react";
+import { DollarSign, ShoppingCart, Users, Activity, FileText, UserCog, Archive, GanttChartSquare, ClipboardList, CheckSquare, Table } from "lucide-react";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { useEffect, useState } from "react";
