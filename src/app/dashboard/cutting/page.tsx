@@ -250,7 +250,7 @@ export default function CuttingPage() {
     return (
         <div className="w-full p-4 md:p-6 lg:p-8">
              <Tabs defaultValue="pending">
-                <header className="flex justify-between items-start mb-4">
+                <header className="flex flex-col sm:flex-row justify-between items-start mb-4 gap-4">
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">Cutting & Details</h1>
                         <TabsList className="mt-4">
@@ -258,7 +258,7 @@ export default function CuttingPage() {
                             <TabsTrigger value="history">Cutting History</TabsTrigger>
                         </TabsList>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                          <Button variant="outline" onClick={() => setRefreshKey(k => k + 1)} disabled={loading}>
                             <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
                             Refresh
