@@ -9,16 +9,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   LogOut,
-  Smartphone,
   BarChartHorizontalBig,
-  Package,
   Table,
-  CheckSquare,
   Home,
   ShoppingCart,
-  Truck,
   Archive,
-  GanttChartSquare,
   Warehouse,
   Contact,
   Users,
@@ -62,36 +57,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen bg-background">
-      <aside className="w-64 flex-col border-r bg-card text-card-foreground hidden md:flex">
-        <div className="p-4 flex items-center gap-2">
-            <Image src="/logo.png" alt="MoTrack Logo" width={140} height={70} />
+      <aside className="group w-16 hover:w-64 transition-all duration-300 ease-in-out flex-col border-r bg-card text-card-foreground hidden md:flex dark">
+        <div className="p-4 flex items-center gap-2 h-[65px] border-b">
+            <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>
+            <span className="font-bold text-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200">MoTrack</span>
         </div>
-        <Separator />
-        <nav className="flex-1 space-y-2 p-4">
+        <nav className="flex-1 space-y-2 p-2">
             {navItemsForUser.map((item) => (
                 <Link key={item.href} href={item.href} passHref>
                     <Button
                     variant={pathname.startsWith(item.href) ? "secondary" : "ghost"}
-                    className="w-full justify-start"
+                    className="w-full justify-start items-center gap-3"
                     >
-                    <item.icon className="mr-2 h-4 w-4" />
-                    {item.label}
+                    <item.icon className="mr-0 h-5 w-5 flex-shrink-0" />
+                    <span className="truncate opacity-0 group-hover:opacity-100 transition-opacity duration-200">{item.label}</span>
                     </Button>
                 </Link>
             ))}
         </nav>
-        <Separator />
-        <div className="p-4">
+        <div className="p-2 border-t">
           <div className="flex items-center gap-3">
-            <Avatar>
+            <Avatar className="h-9 w-9">
               <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
               <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
             </Avatar>
-            <div className="flex-grow">
-              <p className="font-semibold text-sm">{user?.name}</p>
-              <p className="text-xs text-muted-foreground">{user?.email}</p>
+            <div className="flex-grow opacity-0 group-hover:opacity-100 transition-opacity duration-200 overflow-hidden">
+              <p className="font-semibold text-sm truncate">{user?.name}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
             </div>
-            <Button variant="ghost" size="icon" onClick={logout}>
+            <Button variant="ghost" size="icon" onClick={logout} className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
               <LogOut className="h-5 w-5" />
             </Button>
           </div>
