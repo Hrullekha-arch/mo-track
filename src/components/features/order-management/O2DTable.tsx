@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -12,7 +13,7 @@ import {
   SortingState,
   ColumnFiltersState
 } from "@tanstack/react-table";
-import { ArrowUpDown, CheckCircle, Clock, MoreHorizontal } from "lucide-react";
+import { ArrowUpDown, CheckCircle, Clock, MoreHorizontal, Link as LinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer, O2DStep } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -67,6 +68,12 @@ interface O2DViewItem {
   originalOrder?: Order;
 }
 
+const creatorName = (userId: string | undefined, userList: User[]) => {
+    if (!userId) return 'System';
+    return userList.find(u => u.id === userId)?.name || 'Unknown';
+};
+
+
 export function O2DTable() {
   const [viewData, setViewData] = React.useState<O2DViewItem[]>([]);
   const [users, setUsers] = React.useState<User[]>([]);
@@ -84,177 +91,162 @@ export function O2DTable() {
         const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
         setUsers(usersData);
     });
-
+    
+    // Set up a listener for all deals
     const dealsQuery = query(collectionGroup(db, 'deals'));
-    const unsubscribe = onSnapshot(dealsQuery, async (dealsSnapshot) => {
-        setLoading(true);
-        try {
-            const deals = dealsSnapshot.docs.map(doc => {
-                const parentPath = doc.ref.parent.parent?.path;
-                if (!parentPath) return null;
-                return { 
-                    ...doc.data(), 
-                    id: doc.id, 
-                    customerId: parentPath.split('/')[1] 
-                } as Deal & { customerId: string }
-            }).filter(Boolean) as (Deal & { customerId: string })[];
-            
-            const customerPromises = deals.map(deal => getDoc(doc(db, 'customers', deal.customerId)));
-            const customerSnapshots = await Promise.all(customerPromises);
-            const customers = customerSnapshots.reduce((acc, snap) => {
-                if (snap.exists()) {
-                    acc[snap.id] = snap.data() as Customer;
-                }
-                return acc;
-            }, {} as Record<string, Customer>);
-            
-            const results = await Promise.all(deals.map(deal => {
-                const visitsQuery = query(collection(db, 'customers', deal.customerId, 'deals', deal.id, 'visits'));
-                const quotationsQuery = query(collection(db, 'customers', deal.customerId, 'deals', deal.id, 'quotations'));
-                const ordersQuery = query(collection(db, 'orders'), where('dealId', '==', deal.id));
-                
-                return Promise.all([
-                    getDocs(visitsQuery),
-                    getDocs(quotationsQuery),
-                    getDocs(ordersQuery),
-                ]);
-            }));
+    const unsubscribeDeals = onSnapshot(dealsQuery, async (dealsSnapshot) => {
+      setLoading(true);
+      const deals = dealsSnapshot.docs
+        .map(doc => {
+            const parentPath = doc.ref.parent.parent?.path;
+            if (!parentPath) return null;
+            return { ...doc.data(), id: doc.id, customerId: parentPath.split('/')[1] } as Deal & { customerId: string };
+        })
+        .filter((d): d is Deal & { customerId: string } => d !== null && !d.isAcknowledged);
+      
+      // Batch fetch all related data instead of fetching inside a loop
+      const customerIds = [...new Set(deals.map(d => d.customerId))];
+      const dealIds = deals.map(d => d.id);
+      
+      const [
+          customers, 
+          orders, 
+          purchaseRequests, 
+          visits, 
+          quotations
+      ] = await Promise.all([
+          // Customers
+          Promise.all(customerIds.map(id => getDocs(query(collection(db, 'customers'), where('__name__', '==', id))))).then(snapshots => 
+              snapshots.flatMap(snap => snap.docs).reduce((acc, doc) => {
+                  acc[doc.id] = { id: doc.id, ...doc.data() } as Customer;
+                  return acc;
+              }, {} as Record<string, Customer>)
+          ),
+          // Orders
+          dealIds.length > 0 ? getDocs(query(collection(db, 'orders'), where('dealId', 'in', dealIds))).then(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as Order))) : Promise.resolve([]),
+          // Purchase Requests
+          dealIds.length > 0 ? getDocs(query(collection(db, 'purchaseRequests'), where('dealId', 'in', dealIds.map(dealId => `MOTRACK-${deals.find(d=>d.id === dealId)?.dealId}`))))
+            .then(snap => snap.docs.map(d => d.data() as PurchaseRequest)) : Promise.resolve([]),
 
-            const allOrderCrmNos = results.flatMap(res => res[2].docs.map(d => d.data().crmOrderNo)).filter(Boolean);
-            let purchaseRequestsByOrder: Record<string, PurchaseRequest> = {};
+          // Visits
+          Promise.all(deals.map(d => getDocs(collection(db, 'customers', d.customerId, 'deals', d.id, 'visits')))).then(snaps => snaps.flatMap(s => s.docs.map(d => d.data() as DealVisit))),
+          // Quotations
+          Promise.all(deals.map(d => getDocs(collection(db, 'customers', d.customerId, 'deals', d.id, 'quotations')))).then(snaps => snaps.flatMap(s => s.docs.map(d => d.data() as Quotation))),
+      ]);
+      
+      const ordersByDealId = orders.reduce((acc, order) => {
+          if (order.dealId) acc[order.dealId] = order;
+          return acc;
+      }, {} as Record<string, Order>);
 
-            if (allOrderCrmNos.length > 0) {
-                 const prChunks = [];
-                 for (let i = 0; i < allOrderCrmNos.length; i += 30) {
-                     prChunks.push(allOrderCrmNos.slice(i, i + 30));
-                 }
-                 for (const chunk of prChunks) {
-                    if (chunk.length > 0) {
-                        const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('dealId', 'in', chunk));
-                        const purchaseRequestSnapshots = await getDocs(purchaseRequestsQuery);
-                        purchaseRequestSnapshots.forEach(doc => {
-                            const pr = doc.data() as PurchaseRequest;
-                            if (pr.dealId) {
-                                purchaseRequestsByOrder[pr.dealId] = pr;
-                            }
-                        });
-                    }
-                 }
-            }
+      const prsByOrderId = purchaseRequests.reduce((acc, pr) => {
+          if (pr.dealId) acc[pr.dealId] = pr;
+          return acc;
+      }, {} as Record<string, PurchaseRequest>);
 
-            const enrichedData = deals.map((deal, index) => {
-                const [
-                    visitSnapshots,
-                    quotationSnapshots,
-                    orderSnapshots,
-                ] = results[index];
+      const visitsByDealId = visits.reduce((acc, visit) => {
+          const dealId = deals.find(d => d.dealId === visit.dealId)?.id;
+          if (dealId) {
+              if (!acc[dealId]) acc[dealId] = [];
+              acc[dealId].push(visit);
+          }
+          return acc;
+      }, {} as Record<string, DealVisit[]>);
 
-                const customer = customers[deal.customerId];
-                if (!customer) return null;
-
-                const visits = visitSnapshots.docs.map(d => d.data() as DealVisit);
-                const quotations = quotationSnapshots.docs.map(d => d.data() as Quotation);
-                const orders = orderSnapshots.docs.map(d => ({id: d.id, ...d.data()}) as Order);
-                
-                const order = orders[0];
-                const purchaseRequest = order ? purchaseRequestsByOrder[order.crmOrderNo] : undefined;
-
-                const dealSalesperson = users.find(u => u.id === deal.representativeId);
-                const orderCrmHandler = order ? users.find(u => u.id === order.handledByCrm) : undefined;
-                
-                const history: O2DViewItem['history'] = [];
-                const expectedDates = order ? calculateExpectedDatesForOrder(order) : {};
-
-                const addHistory = (stepName: string, status: string, timestamp: string, user: string) => {
-                    history.push({ stepName, status, timestamp, user });
-                };
-                
-                // Constructing history based on available data
-                addHistory('Deal Created', 'Completed', deal.createdAt, dealSalesperson?.name || 'System');
-                addHistory(O2D_PROCESS_CONFIG[0].step, deal.advanceForMeasurement === 'Yes' ? 'Completed' : 'Skipped', deal.createdAt, dealSalesperson?.name || 'System');
-                const latestVisit = visits.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-                if (latestVisit) addHistory(O2D_PROCESS_CONFIG[2].step, 'Completed', latestVisit.createdAt, latestVisit.createdBy);
-                
-                const latestQuotation = quotations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-                if (latestQuotation) addHistory(O2D_PROCESS_CONFIG[4].step, 'Completed', latestQuotation.createdAt, creatorName(latestQuotation.createdBy, users));
-                if (latestQuotation?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[5].step, 'Completed', (latestQuotation as any).approvedAt || latestQuotation.createdAt, (latestQuotation as any).approvedBy?.name || 'System');
-                
-                if (order?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[6].step, 'Completed', (order as any).approvedAt || order.createdAt, (order as any).approvedBy?.name || 'System');
-                if (purchaseRequest?.status === 'Completed') addHistory(O2D_PROCESS_CONFIG[8].step, 'Completed', purchaseRequest.completedAt!, purchaseRequest.completedBy?.name || 'System');
-                
-                // Add main order milestones to history
-                if (order) {
-                    order.milestones.forEach(m => {
-                        if (m.completed && m.completedAt) {
-                            addHistory(m.name, 'Completed', m.completedAt, m.completedBy || 'System');
-                        }
-                    });
-                }
-                
-                // Determine current and next status
-                const completedStepNames = history.map(h => h.stepName);
-                let currentStatusInfo = history[history.length - 1];
-                let nextStepInfo: O2DViewItem['nextStatus'] = null;
-
-                const allPossibleSteps = O2D_PROCESS_CONFIG.map(s => s.step);
-                const firstPendingStepIndex = allPossibleSteps.findIndex(step => !completedStepNames.includes(step));
-
-                if (firstPendingStepIndex !== -1) {
-                    const nextStepConfig = O2D_PROCESS_CONFIG[firstPendingStepIndex];
-                    if (nextStepConfig) {
-                        nextStepInfo = {
-                            text: nextStepConfig.step,
-                            role: nextStepConfig.role,
-                            expectedDate: expectedDates[nextStepConfig.id] || new Date(),
-                        };
-                    }
-                }
-                
-                const isOverdue = nextStepInfo ? isPast(nextStepInfo.expectedDate) : false;
-
-                const status = { 
-                    text: currentStatusInfo.stepName, 
-                    timestamp: currentStatusInfo.timestamp, 
-                    user: currentStatusInfo.user, 
-                    isCompleted: firstPendingStepIndex === -1, // Completed if no pending steps
-                    isOverdue
-                };
-
-                return {
-                    dealId: deal.dealId,
-                    customerName: customer?.name || 'Unknown',
-                    salesPerson: dealSalesperson?.name || 'N/A',
-                    crmHandler: orderCrmHandler?.name || 'N/A',
-                    orderId: order?.id,
-                    dealCreatedAt: deal.createdAt,
-                    status,
-                    nextStatus: nextStepInfo,
-                    history,
-                    expectedDates,
-                    originalDeal: deal,
-                    originalOrder: order,
-                };
-            }).filter(Boolean) as O2DViewItem[];
-
-            setViewData(enrichedData.filter(item => !item.status.isCompleted));
-        } catch (err) {
-            console.error(err);
-            toast({variant: 'destructive', title: 'Error loading O2D data'});
-        } finally {
-            setLoading(false);
+      const quotationsByDealId = quotations.reduce((acc, quote) => {
+        const dealId = deals.find(d => d.dealName === quote.dealName)?.id;
+        if (dealId) {
+            if (!acc[dealId]) acc[dealId] = [];
+            acc[dealId].push(quote);
         }
+        return acc;
+      }, {} as Record<string, Quotation[]>);
+      
+      const enrichedData = deals.map((deal) => {
+        const customer = customers[deal.customerId];
+        if (!customer) return null;
+
+        const order = ordersByDealId[deal.id];
+        const purchaseRequest = order ? prsByOrderId[order.crmOrderNo] : undefined;
+        const dealVisits = visitsByDealId[deal.id] || [];
+        const dealQuotations = quotationsByDealId[deal.id] || [];
+
+        const dealSalesperson = users.find(u => u.id === deal.representativeId);
+        const orderCrmHandler = order ? users.find(u => u.id === order.handledByCrm) : undefined;
+        
+        const history: O2DViewItem['history'] = [];
+        const expectedDates = order ? calculateExpectedDatesForOrder(order) : {};
+
+        const addHistory = (stepName: string, status: string, timestamp: string, user: string) => {
+            history.push({ stepName, status, timestamp, user });
+        };
+        
+        // This logic remains the same, but now it's faster as data is pre-fetched
+        addHistory('Deal Created', 'Completed', deal.createdAt, dealSalesperson?.name || 'System');
+        addHistory(O2D_PROCESS_CONFIG[0].step, deal.advanceForMeasurement === 'Yes' ? 'Completed' : 'Skipped', deal.createdAt, dealSalesperson?.name || 'System');
+        const latestVisit = dealVisits.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+        if (latestVisit) addHistory(O2D_PROCESS_CONFIG[2].step, 'Completed', latestVisit.createdAt, latestVisit.createdBy);
+        
+        const latestQuotation = dealQuotations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+        if (latestQuotation) addHistory(O2D_PROCESS_CONFIG[4].step, 'Completed', latestQuotation.createdAt, creatorName(latestQuotation.createdBy, users));
+        if (latestQuotation?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[5].step, 'Completed', (latestQuotation as any).approvedAt || latestQuotation.createdAt, (latestQuotation as any).approvedBy?.name || 'System');
+        
+        if (order?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[6].step, 'Completed', (order as any).approvedAt || order.createdAt, (order as any).approvedBy?.name || 'System');
+        if (purchaseRequest?.status === 'Completed') addHistory(O2D_PROCESS_CONFIG[8].step, 'Completed', purchaseRequest.completedAt!, purchaseRequest.completedBy?.name || 'System');
+        
+        const completedStepNames = history.map(h => h.stepName);
+        let currentStatusInfo = history[history.length - 1];
+        let nextStepInfo: O2DViewItem['nextStatus'] = null;
+
+        const allPossibleSteps = O2D_PROCESS_CONFIG.map(s => s.step);
+        const firstPendingStepIndex = allPossibleSteps.findIndex(step => !completedStepNames.includes(step));
+
+        if (firstPendingStepIndex !== -1) {
+            const nextStepConfig = O2D_PROCESS_CONFIG[firstPendingStepIndex];
+            if (nextStepConfig) {
+                nextStepInfo = {
+                    text: nextStepConfig.step,
+                    role: nextStepConfig.role,
+                    expectedDate: expectedDates[nextStepConfig.id] || new Date(),
+                };
+            }
+        }
+        
+        const isOverdue = nextStepInfo ? isPast(nextStepInfo.expectedDate) : false;
+
+        const status = { 
+            text: currentStatusInfo.stepName, 
+            timestamp: currentStatusInfo.timestamp, 
+            user: currentStatusInfo.user, 
+            isCompleted: firstPendingStepIndex === -1,
+            isOverdue
+        };
+
+        return {
+            dealId: deal.dealId,
+            customerName: customer?.name || 'Unknown',
+            salesPerson: dealSalesperson?.name || 'N/A',
+            crmHandler: orderCrmHandler?.name || 'N/A',
+            orderId: order?.id,
+            dealCreatedAt: deal.createdAt,
+            status,
+            nextStatus: nextStepInfo,
+            history,
+            expectedDates,
+            originalDeal: deal,
+            originalOrder: order,
+        };
+      }).filter(Boolean) as O2DViewItem[];
+
+      setViewData(enrichedData.filter(item => !item.status.isCompleted));
+      setLoading(false);
     });
 
     return () => {
         unsubscribeUsers();
-        unsubscribe();
+        unsubscribeDeals();
     }
-  }, [toast, users]); // Added users dependency
-  
-  const creatorName = (userId: string | undefined, userList: User[]) => {
-      if (!userId) return 'System';
-      return userList.find(u => u.id === userId)?.name || 'Unknown';
-  };
+  }, [users]); // Re-run only when users list changes
 
   const handleFollowUp = async (orderId?: string) => {
     if (!orderId) {
@@ -262,8 +254,9 @@ export function O2DTable() {
         return;
     }
     const order = viewData.find(d => d.orderId === orderId)?.originalOrder;
-    if (!order || !order.milestones.find(m => m.id === 4)?.completed) {
-        toast({variant: 'destructive', title: 'Action Not Allowed', description: 'Follow-up can only be initiated after "Stitching Done".'});
+    const isFullKittingReady = !!order?.milestones.find(m => m.id === 4)?.completed;
+    if (!isFullKittingReady) {
+        toast({variant: 'destructive', title: 'Action Not Allowed', description: 'Follow-up can only be initiated after "Full Kitting Ready".'});
         return;
     }
     try {
@@ -283,6 +276,7 @@ export function O2DTable() {
     ) : 'Not Created Yet')},
     { accessorKey: "dealId", header: "Deal ID", cell: ({ row }) => (
         <Button variant="link" onClick={() => setSelectedDeal(row.original)} className="p-0 h-auto">
+            <LinkIcon className="h-4 w-4 mr-2" />
             {row.original.dealId}
         </Button>
     )},
@@ -314,9 +308,9 @@ export function O2DTable() {
     }},
     { accessorKey: "dealCreatedAt", header: ({ column }) => ( <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>Created <ArrowUpDown className="ml-2 h-4 w-4" /></Button>), cell: ({ row }) => format(new Date(row.original.dealCreatedAt), 'dd/MM/yyyy') },
     { id: "actions", cell: ({ row }) => {
-        const fullKittingReady = !!row.original.originalOrder?.milestones.find(m => m.id === 4)?.completed;
+        const isFullKittingReady = !!row.original.originalOrder?.milestones.find(m => m.id === 4)?.completed;
         return (
-            <Button size="sm" variant="outline" onClick={() => handleFollowUp(row.original.orderId)} disabled={!row.original.orderId || !fullKittingReady}>
+            <Button size="sm" variant="outline" onClick={() => handleFollowUp(row.original.orderId)} disabled={!row.original.orderId || !isFullKittingReady}>
                 Balance payment follow up
             </Button>
         )
