@@ -67,6 +67,8 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
   };
   
   const representativeName = salesmen.find(s => s.id === deal?.representativeId)?.name || "N/A";
+  const creatorName = salesmen.find(u => u.id === quotation.createdBy)?.name || "N/A";
+
   
   const filteredLineItems = (quotation.items || []).filter(item => 
     item.collectionBrand?.toLowerCase().includes(lineItemSearch.toLowerCase()) ||
@@ -205,11 +207,11 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
         <div className="hidden">
              {/* For the default print (only products) */}
             <div id={`print-quotation-dialog-${quotation.id}-default`}>
-                <PrintableQuotationProfessional values={productOnlyQuotation} creatorName={salesmen.find(u => u.id === quotation.createdBy)?.name} salesmanName={salesmen.find(s => s.id === deal?.representativeId)?.name} />
+                <PrintableQuotationProfessional values={productOnlyQuotation} creatorName={creatorName} salesmanName={representativeName} />
             </div>
              {/* For the VAS print (only VAS) */}
              <div id={`print-quotation-dialog-${quotation.id}-vas`}>
-                <PrintableQuotationProfessional values={vasOnlyQuotation} creatorName={salesmen.find(u => u.id === quotation.createdBy)?.name} salesmanName={salesmen.find(s => s.id === deal?.representativeId)?.name} />
+                <PrintableQuotationProfessional values={vasOnlyQuotation} creatorName={creatorName} salesmanName={representativeName} />
             </div>
         </div>
         <DialogFooter className="bg-muted p-4">

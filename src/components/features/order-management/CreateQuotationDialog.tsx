@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, ReactNode, useMemo } from "react";
@@ -18,13 +19,12 @@ import { Separator } from "@/components/ui/separator";
 import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { createQuotationAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
-import { createDealOrderAction } from "@/app/dashboard/invoice/new/actions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
 
 
 const roomOptions = [
@@ -455,6 +455,7 @@ const formSchema = z.object({
   vasDetails: z.array(vasDetailSchema).optional(),
   sendEmail: z.boolean().default(false),
   sendSms: z.boolean().default(false),
+  representativeId: z.string().optional(), // Added field
 });
 
 export type FormValues = z.infer<typeof formSchema>;
@@ -852,6 +853,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
           vasDetails: [],
           sendEmail: false,
           sendSms: false,
+          representativeId: deal.representativeId,
         });
       }
       setView('edit'); 

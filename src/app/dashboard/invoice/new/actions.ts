@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -92,6 +93,11 @@ export async function createDealOrderAction(
       fabricDetails: allFabricDetails,
       totalAmount: quotation.totalAmount, // Store the final amount from the quotation
       vasDetails: quotation.vasDetails || [], // Include VAS details
+      createdBy: {
+        id: creator.id,
+        name: creator.name
+      },
+      representativeId: dealData.representativeId,
     };
 
     batch.set(newOrderRef, newOrder);

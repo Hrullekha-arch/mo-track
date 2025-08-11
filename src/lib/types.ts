@@ -1,6 +1,5 @@
 
 
-
 import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp } from "firebase/firestore";
 
@@ -116,7 +115,7 @@ export interface Order {
   createdBy?: {
     id: string;
     name: string;
-  },
+  };
   isAcknowledged: boolean;
 
   // Installer feedback
@@ -140,6 +139,7 @@ export interface Order {
   dealId?: string;
   dealOrderDocId?: string;
   totalAmount?: number;
+  representativeId?: string;
 }
 
 export interface SalesmanCrmAssignment {
@@ -431,6 +431,7 @@ export interface Quotation {
     applyTax?: boolean;
     billingName?: string;
     vasDetails?: VasDetail[];
+    representativeId?: string; // Salesman User ID
 }
 
 export interface DealOrder {

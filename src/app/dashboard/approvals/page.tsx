@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,6 +26,7 @@ interface EnrichedQuotation extends Quotation {
     dealId: string;
     customerId: string;
     dealName: string;
+    customerName: string;
 }
 
 interface EnrichedOrder extends Order {
@@ -214,7 +216,7 @@ function ApproveQuotationTab() {
                                <PrintableQuotationProfessional
                                     values={selectedQuotation}
                                     creatorName={allUsers.find(u => u.id === selectedQuotation.createdBy)?.name}
-                                    salesmanName={allUsers.find(s => s.id === selectedQuotation.items[0]?.id)?.name} // This part might need adjustment if salesmanId isn't on item
+                                    salesmanName={allUsers.find(s => s.id === selectedQuotation.representativeId)?.name}
                                 />
                             </div>
                             <DialogFooter>
