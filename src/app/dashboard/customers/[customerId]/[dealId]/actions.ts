@@ -2,10 +2,10 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Order } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Order, OrderType } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { VisitFormValues, MeasurementFormValues, CpdFormValues } from './page';
-import { createDealOrderAction } from '@/app/dashboard/invoice/new/actions';
+import { getMilestonesForOrder } from '@/lib/constants';
 
 export async function getDealById(customerId: string, dealId: string): Promise<Deal | null> {
     try {
@@ -71,6 +71,121 @@ export async function createQuotationAction(customerId: string, dealId: string, 
   } catch (error: any) {
     console.error("Error creating quotation:", error);
     return { success: false, message: `Failed to create quotation: ${error.message}` };
+  }
+}
+
+export async function createDealOrderAction(
+  customerId: string,
+  dealId: string,
+  quotation: Quotation,
+  creator: { id: string; name: string },
+  orderType: OrderType
+): Promise<{ success: boolean; message: string; order?: Order }> {
+  try {
+    const customerRef = adminDb.collection('customers').doc(customerId);
+    const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
+    const quotationRef = dealRef.collection('quotations').doc(quotation.id);
+
+    const [customerSnap, dealSnap, currentQuotationSnap] = await Promise.all([
+      customerRef.get(),
+      dealRef.get(),
+      quotationRef.get()
+    ]);
+
+    if (currentQuotationSnap.exists && currentQuotationSnap.data()?.status === 'Converted to Order') {
+      return { success: false, message: 'This quotation has already been converted to an order.' };
+    }
+
+    if (!customerSnap.exists) {
+        return { success: false, message: 'Customer not found.' };
+    }
+    if (!dealSnap.exists) {
+        return { success: false, message: 'Deal not found.' };
+    }
+
+    const customerData = customerSnap.data() as any;
+    const dealData = dealSnap.data() as Deal;
+
+    let salesmanName = 'N/A';
+    if (dealData.representativeId) {
+        const salesmanRef = adminDb.collection('users').doc(dealData.representativeId);
+        const salesmanSnap = await salesmanRef.get();
+        if (salesmanSnap.exists) {
+            salesmanName = salesmanSnap.data()?.name || 'N/A';
+        }
+    }
+
+    const batch = adminDb.batch();
+    
+    const dealOrdersRef = dealRef.collection('orders');
+    const newDealOrderRef = dealOrdersRef.doc();
+
+    const orderId = `MOTRACK-${quotation.quotationNo}`;
+    const newOrderRef = adminDb.collection('orders').doc(orderId);
+
+    const allFabricDetails = quotation.items.map(item => ({
+      fabricName: item.collectionBrand,
+      quantity: String(item.quantity),
+    }));
+    
+    const initialMilestones = getMilestonesForOrder(orderType);
+    const firstMilestone = initialMilestones.find(m => m.id === 1);
+    if (firstMilestone) {
+        firstMilestone.completed = true;
+        firstMilestone.completedAt = new Date().toISOString();
+        firstMilestone.completedBy = creator.name;
+    }
+
+    const newOrder: Order = {
+      id: orderId,
+      crmOrderNo: quotation.quotationNo,
+      customerName: quotation.customerName,
+      customerPhone: customerData.mobileNo || '',
+      customerAddress: customerData.addressPinCode || `${customerData.city}, ${customerData.state}`,
+      salesPerson: salesmanName,
+      orderType: orderType,
+      milestones: initialMilestones,
+      createdAt: new Date().toISOString(),
+      isAcknowledged: true,
+      status: 'Pending Approval',
+      customerId: customerId,
+      dealId: dealId,
+      dealOrderDocId: newDealOrderRef.id,
+      storeName: quotation.store,
+      fabricDetails: allFabricDetails,
+      totalAmount: quotation.totalAmount,
+      vasDetails: quotation.vasDetails || [],
+    };
+
+    batch.set(newOrderRef, newOrder);
+    
+    const newDealOrder: DealOrder = {
+      orderNo: newOrder.id,
+      id: newDealOrderRef.id,
+      orderDate: new Date().toISOString(),
+      createdBy: creator.name,
+      remark: quotation.billingName || '',
+      items: quotation.items,
+      status: 'Pending Approval'
+    };
+
+    batch.set(newDealOrderRef, newDealOrder);
+
+    batch.update(quotationRef, { 
+      status: 'Converted to Order',
+      orderNo: newOrder.id,
+    });
+
+    await batch.commit();
+
+    return {
+      success: true,
+      message: 'Order created and sent for approval.',
+      order: JSON.parse(JSON.stringify(newOrder)),
+    };
+  } catch (error: any) {
+    console.error('Error creating deal order:', error);
+    return { success: false, message: `Server error: ${error.message}` };
   }
 }
 

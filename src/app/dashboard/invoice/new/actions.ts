@@ -3,14 +3,15 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail } from '@/lib/types';
+import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
 
 export async function createDealOrderAction(
   customerId: string,
   dealId: string,
   quotation: Quotation,
-  creator: { id: string; name: string }
+  creator: { id: string; name: string },
+  orderType: OrderType
 ): Promise<{ success: boolean; message: string; order?: Order }> {
   try {
     const customerRef = adminDb.collection('customers').doc(customerId);
@@ -64,7 +65,7 @@ export async function createDealOrderAction(
       quantity: String(item.quantity),
     }));
     
-    const initialMilestones = getMilestonesForOrder('stitching');
+    const initialMilestones = getMilestonesForOrder(orderType);
     const firstMilestone = initialMilestones.find(m => m.id === 1);
     if (firstMilestone) {
         firstMilestone.completed = true;
@@ -80,7 +81,7 @@ export async function createDealOrderAction(
       customerPhone: customerData.mobileNo || '',
       customerAddress: customerData.addressPinCode || `${customerData.city}, ${customerData.state}`,
       salesPerson: salesmanName,
-      orderType: 'stitching', // Default, should be determined
+      orderType: orderType,
       milestones: initialMilestones,
       createdAt: new Date().toISOString(),
       isAcknowledged: true,

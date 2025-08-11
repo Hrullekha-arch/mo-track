@@ -14,10 +14,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem, VasDetail } from "@/lib/types";
+import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem, VasDetail, OrderType } from "@/lib/types";
 import React, { useEffect, useState, useMemo } from "react";
 import { getCustomerById } from "@/app/dashboard/customers/actions";
-import { getDealById, getQuotationsForDeal } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import { getDealById, getQuotationsForDeal, createDealOrderAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import Link from "next/link";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -27,7 +27,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Combobox } from "@/components/ui/combobox";
 import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { createDealOrderAction } from "./actions";
 import { useAuth } from "@/context/AuthContext";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
@@ -284,7 +283,7 @@ function ConvertToOrderContent() {
             totalAmount: totals.grandTotal, 
         };
 
-      const result = await createDealOrderAction(customerId, dealId, updatedQuotation, { id: user.id, name: user.name });
+      const result = await createDealOrderAction(customerId, dealId, updatedQuotation, { id: user.id, name: user.name }, 'stitching');
 
       if (result.success) {
         toast({ title: "Order Created!", description: "The sales order has been sent for approval." });

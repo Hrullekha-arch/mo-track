@@ -8,7 +8,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -47,7 +47,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal, addVisitAction, getVisitsForDeal, addMeasurementAction, getMeasurementsForDeal, addCpdAction, getCpdsForDeal } from "./actions";
+import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal, addVisitAction, getVisitsForDeal, addMeasurementAction, getMeasurementsForDeal, addCpdAction, getCpdsForDeal, createDealOrderAction } from "./actions";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -1713,11 +1713,13 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     )
 }
 
-function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[] }) {
+function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreated }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[], onOrderCreated: () => void }) {
     const [quotations, setQuotations] = useState<Quotation[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
+    const [confirmOrderQuotation, setConfirmOrderQuotation] = useState<Quotation | null>(null);
     const { toast } = useToast();
+    const { user } = useAuth();
     const router = useRouter();
 
     const parseDate = (date: any): Date => {
@@ -1763,6 +1765,31 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
         };
         fetchQuotations();
     }, [customerId, dealId]);
+    
+    const handleConvertToOrder = async (quotation: Quotation, orderType: OrderType) => {
+        if (!user) {
+            toast({ variant: 'destructive', title: 'Not authenticated' });
+            return false;
+        }
+
+        try {
+            const result = await createDealOrderAction(customerId, dealId, quotation, { id: user.id, name: user.name }, orderType);
+            if (result.success) {
+                toast({ title: 'Order Created!', description: 'The order has been created and sent for approval.' });
+                setConfirmOrderQuotation(null);
+                onOrderCreated(); // Refresh orders tab
+                // Refresh quotations locally
+                setQuotations(prev => prev.map(q => q.id === quotation.id ? {...q, status: 'Converted to Order'} : q));
+                return true;
+            } else {
+                toast({ variant: 'destructive', title: 'Order Creation Failed', description: result.message });
+                return false;
+            }
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred.' });
+            return false;
+        }
+    };
 
     if (loading) {
         return (
@@ -1816,7 +1843,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
                                                                         if (q.status !== 'Approved') {
                                                                             e.preventDefault();
                                                                         } else {
-                                                                            router.push(`/dashboard/invoice/new?customerId=${customerId}&dealId=${dealId}&quotationId=${q.id}`);
+                                                                            setConfirmOrderQuotation(q);
                                                                         }
                                                                     }}
                                                                 >
@@ -1878,7 +1905,62 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds }: { customerI
                     cpds={cpds}
                 />
             )}
+            {confirmOrderQuotation && (
+                <ConfirmOrderTypeDialog 
+                    isOpen={!!confirmOrderQuotation}
+                    onClose={() => setConfirmOrderQuotation(null)}
+                    onConfirm={handleConvertToOrder}
+                    quotation={confirmOrderQuotation}
+                />
+            )}
         </>
+    );
+}
+
+function ConfirmOrderTypeDialog({ isOpen, onClose, quotation, onConfirm }: { isOpen: boolean, onClose: () => void, quotation: Quotation, onConfirm: (quotation: Quotation, orderType: OrderType) => Promise<boolean> }) {
+    const [orderType, setOrderType] = useState<OrderType>('stitching');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const handleConfirm = async () => {
+        setIsSubmitting(true);
+        const success = await onConfirm(quotation, orderType);
+        if (success) {
+            onClose();
+        }
+        setIsSubmitting(false);
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Confirm Order Type</DialogTitle>
+                    <DialogDescription>
+                        Select the final order type for this quotation before creating the order. This will determine the production milestones.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-2">
+                    <Label htmlFor="order-type">Order Type</Label>
+                    <Select onValueChange={(v: OrderType) => setOrderType(v)} defaultValue={orderType}>
+                        <SelectTrigger id="order-type">
+                            <SelectValue placeholder="Select an order type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="delivery">Delivery</SelectItem>
+                            <SelectItem value="stitching">Stitching</SelectItem>
+                            <SelectItem value="stitching+installation">Stitching + Installation</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+                <DialogFooter>
+                    <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+                    <Button onClick={handleConfirm} disabled={isSubmitting}>
+                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Confirm and Create Order
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -2398,7 +2480,14 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
 
           <TabsContent value="quotations">
-             <QuotationsTab customerId={customerId} dealId={dealId} deal={deal} salesmen={salesmen} cpds={cpds} />
+             <QuotationsTab 
+                customerId={customerId} 
+                dealId={dealId} 
+                deal={deal} 
+                salesmen={salesmen} 
+                cpds={cpds} 
+                onOrderCreated={handleRefresh}
+            />
           </TabsContent>
 
           <TabsContent value="orders">
