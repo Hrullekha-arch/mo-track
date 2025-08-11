@@ -38,19 +38,23 @@ export function DetailsScannerComponent() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   
-  const handleScan = useCallback(async (scannedBcn: string) => {
+  const handleScan = useCallback(async (scannedData: string) => {
     if (isProcessingRef.current) return;
     
-    const trimmedBcn = scannedBcn.trim();
+    let bcn = scannedData.trim();
+    if (bcn.includes('|')) {
+      bcn = bcn.split('|')[0];
+    }
+
     isProcessingRef.current = true;
     setLoading(true);
     setScannedStock(null);
     setTransactions([]);
     
-    console.log("Barcode detected:", trimmedBcn);
+    console.log("Barcode detected, processed BCN:", bcn);
 
     try {
-      const stockId = trimmedBcn.replace(/\//g, '-');
+      const stockId = bcn.replace(/\//g, '-');
       const stock = await getStockById(stockId);
 
       if (stock) {
@@ -62,7 +66,7 @@ export function DetailsScannerComponent() {
         codeReaderRef.current.reset();
         stream?.getTracks().forEach(track => track.stop());
       } else {
-        toast({ variant: 'destructive', title: 'Not Found', description: `No stock item found for BCN: ${trimmedBcn}` });
+        toast({ variant: 'destructive', title: 'Not Found', description: `No stock item found for BCN: ${bcn}` });
       }
 
     } catch (error) {
