@@ -1,10 +1,10 @@
 
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DollarSign, ShoppingCart, Users, Activity, FileText, UserCog, Archive, GanttChartSquare, ClipboardList, CheckSquare, Table, Truck, FileSignature, Scissors, CalendarCheck } from "lucide-react";
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, onSnapshot, query, where, collectionGroup } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -52,9 +52,9 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const queries = {
+        const queries: { [key: string]: any } = {
             orders: query(collection(db, "orders")),
-            quotations: query(collection(db, "quotations")),
+            quotations: query(collectionGroup(db, 'quotations')),
             purchaseRequests: query(collection(db, "purchaseRequests")),
             inbounds: query(collection(db, "inbounds"), where("status", "==", "Active")),
             visits: query(collectionGroup(db, 'visits')),
@@ -96,7 +96,7 @@ export default function DashboardPage() {
         );
         
         // Wait for all initial fetches to complete
-        Promise.all(Object.values(queries).map(q => collection(db, q.toString()).get())).finally(() => setLoading(false));
+        Promise.all(Object.values(queries).map(q => getDocs(q))).finally(() => setLoading(false));
 
         return () => unsubscribes.forEach(unsub => unsub());
     }, []);
