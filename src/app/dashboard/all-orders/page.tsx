@@ -1,22 +1,47 @@
 
 
+"use client";
+
 import { AllOrdersTable } from "@/components/features/order-management/AllOrdersTable";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import O2DPage from "../o2d/page";
-import { OrdersDashboard } from "@/components/features/order-management/OrdersDashboard";
-import PurchasePage from "../purchase/page";
-import PoTrackingPage from "../po-tracking/page";
-import InboundPage from "../inbound/page";
 import { UserManagement } from "@/components/features/user-management/UserManagement";
 import { O2DTable } from "@/components/features/order-management/O2DTable";
 import { PurchaseRequestTable } from "@/components/features/purchase/PurchaseRequestTable";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { collection, onSnapshot, query } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { PurchaseRequest } from "@/lib/types";
+import { useToast } from "@/hooks/use-toast";
 
 
 export default function AllOrdersPage() {
+    const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+    const [loading, setLoading] = useState(true);
+    const { toast } = useToast();
+
+    useEffect(() => {
+        const requestsQuery = query(collection(db, "purchaseRequests"));
+
+        const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
+            const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            setPurchaseRequests(requestsData);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching purchase requests:", error);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: "Could not load purchase request data.",
+            });
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [toast]);
+    
     return (
         <div className="w-full p-4 md:p-6 lg:p-8">
             <header className="mb-8">
@@ -53,17 +78,17 @@ export default function AllOrdersPage() {
                 </TabsContent>
                  <TabsContent value="purchase" className="mt-4">
                     <Suspense fallback={<AllOrdersSkeleton />}>
-                        <PurchaseRequestTable />
+                        <PurchaseRequestTable tableData={purchaseRequests} view="default" />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="po-tracking" className="mt-4">
                      <Suspense fallback={<AllOrdersSkeleton />}>
-                        <PurchaseRequestTable view="po-tracking" />
+                        <PurchaseRequestTable tableData={purchaseRequests} view="po-tracking" />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="inbound" className="mt-4">
                      <Suspense fallback={<AllOrdersSkeleton />}>
-                        <PurchaseRequestTable view="all" />
+                        <PurchaseRequestTable tableData={purchaseRequests} view="all" />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="users" className="mt-4">
