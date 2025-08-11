@@ -71,9 +71,10 @@ export function CuttingScannerComponent() {
   
   const handleScan = useCallback(async (scannedData: string) => {
     if (!task || !user || isProcessingRef.current) return;
-
+    
+    const trimmedData = scannedData.trim();
     isProcessingRef.current = true;
-    console.log('Barcode detected:', scannedData);
+    console.log('Barcode detected:', trimmedData);
 
     const itemToUpdate = task.items.find(item => item.bcn === targetBcn && item.status !== 'cut');
 
@@ -87,7 +88,7 @@ export function CuttingScannerComponent() {
       return;
     }
 
-    const parts = scannedData.split('|');
+    const parts = trimmedData.split('|');
     if (parts.length !== 2) {
       setScanResult({ status: 'error', message: 'Invalid Barcode Format. Expected BCN|Length.' });
       setIsPopupOpen(true);
