@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -52,12 +51,18 @@ interface O2DViewItem {
     isCompleted: boolean;
     isOverdue: boolean;
   };
+  nextStatus: {
+    text: string;
+    role: string;
+    expectedDate: Date;
+  } | null;
   history: {
       stepName: string;
       status: string;
       timestamp: string;
       user: string;
   }[];
+  expectedDates: Record<number, Date>;
   originalDeal: Deal;
   originalOrder?: Order;
 }
@@ -160,42 +165,60 @@ export function O2DTable() {
                 const history: O2DViewItem['history'] = [];
                 const expectedDates = order ? calculateExpectedDatesForOrder(order) : {};
 
-                let currentStep: O2DStep | null = null;
-                let isCurrentStepOverdue = false;
-
                 const addHistory = (stepName: string, status: string, timestamp: string, user: string) => {
                     history.push({ stepName, status, timestamp, user });
                 };
                 
+                // Constructing history based on available data
                 addHistory('Deal Created', 'Completed', deal.createdAt, dealSalesperson?.name || 'System');
-                
-                const step1 = O2D_PROCESS_CONFIG[0];
-                addHistory(step1.step, `Selected: ${deal.advanceForMeasurement || 'N/A'}`, deal.createdAt, dealSalesperson?.name || 'System');
-                
+                addHistory(O2D_PROCESS_CONFIG[0].step, deal.advanceForMeasurement === 'Yes' ? 'Completed' : 'Skipped', deal.createdAt, dealSalesperson?.name || 'System');
                 const latestVisit = visits.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-                if (latestVisit) addHistory(O2D_PROCESS_CONFIG[1].step, 'Completed', latestVisit.createdAt, latestVisit.createdBy);
+                if (latestVisit) addHistory(O2D_PROCESS_CONFIG[2].step, 'Completed', latestVisit.createdAt, latestVisit.createdBy);
                 
                 const latestQuotation = quotations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
                 if (latestQuotation) addHistory(O2D_PROCESS_CONFIG[4].step, 'Completed', latestQuotation.createdAt, creatorName(latestQuotation.createdBy, users));
-                if (latestQuotation?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[5].step, 'Completed', latestQuotation.approvedAt || latestQuotation.createdAt, latestQuotation.approvedBy?.name || 'System');
+                if (latestQuotation?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[5].step, 'Completed', (latestQuotation as any).approvedAt || latestQuotation.createdAt, (latestQuotation as any).approvedBy?.name || 'System');
                 
-                if (order?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[6].step, 'Completed', order.approvedAt || order.createdAt, order.approvedBy?.name || 'System');
-                if (purchaseRequest?.status === 'Completed') addHistory(O2D_PROCESS_CONFIG[8].step, 'Completed', purchaseRequest.completedAt!, purchaseRequest.completedBy || 'System');
+                if (order?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[6].step, 'Completed', (order as any).approvedAt || order.createdAt, (order as any).approvedBy?.name || 'System');
+                if (purchaseRequest?.status === 'Completed') addHistory(O2D_PROCESS_CONFIG[8].step, 'Completed', purchaseRequest.completedAt!, purchaseRequest.completedBy?.name || 'System');
                 
-                const fullKittingMilestone = order?.milestones.find(m => m.id === 4);
-                if (fullKittingMilestone?.completed) addHistory('Full Kitting Ready', 'Completed', fullKittingMilestone.completedAt!, fullKittingMilestone.completedBy || 'System');
+                // Add main order milestones to history
+                if (order) {
+                    order.milestones.forEach(m => {
+                        if (m.completed && m.completedAt) {
+                            addHistory(m.name, 'Completed', m.completedAt, m.completedBy || 'System');
+                        }
+                    });
+                }
                 
-                const installationDoneMilestone = order?.milestones.find(m => m.id === 8);
-                if (installationDoneMilestone?.completed) addHistory('Installation/Delivery Done', 'Completed', installationDoneMilestone.completedAt!, installationDoneMilestone.completedBy || 'System');
-                
-                const latestHistory = history[history.length - 1];
+                // Determine current and next status
+                const completedStepNames = history.map(h => h.stepName);
+                let currentStatusInfo = history[history.length - 1];
+                let nextStepInfo: O2DViewItem['nextStatus'] = null;
 
-                let isCompleted = !!installationDoneMilestone?.completed;
-                let finalStatusText = latestHistory.stepName;
-                if(isCompleted) finalStatusText = "Installation/Delivery Done";
-                
-                const status = { text: finalStatusText, timestamp: latestHistory.timestamp, user: latestHistory.user, isCompleted, isOverdue: isCurrentStepOverdue };
+                const allPossibleSteps = O2D_PROCESS_CONFIG.map(s => s.step);
+                const firstPendingStepIndex = allPossibleSteps.findIndex(step => !completedStepNames.includes(step));
 
+                if (firstPendingStepIndex !== -1) {
+                    const nextStepConfig = O2D_PROCESS_CONFIG[firstPendingStepIndex];
+                    if (nextStepConfig) {
+                        nextStepInfo = {
+                            text: nextStepConfig.step,
+                            role: nextStepConfig.role,
+                            expectedDate: expectedDates[nextStepConfig.id] || new Date(),
+                        };
+                    }
+                }
+                
+                const isOverdue = nextStepInfo ? isPast(nextStepInfo.expectedDate) : false;
+
+                const status = { 
+                    text: currentStatusInfo.stepName, 
+                    timestamp: currentStatusInfo.timestamp, 
+                    user: currentStatusInfo.user, 
+                    isCompleted: firstPendingStepIndex === -1, // Completed if no pending steps
+                    isOverdue
+                };
 
                 return {
                     dealId: deal.dealId,
@@ -205,7 +228,9 @@ export function O2DTable() {
                     orderId: order?.id,
                     dealCreatedAt: deal.createdAt,
                     status,
+                    nextStatus: nextStepInfo,
                     history,
+                    expectedDates,
                     originalDeal: deal,
                     originalOrder: order,
                 };
@@ -224,7 +249,7 @@ export function O2DTable() {
         unsubscribeUsers();
         unsubscribe();
     }
-  }, [toast]);
+  }, [toast, users]); // Added users dependency
   
   const creatorName = (userId: string | undefined, userList: User[]) => {
       if (!userId) return 'System';
@@ -234,6 +259,11 @@ export function O2DTable() {
   const handleFollowUp = async (orderId?: string) => {
     if (!orderId) {
         toast({variant: 'destructive', title: 'No Order ID found for this deal yet.'});
+        return;
+    }
+    const order = viewData.find(d => d.orderId === orderId)?.originalOrder;
+    if (!order || !order.milestones.find(m => m.id === 4)?.completed) {
+        toast({variant: 'destructive', title: 'Action Not Allowed', description: 'Follow-up can only be initiated after "Stitching Done".'});
         return;
     }
     try {
@@ -270,6 +300,18 @@ export function O2DTable() {
             </div>
         </div>
     )},
+    { id: 'nextStatus', header: 'Next Status', cell: ({ row }) => {
+        const nextStatus = row.original.nextStatus;
+        if (!nextStatus) return <Badge>Completed</Badge>;
+        return (
+            <div className={cn("flex items-center gap-2", isPast(nextStatus.expectedDate) && "text-red-600")}>
+                <div>
+                    <p className="font-semibold">{nextStatus.text}</p>
+                    <p className="text-xs text-muted-foreground">by {nextStatus.role} on {format(nextStatus.expectedDate, 'dd/MM/yy')}</p>
+                </div>
+            </div>
+        )
+    }},
     { accessorKey: "dealCreatedAt", header: ({ column }) => ( <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>Created <ArrowUpDown className="ml-2 h-4 w-4" /></Button>), cell: ({ row }) => format(new Date(row.original.dealCreatedAt), 'dd/MM/yyyy') },
     { id: "actions", cell: ({ row }) => {
         const fullKittingReady = !!row.original.originalOrder?.milestones.find(m => m.id === 4)?.completed;
@@ -350,23 +392,32 @@ export function O2DTable() {
                 <DialogDescription>Customer: {selectedDeal?.customerName}</DialogDescription>
             </DialogHeader>
             <div className="py-4 max-h-[60vh] overflow-y-auto">
-                 <ul className="space-y-4">
-                    {selectedDeal?.history.map((event, index) => (
-                        <li key={index} className="flex items-start gap-4">
-                            <div className="flex flex-col items-center">
-                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-green-700">
+                 <ul className="space-y-4 relative pl-5">
+                     <div className="absolute left-9 top-0 h-full w-0.5 bg-border -translate-x-1/2"></div>
+                    {selectedDeal && O2D_PROCESS_CONFIG.map((stepConfig) => {
+                       const event = selectedDeal.history.find(h => h.stepName === stepConfig.step);
+                       const isCompleted = !!event;
+                       const expectedDate = selectedDeal.expectedDates[stepConfig.id];
+
+                       return (
+                            <li key={stepConfig.id} className="relative flex items-start gap-4">
+                                <div className={cn("absolute left-0 top-1.5 flex h-8 w-8 items-center justify-center rounded-full -translate-x-1/2", isCompleted ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground")}>
                                     <CheckCircle className="h-5 w-5"/>
                                 </div>
-                                {index < selectedDeal.history.length - 1 && (
-                                    <div className="w-px h-8 bg-border"></div>
-                                )}
-                            </div>
-                            <div>
-                                <p className="font-semibold">{event.stepName}</p>
-                                <p className="text-sm text-muted-foreground">by {event.user} on {format(new Date(event.timestamp), 'PPP p')}</p>
-                            </div>
-                        </li>
-                    ))}
+                                <div className="pl-6">
+                                    <p className="font-semibold">{stepConfig.step}</p>
+                                    {isCompleted ? (
+                                         <p className="text-sm text-muted-foreground">by {event.user} on {format(new Date(event.timestamp), 'PPP p')}</p>
+                                    ) : (
+                                        <p className="text-sm text-muted-foreground">Pending</p>
+                                    )}
+                                    {expectedDate && (
+                                         <p className="text-xs text-muted-foreground/80">Expected: {format(new Date(expectedDate), 'dd/MM/yy')}</p>
+                                    )}
+                                </div>
+                            </li>
+                       );
+                    })}
                  </ul>
             </div>
             <DialogFooter>
