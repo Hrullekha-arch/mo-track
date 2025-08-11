@@ -1,10 +1,8 @@
 
+"use client";
 
 import { Card, CardDescription, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { ClipboardList, ShoppingCart, Users, Truck, PackageCheck, Archive, Table, GanttChartSquare, CheckCircle, AlertTriangle, Warehouse, Contact, HomeIcon, FileSignature, CheckSquare as CheckSquareIcon, FileText, Scissors, DollarSign, UserCheck, Activity, BarChart3 } from "lucide-react";
-import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { DollarSign, ShoppingCart, Users, Activity } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
@@ -25,7 +23,7 @@ const chartConfig = {
   },
 }
 
-export default async function DashboardPage() {
+export default function DashboardPage() {
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <header className="mb-8">
@@ -130,8 +128,8 @@ export default async function DashboardPage() {
                             <time className="ml-auto text-xs text-muted-foreground">1h ago</time>
                         </div>
                          <div className="flex items-center gap-4">
-                            <Avatar className="bg-blue-100 text-blue-600">
-                                <AvatarFallback><Bot className="h-5 w-5"/></AvatarFallback>
+                            <Avatar>
+                                <AvatarFallback>SY</AvatarFallback>
                             </Avatar>
                             <div className="text-sm">
                                 <p className="font-medium">System</p>
