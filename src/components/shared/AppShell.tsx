@@ -36,6 +36,9 @@ import {
   ClipboardList,
   UserCog,
   CalendarCheck,
+  Moon,
+  Sun,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -43,39 +46,31 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarGroup,
   SidebarHeader,
-  SidebarInset,
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarProvider,
-  SidebarTrigger,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton,
 } from "@/components/ui/sidebar";
+import { Separator } from "../ui/separator";
+import { Switch } from "../ui/switch";
+import { useTheme } from "next-themes";
 
 const allNavItems = [
-  { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee'] },
-  { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts', 'employee'] },
-  { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
-  { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
+  { href: "/dashboard", icon: Home, label: "Dashboard", roles: ['admin', 'employee'] },
   { href: "/dashboard/orders", icon: ClipboardList, label: "Orders", roles: ['admin', 'employee'] },
+  { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
   { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
-  { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
   { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
-  { href: "/dashboard/invoice", icon: FileText, label: "Invoice", roles: ['admin', 'Accounts', 'employee'] },
-  { href: "/dashboard/cutting", icon: Scissors, label: "Cutting & Details", roles: ['admin', 'employee'] },
-  { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin'] },
-  { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin', 'employee'] },
-  { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },
+  { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts', 'employee'] },
+  { href: "/dashboard/users", icon: UserCog, label: "Users", roles: ['admin', 'employee'] },
   { href: "/mobile", icon: Smartphone, label: "Mobile View", roles: ['installer'] },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout, role } = useAuth();
   const pathname = usePathname();
+  const { theme, setTheme } = useTheme();
 
   const navItemsForUser = React.useMemo(() => {
     return allNavItems.filter(item => {
@@ -85,7 +80,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (role === 'admin') return true;
 
       if (role === 'employee' || role === 'Accounts') {
-        const restrictedPaths = ['/dashboard/all-orders', '/dashboard/reports', '/dashboard/users'];
+        const restrictedPaths = ['/dashboard/users'];
         return !restrictedPaths.includes(item.href)
       }
       
@@ -98,17 +93,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [role]);
 
   return (
-    <SidebarProvider defaultOpen={false}>
-      <Sidebar collapsible="icon">
+    <SidebarProvider defaultOpen={true}>
+      <Sidebar>
         <SidebarHeader>
-          <div className="p-2">
-            <Link href="/dashboard" className="flex items-center gap-2 text-lg font-semibold">
-              <Image src="/logo.png" alt="MoTrack Logo" width={120} height={60} />
-              <span className="sr-only">MoTrack</span>
-            </Link>
+          <div className="p-4 flex items-center gap-2">
+            <Button variant="ghost" size="icon" className="text-sidebar-foreground hover:bg-sidebar-accent">
+                <ShoppingCart className="text-sidebar-primary" />
+            </Button>
+            <h1 className="text-lg font-bold text-sidebar-foreground">SHOPPING</h1>
           </div>
         </SidebarHeader>
-        <SidebarContent>
+
+        <SidebarContent className="p-4">
+            <div className="flex items-center gap-3 mb-4">
+                 <Avatar className="h-10 w-10">
+                    <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
+                    <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                </Avatar>
+                 <div className="text-left group-data-[collapsible=icon]:hidden">
+                    <p className="font-semibold text-sm text-sidebar-foreground">{user?.name}</p>
+                    <p className="text-xs text-muted-foreground">{user?.email}</p>
+                </div>
+            </div>
+
+            <Separator className="my-4 bg-sidebar-border"/>
+          
           <SidebarMenu>
             {navItemsForUser.map((item) => (
               <SidebarMenuItem key={item.href}>
@@ -116,51 +125,50 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <SidebarMenuButton
                     isActive={pathname === item.href}
                     tooltip={{ children: item.label }}
+                    className="group-data-[collapsible=icon]:justify-center"
                   >
-                    <item.icon />
-                    <span>{item.label}</span>
+                    <item.icon className="group-data-[active=true]:text-sidebar-primary" />
+                    <span className="group-data-[active=true]:font-bold group-data-[active=true]:text-sidebar-primary">{item.label}</span>
                   </SidebarMenuButton>
                 </Link>
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
         </SidebarContent>
-        <SidebarFooter>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                className="w-full justify-start h-auto p-2"
-              >
-                <div className="flex items-center gap-2">
-                    <Avatar className="h-8 w-8">
-                        <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
-                        <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div className="text-left group-data-[collapsible=icon]:hidden">
-                        <p className="font-semibold text-sm">{user?.name}</p>
-                        <p className="text-xs text-muted-foreground">{user?.email}</p>
+
+        <SidebarFooter className="p-4">
+             <Separator className="my-4 bg-sidebar-border"/>
+            <SidebarMenu>
+                 <SidebarMenuItem>
+                    <SidebarMenuButton
+                        onClick={logout}
+                        tooltip={{ children: 'Logout' }}
+                        className="group-data-[collapsible=icon]:justify-center"
+                    >
+                        <LogOut />
+                        <span>Logout</span>
+                    </SidebarMenuButton>
+                 </SidebarMenuItem>
+                 <SidebarMenuItem>
+                    <div className="flex items-center justify-between p-2 rounded-md">
+                        <div className="flex items-center gap-2">
+                            <Moon/>
+                            <span className="text-sm group-data-[collapsible=icon]:hidden">Dark Mode</span>
+                        </div>
+                        <Switch
+                          checked={theme === 'dark'}
+                          onCheckedChange={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                          className="group-data-[collapsible=icon]:hidden"
+                        />
                     </div>
-                </div>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>My Account</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={logout}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Logout
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                </SidebarMenuItem>
+            </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
-      <SidebarInset>
-        <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b bg-background px-4 md:justify-end">
-            <SidebarTrigger className="md:hidden" />
-        </header>
+
+      <main className="flex-1">
         {children}
-      </SidebarInset>
+      </main>
     </SidebarProvider>
   );
 }
