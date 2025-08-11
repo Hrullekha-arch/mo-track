@@ -25,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer, O2DStep } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -36,7 +36,7 @@ import { setBalanceFollowUp } from "@/app/dashboard/all-orders/actions";
 import { O2D_PROCESS_CONFIG, calculateExpectedDatesForOrder } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import Link from "next/link";
+import Link from 'next/link';
 
 interface O2DViewItem {
   dealId: string;
@@ -64,7 +64,7 @@ interface O2DViewItem {
       user: string;
   }[];
   expectedDates: Record<number, Date>;
-  originalDeal: Deal;
+  originalDeal: Deal & {customerId: string};
   originalOrder?: Order;
 }
 
@@ -76,7 +76,6 @@ const creatorName = (userId: string | undefined, userList: User[]) => {
 
 export function O2DTable() {
   const [viewData, setViewData] = React.useState<O2DViewItem[]>([]);
-  const [users, setUsers] = React.useState<User[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
@@ -85,17 +84,19 @@ export function O2DTable() {
 
   const { toast } = useToast();
   
-  React.useEffect(() => {
-    const usersQuery = query(collection(db, "users"));
-    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-        const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-        setUsers(usersData);
-    });
-    
-    // Set up a listener for all deals
-    const dealsQuery = query(collectionGroup(db, 'deals'));
-    const unsubscribeDeals = onSnapshot(dealsQuery, async (dealsSnapshot) => {
-      setLoading(true);
+  const fetchData = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const usersQuery = query(collection(db, "users"));
+      const dealsQuery = query(collectionGroup(db, 'deals'));
+
+      const [usersSnapshot, dealsSnapshot] = await Promise.all([
+        getDocs(usersQuery),
+        getDocs(dealsQuery)
+      ]);
+
+      const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+      
       const deals = dealsSnapshot.docs
         .map(doc => {
             const parentPath = doc.ref.parent.parent?.path;
@@ -103,48 +104,52 @@ export function O2DTable() {
             return { ...doc.data(), id: doc.id, customerId: parentPath.split('/')[1] } as Deal & { customerId: string };
         })
         .filter((d): d is Deal & { customerId: string } => d !== null && !d.isAcknowledged);
-      
-      // Batch fetch all related data instead of fetching inside a loop
+
       const customerIds = [...new Set(deals.map(d => d.customerId))];
       const dealIds = deals.map(d => d.id);
-      
-      const [
-          customers, 
-          orders, 
-          purchaseRequests, 
-          visits, 
-          quotations
-      ] = await Promise.all([
-          // Customers
-          Promise.all(customerIds.map(id => getDocs(query(collection(db, 'customers'), where('__name__', '==', id))))).then(snapshots => 
-              snapshots.flatMap(snap => snap.docs).reduce((acc, doc) => {
-                  acc[doc.id] = { id: doc.id, ...doc.data() } as Customer;
-                  return acc;
-              }, {} as Record<string, Customer>)
-          ),
-          // Orders
-          dealIds.length > 0 ? getDocs(query(collection(db, 'orders'), where('dealId', 'in', dealIds))).then(snap => snap.docs.map(d => ({id: d.id, ...d.data()} as Order))) : Promise.resolve([]),
-          // Purchase Requests
-          dealIds.length > 0 ? getDocs(query(collection(db, 'purchaseRequests'), where('dealId', 'in', dealIds.map(dealId => `MOTRACK-${deals.find(d=>d.id === dealId)?.dealId}`))))
-            .then(snap => snap.docs.map(d => d.data() as PurchaseRequest)) : Promise.resolve([]),
+      const crmOrderNos = deals.map(d => d.dealId ? `MOTRACK-${d.dealId}`: '').filter(Boolean);
 
-          // Visits
-          Promise.all(deals.map(d => getDocs(collection(db, 'customers', d.customerId, 'deals', d.id, 'visits')))).then(snaps => snaps.flatMap(s => s.docs.map(d => d.data() as DealVisit))),
-          // Quotations
-          Promise.all(deals.map(d => getDocs(collection(db, 'customers', d.customerId, 'deals', d.id, 'quotations')))).then(snaps => snaps.flatMap(s => s.docs.map(d => d.data() as Quotation))),
+      const customerPromises = customerIds.map(id => getDoc(doc(db, 'customers', id)));
+      const orderPromises = dealIds.length > 0 ? getDocs(query(collection(db, 'orders'), where('dealId', 'in', dealIds))) : Promise.resolve({ docs: [] });
+      const prPromises = crmOrderNos.length > 0 ? getDocs(query(collection(db, 'purchaseRequests'), where('dealId', 'in', crmOrderNos))) : Promise.resolve({ docs: [] });
+      const visitPromises = deals.map(d => getDocs(collection(db, 'customers', d.customerId, 'deals', d.id, 'visits')));
+      const quotationPromises = deals.map(d => getDocs(collection(db, 'customers', d.customerId, 'deals', d.id, 'quotations')));
+
+      const [
+          customerSnapshots,
+          orderSnapshot,
+          prSnapshot,
+          visitSnapshots,
+          quotationSnapshots
+      ] = await Promise.all([
+          Promise.all(customerPromises),
+          orderPromises,
+          prPromises,
+          Promise.all(visitPromises),
+          Promise.all(quotationPromises)
       ]);
-      
-      const ordersByDealId = orders.reduce((acc, order) => {
+
+      const customers = customerSnapshots.reduce((acc, snap) => {
+          if (snap.exists()) {
+              acc[snap.id] = { id: snap.id, ...snap.data() } as Customer;
+          }
+          return acc;
+      }, {} as Record<string, Customer>);
+
+      const ordersByDealId = orderSnapshot.docs.reduce((acc, doc) => {
+          const order = {id: doc.id, ...doc.data()} as Order;
           if (order.dealId) acc[order.dealId] = order;
           return acc;
       }, {} as Record<string, Order>);
 
-      const prsByOrderId = purchaseRequests.reduce((acc, pr) => {
+      const prsByOrderId = prSnapshot.docs.reduce((acc, doc) => {
+          const pr = doc.data() as PurchaseRequest;
           if (pr.dealId) acc[pr.dealId] = pr;
           return acc;
       }, {} as Record<string, PurchaseRequest>);
 
-      const visitsByDealId = visits.reduce((acc, visit) => {
+      const visitsByDealId = visitSnapshots.flatMap(snap => snap.docs).reduce((acc, doc) => {
+          const visit = doc.data() as DealVisit;
           const dealId = deals.find(d => d.dealId === visit.dealId)?.id;
           if (dealId) {
               if (!acc[dealId]) acc[dealId] = [];
@@ -153,15 +158,16 @@ export function O2DTable() {
           return acc;
       }, {} as Record<string, DealVisit[]>);
 
-      const quotationsByDealId = quotations.reduce((acc, quote) => {
-        const dealId = deals.find(d => d.dealName === quote.dealName)?.id;
-        if (dealId) {
-            if (!acc[dealId]) acc[dealId] = [];
-            acc[dealId].push(quote);
-        }
-        return acc;
+      const quotationsByDealId = quotationSnapshots.flatMap(snap => snap.docs).reduce((acc, doc) => {
+          const quote = doc.data() as Quotation;
+          const dealId = deals.find(d => d.dealName === quote.dealName)?.id;
+          if (dealId) {
+              if (!acc[dealId]) acc[dealId] = [];
+              acc[dealId].push(quote);
+          }
+          return acc;
       }, {} as Record<string, Quotation[]>);
-      
+
       const enrichedData = deals.map((deal) => {
         const customer = customers[deal.customerId];
         if (!customer) return null;
@@ -170,20 +176,22 @@ export function O2DTable() {
         const purchaseRequest = order ? prsByOrderId[order.crmOrderNo] : undefined;
         const dealVisits = visitsByDealId[deal.id] || [];
         const dealQuotations = quotationsByDealId[deal.id] || [];
-
+        
         const dealSalesperson = users.find(u => u.id === deal.representativeId);
         const orderCrmHandler = order ? users.find(u => u.id === order.handledByCrm) : undefined;
         
         const history: O2DViewItem['history'] = [];
         const expectedDates = order ? calculateExpectedDatesForOrder(order) : {};
 
-        const addHistory = (stepName: string, status: string, timestamp: string, user: string) => {
-            history.push({ stepName, status, timestamp, user });
+        const addHistory = (stepName: string, status: string, timestamp: string | undefined, user: string) => {
+            if (timestamp) {
+              history.push({ stepName, status, timestamp, user });
+            }
         };
         
-        // This logic remains the same, but now it's faster as data is pre-fetched
         addHistory('Deal Created', 'Completed', deal.createdAt, dealSalesperson?.name || 'System');
         addHistory(O2D_PROCESS_CONFIG[0].step, deal.advanceForMeasurement === 'Yes' ? 'Completed' : 'Skipped', deal.createdAt, dealSalesperson?.name || 'System');
+        
         const latestVisit = dealVisits.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
         if (latestVisit) addHistory(O2D_PROCESS_CONFIG[2].step, 'Completed', latestVisit.createdAt, latestVisit.createdBy);
         
@@ -203,7 +211,7 @@ export function O2DTable() {
 
         if (firstPendingStepIndex !== -1) {
             const nextStepConfig = O2D_PROCESS_CONFIG[firstPendingStepIndex];
-            if (nextStepConfig) {
+            if (nextStepConfig && order) {
                 nextStepInfo = {
                     text: nextStepConfig.step,
                     role: nextStepConfig.role,
@@ -215,9 +223,9 @@ export function O2DTable() {
         const isOverdue = nextStepInfo ? isPast(nextStepInfo.expectedDate) : false;
 
         const status = { 
-            text: currentStatusInfo.stepName, 
-            timestamp: currentStatusInfo.timestamp, 
-            user: currentStatusInfo.user, 
+            text: currentStatusInfo?.stepName || "Deal Created", 
+            timestamp: currentStatusInfo?.timestamp || deal.createdAt, 
+            user: currentStatusInfo?.user || (dealSalesperson?.name || 'System'), 
             isCompleted: firstPendingStepIndex === -1,
             isOverdue
         };
@@ -239,14 +247,20 @@ export function O2DTable() {
       }).filter(Boolean) as O2DViewItem[];
 
       setViewData(enrichedData.filter(item => !item.status.isCompleted));
-      setLoading(false);
-    });
-
-    return () => {
-        unsubscribeUsers();
-        unsubscribeDeals();
+    } catch (error) {
+        console.error("Error fetching data for O2D Table:", error);
+        toast({
+            variant: "destructive",
+            title: "Error loading O2D data",
+        });
+    } finally {
+        setLoading(false);
     }
-  }, [users]); // Re-run only when users list changes
+  }, [toast]);
+
+  React.useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleFollowUp = async (orderId?: string) => {
     if (!orderId) {
@@ -307,14 +321,6 @@ export function O2DTable() {
         )
     }},
     { accessorKey: "dealCreatedAt", header: ({ column }) => ( <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>Created <ArrowUpDown className="ml-2 h-4 w-4" /></Button>), cell: ({ row }) => format(new Date(row.original.dealCreatedAt), 'dd/MM/yyyy') },
-    { id: "actions", cell: ({ row }) => {
-        const isFullKittingReady = !!row.original.originalOrder?.milestones.find(m => m.id === 4)?.completed;
-        return (
-            <Button size="sm" variant="outline" onClick={() => handleFollowUp(row.original.orderId)} disabled={!row.original.orderId || !isFullKittingReady}>
-                Balance payment follow up
-            </Button>
-        )
-    }}
   ];
 
   const table = useReactTable({
