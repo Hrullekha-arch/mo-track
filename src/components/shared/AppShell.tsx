@@ -42,6 +42,7 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarProvider,
+  SidebarFooter
 } from "@/components/ui/sidebar";
 import { Separator } from "../ui/separator";
 import { Switch } from "../ui/switch";
@@ -103,17 +104,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </SidebarHeader>
 
         <SidebarContent>
-            <div className="px-4 pb-4">
+          <SidebarMenu className="px-2">
+            {navItemsForUser.map((item) => (
+              <SidebarMenuItem key={item.href}>
+                <Link href={item.href}>
+                  <SidebarMenuButton
+                    isActive={pathname.startsWith(item.href)}
+                    tooltip={{ children: item.label }}
+                    className="group-hover:justify-start justify-center"
+                  >
+                    <item.icon className="group-data-[active=true]:text-sidebar-primary-foreground" />
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 group-data-[active=true]:font-bold">{item.label}</span>
+                  </SidebarMenuButton>
+                </Link>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarContent>
+
+        <SidebarFooter>
+            <div className="px-2 py-4">
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <button className="flex items-center gap-3 text-left w-full">
-                            <Avatar className="h-10 w-10">
+                        <button className="flex items-center gap-3 text-left w-full p-2 hover:bg-sidebar-accent rounded-md">
+                            <Avatar className="h-8 w-8">
                                 <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
                                 <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
                             </Avatar>
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                                 <p className="font-semibold text-sm text-sidebar-foreground">{user?.name}</p>
-                                <p className="text-xs text-muted-foreground">{user?.email}</p>
                             </div>
                         </button>
                     </DropdownMenuTrigger>
@@ -136,26 +155,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
-
-            <Separator className="mb-4 bg-sidebar-border"/>
-          
-          <SidebarMenu className="px-4">
-            {navItemsForUser.map((item) => (
-              <SidebarMenuItem key={item.href}>
-                <Link href={item.href}>
-                  <SidebarMenuButton
-                    isActive={pathname.startsWith(item.href)}
-                    tooltip={{ children: item.label }}
-                    className="group-hover:justify-start justify-center"
-                  >
-                    <item.icon className="group-data-[active=true]:text-sidebar-primary" />
-                    <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 group-data-[active=true]:font-bold group-data-[active=true]:text-sidebar-primary">{item.label}</span>
-                  </SidebarMenuButton>
-                </Link>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarContent>
+        </SidebarFooter>
       </Sidebar>
 
       <main className="flex-1">
