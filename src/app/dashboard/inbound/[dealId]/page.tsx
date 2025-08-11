@@ -5,7 +5,7 @@
 import { useState, useEffect, use } from 'react';
 import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion, collection, query, where, getDocs, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { InboundRequest, InboundItem, InboundMilestone, Order, O2DStatus, StockTransaction } from "@/lib/types";
+import { InboundRequest, InboundItem, InboundMilestone, Order, O2DStatus, StockTransaction, PurchaseRequest } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2, ScanLine } from 'lucide-react';
@@ -173,55 +173,73 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     toast({ variant: 'destructive', title: 'Stock Update Failed', description: result.message });
                 }
             }
+            
+            const allItemsInCurrentInboundCompleted = items.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
-            const allItemsCompleted = items.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
-
-            if (allItemsCompleted) {
+            if (allItemsInCurrentInboundCompleted) {
                 await updateDoc(requestRef, { 
                     status: 'Completed',
                     completedAt: new Date().toISOString(),
                     completedBy: user.name,
                 });
 
-                // Update the associated Purchase Request
+                // Update the associated Purchase Request status to 'Completed'
                 const purchaseRequestRef = doc(db, 'purchaseRequests', request.purchaseRequestId);
                 await updateDoc(purchaseRequestRef, { status: 'Completed', completedAt: new Date().toISOString() });
-
+                
                 toast({
                     title: "Inbound Complete!",
-                    description: `Request for Deal ID ${request.dealId} is now fully received.`,
+                    description: `This PO (${request.id}) is now fully received.`,
                     duration: 5000,
                 });
 
-                // Also try to update the related order's O2D step
-                const ordersRef = collection(db, "orders");
-                const q = query(ordersRef, where("crmOrderNo", "==", request.dealId));
-                const orderSnapshot = await getDocs(q);
-                
-                if (!orderSnapshot.empty) {
-                    const orderDoc = orderSnapshot.docs[0];
-                    const orderData = orderDoc.data() as Order;
-                    const o2dStep9 = orderData.o2dMilestones?.find(m => m.stepId === 9);
+                // Now, check if ALL related purchase requests for the deal are complete.
+                const allPrQuery = query(collection(db, 'purchaseRequests'), where('dealId', '==', request.dealId));
+                const allPrSnapshot = await getDocs(allPrQuery);
+                const allPrDocs = allPrSnapshot.docs.map(d => d.data() as PurchaseRequest);
 
-                    if (!o2dStep9 || o2dStep9.status !== 'completed') {
-                        const o2dMilestoneStep9: O2DStatus = {
-                            stepId: 9,
-                            status: 'completed',
-                            completedAt: new Date().toISOString(),
-                            completedBy: "System (Inbound Complete)",
-                            remarks: "Automatically completed after all items were received in Inbound.",
-                            selection: 'Done'
-                        };
-                        
-                        const existingO2dStep9Index = (orderData.o2dMilestones || []).findIndex(m => m.stepId === 9);
-                        if (existingO2dStep9Index > -1) {
-                            const newO2dMilestones = [...(orderData.o2dMilestones || [])];
-                            newO2dMilestones[existingO2dStep9Index] = o2dMilestoneStep9;
-                            await updateDoc(orderDoc.ref, { o2dMilestones: newO2dMilestones });
-                        } else {
-                            await updateDoc(orderDoc.ref, { o2dMilestones: arrayUnion(o2dMilestoneStep9) });
+                const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
+                
+                if (allPrsForDealAreComplete) {
+                    // All POs for this deal are done. Now we can update O2D.
+                    const ordersRef = collection(db, "orders");
+                    const q = query(ordersRef, where("crmOrderNo", "==", request.dealId));
+                    const orderSnapshot = await getDocs(q);
+                    
+                    if (!orderSnapshot.empty) {
+                        const orderDoc = orderSnapshot.docs[0];
+                        const orderData = orderDoc.data() as Order;
+                        const o2dStep9 = orderData.o2dMilestones?.find(m => m.stepId === 9);
+
+                        if (!o2dStep9 || o2dStep9.status !== 'completed') {
+                            const o2dMilestoneStep9: O2DStatus = {
+                                stepId: 9,
+                                status: 'completed',
+                                completedAt: new Date().toISOString(),
+                                completedBy: "System (All Inbounds Complete)",
+                                remarks: "Automatically completed after all items for this deal were received.",
+                                selection: 'Done'
+                            };
+                            
+                            const existingO2dStep9Index = (orderData.o2dMilestones || []).findIndex(m => m.stepId === 9);
+                            if (existingO2dStep9Index > -1) {
+                                const newO2dMilestones = [...(orderData.o2dMilestones || [])];
+                                newO2dMilestones[existingO2dStep9Index] = o2dMilestoneStep9;
+                                await updateDoc(orderDoc.ref, { o2dMilestones: newO2dMilestones });
+                            } else {
+                                await updateDoc(orderDoc.ref, { o2dMilestones: arrayUnion(o2dMilestoneStep9) });
+                            }
+                             toast({
+                                title: "O2D Step 9 Completed!",
+                                description: `Purchase Material Receiving marked as done for order ${orderData.id}.`,
+                            });
                         }
                     }
+                } else {
+                     toast({
+                        title: "Inbound Progress",
+                        description: `Other purchase orders for Deal ID ${request.dealId} are still pending.`,
+                    });
                 }
             }
         } catch (error) {
