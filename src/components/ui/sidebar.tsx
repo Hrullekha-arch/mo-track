@@ -174,7 +174,7 @@ const Sidebar = React.forwardRef<
       return (
         <div
           className={cn(
-            "flex h-full w-[--sidebar-width] flex-col bg-card",
+            "flex h-full w-[--sidebar-width] flex-col",
             className
           )}
           ref={ref}
@@ -191,7 +191,7 @@ const Sidebar = React.forwardRef<
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
-            className="w-[--sidebar-width] bg-card p-0 [&>button]:hidden"
+            className="w-[--sidebar-width] p-0 [&>button]:hidden"
             style={
               {
                 "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -210,7 +210,8 @@ const Sidebar = React.forwardRef<
         ref={ref}
         className={cn(
           "group fixed z-40 hidden h-svh md:flex md:flex-col",
-          "data-[variant=sidebar]:bg-card data-[variant=inset]:m-2 data-[variant=inset]:h-[calc(100svh-theme(spacing.4))] data-[variant=inset]:rounded-xl data-[variant=inset]:shadow",
+          "data-[variant=sidebar]:bg-card/70 data-[variant=sidebar]:backdrop-blur-lg",
+          "data-[variant=inset]:m-2 data-[variant=inset]:h-[calc(100svh-theme(spacing.4))] data-[variant=inset]:rounded-xl data-[variant=inset]:shadow",
           side === "left" && "left-0 border-r",
           side === "right" && "right-0 border-l",
           state === "expanded" && "w-[--sidebar-width]",

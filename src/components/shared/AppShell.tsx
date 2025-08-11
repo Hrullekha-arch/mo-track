@@ -84,7 +84,7 @@ function SidebarNav({ className }: { className?: string }) {
             className="w-full justify-start items-center gap-3"
           >
             <item.icon className="mr-0 h-5 w-5 flex-shrink-0" />
-            <span className="truncate group-hover:opacity-100 transition-opacity duration-200">{item.label}</span>
+            <span className="truncate opacity-0 group-hover:opacity-100 transition-opacity duration-200">{item.label}</span>
           </Button>
         </Link>
       ))}
@@ -134,7 +134,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   
   return (
     <div className="flex h-screen bg-background">
-      <aside className="group w-16 hover:w-64 transition-all duration-300 ease-in-out flex-col border-r bg-card text-card-foreground hidden md:flex">
+      <aside className="group w-16 hover:w-64 transition-all duration-300 ease-in-out flex-col border-r bg-card/70 backdrop-blur-lg text-card-foreground hidden md:flex">
         <div className="p-4 flex items-center gap-2 h-[65px] border-b">
             <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>
             <span className="font-bold text-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200">MoTrack</span>
@@ -158,16 +158,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         <span className="sr-only">Toggle Menu</span>
                     </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="w-64 p-0">
+                <SheetContent side="left" className="w-64 p-0 bg-card/80 backdrop-blur-lg">
                     <div className="flex flex-col h-full">
                         <div className="p-4 flex items-center gap-2 h-[65px] border-b">
                             <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>
                             <span className="font-bold text-lg">MoTrack</span>
                         </div>
                         <div className="flex-1 overflow-y-auto">
-                            <SidebarNav className="group-hover:opacity-100" />
+                            <SidebarNav className="opacity-100" />
                         </div>
-                        <UserProfile />
+                        <div className="opacity-100">
+                           <UserProfile />
+                        </div>
                     </div>
                 </SheetContent>
             </Sheet>
