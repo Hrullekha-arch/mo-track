@@ -13,7 +13,7 @@ import {
   SortingState,
   ColumnFiltersState
 } from "@tanstack/react-table";
-import { ArrowUpDown, CheckCircle, MoreHorizontal } from "lucide-react";
+import { ArrowUpDown, CheckCircle, Clock, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,13 +27,15 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer } from "@/lib/types";
+import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer, O2DStep } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAuth } from "@/context/AuthContext";
-import { format } from "date-fns";
+import { format, isPast, formatDistanceToNow } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { setBalanceFollowUp } from "@/app/dashboard/all-orders/actions";
+import { O2D_PROCESS_CONFIG, calculateExpectedDatesForOrder } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface O2DViewItem {
   dealId: string;
@@ -47,7 +49,14 @@ interface O2DViewItem {
     timestamp: string;
     user: string;
     isCompleted: boolean;
+    isOverdue: boolean;
   };
+  history: {
+      stepName: string;
+      status: string;
+      timestamp: string;
+      user: string;
+  }[];
   originalDeal: Deal;
   originalOrder?: Order;
 }
@@ -59,6 +68,7 @@ export function O2DTable() {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
+  const [selectedDeal, setSelectedDeal] = React.useState<O2DViewItem | null>(null);
 
   const { toast } = useToast();
   
@@ -103,16 +113,14 @@ export function O2DTable() {
                     getDocs(ordersQuery),
                 ]);
             }));
-            
+
             const allOrderCrmNos = results.flatMap(res => res[2].docs.map(d => d.data().crmOrderNo)).filter(Boolean);
             let purchaseRequestsByOrder: Record<string, PurchaseRequest> = {};
 
             if (allOrderCrmNos.length > 0) {
-                 // Firestore 'in' queries are limited to 30 items. We might need to batch this.
-                 // For now, assuming the number of parallel lookups is reasonable.
                  const prChunks = [];
-                 for (let i = 0; i < allOrderCrmNos.length; i += 10) {
-                     prChunks.push(allOrderCrmNos.slice(i, i + 10));
+                 for (let i = 0; i < allOrderCrmNos.length; i += 30) {
+                     prChunks.push(allOrderCrmNos.slice(i, i + 30));
                  }
                  for (const chunk of prChunks) {
                     if (chunk.length > 0) {
@@ -120,7 +128,9 @@ export function O2DTable() {
                         const purchaseRequestSnapshots = await getDocs(purchaseRequestsQuery);
                         purchaseRequestSnapshots.forEach(doc => {
                             const pr = doc.data() as PurchaseRequest;
-                            purchaseRequestsByOrder[pr.dealId] = pr;
+                            if (pr.dealId) {
+                                purchaseRequestsByOrder[pr.dealId] = pr;
+                            }
                         });
                     }
                  }
@@ -138,44 +148,63 @@ export function O2DTable() {
 
                 const visits = visitSnapshots.docs.map(d => d.data() as DealVisit);
                 const quotations = quotationSnapshots.docs.map(d => d.data() as Quotation);
-                const orders = orderSnapshots.docs.map(d => d.data() as Order);
+                const orders = orderSnapshots.docs.map(d => ({id: d.id, ...d.data()}) as Order);
                 
                 const order = orders[0];
                 const purchaseRequest = order ? purchaseRequestsByOrder[order.crmOrderNo] : undefined;
 
-                let status = { text: 'Unknown', timestamp: deal.createdAt, user: 'System', isCompleted: false };
+                const dealSalesperson = users.find(u => u.id === deal.representativeId);
+                const orderCrmHandler = order ? users.find(u => u.id === order.handledByCrm) : undefined;
+                
+                const history: O2DViewItem['history'] = [];
+                const expectedDates = order ? calculateExpectedDatesForOrder(order) : {};
 
+                let currentStep: O2DStep | null = null;
+                let isCurrentStepOverdue = false;
+
+                const addHistory = (stepName: string, status: string, timestamp: string, user: string) => {
+                    history.push({ stepName, status, timestamp, user });
+                };
+                
+                addHistory('Deal Created', 'Completed', deal.createdAt, dealSalesperson?.name || 'System');
+                
+                const step1 = O2D_PROCESS_CONFIG[0];
+                addHistory(step1.step, `Selected: ${deal.advanceForMeasurement || 'N/A'}`, deal.createdAt, dealSalesperson?.name || 'System');
+                
                 const latestVisit = visits.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+                if (latestVisit) addHistory(O2D_PROCESS_CONFIG[1].step, 'Completed', latestVisit.createdAt, latestVisit.createdBy);
+                
                 const latestQuotation = quotations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+                if (latestQuotation) addHistory(O2D_PROCESS_CONFIG[4].step, 'Completed', latestQuotation.createdAt, creatorName(latestQuotation.createdBy, users));
+                if (latestQuotation?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[5].step, 'Completed', latestQuotation.approvedAt || latestQuotation.createdAt, latestQuotation.approvedBy?.name || 'System');
+                
+                if (order?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[6].step, 'Completed', order.approvedAt || order.createdAt, order.approvedBy?.name || 'System');
+                if (purchaseRequest?.status === 'Completed') addHistory(O2D_PROCESS_CONFIG[8].step, 'Completed', purchaseRequest.completedAt!, purchaseRequest.completedBy || 'System');
+                
+                const fullKittingMilestone = order?.milestones.find(m => m.id === 4);
+                if (fullKittingMilestone?.completed) addHistory('Full Kitting Ready', 'Completed', fullKittingMilestone.completedAt!, fullKittingMilestone.completedBy || 'System');
+                
+                const installationDoneMilestone = order?.milestones.find(m => m.id === 8);
+                if (installationDoneMilestone?.completed) addHistory('Installation/Delivery Done', 'Completed', installationDoneMilestone.completedAt!, installationDoneMilestone.completedBy || 'System');
+                
+                const latestHistory = history[history.length - 1];
 
-                if (order?.milestones.find(m => m.id === 8)?.completed) {
-                    status = { text: 'Installation/Delivery Done', timestamp: order.milestones.find(m => m.id === 8)!.completedAt!, user: order.milestones.find(m => m.id === 8)!.completedBy || 'System', isCompleted: true };
-                } else if (order?.milestones.find(m => m.id === 6 || m.id === 7)?.completed) {
-                     status = { text: 'Time Taken for Installation', timestamp: order.milestones.find(m => m.id === 6 || m.id === 7)!.completedAt!, user: order.milestones.find(m => m.id === 6 || m.id === 7)!.completedBy || 'System', isCompleted: false };
-                } else if (order?.milestones.find(m => m.id === 4)?.completed) {
-                    status = { text: 'Full Kitting Ready', timestamp: order.milestones.find(m => m.id === 4)!.completedAt!, user: order.milestones.find(m => m.id === 4)!.completedBy || 'System', isCompleted: false };
-                } else if (purchaseRequest?.status === 'Completed') {
-                     status = { text: 'Purchase Material Received', timestamp: purchaseRequest.completedAt!, user: purchaseRequest.completedBy || 'System', isCompleted: false };
-                } else if (order?.status === 'Approved') {
-                     status = { text: 'Advance Received for Order', timestamp: order.approvedAt!, user: order.approvedBy?.name || 'System', isCompleted: false };
-                } else if (latestQuotation?.status === 'Approved') {
-                     status = { text: 'Quotation Re-Check', timestamp: latestQuotation.approvedAt!, user: latestQuotation.approvedBy?.name || 'System', isCompleted: false };
-                } else if (latestQuotation) {
-                    status = { text: 'Quotation Making', timestamp: latestQuotation.createdAt, user: latestQuotation.createdBy || 'System', isCompleted: false };
-                } else if (latestVisit) {
-                    status = { text: 'Measurement (Coordinate to CRM)', timestamp: latestVisit.createdAt, user: latestVisit.createdBy, isCompleted: false };
-                } else {
-                    status = { text: `Received Advance: ${deal.advanceForMeasurement}`, timestamp: deal.createdAt, user: 'System', isCompleted: false };
-                }
+                let isCompleted = !!installationDoneMilestone?.completed;
+                let finalStatusText = latestHistory.stepName;
+                if(isCompleted) finalStatusText = "Installation/Delivery Done";
+                
+                const status = { text: finalStatusText, timestamp: latestHistory.timestamp, user: latestHistory.user, isCompleted, isOverdue: isCurrentStepOverdue };
+
 
                 return {
                     dealId: deal.dealId,
                     customerName: customer?.name || 'Unknown',
-                    salesPerson: users.find(u => u.id === deal.representativeId)?.name || 'N/A',
-                    crmHandler: order ? (users.find(u => u.id === order.handledByCrm)?.name || 'N/A') : 'N/A',
+                    salesPerson: dealSalesperson?.name || 'N/A',
+                    crmHandler: orderCrmHandler?.name || 'N/A',
                     orderId: order?.id,
                     dealCreatedAt: deal.createdAt,
                     status,
+                    history,
                     originalDeal: deal,
                     originalOrder: order,
                 };
@@ -195,6 +224,11 @@ export function O2DTable() {
         unsubscribe();
     }
   }, [toast]);
+  
+  const creatorName = (userId: string | undefined, userList: User[]) => {
+      if (!userId) return 'System';
+      return userList.find(u => u.id === userId)?.name || 'Unknown';
+  };
 
   const handleFollowUp = async (orderId?: string) => {
     if (!orderId) {
@@ -211,14 +245,22 @@ export function O2DTable() {
   };
 
   const columns: ColumnDef<O2DViewItem>[] = [
-    { accessorKey: "orderId", header: "Order ID", cell: ({ row }) => row.original.orderId || 'Not Created Yet' },
-    { accessorKey: "dealId", header: "Deal ID" },
+    { accessorKey: "orderId", header: "Order ID", cell: ({ row }) => (row.original.orderId ? (
+        <Button variant="link" asChild className="p-0 h-auto font-medium">
+            <Link href={`/dashboard/orders/${row.original.orderId}`}>{row.original.orderId}</Link>
+        </Button>
+    ) : 'Not Created Yet')},
+    { accessorKey: "dealId", header: "Deal ID", cell: ({ row }) => (
+        <Button variant="link" onClick={() => setSelectedDeal(row.original)} className="p-0 h-auto">
+            {row.original.dealId}
+        </Button>
+    )},
     { accessorKey: "customerName", header: "Customer Name" },
     { accessorKey: "salesPerson", header: "Sales Person" },
     { accessorKey: "crmHandler", header: "CRM Handler" },
     { id: 'status', header: 'Current Status', cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-            <CheckCircle className="h-4 w-4 text-green-500"/>
+        <div className={cn("flex items-center gap-2", row.original.status.isOverdue && "text-red-600")}>
+            {row.original.status.isOverdue ? <Clock className="h-4 w-4"/> : <CheckCircle className="h-4 w-4 text-green-500"/>}
             <div>
                 <p className="font-semibold">{row.original.status.text}</p>
                 <p className="text-xs text-muted-foreground">
@@ -228,11 +270,14 @@ export function O2DTable() {
         </div>
     )},
     { accessorKey: "dealCreatedAt", header: ({ column }) => ( <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>Created <ArrowUpDown className="ml-2 h-4 w-4" /></Button>), cell: ({ row }) => format(new Date(row.original.dealCreatedAt), 'dd/MM/yyyy') },
-    { id: "actions", cell: ({ row }) => (
-        <Button size="sm" variant="outline" onClick={() => handleFollowUp(row.original.orderId)} disabled={!row.original.orderId}>
-            Balance payment follow up
-        </Button>
-    )}
+    { id: "actions", cell: ({ row }) => {
+        const fullKittingReady = !!row.original.originalOrder?.milestones.find(m => m.id === 4)?.completed;
+        return (
+            <Button size="sm" variant="outline" onClick={() => handleFollowUp(row.original.orderId)} disabled={!row.original.orderId || !fullKittingReady}>
+                Balance payment follow up
+            </Button>
+        )
+    }}
   ];
 
   const table = useReactTable({
@@ -243,11 +288,13 @@ export function O2DTable() {
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    onGlobalFilterChange: setGlobalFilter,
     onColumnFiltersChange: setColumnFilters,
-    state: { sorting, columnFilters },
+    state: { sorting, columnFilters, globalFilter },
   });
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle>O2D Orders</CardTitle>
@@ -257,9 +304,9 @@ export function O2DTable() {
         <div className="flex items-center py-4">
           <Input
             placeholder="Filter customers..."
-            value={(table.getColumn('customerName')?.getFilterValue() as string) ?? ''}
+            value={globalFilter ?? ''}
             onChange={(event) =>
-                table.getColumn('customerName')?.setFilterValue(event.target.value)
+                setGlobalFilter(event.target.value)
             }
             className="max-w-sm"
           />
@@ -280,7 +327,7 @@ export function O2DTable() {
                 <TableRow><TableCell colSpan={columns.length} className="h-24 text-center"><Skeleton className="h-8 w-full" /></TableCell></TableRow>
               ) : table.getRowModel().rows?.length ? (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.original.dealId}>{row.getVisibleCells().map((cell) => (<TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>))}</TableRow>
+                  <TableRow key={row.original.dealId} className={cn(row.original.status.isOverdue && "bg-red-50 hover:bg-red-100")}>{row.getVisibleCells().map((cell) => (<TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>))}</TableRow>
                 ))
               ) : (
                 <TableRow><TableCell colSpan={columns.length} className="h-24 text-center">No results.</TableCell></TableRow>
@@ -294,7 +341,39 @@ export function O2DTable() {
         </div>
       </CardContent>
     </Card>
+
+    <Dialog open={!!selectedDeal} onOpenChange={() => setSelectedDeal(null)}>
+        <DialogContent className="max-w-lg">
+            <DialogHeader>
+                <DialogTitle>History for Deal #{selectedDeal?.dealId}</DialogTitle>
+                <DialogDescription>Customer: {selectedDeal?.customerName}</DialogDescription>
+            </DialogHeader>
+            <div className="py-4 max-h-[60vh] overflow-y-auto">
+                 <ul className="space-y-4">
+                    {selectedDeal?.history.map((event, index) => (
+                        <li key={index} className="flex items-start gap-4">
+                            <div className="flex flex-col items-center">
+                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-green-700">
+                                    <CheckCircle className="h-5 w-5"/>
+                                </div>
+                                {index < selectedDeal.history.length - 1 && (
+                                    <div className="w-px h-8 bg-border"></div>
+                                )}
+                            </div>
+                            <div>
+                                <p className="font-semibold">{event.stepName}</p>
+                                <p className="text-sm text-muted-foreground">by {event.user} on {format(new Date(event.timestamp), 'PPP p')}</p>
+                            </div>
+                        </li>
+                    ))}
+                 </ul>
+            </div>
+            <DialogFooter>
+                <Button onClick={() => setSelectedDeal(null)}>Close</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+    </>
   );
 }
 
-    

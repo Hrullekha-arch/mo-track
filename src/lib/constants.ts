@@ -1,5 +1,7 @@
+
 import { type Milestone, type OrderType, type PurchaseStep, O2DStep, type ComboboxOption } from './types';
 import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart } from 'lucide-react';
+import { addDays, addHours, addMinutes } from 'date-fns';
 
 
 export const MILESTONES_CONFIG: Record<number, { name: string }> = {
@@ -326,3 +328,35 @@ export const roomOptions: ComboboxOption[] = [
     { value: "garden-out-house", label: "GARDEN OUT HOUSE" },
     { value: "bed-room-3-wall-1", label: "BED ROOM 3 WALL 1" },
 ];
+
+
+export function getExpectedCompletionDate(step: O2DStep, startDate: Date): Date {
+    const { days = 0, hours = 0, minutes = 0 } = step.expectedDuration;
+    let completionDate = addDays(startDate, days);
+    completionDate = addHours(completionDate, hours);
+    completionDate = addMinutes(completionDate, minutes);
+    return completionDate;
+}
+
+export const calculateExpectedDatesForOrder = (order: Order) => {
+    return O2D_PROCESS_CONFIG.reduce((acc, currentStep) => {
+        let startDate: Date;
+        if (currentStep.id === 1) {
+            startDate = order.createdAt ? new Date(order.createdAt) : new Date();
+        } else {
+            const previousStepConfig = O2D_PROCESS_CONFIG.find(s => s.id === currentStep.id - 1);
+            if (!previousStepConfig) {
+                 startDate = new Date(); // Fallback
+            } else {
+                const previousStepStatus = (order.o2dMilestones || []).find(m => m.stepId === previousStepConfig.id);
+                if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
+                    startDate = new Date(previousStepStatus.completedAt);
+                } else {
+                    startDate = acc[previousStepConfig.id];
+                }
+            }
+        }
+        acc[currentStep.id] = getExpectedCompletionDate(currentStep, startDate);
+        return acc;
+    }, {} as Record<number, Date>);
+}
