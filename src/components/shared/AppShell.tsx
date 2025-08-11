@@ -97,7 +97,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <SidebarHeader>
           <div className="p-4 flex items-center gap-2">
             <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} />
-            <h1 className="text-lg font-bold text-sidebar-foreground group-hover:opacity-100 opacity-0 transition-opacity duration-300">MoTrack</h1>
+            <h1 className="text-lg font-bold text-sidebar-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-300">MoTrack</h1>
             <div className="flex-grow" />
           </div>
         </SidebarHeader>
@@ -108,7 +108,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
                     <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
                 </Avatar>
-                 <div className="text-left group-hover:opacity-100 opacity-0 transition-opacity duration-300">
+                 <div className="text-left opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                     <p className="font-semibold text-sm text-sidebar-foreground">{user?.name}</p>
                     <p className="text-xs text-muted-foreground">{user?.email}</p>
                 </div>
@@ -126,7 +126,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     className="group-hover:justify-start justify-center"
                   >
                     <item.icon className="group-data-[active=true]:text-sidebar-primary" />
-                    <span className="group-hover:inline-block hidden group-data-[active=true]:font-bold group-data-[active=true]:text-sidebar-primary">{item.label}</span>
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 group-data-[active=true]:font-bold group-data-[active=true]:text-sidebar-primary">{item.label}</span>
                   </SidebarMenuButton>
                 </Link>
               </SidebarMenuItem>
@@ -144,19 +144,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         className="group-hover:justify-start justify-center"
                     >
                         <LogOut />
-                        <span className="group-hover:inline-block hidden">Logout</span>
+                        <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">Logout</span>
                     </SidebarMenuButton>
                  </SidebarMenuItem>
                  <SidebarMenuItem>
                     <div className="flex items-center justify-between p-2 rounded-md">
                         <div className="flex items-center gap-2">
                             <Moon/>
-                            <span className="text-sm group-hover:inline-block hidden">Dark Mode</span>
+                            <span className="text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200">Dark Mode</span>
                         </div>
                         <Switch
                           checked={theme === 'dark'}
                           onCheckedChange={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                          className="group-hover:inline-flex hidden"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                         />
                     </div>
                 </SidebarMenuItem>
