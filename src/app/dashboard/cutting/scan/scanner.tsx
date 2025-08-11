@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, CheckCircle, Loader2, XCircle, AlertTriangle, CameraOff } from 'lucide-react';
 import Link from 'next/link';
-import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
+import { BrowserMultiFormatReader, NotFoundException, BarcodeFormat } from '@zxing/library';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -54,7 +54,9 @@ export function CuttingScannerComponent() {
   const { toast } = useToast();
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const codeReaderRef = useRef(new BrowserMultiFormatReader());
+  
+  // Give a hint to the scanner to prioritize the format we use for our stickers.
+  const codeReaderRef = useRef(new BrowserMultiFormatReader(new Map([[BarcodeFormat.CODE_128, {}]])));
   
   const taskId = searchParams.get('taskId');
   const targetBcn = searchParams.get('bcn');
@@ -137,7 +139,6 @@ export function CuttingScannerComponent() {
       if (!stockAddedSnapshot.empty) {
         const stockAddedDocRef = stockAddedSnapshot.docs[0].ref;
         
-        // Simplified query to find the correct pending transaction
         const stockSoldQuery = query(
           collection(stockAddedDocRef, 'stockSold'),
           where('orderId', '==', task.orderId),
@@ -206,23 +207,19 @@ export function CuttingScannerComponent() {
     if (stream && videoRef.current && hasCameraPermission) {
       videoRef.current.srcObject = stream;
       videoRef.current.onloadedmetadata = () => {
-        if (videoRef.current) {
+        if (videoRef.current && videoRef.current.videoWidth > 0) {
           videoRef.current.play();
   
-          // Ensure video is playing before starting to decode
-          if (videoRef.current.videoWidth > 0) {
-            console.log('Scanner starting...');
-            const codeReader = codeReaderRef.current;
-            codeReader.decodeFromVideoDevice(undefined, videoRef.current, (result, err) => {
-              if (result) {
-                console.log('Barcode detected:', result.getText());
-                handleScan(result.getText());
-              }
-              if (err && !(err instanceof NotFoundException)) {
-                console.error("ZXing Decode Error:", err);
-              }
-            });
-          }
+          const codeReader = codeReaderRef.current;
+          codeReader.decodeFromVideoDevice(undefined, videoRef.current, (result, err) => {
+            if (result) {
+              console.log('Barcode detected:', result.getText());
+              handleScan(result.getText());
+            }
+            if (err && !(err instanceof NotFoundException)) {
+              console.error("ZXing Decode Error:", err);
+            }
+          });
         }
       };
     }
