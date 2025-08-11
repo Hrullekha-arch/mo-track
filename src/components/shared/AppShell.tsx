@@ -97,9 +97,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <SidebarHeader>
           <div className="p-4 flex items-center gap-2">
             <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} />
-            <h1 className="text-lg font-bold text-sidebar-foreground group-data-[collapsible=icon]:hidden">MoTrack</h1>
+            <h1 className="text-lg font-bold text-sidebar-foreground group-hover:opacity-100 opacity-0 transition-opacity duration-300">MoTrack</h1>
             <div className="flex-grow" />
-            <SidebarTrigger className="group-data-[collapsible=icon]:hidden" />
           </div>
         </SidebarHeader>
 
@@ -109,7 +108,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
                     <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
                 </Avatar>
-                 <div className="text-left group-data-[collapsible=icon]:hidden">
+                 <div className="text-left group-hover:opacity-100 opacity-0 transition-opacity duration-300">
                     <p className="font-semibold text-sm text-sidebar-foreground">{user?.name}</p>
                     <p className="text-xs text-muted-foreground">{user?.email}</p>
                 </div>
@@ -124,10 +123,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <SidebarMenuButton
                     isActive={pathname.startsWith(item.href)}
                     tooltip={{ children: item.label }}
-                    className="group-data-[collapsible=icon]:justify-center"
+                    className="group-hover:justify-start justify-center"
                   >
                     <item.icon className="group-data-[active=true]:text-sidebar-primary" />
-                    <span className="group-data-[active=true]:font-bold group-data-[active=true]:text-sidebar-primary">{item.label}</span>
+                    <span className="group-hover:inline-block hidden group-data-[active=true]:font-bold group-data-[active=true]:text-sidebar-primary">{item.label}</span>
                   </SidebarMenuButton>
                 </Link>
               </SidebarMenuItem>
@@ -142,22 +141,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <SidebarMenuButton
                         onClick={logout}
                         tooltip={{ children: 'Logout' }}
-                        className="group-data-[collapsible=icon]:justify-center"
+                        className="group-hover:justify-start justify-center"
                     >
                         <LogOut />
-                        <span>Logout</span>
+                        <span className="group-hover:inline-block hidden">Logout</span>
                     </SidebarMenuButton>
                  </SidebarMenuItem>
                  <SidebarMenuItem>
                     <div className="flex items-center justify-between p-2 rounded-md">
                         <div className="flex items-center gap-2">
                             <Moon/>
-                            <span className="text-sm group-data-[collapsible=icon]:hidden">Dark Mode</span>
+                            <span className="text-sm group-hover:inline-block hidden">Dark Mode</span>
                         </div>
                         <Switch
                           checked={theme === 'dark'}
                           onCheckedChange={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                          className="group-data-[collapsible=icon]:hidden"
+                          className="group-hover:inline-flex hidden"
                         />
                     </div>
                 </SidebarMenuItem>
