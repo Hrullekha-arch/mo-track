@@ -9,7 +9,8 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
-  SortingState
+  SortingState,
+  getFilteredRowModel
 } from "@tanstack/react-table";
 import { ArrowUpDown, CheckCircle, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, updateDoc, collectionGroup, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, collectionGroup, getDocs, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -31,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { setBalanceFollowUp } from "@/app/dashboard/all-orders/actions";
 
 interface O2DViewItem {
   dealId: string;
@@ -72,58 +74,62 @@ export function O2DTable() {
             const deals = dealsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, customerId: doc.ref.parent.parent!.id } as Deal & { customerId: string }));
             
             const customerPromises = deals.map(deal => getDocs(query(collection(db, 'customers'), where('__name__', '==', deal.customerId))));
-            const visitPromises = deals.map(deal => getDocs(query(collection(db, 'customers', deal.customerId, 'deals', deal.id, 'visits'))));
-            const quotationPromises = deals.map(deal => getDocs(query(collection(db, 'customers', deal.customerId, 'deals', deal.id, 'quotations'))));
-            const orderPromises = deals.map(deal => getDocs(query(collection(db, 'orders'), where('dealId', '==', deal.id))));
-            const purchaseRequestPromises = deals.map(deal => getDocs(query(collection(db, 'purchaseRequests'), where('dealId', '==', deal.crmOrderNo))));
-
-            const [
-                customerSnapshots,
-                visitSnapshots,
-                quotationSnapshots,
-                orderSnapshots,
-                purchaseRequestSnapshots
-            ] = await Promise.all([
-                Promise.all(customerPromises),
-                Promise.all(visitPromises),
-                Promise.all(quotationPromises),
-                Promise.all(orderPromises),
-                Promise.all(purchaseRequestPromises)
-            ]);
-
+            
+            const results = await Promise.all(deals.map(deal => {
+                const visitsQuery = query(collection(db, 'customers', deal.customerId, 'deals', deal.id, 'visits'));
+                const quotationsQuery = query(collection(db, 'customers', deal.customerId, 'deals', deal.id, 'quotations'));
+                const ordersQuery = query(collection(db, 'orders'), where('dealId', '==', deal.id));
+                const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('dealId', '==', deal.crmOrderNo));
+                
+                return Promise.all([
+                    getDocs(visitsQuery),
+                    getDocs(quotationsQuery),
+                    getDocs(ordersQuery),
+                    getDocs(purchaseRequestsQuery)
+                ]);
+            }));
+            
+            const customerSnapshots = await Promise.all(customerPromises);
             const customers = customerSnapshots.flat().reduce((acc, snap) => {
                 snap.forEach(doc => acc[doc.id] = doc.data() as Customer);
                 return acc;
             }, {} as Record<string, Customer>);
 
             const enrichedData = deals.map((deal, index) => {
-                const customer = customers[deal.customerId];
-                const visits = visitSnapshots[index].docs.map(d => d.data() as DealVisit);
-                const quotations = quotationSnapshots[index].docs.map(d => d.data() as Quotation);
-                const orders = orderSnapshots[index].docs.map(d => d.data() as Order);
-                const purchaseRequests = purchaseRequestSnapshots[index].docs.map(d => d.data() as PurchaseRequest);
+                const [
+                    visitSnapshots,
+                    quotationSnapshots,
+                    orderSnapshots,
+                    purchaseRequestSnapshots
+                ] = results[index];
 
-                let status = { text: 'Unknown', timestamp: deal.createdAt, user: deal.createdBy, isCompleted: false };
+                const customer = customers[deal.customerId];
+                const visits = visitSnapshots.docs.map(d => d.data() as DealVisit);
+                const quotations = quotationSnapshots.docs.map(d => d.data() as Quotation);
+                const orders = orderSnapshots.docs.map(d => d.data() as Order);
+                const purchaseRequests = purchaseRequestSnapshots.docs.map(d => d.data() as PurchaseRequest);
+
+                let status = { text: 'Unknown', timestamp: deal.createdAt, user: 'System', isCompleted: false };
+                const order = orders[0];
 
                 const latestVisit = visits.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
                 const latestQuotation = quotations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-                const order = orders[0]; // Assuming one order per deal for simplicity in this view
                 const purchaseRequest = purchaseRequests[0];
 
                 if (order?.milestones.find(m => m.id === 8)?.completed) {
-                    status = { text: 'Installation/Delivery Done', timestamp: order.milestones.find(m => m.id === 8)!.completedAt!, user: order.milestones.find(m => m.id === 8)!.completedBy!, isCompleted: true };
+                    status = { text: 'Installation/Delivery Done', timestamp: order.milestones.find(m => m.id === 8)!.completedAt!, user: order.milestones.find(m => m.id === 8)!.completedBy || 'System', isCompleted: true };
                 } else if (order?.milestones.find(m => m.id === 6 || m.id === 7)?.completed) {
-                     status = { text: 'Time Taken for Installation', timestamp: order.milestones.find(m => m.id === 6 || m.id === 7)!.completedAt!, user: order.milestones.find(m => m.id === 6 || m.id === 7)!.completedBy!, isCompleted: false };
+                     status = { text: 'Time Taken for Installation', timestamp: order.milestones.find(m => m.id === 6 || m.id === 7)!.completedAt!, user: order.milestones.find(m => m.id === 6 || m.id === 7)!.completedBy || 'System', isCompleted: false };
                 } else if (order?.milestones.find(m => m.id === 4)?.completed) {
-                    status = { text: 'Full Kitting Ready', timestamp: order.milestones.find(m => m.id === 4)!.completedAt!, user: order.milestones.find(m => m.id === 4)!.completedBy!, isCompleted: false };
+                    status = { text: 'Full Kitting Ready', timestamp: order.milestones.find(m => m.id === 4)!.completedAt!, user: order.milestones.find(m => m.id === 4)!.completedBy || 'System', isCompleted: false };
                 } else if (purchaseRequest?.status === 'Completed') {
-                     status = { text: 'Purchase Material Received', timestamp: purchaseRequest.completedAt!, user: purchaseRequest.completedBy!, isCompleted: false };
+                     status = { text: 'Purchase Material Received', timestamp: purchaseRequest.completedAt!, user: purchaseRequest.completedBy || 'System', isCompleted: false };
                 } else if (order?.status === 'Approved') {
-                     status = { text: 'Advance Received for Order', timestamp: order.approvedAt!, user: order.approvedBy?.name, isCompleted: false };
+                     status = { text: 'Advance Received for Order', timestamp: order.approvedAt!, user: order.approvedBy?.name || 'System', isCompleted: false };
                 } else if (latestQuotation?.status === 'Approved') {
-                     status = { text: 'Quotation Re-Check', timestamp: latestQuotation.approvedAt!, user: latestQuotation.approvedBy?.name, isCompleted: false };
+                     status = { text: 'Quotation Re-Check', timestamp: latestQuotation.approvedAt!, user: latestQuotation.approvedBy?.name || 'System', isCompleted: false };
                 } else if (latestQuotation) {
-                    status = { text: 'Quotation Making', timestamp: latestQuotation.createdAt, user: latestQuotation.createdBy, isCompleted: false };
+                    status = { text: 'Quotation Making', timestamp: latestQuotation.createdAt, user: latestQuotation.createdBy || 'System', isCompleted: false };
                 } else if (latestVisit) {
                     status = { text: 'Measurement (Coordinate to CRM)', timestamp: latestVisit.createdAt, user: latestVisit.createdBy, isCompleted: false };
                 } else {
@@ -141,7 +147,7 @@ export function O2DTable() {
                     originalDeal: deal,
                     originalOrder: order,
                 };
-            }).filter(item => !item.status.isCompleted); // Filter out fully completed deals
+            }).filter(item => !item.status.isCompleted);
 
             setViewData(enrichedData);
         } catch (err) {
@@ -156,7 +162,7 @@ export function O2DTable() {
         unsubscribeUsers();
         unsubscribe();
     }
-  }, [users, toast]);
+  }, [toast]);
 
   const handleFollowUp = async (orderId?: string) => {
     if (!orderId) {
@@ -164,8 +170,7 @@ export function O2DTable() {
         return;
     }
     try {
-        const orderRef = doc(db, 'orders', orderId);
-        await updateDoc(orderRef, { balanceFollowUp: true });
+        await setBalanceFollowUp(orderId);
         toast({title: 'Follow-up Marked', description: `Order ${orderId} has been marked for balance payment follow-up.`});
     } catch (error) {
         toast({variant: 'destructive', title: 'Update Failed'});
