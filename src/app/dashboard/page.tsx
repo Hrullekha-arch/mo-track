@@ -2,28 +2,129 @@
 "use client";
 
 import { Card, CardDescription, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { DollarSign, ShoppingCart, Users, Activity } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { DollarSign, ShoppingCart, Users, Activity, FileText, UserCog, Archive, GanttChartSquare, ClipboardList, CheckSquare } from "lucide-react";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { useEffect, useState } from "react";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Order } from "@/lib/types";
 
-const chartData = [
-  { month: "January", desktop: 186 },
-  { month: "February", desktop: 305 },
-  { month: "March", desktop: 237 },
-  { month: "April", desktop: 73 },
-  { month: "May", desktop: 209 },
-  { month: "June", desktop: 214 },
-];
+interface SummaryCardProps {
+    title: string;
+    description: string;
+    count: number | null;
+    href: string;
+    icon: React.ElementType;
+    loading: boolean;
+}
 
-const chartConfig = {
-  desktop: {
-    label: "Orders",
-    color: "hsl(var(--primary))",
-  },
+function SummaryCard({ title, description, count, href, icon: Icon, loading }: SummaryCardProps) {
+    return (
+        <Link href={href}>
+            <Card className="hover:bg-muted/50 hover:shadow-lg transition-all">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">{title}</CardTitle>
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                    {loading ? (
+                         <Skeleton className="h-7 w-12" />
+                    ) : (
+                        <div className="text-2xl font-bold">{count}</div>
+                    )}
+                    <p className="text-xs text-muted-foreground">{description}</p>
+                </CardContent>
+            </Card>
+        </Link>
+    )
 }
 
 export default function DashboardPage() {
+    const [o2dCount, setO2dCount] = useState<number | null>(null);
+    const [toBeReceivedCount, setToBeReceivedCount] = useState<number | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const ordersQuery = query(collection(db, "orders"));
+        const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
+            const ordersData = snapshot.docs.map(doc => doc.data() as Order);
+
+            const o2d = ordersData.filter(order => {
+                const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === 10);
+                return !finalO2DStep && order.isAcknowledged;
+            }).length;
+            setO2dCount(o2d);
+
+            const toBeReceived = ordersData.filter(order => {
+                const firstMilestone = order.milestones.find(m => m.id === 1);
+                return firstMilestone && !firstMilestone.completed && !order.isAcknowledged;
+            }).length;
+            setToBeReceivedCount(toBeReceived);
+
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching dashboard counts:", error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    const dashboardItems = [
+        {
+          title: "O2D",
+          description: "Pre-production workflow",
+          count: o2dCount,
+          href: "/dashboard/o2d",
+          icon: GanttChartSquare
+        },
+        {
+          title: "To Be Received",
+          description: "Acknowledge new orders",
+          count: toBeReceivedCount,
+          href: "/dashboard/pending",
+          icon: CheckSquare
+        },
+        {
+          title: "Orders Dashboard",
+          description: "Track all active orders",
+          count: null,
+          href: "/dashboard/orders",
+          icon: ClipboardList
+        },
+        {
+          title: "Purchase",
+          description: "Manage all procurement",
+          count: null,
+          href: "/dashboard/purchase",
+          icon: ShoppingCart
+        },
+        {
+          title: "Inbound",
+          description: "Manage incoming stock",
+          count: null,
+          href: "/dashboard/inbound",
+          icon: Archive
+        },
+        {
+          title: "Details",
+          description: "View detailed reports",
+          count: null,
+          href: "/dashboard/all-orders",
+          icon: Table
+        },
+        {
+          title: "User Management",
+          description: "Manage all accounts",
+          count: null,
+          href: "/dashboard/users",
+          icon: UserCog
+        }
+      ];
+
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <header className="mb-8">
@@ -31,126 +132,20 @@ export default function DashboardPage() {
                 <p className="text-muted-foreground">Welcome! Here's a summary of your operations.</p>
             </header>
 
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-6">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">₹45,231.89</div>
-                        <p className="text-xs text-muted-foreground">+20.1% from last month</p>
-                    </CardContent>
-                </Card>
-                 <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Active Orders</CardTitle>
-                        <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">+2350</div>
-                        <p className="text-xs text-muted-foreground">+180.1% from last month</p>
-                    </CardContent>
-                </Card>
-                 <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">New Customers</CardTitle>
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">+12</div>
-                        <p className="text-xs text-muted-foreground">+19% from last month</p>
-                    </CardContent>
-                </Card>
-                 <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Pending Tasks</CardTitle>
-                        <Activity className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">+573</div>
-                        <p className="text-xs text-muted-foreground">+201 since last hour</p>
-                    </CardContent>
-                </Card>
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-3">
-                <Card className="lg:col-span-2">
-                    <CardHeader>
-                        <CardTitle>Orders Overview</CardTitle>
-                        <CardDescription>A summary of orders over the last 6 months.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <ChartContainer config={chartConfig} className="h-[300px] w-full">
-                            <BarChart accessibilityLayer data={chartData}>
-                                <CartesianGrid vertical={false} />
-                                <XAxis
-                                dataKey="month"
-                                tickLine={false}
-                                tickMargin={10}
-                                axisLine={false}
-                                tickFormatter={(value) => value.slice(0, 3)}
-                                />
-                                <YAxis />
-                                <ChartTooltip content={<ChartTooltipContent />} />
-                                <Bar dataKey="desktop" fill="var(--color-desktop)" radius={4} />
-                            </BarChart>
-                        </ChartContainer>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Recent Activity</CardTitle>
-                        <CardDescription>Updates from your team and system.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex items-center gap-4">
-                             <Avatar>
-                                <AvatarImage src="https://placehold.co/100x100.png" data-ai-hint="avatar" />
-                                <AvatarFallback>SA</AvatarFallback>
-                            </Avatar>
-                            <div className="text-sm">
-                                <p className="font-medium">Sanjay Arora</p>
-                                <p className="text-muted-foreground">Marked "Stitching Done" for MOTRACK-1024</p>
-                            </div>
-                            <time className="ml-auto text-xs text-muted-foreground">5m ago</time>
-                        </div>
-                        <div className="flex items-center gap-4">
-                             <Avatar>
-                                <AvatarImage src="https://placehold.co/100x100.png" data-ai-hint="avatar" />
-                                <AvatarFallback>RK</AvatarFallback>
-                            </Avatar>
-                            <div className="text-sm">
-                                <p className="font-medium">Ravi Kumar</p>
-                                <p className="text-muted-foreground">Assigned to MOTRACK-1023</p>
-                            </div>
-                            <time className="ml-auto text-xs text-muted-foreground">1h ago</time>
-                        </div>
-                         <div className="flex items-center gap-4">
-                            <Avatar>
-                                <AvatarFallback>SY</AvatarFallback>
-                            </Avatar>
-                            <div className="text-sm">
-                                <p className="font-medium">System</p>
-                                <p className="text-muted-foreground">New order created from Sheet: MOTRACK-1025</p>
-                            </div>
-                            <time className="ml-auto text-xs text-muted-foreground">2h ago</time>
-                        </div>
-                         <div className="flex items-center gap-4">
-                            <Avatar>
-                                <AvatarImage src="https://placehold.co/100x100.png" data-ai-hint="avatar" />
-                                <AvatarFallback>VP</AvatarFallback>
-                            </Avatar>
-                            <div className="text-sm">
-                                <p className="font-medium">Vikas Patel</p>
-                                <p className="text-muted-foreground">Completed installation for MOTRACK-1020</p>
-                            </div>
-                            <time className="ml-auto text-xs text-muted-foreground">1d ago</time>
-                        </div>
-                    </CardContent>
-                </Card>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {dashboardItems.map(item => (
+                    <SummaryCard 
+                        key={item.title}
+                        title={item.title}
+                        description={item.description}
+                        count={item.count}
+                        href={item.href}
+                        icon={item.icon}
+                        loading={loading}
+                    />
+                ))}
             </div>
         </div>
     );
 }
+
