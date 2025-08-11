@@ -1,4 +1,5 @@
 
+
 import { type Milestone, type OrderType, type PurchaseStep, O2DStep, type ComboboxOption } from './types';
 import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart } from 'lucide-react';
 import { addDays, addHours, addMinutes } from 'date-fns';
@@ -339,24 +340,27 @@ export function getExpectedCompletionDate(step: O2DStep, startDate: Date): Date 
 }
 
 export const calculateExpectedDatesForOrder = (order: Order) => {
-    return O2D_PROCESS_CONFIG.reduce((acc, currentStep) => {
+    const expectedDates: Record<number, Date> = {};
+
+    O2D_PROCESS_CONFIG.forEach((currentStep, index) => {
         let startDate: Date;
-        if (currentStep.id === 1) {
+        if (index === 0) {
             startDate = order.createdAt ? new Date(order.createdAt) : new Date();
         } else {
-            const previousStepConfig = O2D_PROCESS_CONFIG.find(s => s.id === currentStep.id - 1);
-            if (!previousStepConfig) {
-                 startDate = new Date(); // Fallback
+            const prevStepConfig = O2D_PROCESS_CONFIG[index - 1];
+            const prevStepStatus = (order.o2dMilestones || []).find(m => m.stepId === prevStepConfig.id);
+
+            if (prevStepStatus && (prevStepStatus.status === 'completed' || prevStepStatus.status === 'skipped')) {
+                // If the previous step is done, the next one starts from its completion time.
+                startDate = new Date(prevStepStatus.completedAt);
             } else {
-                const previousStepStatus = (order.o2dMilestones || []).find(m => m.stepId === previousStepConfig.id);
-                if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
-                    startDate = new Date(previousStepStatus.completedAt);
-                } else {
-                    startDate = acc[previousStepConfig.id];
-                }
+                // If the previous step is not done, its start date is based on the one before it.
+                // We reference the already calculated expected date for the previous step.
+                startDate = expectedDates[prevStepConfig.id];
             }
         }
-        acc[currentStep.id] = getExpectedCompletionDate(currentStep, startDate);
-        return acc;
-    }, {} as Record<number, Date>);
+        expectedDates[currentStep.id] = getExpectedCompletionDate(currentStep, startDate);
+    });
+
+    return expectedDates;
 }
