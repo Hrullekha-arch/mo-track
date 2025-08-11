@@ -8,9 +8,9 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  getFilteredRowModel,
   useReactTable,
   SortingState,
-  getFilteredRowModel,
   ColumnFiltersState
 } from "@tanstack/react-table";
 import { ArrowUpDown, CheckCircle, MoreHorizontal } from "lucide-react";
@@ -25,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, updateDoc, collectionGroup, getDocs, where } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -103,17 +103,27 @@ export function O2DTable() {
                     getDocs(ordersQuery),
                 ]);
             }));
-
-            const allOrderIds = results.flatMap(res => res[2].docs.map(d => d.data().crmOrderNo)).filter(Boolean);
+            
+            const allOrderCrmNos = results.flatMap(res => res[2].docs.map(d => d.data().crmOrderNo)).filter(Boolean);
             let purchaseRequestsByOrder: Record<string, PurchaseRequest> = {};
 
-            if (allOrderIds.length > 0) {
-                const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('dealId', 'in', allOrderIds));
-                const purchaseRequestSnapshots = await getDocs(purchaseRequestsQuery);
-                purchaseRequestSnapshots.forEach(doc => {
-                    const pr = doc.data() as PurchaseRequest;
-                    purchaseRequestsByOrder[pr.dealId] = pr;
-                });
+            if (allOrderCrmNos.length > 0) {
+                 // Firestore 'in' queries are limited to 30 items. We might need to batch this.
+                 // For now, assuming the number of parallel lookups is reasonable.
+                 const prChunks = [];
+                 for (let i = 0; i < allOrderCrmNos.length; i += 10) {
+                     prChunks.push(allOrderCrmNos.slice(i, i + 10));
+                 }
+                 for (const chunk of prChunks) {
+                    if (chunk.length > 0) {
+                        const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('dealId', 'in', chunk));
+                        const purchaseRequestSnapshots = await getDocs(purchaseRequestsQuery);
+                        purchaseRequestSnapshots.forEach(doc => {
+                            const pr = doc.data() as PurchaseRequest;
+                            purchaseRequestsByOrder[pr.dealId] = pr;
+                        });
+                    }
+                 }
             }
 
             const enrichedData = deals.map((deal, index) => {
@@ -286,3 +296,5 @@ export function O2DTable() {
     </Card>
   );
 }
+
+    
