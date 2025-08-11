@@ -12,6 +12,7 @@ import InboundPage from "../inbound/page";
 import { UserManagement } from "@/components/features/user-management/UserManagement";
 import { O2DTable } from "@/components/features/order-management/O2DTable";
 import { PurchaseRequestTable } from "@/components/features/purchase/PurchaseRequestTable";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
 
 export default function AllOrdersPage() {
@@ -22,46 +23,49 @@ export default function AllOrdersPage() {
                 <p className="text-muted-foreground">A comprehensive view of all data and processes.</p>
             </header>
             <Tabs defaultValue="all-orders" className="w-full">
-                <TabsList className="grid w-full grid-cols-7">
-                    <TabsTrigger value="all-orders">All Orders</TabsTrigger>
-                    <TabsTrigger value="o2d">O2D</TabsTrigger>
-                    <TabsTrigger value="orders">Orders</TabsTrigger>
-                    <TabsTrigger value="purchase">Purchase</TabsTrigger>
-                    <TabsTrigger value="po-tracking">PO Tracking</TabsTrigger>
-                    <TabsTrigger value="inbound">Inbound</TabsTrigger>
-                    <TabsTrigger value="users">Users</TabsTrigger>
-                </TabsList>
-                <TabsContent value="all-orders">
+                <ScrollArea className="w-full whitespace-nowrap">
+                    <TabsList className="inline-flex h-auto">
+                        <TabsTrigger value="all-orders">All Orders</TabsTrigger>
+                        <TabsTrigger value="o2d">O2D</TabsTrigger>
+                        <TabsTrigger value="orders">Orders</TabsTrigger>
+                        <TabsTrigger value="purchase">Purchase</TabsTrigger>
+                        <TabsTrigger value="po-tracking">PO Tracking</TabsTrigger>
+                        <TabsTrigger value="inbound">Inbound</TabsTrigger>
+                        <TabsTrigger value="users">Users</TabsTrigger>
+                    </TabsList>
+                    <ScrollBar orientation="horizontal" />
+                </ScrollArea>
+                <TabsContent value="all-orders" className="mt-4">
                      <Suspense fallback={<AllOrdersSkeleton />}>
                         <AllOrdersTable />
                     </Suspense>
                 </TabsContent>
-                <TabsContent value="o2d">
+                <TabsContent value="o2d" className="mt-4">
                     <Suspense fallback={<AllOrdersSkeleton />}>
                         <O2DTable />
                     </Suspense>
                 </TabsContent>
-                 <TabsContent value="orders">
+                 <TabsContent value="orders" className="mt-4">
                     <Suspense fallback={<AllOrdersSkeleton />}>
                         <AllOrdersTable />
                     </Suspense>
                 </TabsContent>
-                 <TabsContent value="purchase">
+                 <TabsContent value="purchase" className="mt-4">
                     <Suspense fallback={<AllOrdersSkeleton />}>
                         <PurchaseRequestTable />
                     </Suspense>
                 </TabsContent>
-                 <TabsContent value="po-tracking">
+                 <TabsContent value="po-tracking" className="mt-4">
                      <Suspense fallback={<AllOrdersSkeleton />}>
                         <PurchaseRequestTable view="po-tracking" />
                     </Suspense>
                 </TabsContent>
-                 <TabsContent value="inbound">
+                 <TabsContent value="inbound" className="mt-4">
                      <Suspense fallback={<AllOrdersSkeleton />}>
                         <PurchaseRequestTable view="all" />
                     </Suspense>
                 </TabsContent>
-                 <TabsContent value="users">
+                 <TabsContent value="users" className="mt-4">
                     <UserManagement />
                 </TabsContent>
             </Tabs>
