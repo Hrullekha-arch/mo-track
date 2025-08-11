@@ -4,7 +4,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar as CalendarIcon, Download, BarChart2 } from "lucide-react";
+import { Calendar as CalendarIcon, Download, BarChart2, Wrench } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { useState, useEffect } from "react";
@@ -34,7 +34,7 @@ export default function ReportsPage() {
         <p className="text-muted-foreground">Generate and export various reports for sales, stock, and performance.</p>
       </div>
 
-      <Card>
+      <Card className="opacity-50 pointer-events-none">
         <CardHeader>
           <CardTitle>Generate a New Report</CardTitle>
           <CardDescription>Select the report type and filters to generate a report.</CardDescription>
@@ -43,7 +43,7 @@ export default function ReportsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-medium">Report Type</label>
-              <Select>
+              <Select disabled>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a report type" />
                 </SelectTrigger>
@@ -64,6 +64,7 @@ export default function ReportsPage() {
                   <Button
                     variant={"outline"}
                     className="w-full justify-start text-left font-normal"
+                    disabled
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {date?.from ? (
@@ -95,7 +96,7 @@ export default function ReportsPage() {
 
             <div className="space-y-2">
                 <label className="text-sm font-medium">Filter by User</label>
-                <Select>
+                <Select disabled>
                     <SelectTrigger>
                         <SelectValue placeholder="Select a user (optional)" />
                     </SelectTrigger>
@@ -109,17 +110,17 @@ export default function ReportsPage() {
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" disabled><BarChart2 className="mr-2 h-4 w-4" /> View Report (Soon)</Button>
-            <Button disabled><Download className="mr-2 h-4 w-4" /> Download CSV (Soon)</Button>
+            <Button variant="outline" disabled><BarChart2 className="mr-2 h-4 w-4" /> View Report</Button>
+            <Button disabled><Download className="mr-2 h-4 w-4" /> Download CSV</Button>
           </div>
         </CardContent>
       </Card>
 
       <div className="mt-8 p-12 border-2 border-dashed rounded-lg text-center">
-        <BarChart2 className="mx-auto h-12 w-12 text-muted-foreground" />
-        <h3 className="mt-4 text-lg font-semibold">Report results will appear here</h3>
+        <Wrench className="mx-auto h-12 w-12 text-muted-foreground" />
+        <h3 className="mt-4 text-lg font-semibold">Feature Under Development</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Reporting features are under development and will be available soon.
+          The reporting feature is currently being built and will be available soon.
         </p>
       </div>
     </div>
