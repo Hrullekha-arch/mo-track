@@ -2,7 +2,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DollarSign, ShoppingCart, Users, Activity, FileText, UserCog, Archive, GanttChartSquare, ClipboardList, CheckSquare, Table, Truck, FileSignature, Scissors, CalendarCheck } from "lucide-react";
+import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where, collectionGroup, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
