@@ -43,7 +43,6 @@ import Image from "next/image";
 
 const allNavItems = [
   { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee'] },
-  { href: "/dashboard/o2d", icon: Truck, label: "O2D", roles: ['admin', 'employee'] },
   { href: "/dashboard/pending", icon: CheckSquare, label: "To Be Received", roles: ['admin', 'employee'] },
   { href: "/dashboard/orders", icon: ClipboardList, label: "Orders Dashboard", roles: ['admin', 'employee'] },
   { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
@@ -53,7 +52,6 @@ const allNavItems = [
   { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
   { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
   { href: "/dashboard/invoice", icon: FileText, label: "Invoice", roles: ['admin', 'Accounts', 'employee'] },
-  { href: "/dashboard/pms", icon: GanttChartSquare, label: "PMS", roles: ['admin', 'employee'] },
   { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin'] },
   { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin', 'employee'] },
   { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },
