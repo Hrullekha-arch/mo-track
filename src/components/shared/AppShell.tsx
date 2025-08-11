@@ -35,6 +35,7 @@ import {
   Scissors,
   ClipboardList,
   UserCog,
+  CalendarCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -60,7 +61,7 @@ const allNavItems = [
   { href: "/dashboard/pending", icon: CheckSquare, label: "To Be Received", roles: ['admin', 'employee'] },
   { href: "/dashboard/orders", icon: ClipboardList, label: "Orders Dashboard", roles: ['admin', 'employee'] },
   { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
-  { href: "/dashboard/visits", icon: Users, label: "Visits", roles: ['admin', 'employee'] },
+  { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
   { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts', 'employee'] },
   { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
   { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
@@ -84,8 +85,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       
       if (role === 'admin') return true;
 
+      // Filter out pages that are not relevant for certain employee roles
       if (role === 'employee' || role === 'Accounts') {
-        return !['/dashboard/all-orders', '/dashboard/reports', '/dashboard/users', '/dashboard/pms', '/dashboard/o2d'].includes(item.href)
+        const restrictedPaths = ['/dashboard/all-orders', '/dashboard/reports', '/dashboard/users'];
+        return !restrictedPaths.includes(item.href)
       }
       
       if (role === 'installer') {
