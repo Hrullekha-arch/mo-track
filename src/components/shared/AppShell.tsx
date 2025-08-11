@@ -8,14 +8,6 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   LogOut,
   Smartphone,
   BarChartHorizontalBig,
@@ -51,6 +43,7 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarProvider,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Separator } from "../ui/separator";
 import { Switch } from "../ui/switch";
@@ -61,7 +54,13 @@ const allNavItems = [
   { href: "/dashboard/orders", icon: ClipboardList, label: "Orders", roles: ['admin', 'employee'] },
   { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
   { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
+  { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
+  { href: "/dashboard/invoice", icon: FileText, label: "Invoice", roles: ['admin', 'employee'] },
+  { href: "/dashboard/cutting", icon: Scissors, label: "Cutting & Details", roles: ['admin', 'employee'] },
+  { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
   { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
+  { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin', 'employee'] },
+  { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin', 'employee'] },
   { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts', 'employee'] },
   { href: "/dashboard/users", icon: UserCog, label: "Users", roles: ['admin', 'employee'] },
   { href: "/mobile", icon: Smartphone, label: "Mobile View", roles: ['installer'] },
@@ -97,10 +96,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar>
         <SidebarHeader>
           <div className="p-4 flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="text-sidebar-foreground hover:bg-sidebar-accent">
-                <ShoppingCart className="text-sidebar-primary" />
-            </Button>
-            <h1 className="text-lg font-bold text-sidebar-foreground">SHOPPING</h1>
+            <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} />
+            <h1 className="text-lg font-bold text-sidebar-foreground group-data-[collapsible=icon]:hidden">MoTrack</h1>
+            <div className="flex-grow" />
+            <SidebarTrigger className="group-data-[collapsible=icon]:hidden" />
           </div>
         </SidebarHeader>
 
@@ -123,7 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <SidebarMenuItem key={item.href}>
                 <Link href={item.href}>
                   <SidebarMenuButton
-                    isActive={pathname === item.href}
+                    isActive={pathname.startsWith(item.href)}
                     tooltip={{ children: item.label }}
                     className="group-data-[collapsible=icon]:justify-center"
                   >
