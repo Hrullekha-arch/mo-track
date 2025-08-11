@@ -37,17 +37,17 @@ import Image from "next/image";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarProvider,
-  SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Separator } from "../ui/separator";
 import { Switch } from "../ui/switch";
 import { useTheme } from "next-themes";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui/dropdown-menu";
+import { Label } from "../ui/label";
 
 const allNavItems = [
   { href: "/dashboard", icon: Home, label: "Dashboard", roles: ['admin', 'employee'] },
@@ -102,21 +102,44 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </SidebarHeader>
 
-        <SidebarContent className="p-4">
-            <div className="flex items-center gap-3 mb-4">
-                 <Avatar className="h-10 w-10">
-                    <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
-                    <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
-                </Avatar>
-                 <div className="text-left opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                    <p className="font-semibold text-sm text-sidebar-foreground">{user?.name}</p>
-                    <p className="text-xs text-muted-foreground">{user?.email}</p>
-                </div>
+        <SidebarContent>
+            <div className="px-4 pb-4">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <button className="flex items-center gap-3 text-left w-full">
+                            <Avatar className="h-10 w-10">
+                                <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
+                                <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                            </Avatar>
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                <p className="font-semibold text-sm text-sidebar-foreground">{user?.name}</p>
+                                <p className="text-xs text-muted-foreground">{user?.email}</p>
+                            </div>
+                        </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="right" align="start" className="w-56">
+                        <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="flex justify-between items-center focus:bg-transparent">
+                            <Label htmlFor="dark-mode-switch">Dark Mode</Label>
+                             <Switch
+                                id="dark-mode-switch"
+                                checked={theme === 'dark'}
+                                onCheckedChange={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                            />
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={logout} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+                           <LogOut className="mr-2 h-4 w-4" />
+                           <span>Logout</span>
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
 
-            <Separator className="my-4 bg-sidebar-border"/>
+            <Separator className="mb-4 bg-sidebar-border"/>
           
-          <SidebarMenu>
+          <SidebarMenu className="px-4">
             {navItemsForUser.map((item) => (
               <SidebarMenuItem key={item.href}>
                 <Link href={item.href}>
@@ -133,35 +156,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ))}
           </SidebarMenu>
         </SidebarContent>
-
-        <SidebarFooter className="p-4">
-             <Separator className="my-4 bg-sidebar-border"/>
-            <SidebarMenu>
-                 <SidebarMenuItem>
-                    <SidebarMenuButton
-                        onClick={logout}
-                        tooltip={{ children: 'Logout' }}
-                        className="group-hover:justify-start justify-center"
-                    >
-                        <LogOut />
-                        <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">Logout</span>
-                    </SidebarMenuButton>
-                 </SidebarMenuItem>
-                 <SidebarMenuItem>
-                    <div className="flex items-center justify-between p-2 rounded-md">
-                        <div className="flex items-center gap-2">
-                            <Moon/>
-                            <span className="text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200">Dark Mode</span>
-                        </div>
-                        <Switch
-                          checked={theme === 'dark'}
-                          onCheckedChange={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                        />
-                    </div>
-                </SidebarMenuItem>
-            </SidebarMenu>
-        </SidebarFooter>
       </Sidebar>
 
       <main className="flex-1">
