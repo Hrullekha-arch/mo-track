@@ -187,6 +187,7 @@ export function CuttingScannerComponent() {
                 if (err && !(err instanceof NotFoundException)) {
                     console.error('ZXing Decode Error:', err);
                 } else if (err) {
+                    // This log is very helpful for debugging if the camera is working but not detecting.
                     console.log('No barcode detected in frame.');
                 }
             }).catch(err => {
