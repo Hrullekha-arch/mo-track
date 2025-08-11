@@ -58,11 +58,10 @@ import {
 
 const allNavItems = [
   { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee'] },
-  { href: "/dashboard/pending", icon: CheckSquare, label: "To Be Received", roles: ['admin', 'employee'] },
-  { href: "/dashboard/orders", icon: ClipboardList, label: "Orders Dashboard", roles: ['admin', 'employee'] },
-  { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
-  { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
   { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts', 'employee'] },
+  { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
+  { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
+  { href: "/dashboard/orders", icon: ClipboardList, label: "Orders", roles: ['admin', 'employee'] },
   { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
   { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
   { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
@@ -85,7 +84,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       
       if (role === 'admin') return true;
 
-      // Filter out pages that are not relevant for certain employee roles
       if (role === 'employee' || role === 'Accounts') {
         const restrictedPaths = ['/dashboard/all-orders', '/dashboard/reports', '/dashboard/users'];
         return !restrictedPaths.includes(item.href)
@@ -100,8 +98,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [role]);
 
   return (
-    <SidebarProvider>
-      <Sidebar>
+    <SidebarProvider defaultOpen={false}>
+      <Sidebar collapsible="icon">
         <SidebarHeader>
           <div className="p-2">
             <Link href="/dashboard" className="flex items-center gap-2 text-lg font-semibold">
@@ -160,7 +158,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <SidebarInset>
         <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b bg-background px-4 md:justify-end">
             <SidebarTrigger className="md:hidden" />
-            {/* You can add breadcrumbs or other header content here if needed */}
         </header>
         {children}
       </SidebarInset>
