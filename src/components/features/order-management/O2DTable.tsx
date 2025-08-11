@@ -71,29 +71,38 @@ export function O2DTable() {
     const unsubscribe = onSnapshot(dealsQuery, async (dealsSnapshot) => {
         setLoading(true);
         try {
-            const deals = dealsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, customerId: doc.ref.parent.parent!.id } as Deal & { customerId: string }));
+            const deals = dealsSnapshot.docs.map(doc => {
+                const parentPath = doc.ref.parent.parent?.path;
+                if (!parentPath) return null;
+                return { 
+                    ...doc.data(), 
+                    id: doc.id, 
+                    customerId: parentPath.split('/')[1] 
+                } as Deal & { customerId: string }
+            }).filter(Boolean) as (Deal & { customerId: string })[];
             
-            const customerPromises = deals.map(deal => getDocs(query(collection(db, 'customers'), where('__name__', '==', deal.customerId))));
-            
+            const customerPromises = deals.map(deal => getDoc(doc(db, 'customers', deal.customerId)));
+            const customerSnapshots = await Promise.all(customerPromises);
+            const customers = customerSnapshots.reduce((acc, snap) => {
+                if (snap.exists()) {
+                    acc[snap.id] = snap.data() as Customer;
+                }
+                return acc;
+            }, {} as Record<string, Customer>);
+
             const results = await Promise.all(deals.map(deal => {
                 const visitsQuery = query(collection(db, 'customers', deal.customerId, 'deals', deal.id, 'visits'));
                 const quotationsQuery = query(collection(db, 'customers', deal.customerId, 'deals', deal.id, 'quotations'));
                 const ordersQuery = query(collection(db, 'orders'), where('dealId', '==', deal.id));
-                const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('dealId', '==', deal.crmOrderNo));
+                const purchaseRequestsQuery = deal.crmOrderNo ? query(collection(db, 'purchaseRequests'), where('dealId', '==', deal.crmOrderNo)) : null;
                 
                 return Promise.all([
                     getDocs(visitsQuery),
                     getDocs(quotationsQuery),
                     getDocs(ordersQuery),
-                    getDocs(purchaseRequestsQuery)
+                    purchaseRequestsQuery ? getDocs(purchaseRequestsQuery) : Promise.resolve({ docs: [] })
                 ]);
             }));
-            
-            const customerSnapshots = await Promise.all(customerPromises);
-            const customers = customerSnapshots.flat().reduce((acc, snap) => {
-                snap.forEach(doc => acc[doc.id] = doc.data() as Customer);
-                return acc;
-            }, {} as Record<string, Customer>);
 
             const enrichedData = deals.map((deal, index) => {
                 const [
@@ -104,6 +113,8 @@ export function O2DTable() {
                 ] = results[index];
 
                 const customer = customers[deal.customerId];
+                if (!customer) return null; // Skip if customer data is missing
+
                 const visits = visitSnapshots.docs.map(d => d.data() as DealVisit);
                 const quotations = quotationSnapshots.docs.map(d => d.data() as Quotation);
                 const orders = orderSnapshots.docs.map(d => d.data() as Order);
@@ -147,9 +158,9 @@ export function O2DTable() {
                     originalDeal: deal,
                     originalOrder: order,
                 };
-            }).filter(item => !item.status.isCompleted);
+            }).filter(Boolean) as O2DViewItem[];
 
-            setViewData(enrichedData);
+            setViewData(enrichedData.filter(item => !item.status.isCompleted));
         } catch (err) {
             console.error(err);
             toast({variant: 'destructive', title: 'Error loading O2D data'});
@@ -162,7 +173,7 @@ export function O2DTable() {
         unsubscribeUsers();
         unsubscribe();
     }
-  }, [toast]);
+  }, [toast, users]);
 
   const handleFollowUp = async (orderId?: string) => {
     if (!orderId) {
