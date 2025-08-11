@@ -1,7 +1,8 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import * as React from "react";
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -197,6 +198,7 @@ export function CuttingScannerComponent() {
         stream?.getTracks().forEach(track => track.stop());
         codeReaderRef.current.reset();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -204,17 +206,22 @@ export function CuttingScannerComponent() {
       videoRef.current.srcObject = stream;
       videoRef.current.onloadedmetadata = () => {
         if (videoRef.current) {
-            videoRef.current.play();
-    
+          videoRef.current.play();
+  
+          // Ensure video is playing before starting to decode
+          if (videoRef.current.videoWidth > 0) {
+            console.log('Scanner starting...');
             const codeReader = codeReaderRef.current;
             codeReader.decodeFromVideoDevice(undefined, videoRef.current, (result, err) => {
               if (result) {
+                console.log('Barcode detected:', result.getText());
                 handleScan(result.getText());
               }
               if (err && !(err instanceof NotFoundException)) {
                 console.error("ZXing Decode Error:", err);
               }
             });
+          }
         }
       };
     }
