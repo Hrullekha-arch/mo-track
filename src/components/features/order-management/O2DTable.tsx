@@ -10,7 +10,8 @@ import {
   getSortedRowModel,
   useReactTable,
   SortingState,
-  getFilteredRowModel
+  getFilteredRowModel,
+  ColumnFiltersState
 } from "@tanstack/react-table";
 import { ArrowUpDown, CheckCircle, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { collection, onSnapshot, query, doc, updateDoc, collectionGroup, getDocs, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest } from "@/lib/types";
+import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
@@ -57,6 +58,7 @@ export function O2DTable() {
   const [loading, setLoading] = React.useState(true);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
 
   const { toast } = useToast();
   
@@ -89,43 +91,52 @@ export function O2DTable() {
                 }
                 return acc;
             }, {} as Record<string, Customer>);
-
+            
             const results = await Promise.all(deals.map(deal => {
                 const visitsQuery = query(collection(db, 'customers', deal.customerId, 'deals', deal.id, 'visits'));
                 const quotationsQuery = query(collection(db, 'customers', deal.customerId, 'deals', deal.id, 'quotations'));
                 const ordersQuery = query(collection(db, 'orders'), where('dealId', '==', deal.id));
-                const purchaseRequestsQuery = deal.crmOrderNo ? query(collection(db, 'purchaseRequests'), where('dealId', '==', deal.crmOrderNo)) : null;
                 
                 return Promise.all([
                     getDocs(visitsQuery),
                     getDocs(quotationsQuery),
                     getDocs(ordersQuery),
-                    purchaseRequestsQuery ? getDocs(purchaseRequestsQuery) : Promise.resolve({ docs: [] })
                 ]);
             }));
+
+            const allOrderIds = results.flatMap(res => res[2].docs.map(d => d.data().crmOrderNo)).filter(Boolean);
+            let purchaseRequestsByOrder: Record<string, PurchaseRequest> = {};
+
+            if (allOrderIds.length > 0) {
+                const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('dealId', 'in', allOrderIds));
+                const purchaseRequestSnapshots = await getDocs(purchaseRequestsQuery);
+                purchaseRequestSnapshots.forEach(doc => {
+                    const pr = doc.data() as PurchaseRequest;
+                    purchaseRequestsByOrder[pr.dealId] = pr;
+                });
+            }
 
             const enrichedData = deals.map((deal, index) => {
                 const [
                     visitSnapshots,
                     quotationSnapshots,
                     orderSnapshots,
-                    purchaseRequestSnapshots
                 ] = results[index];
 
                 const customer = customers[deal.customerId];
-                if (!customer) return null; // Skip if customer data is missing
+                if (!customer) return null;
 
                 const visits = visitSnapshots.docs.map(d => d.data() as DealVisit);
                 const quotations = quotationSnapshots.docs.map(d => d.data() as Quotation);
                 const orders = orderSnapshots.docs.map(d => d.data() as Order);
-                const purchaseRequests = purchaseRequestSnapshots.docs.map(d => d.data() as PurchaseRequest);
+                
+                const order = orders[0];
+                const purchaseRequest = order ? purchaseRequestsByOrder[order.crmOrderNo] : undefined;
 
                 let status = { text: 'Unknown', timestamp: deal.createdAt, user: 'System', isCompleted: false };
-                const order = orders[0];
 
                 const latestVisit = visits.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
                 const latestQuotation = quotations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-                const purchaseRequest = purchaseRequests[0];
 
                 if (order?.milestones.find(m => m.id === 8)?.completed) {
                     status = { text: 'Installation/Delivery Done', timestamp: order.milestones.find(m => m.id === 8)!.completedAt!, user: order.milestones.find(m => m.id === 8)!.completedBy || 'System', isCompleted: true };
@@ -173,7 +184,7 @@ export function O2DTable() {
         unsubscribeUsers();
         unsubscribe();
     }
-  }, [toast, users]);
+  }, [toast]);
 
   const handleFollowUp = async (orderId?: string) => {
     if (!orderId) {
@@ -222,8 +233,8 @@ export function O2DTable() {
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    onGlobalFilterChange: setGlobalFilter,
-    state: { sorting, globalFilter },
+    onColumnFiltersChange: setColumnFilters,
+    state: { sorting, columnFilters },
   });
 
   return (
@@ -236,8 +247,10 @@ export function O2DTable() {
         <div className="flex items-center py-4">
           <Input
             placeholder="Filter customers..."
-            value={globalFilter}
-            onChange={(event) => setGlobalFilter(event.target.value)}
+            value={(table.getColumn('customerName')?.getFilterValue() as string) ?? ''}
+            onChange={(event) =>
+                table.getColumn('customerName')?.setFilterValue(event.target.value)
+            }
             className="max-w-sm"
           />
         </div>
