@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, CheckCircle, Loader2, XCircle, AlertTriangle, CameraOff } from 'lucide-react';
 import Link from 'next/link';
-import { BrowserMultiFormatReader, NotFoundException, BarcodeFormat } from '@zxing/library';
+import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -50,7 +50,7 @@ export function CuttingScannerComponent() {
   const { toast } = useToast();
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const codeReaderRef = useRef(new BrowserMultiFormatReader(new Map([[BarcodeFormat.CODE_128, {}]])));
+  const codeReaderRef = useRef(new BrowserMultiFormatReader());
   
   const taskId = searchParams.get('taskId');
   const targetBcn = searchParams.get('bcn');
@@ -192,31 +192,28 @@ export function CuttingScannerComponent() {
         stream?.getTracks().forEach(track => track.stop());
         codeReaderRef.current.reset();
     };
-  }, []); // Run only once on mount
+  }, []);
 
   useEffect(() => {
     if (stream && videoRef.current && hasCameraPermission) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-
+      videoRef.current.srcObject = stream;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current!.play();
+  
         const codeReader = codeReaderRef.current;
-        codeReader.decodeFromVideoElement(videoRef.current, (result, err) => {
-            if (result) {
-                handleScan(result.getText());
-            }
-            if (err && !(err instanceof NotFoundException)) {
-                console.error('ZXing Decode Error:', err);
-            } else if (err) {
-                // This log is helpful for debugging if the camera is working but not detecting.
-                console.log('No barcode detected in frame.');
-            }
-        }).catch(err => {
-            console.error("Scanner decode error:", err);
+        codeReader.decodeFromVideoDevice(null, videoRef.current!, (result, err) => {
+          if (result) {
+            handleScan(result.getText());
+          }
+          if (err && !(err instanceof NotFoundException)) {
+            console.error("ZXing Decode Error:", err);
+          }
         });
+      };
     }
-
+  
     return () => {
-        codeReaderRef.current.reset();
+      codeReaderRef.current.reset();
     };
   }, [stream, hasCameraPermission, handleScan]);
 
