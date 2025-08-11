@@ -35,9 +35,8 @@ const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md p-0" hideCloseButton>
-        <DialogHeader>
+        <DialogHeader className="p-4 pb-0">
             <DialogTitle>Scan Result</DialogTitle>
-            <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
         <div className={cn("flex flex-col items-center justify-center p-8 rounded-lg text-center space-y-4")}>
           <Icon className={cn("h-20 w-20", iconColor)} />
@@ -204,17 +203,19 @@ export function CuttingScannerComponent() {
     if (stream && videoRef.current && hasCameraPermission) {
       videoRef.current.srcObject = stream;
       videoRef.current.onloadedmetadata = () => {
-        videoRef.current!.play();
-  
-        const codeReader = codeReaderRef.current;
-        codeReader.decodeFromVideoDevice(undefined, videoRef.current!, (result, err) => {
-          if (result) {
-            handleScan(result.getText());
-          }
-          if (err && !(err instanceof NotFoundException)) {
-            console.error("ZXing Decode Error:", err);
-          }
-        });
+        if (videoRef.current) {
+            videoRef.current.play();
+    
+            const codeReader = codeReaderRef.current;
+            codeReader.decodeFromVideoDevice(undefined, videoRef.current, (result, err) => {
+              if (result) {
+                handleScan(result.getText());
+              }
+              if (err && !(err instanceof NotFoundException)) {
+                console.error("ZXing Decode Error:", err);
+              }
+            });
+        }
       };
     }
   
