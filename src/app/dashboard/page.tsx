@@ -55,14 +55,6 @@ const dashboardItems = [
         color: "bg-green-500",
         id: "purchase"
     },
-    {
-        href: "/dashboard/po-tracking",
-        title: "PO to Order Receive",
-        description: "Track items from PO generation to receipt.",
-        icon: PackageCheck,
-        color: "bg-teal-500",
-        id: "po-tracking"
-    },
      {
         href: "/dashboard/inbound",
         title: "Inbound",
@@ -87,14 +79,6 @@ const dashboardItems = [
         color: "bg-sky-500",
         id: "invoice"
     },
-     {
-        href: "/dashboard/pms",
-        title: "PMS",
-        description: "Project management and timeline tracking.",
-        icon: GanttChartSquare,
-        color: "bg-cyan-500",
-        id: "pms"
-    },
     {
         href: "/dashboard/cutting",
         title: "Cutting & Details",
@@ -110,14 +94,6 @@ const dashboardItems = [
         icon: Users,
         color: "bg-purple-500",
         id: "users"
-    },
-    {
-        href: "/dashboard/o2d",
-        title: "O2D (Order 2 Delivery)",
-        description: "Visualize the end-to-end order process.",
-        icon: Truck,
-        color: "bg-orange-500",
-        id: "o2d"
     },
     {
         href: "/dashboard/all-orders",
