@@ -14,7 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ArrowLeft, CheckCircle, Loader2, XCircle, AlertTriangle, CameraOff } from 'lucide-react';
 import Link from 'next/link';
 import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 
@@ -35,6 +35,10 @@ const ScanResultPopup = ({ result, isOpen, onOpenChange }: { result: ScanResult 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md p-0" hideCloseButton>
+        <DialogHeader className="sr-only">
+            <DialogTitle>Scan Result</DialogTitle>
+            <DialogDescription>{message}</DialogDescription>
+        </DialogHeader>
         <div className={cn("flex flex-col items-center justify-center p-8 rounded-lg text-center space-y-4")}>
           <Icon className={cn("h-20 w-20", iconColor)} />
           <p className="text-xl font-bold">{message}</p>
@@ -201,7 +205,7 @@ export function CuttingScannerComponent() {
         videoRef.current!.play();
   
         const codeReader = codeReaderRef.current;
-        codeReader.decodeFromVideoDevice(null, videoRef.current!, (result, err) => {
+        codeReader.decodeFromVideoDevice(undefined, videoRef.current!, (result, err) => {
           if (result) {
             handleScan(result.getText());
           }
