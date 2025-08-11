@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem, VasDetail, OrderType } from "@/lib/types";
+import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem, VasDetail, OrderType, Order } from "@/lib/types";
 import React, { useEffect, useState, useMemo } from "react";
 import { getCustomerById } from "@/app/dashboard/customers/actions";
 import { getDealById, getQuotationsForDeal, createDealOrderAction } from "./actions";
@@ -30,6 +30,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useAuth } from "@/context/AuthContext";
 import { DialogFooter } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { ConfirmOrderTypeDialog } from "@/components/features/order-management/ConfirmOrderTypeDialog";
 
 const productSchema = z.object({
   id: z.string().optional(),
@@ -79,7 +80,6 @@ const convertToOrderSchema = z.object({
   orderRemark: z.string().optional(),
   billingName: z.string().optional(),
   addVas: z.boolean().optional(),
-  orderType: z.enum(['delivery', 'stitching', 'stitching+installation'], { required_error: "Order type is required" }),
 });
 
 type ConvertToOrderFormValues = z.infer<typeof convertToOrderSchema>;
@@ -95,6 +95,8 @@ function ConvertToOrderContent() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quotation, setQuotation] = useState<Quotation | null>(null);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [dataForConfirmation, setDataForConfirmation] = useState<Quotation | null>(null);
 
   const { toast } = useToast();
   
@@ -127,7 +129,6 @@ function ConvertToOrderContent() {
       orderRemark: "",
       billingName: "",
       addVas: false,
-      orderType: 'stitching',
     }
   });
 
@@ -270,22 +271,29 @@ function ConvertToOrderContent() {
     form.reset({ ...form.getValues(), addProduct: { collectionBrand: "", serialNo: "", description: "", quantity: "", rate: "", discountPercent: "", discAmt: "", value: false, room: "", noOfPcs: "", remark: "", info1: "", info2: "" } });
   };
 
-  const onSubmit = async (data: ConvertToOrderFormValues) => {
-    if (!customerId || !dealId || !user || !quotation) return;
+  const onSubmit = (data: ConvertToOrderFormValues) => {
+    if (!quotation) return;
+
+    const updatedQuotationData: Quotation = {
+      ...quotation,
+      items: data.products.map(p => ({
+        ...p,
+        discountPercent: Number(p.discountPercent) || 0,
+      })),
+      vasDetails: data.vasDetails,
+      billingName: data.billingName,
+      totalAmount: totals.grandTotal,
+    };
+
+    setDataForConfirmation(updatedQuotationData);
+    setIsConfirmOpen(true);
+  };
+
+  const handleConfirmAndCreateOrder = async (order: Order, orderType: OrderType) => {
+    if (!customerId || !dealId || !user || !dataForConfirmation) return;
     setIsSubmitting(true);
     try {
-        const updatedQuotation: Quotation = {
-            ...quotation,
-            items: data.products.map(p => ({
-                ...p,
-                discountPercent: Number(p.discountPercent) || 0,
-            })),
-            vasDetails: data.vasDetails,
-            billingName: data.billingName,
-            totalAmount: totals.grandTotal, 
-        };
-
-      const result = await createDealOrderAction(customerId, dealId, updatedQuotation, { id: user.id, name: user.name }, data.orderType);
+      const result = await createDealOrderAction(customerId, dealId, dataForConfirmation, { id: user.id, name: user.name }, orderType);
 
       if (result.success) {
         toast({ title: "Order Created!", description: "The sales order has been sent for approval." });
@@ -298,14 +306,17 @@ function ConvertToOrderContent() {
       toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred.' });
     } finally {
       setIsSubmitting(false);
+      setIsConfirmOpen(false);
     }
-  };
+  }
+
 
   if (loading) {
     return <Skeleton className="h-96 w-full" />;
   }
 
   return (
+      <>
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
@@ -446,28 +457,6 @@ function ConvertToOrderContent() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <FormField control={form.control} name="orderRemark" render={({ field }) => (<FormItem><FormLabel>Order Remark</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
             <FormField control={form.control} name="billingName" render={({ field }) => (<FormItem><FormLabel>Billing Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-             <FormField
-                control={form.control}
-                name="orderType"
-                render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Order Type*</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select an order type" />
-                                </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                                <SelectItem value="delivery">Delivery</SelectItem>
-                                <SelectItem value="stitching">Stitching</SelectItem>
-                                <SelectItem value="stitching+installation">Stitching + Installation</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        <FormMessage />
-                    </FormItem>
-                )}
-            />
           </div>
 
           <FormField
@@ -518,6 +507,16 @@ function ConvertToOrderContent() {
         </form>
       </FormProvider>
     </div>
+    {quotation && (
+    <ConfirmOrderTypeDialog
+        isOpen={isConfirmOpen}
+        onClose={() => setIsConfirmOpen(false)}
+        // The dialog expects an order, but we can pass a simplified version
+        order={{ ...quotation, orderType: 'stitching', milestones: [], createdAt: '', isAcknowledged: false } as Order}
+        onConfirm={handleConfirmAndCreateOrder}
+    />
+    )}
+    </>
   );
 }
 
