@@ -23,10 +23,15 @@ import {
   ClipboardList,
   UserCog,
   CalendarCheck,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { Separator } from "../ui/separator";
+import { useTheme } from "next-themes";
+import { Switch } from "../ui/switch";
+import { Label } from "../ui/label";
 
 const navItems = [
     { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee', 'Accounts'] },
@@ -46,6 +51,7 @@ const navItems = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout, role } = useAuth();
+  const { theme, setTheme } = useTheme();
   const pathname = usePathname();
 
   const navItemsForUser = React.useMemo(() => {
@@ -75,8 +81,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
             ))}
         </nav>
-        <div className="p-2 border-t">
-          <div className="flex items-center gap-3">
+        <div className="p-2 border-t space-y-2">
+           <div className="flex items-center p-2 justify-between">
+                <Label htmlFor="dark-mode-toggle" className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center gap-2">
+                  <Moon className="h-5 w-5" /> Dark Mode
+                </Label>
+                 <Switch
+                    id="dark-mode-toggle"
+                    checked={theme === 'dark'}
+                    onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                />
+           </div>
+           <Separator />
+          <div className="flex items-center gap-3 p-1">
             <Avatar className="h-9 w-9">
               <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
               <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>

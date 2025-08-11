@@ -24,11 +24,16 @@ export default function RootLayout({
         <meta name="theme-color" content="#2563eb" />
       </head>
       <body className="font-body antialiased">
-        <ThemeProvider attribute="class" defaultTheme="light">
-            <AuthProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <AuthProvider>
             {children}
             <Toaster />
-            </AuthProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
