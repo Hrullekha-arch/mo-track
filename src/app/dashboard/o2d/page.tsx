@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
@@ -30,6 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { setBalanceFollowUp } from '../all-orders/actions';
 
 
 const formatTimestamp = (date: Date) => {
@@ -316,6 +316,7 @@ export default function O2DPage() {
     const [revertingStepInfo, setRevertingStepInfo] = useState<{orderId: string, stepId: number, milestone: O2DStatus} | null>(null);
     const [filterDate, setFilterDate] = useState<Date | undefined>();
     const [confirmOrder, setConfirmOrder] = useState<Order | null>(null);
+    const [followUpOrder, setFollowUpOrder] = useState<Order | null>(null);
 
     const { user, role } = useAuth();
     const { toast } = useToast();
@@ -371,6 +372,23 @@ export default function O2DPage() {
         setRevertingStepInfo({ orderId, stepId, milestone });
         setIsRevertDialogOpen(true);
     };
+
+    const handleFollowUp = async () => {
+        if (!followUpOrder) return;
+        try {
+            const orderId = followUpOrder.id; // Corrected: use the direct order ID
+            const result = await setBalanceFollowUp(orderId);
+            if (result.success) {
+                toast({ title: "Follow-up Initiated", description: result.message });
+            } else {
+                toast({ variant: "destructive", title: "Error", description: result.message });
+            }
+        } catch (error) {
+            toast({ variant: "destructive", title: "Server Error", description: "Could not initiate follow-up." });
+        } finally {
+            setFollowUpOrder(null);
+        }
+      };
 
     const handleRevertStep = async () => {
         if (!revertingStepInfo) return;
@@ -502,7 +520,8 @@ export default function O2DPage() {
 
         // Check if the order is ready for final acknowledgement
         const isReadyForAcknowledgement = currentStep?.id === O2D_PROCESS_CONFIG[O2D_PROCESS_CONFIG.length - 1].id;
-        
+        const isFollowUpStep = currentStep?.id === 6; // 'Balance Payment Follow Up' is step 6
+
         let cardBorderColor = "border-border";
         let statusTextColor = "text-primary";
         if (isReadyForAcknowledgement) {
@@ -553,6 +572,14 @@ export default function O2DPage() {
                                     <MessageCircle className='h-4 w-4 mt-0.5 shrink-0' /> 
                                 </p>
                             )}
+                             {isFollowUpStep && (
+                                <AlertDialogTrigger asChild>
+                                <Button size="sm" className="mt-2" onClick={() => setFollowUpOrder(order)}>
+                                    <PhoneCall className="mr-2 h-4 w-4"/>
+                                    Follow Up
+                                </Button>
+                                </AlertDialogTrigger>
+                            )}
                         </div>
                     </div>
                     <CollapsibleTrigger asChild>
@@ -585,6 +612,7 @@ export default function O2DPage() {
     }
 
     return (
+        <AlertDialog>
         <div className="space-y-4">
             <header className="flex items-center justify-between">
                 <div>
@@ -626,21 +654,9 @@ export default function O2DPage() {
                 {loading ? (
                     Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-40 w-full" />)
                 ) : pendingOrders.length > 0 ? (
-                    <AlertDialog>
-                    {pendingOrders.map(order => <OrderCard key={order.id} order={order} />)}
-                     <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setIsRevertDialogOpen(false)}>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                    </AlertDialog>
+                    
+                    pendingOrders.map(order => <OrderCard key={order.id} order={order} />)
+                
                 ) : (
                     <Card className="text-center p-12">
                         <CardTitle>All Caught Up!</CardTitle>
@@ -668,6 +684,37 @@ export default function O2DPage() {
                     onConfirm={handleConfirmOrderType}
                 />
             )}
+            {revertingStepInfo && (
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will revert the step: <strong>{revertingStepConfig?.step}</strong>. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setIsRevertDialogOpen(false)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleRevertStep}>Continue</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            )}
+             {followUpOrder && (
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Confirm Follow-up</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Have you followed up with {followUpOrder?.customerName} for the balance payment? This will send it to the Accounts team for payment confirmation.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setFollowUpOrder(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleFollowUp}>Yes, I have</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            )}
         </div>
+        </AlertDialog>
     );
 }
+
+    
