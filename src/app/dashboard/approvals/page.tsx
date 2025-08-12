@@ -5,9 +5,9 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useState, useEffect } from 'react';
-import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, collectionGroup, query, where, onSnapshot, doc, updateDoc, getDoc, getDocs, setDoc, writeBatch, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { Quotation, Deal, Customer, User, Order, PurchaseRequest, Stock, FabricDetail } from '@/lib/types';
+import { Quotation, Deal, Customer, User, Order, PurchaseRequest, Stock, FabricDetail, O2DStatus } from '@/lib/types';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -117,13 +117,17 @@ function ApproveQuotationTab() {
         if (!selectedQuotation || !user) return;
         setUpdatingId(selectedQuotation.id);
         try {
+            const batch = writeBatch(db);
+
+            // 1. Update quotation status
             const quotationRef = doc(db, 'customers', selectedQuotation.customerId, 'deals', selectedQuotation.dealId, 'quotations', selectedQuotation.id);
-            await updateDoc(quotationRef, {
+            batch.update(quotationRef, {
                 status: 'Approved'
             });
 
+            // 2. Add to approvedQuotations collection for logging/history
             const approvedQuotationRef = doc(db, 'approvedQuotations', selectedQuotation.id);
-            await setDoc(approvedQuotationRef, { 
+            batch.set(approvedQuotationRef, { 
                 ...selectedQuotation, 
                 status: 'Approved',
                 approvedAt: new Date().toISOString(),
@@ -132,6 +136,31 @@ function ApproveQuotationTab() {
                     name: user.name,
                 }
             });
+
+            // 3. Update O2D Process
+            const o2dProcessRef = doc(db, 'o2d', selectedQuotation.dealId);
+            const o2dProcessDoc = await getDoc(o2dProcessRef);
+            
+            if (o2dProcessDoc.exists()) {
+                const quotationRecheckStepId = 5; // "Quotation Re-Check"
+                const existingMilestones = (o2dProcessDoc.data()?.milestones || []) as O2DStatus[];
+                
+                if (!existingMilestones.some(m => m.stepId === quotationRecheckStepId)) {
+                    const newMilestone: O2DStatus = {
+                        stepId: quotationRecheckStepId,
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: user.name,
+                        remarks: `Quotation #${selectedQuotation.quotationNo} approved.`,
+                        selection: 'Done'
+                    };
+                    batch.update(o2dProcessRef, {
+                        milestones: arrayUnion(newMilestone)
+                    });
+                }
+            }
+
+            await batch.commit();
             
             toast({
                 title: 'Quotation Approved',
