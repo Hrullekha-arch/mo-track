@@ -119,6 +119,34 @@ export function O2DTable() {
     }
   }, [toast]);
   
+    const checkAndUpdateKittingMilestone = React.useCallback(async (order: Order, o2dDocRef: any) => {
+        const stitchingDone = order.milestones.find(m => m.id === 4)?.completed;
+        if (!stitchingDone) return;
+
+        const o2dDocSnap = await getDoc(o2dDocRef);
+        if (o2dDocSnap.exists()) {
+            const o2dData = o2dDocSnap.data() as O2DProcess;
+            const fullKitingMilestone = o2dData.milestones.find(m => m.stepId === 9);
+            if (!fullKitingMilestone || fullKitingMilestone.status !== 'completed') {
+                 const newMilestone: O2DStatus = {
+                    stepId: 9, // 'Full Kiting'
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: 'System (Stitching Done)',
+                    remarks: 'Automatically completed with Stitching Done.',
+                    selection: 'Done',
+                };
+                await updateDoc(o2dDocRef, {
+                    milestones: arrayUnion(newMilestone),
+                });
+                toast({
+                    title: "O2D Step Automated",
+                    description: `Full Kiting for Deal ${order.dealId} marked as complete.`
+                });
+            }
+        }
+    }, [toast]);
+
   React.useEffect(() => {
     setLoading(true);
     const o2dQuery = query(collection(db, 'o2d'));
@@ -185,6 +213,7 @@ export function O2DTable() {
             if (matchingOrder) {
                 const o2dDocRef = doc(db, "o2d", o2d.id);
                 await checkAndUpdatePurchaseMilestone(matchingOrder, o2dDocRef);
+                await checkAndUpdateKittingMilestone(matchingOrder, o2dDocRef);
             }
 
             return {
@@ -217,12 +246,12 @@ export function O2DTable() {
     });
 
     return () => unsubscribe();
-  }, [toast, checkAndUpdatePurchaseMilestone]);
+  }, [toast, checkAndUpdatePurchaseMilestone, checkAndUpdateKittingMilestone]);
   
   const handleFollowUp = async () => {
-    if (!followUpOrder || !user) return;
+    if (!followUpOrder || !user || !followUpOrder.orderId) return;
     try {
-        const result = await setBalanceFollowUp(followUpOrder.orderId!, followUpOrder.dealDocId, user.name);
+        const result = await setBalanceFollowUp(followUpOrder.orderId, followUpOrder.dealDocId, user.name);
         if (result.success) {
             toast({ title: "Follow-up Initiated", description: result.message });
         } else {
