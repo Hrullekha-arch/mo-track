@@ -130,7 +130,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
         try {
             const requestRef = doc(db, "inbounds", request.id);
             const items = [...(request.items || [])];
-            const itemToUpdate = items[itemIndex];
+            const itemToUpdate = { ...items[itemIndex] };
 
             if (!itemToUpdate) throw new Error("Item not found");
 
@@ -156,6 +156,8 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
             toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete for ${itemToUpdate.itemName}.`});
             
             const itemIsNowComplete = newMilestones.length === INBOUND_PROCESS_CONFIG.length;
+            
+            const batch = writeBatch(db);
 
             if (itemIsNowComplete) {
                 const stockId = itemToUpdate.itemName.replace(/\//g, '-');
@@ -178,13 +180,28 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 } else {
                     toast({ variant: 'destructive', title: 'Stock Update Failed', description: result.message });
                 }
+
+                // *** FIX: Update the status in the Order document ***
+                const orderQuery = query(collection(db, "orders"), where("crmOrderNo", "==", request.dealId), limit(1));
+                const orderSnapshot = await getDocs(orderQuery);
+                if (!orderSnapshot.empty) {
+                    const orderDoc = orderSnapshot.docs[0];
+                    const orderRef = orderDoc.ref;
+                    const orderData = orderDoc.data() as Order;
+                    const fabricDetails = (orderData.fabricDetails || []).map(fabric => {
+                        if (fabric.fabricName === itemToUpdate.itemName) {
+                            return { ...fabric, status: 'in stock' as const };
+                        }
+                        return fabric;
+                    });
+                    batch.update(orderRef, { fabricDetails });
+                }
             }
             
             // Check if all items in this PO are now fully processed
             const allItemsInCurrentInboundCompleted = items.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
             if (allItemsInCurrentInboundCompleted) {
-                const batch = writeBatch(db);
                 batch.update(requestRef, { 
                     status: 'Completed',
                     completedAt: new Date().toISOString(),
@@ -194,8 +211,6 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 const purchaseRequestRef = doc(db, 'purchaseRequests', request.purchaseRequestId);
                 batch.update(purchaseRequestRef, { status: 'Completed' });
                 
-                await batch.commit();
-
                 toast({
                     title: "Inbound Complete!",
                     description: `This PO (${request.id}) is now fully received.`,
@@ -204,46 +219,45 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
 
                 // Now, check if ALL related purchase requests for the deal are complete.
                 const parentPurchaseRequestSnap = await getDoc(purchaseRequestRef);
-                if (!parentPurchaseRequestSnap.exists()) return;
+                if (parentPurchaseRequestSnap.exists()) {
+                    const parentPR = parentPurchaseRequestSnap.data() as PurchaseRequest;
+                    const dealIdForQuery = parentPR.dealId; // Use the dealId from the PR
+                    
+                    const allPrQuery = query(collection(db, 'purchaseRequests'), where('dealId', '==', dealIdForQuery));
+                    const allPrSnapshot = await getDocs(allPrQuery);
+                    const allPrDocs = allPrSnapshot.docs.map(d => d.data() as PurchaseRequest);
 
-                const parentPR = parentPurchaseRequestSnap.data() as PurchaseRequest;
-                const dealIdForQuery = parentPR.dealId; // Use the dealId from the PR
-                
-                const allPrQuery = query(collection(db, 'purchaseRequests'), where('dealId', '==', dealIdForQuery));
-                const allPrSnapshot = await getDocs(allPrQuery);
-                const allPrDocs = allPrSnapshot.docs.map(d => d.data() as PurchaseRequest);
+                    const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
+                    
+                    if (allPrsForDealAreComplete) {
+                        const o2dDocRef = doc(db, 'o2d', request.purchaseRequestId);
+                        const o2dDoc = await getDoc(o2dDocRef);
 
-                const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
-                
-                if (allPrsForDealAreComplete) {
-                    // The O2D document's ID is the same as the Deal's Document ID.
-                    // We can get this ID from the purchase request document.
-                    const o2dDocRef = doc(db, 'o2d', request.purchaseRequestId);
-                    const o2dDoc = await getDoc(o2dDocRef);
+                        if (o2dDoc.exists()) {
+                            const o2dData = o2dDoc.data() as O2DProcess;
+                            const o2dStep = o2dData.milestones?.find(m => m.stepId === 7); // Step 7: Purchase Material Receiving
 
-                    if (o2dDoc.exists()) {
-                        const o2dData = o2dDoc.data() as O2DProcess;
-                        const o2dStep = o2dData.milestones?.find(m => m.stepId === 7); // Step 7: Purchase Material Receiving
-
-                        if (!o2dStep || o2dStep.status !== 'completed') {
-                            const newMilestone: O2DStatus = {
-                                stepId: 7, 
-                                status: 'completed',
-                                completedAt: new Date().toISOString(),
-                                completedBy: "System (All Inbounds Complete)",
-                                remarks: "Automatically completed after all items for this deal were received.",
-                                selection: 'Done'
-                            };
-                            
-                            await updateDoc(o2dDocRef, { milestones: arrayUnion(newMilestone) });
-                                toast({
-                                title: "O2D Step 7 Completed!",
-                                description: `Purchase Material Receiving marked as done for deal ${o2dData.dealId}.`,
-                            });
+                            if (!o2dStep || o2dStep.status !== 'completed') {
+                                const newMilestone: O2DStatus = {
+                                    stepId: 7, 
+                                    status: 'completed',
+                                    completedAt: new Date().toISOString(),
+                                    completedBy: "System (All Inbounds Complete)",
+                                    remarks: "Automatically completed after all items for this deal were received.",
+                                    selection: 'Done'
+                                };
+                                batch.update(o2dDocRef, { milestones: arrayUnion(newMilestone) });
+                                    toast({
+                                    title: "O2D Step 7 Completed!",
+                                    description: `Purchase Material Receiving marked as done for deal ${o2dData.dealId}.`,
+                                });
+                            }
                         }
                     }
                 }
             }
+            await batch.commit();
+
         } catch (error) {
             console.error("Error updating inbound status:", error);
             toast({ variant: "destructive", title: "Update Failed", description: "Could not update the item process status." });
