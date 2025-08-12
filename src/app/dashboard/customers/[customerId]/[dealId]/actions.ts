@@ -368,25 +368,22 @@ export async function addMeasurementAction(
         const measurementsRef = dealRef.collection('measurements');
         const newMeasurementRef = measurementsRef.doc();
         
-        const newMeasurementData: Omit<DealMeasurement, 'id' | 'fileUrl'> & { fileUrl?: string } = {
+        const newMeasurementData: Partial<DealMeasurement> = {
             ...measurementData,
+            id: newMeasurementRef.id,
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
+            file: undefined, // remove file object before saving
         };
         
         if (measurementData.file) {
-            // For now, we'll use a placeholder. In a real app, this would involve
-            // uploading the file to Cloud Storage and getting the URL.
+            // Placeholder for file upload logic
             newMeasurementData.fileUrl = `https://placehold.co/100x100.png`;
         }
 
-        const newMeasurement: DealMeasurement = {
-            id: newMeasurementRef.id,
-            ...newMeasurementData,
-        };
+        const newMeasurement: DealMeasurement = newMeasurementData as DealMeasurement;
 
         const batch = adminDb.batch();
-
         batch.set(newMeasurementRef, newMeasurement);
         
         const dealSnap = await dealRef.get();
