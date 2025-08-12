@@ -389,12 +389,22 @@ export async function addMeasurementAction(
 
         batch.set(newMeasurementRef, newMeasurement);
         
+        const dealSnap = await dealRef.get();
+        if (!dealSnap.exists()) {
+            return { success: false, message: "Could not find the parent deal." };
+        }
+        const crmOrderNo = dealSnap.data()?.dealId;
+
+        if (!crmOrderNo) {
+             return { success: true, message: "Measurement added, but no associated CRM Order No. found to update O2D status." };
+        }
+
         // Automation: Find the associated order and update the O2D milestone
         const allMeasurementsSnap = await measurementsRef.limit(1).get();
         const hasMeasurements = !allMeasurementsSnap.empty || !!measurementData; 
 
         if (hasMeasurements) {
-            const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
+            const ordersQuery = adminDb.collection('orders').where('crmOrderNo', '==', crmOrderNo);
             const orderSnapshot = await ordersQuery.get();
 
             if (!orderSnapshot.empty) {
@@ -483,15 +493,24 @@ export async function addCpdAction(
     };
     
     const batch = adminDb.batch();
-
     batch.set(newCpdRef, fullCpdData);
     
+    const dealSnap = await dealRef.get();
+    if (!dealSnap.exists()) {
+        return { success: false, message: "Could not find the parent deal." };
+    }
+    const crmOrderNo = dealSnap.data()?.dealId;
+
+    if (!crmOrderNo) {
+         return { success: true, message: "CPD saved, but no associated CRM Order No. found to update O2D status." };
+    }
+
     // Automation: Find the associated order and update the O2D milestone
     const allCpdsSnap = await cpdsRef.limit(1).get();
     const hasCpds = !allCpdsSnap.empty || !!cpdData; 
     
     if (hasCpds) {
-        const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
+        const ordersQuery = adminDb.collection('orders').where('crmOrderNo', '==', crmOrderNo);
         const orderSnapshot = await ordersQuery.get();
 
         if (!orderSnapshot.empty) {
