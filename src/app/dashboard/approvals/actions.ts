@@ -211,29 +211,34 @@ export async function approveQuotationAction(
     });
     
     // 3. Update O2D Process
-    const o2dQuery = adminDb.collection('o2d').where('dealId', '==', quotation.dealName);
-    const o2dSnapshot = await o2dQuery.get();
-    
-    if (!o2dSnapshot.empty) {
-        const o2dDoc = o2dSnapshot.docs[0];
-        const o2dProcessRef = o2dDoc.ref;
-        const quotationRecheckStepId = 5; // Corresponds to "Quotation Re-Check"
-        const existingMilestones = (o2dDoc.data()?.milestones || []) as O2DStatus[];
+    const dealsSnapshot = await adminDb.collection('customers').doc(quotation.customerId).collection('deals').doc(quotation.dealId).get();
+    const dealData = dealsSnapshot.data();
+    if (dealData?.dealId) {
+        const o2dQuery = adminDb.collection('o2d').where('dealId', '==', dealData.dealId);
+        const o2dSnapshot = await o2dQuery.get();
+        
+        if (!o2dSnapshot.empty) {
+            const o2dDoc = o2dSnapshot.docs[0];
+            const o2dProcessRef = o2dDoc.ref;
+            const quotationRecheckStepId = 5; // Corresponds to "Quotation Re-Check"
+            const existingMilestones = (o2dDoc.data()?.milestones || []) as O2DStatus[];
 
-        if (!existingMilestones.some((m) => m.stepId === quotationRecheckStepId)) {
-            const newMilestone: O2DStatus = {
-            stepId: quotationRecheckStepId,
-            status: 'completed',
-            completedAt: new Date().toISOString(),
-            completedBy: approver.name,
-            remarks: `Quotation #${quotation.quotationNo} approved.`,
-            selection: 'Done',
-            };
-            batch.update(o2dProcessRef, {
-            milestones: FieldValue.arrayUnion(newMilestone),
-            });
+            if (!existingMilestones.some((m) => m.stepId === quotationRecheckStepId)) {
+                const newMilestone: O2DStatus = {
+                stepId: quotationRecheckStepId,
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: approver.name,
+                remarks: `Quotation #${quotation.quotationNo} approved.`,
+                selection: 'Done',
+                };
+                batch.update(o2dProcessRef, {
+                milestones: FieldValue.arrayUnion(newMilestone),
+                });
+            }
         }
     }
+
 
     await batch.commit();
 
