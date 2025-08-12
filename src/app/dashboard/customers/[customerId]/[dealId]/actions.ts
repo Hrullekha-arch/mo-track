@@ -98,31 +98,30 @@ export async function createQuotationAction(customerId: string, dealId: string, 
     // AUTOMATION: Find the associated order and update the O2D milestone
     const dealSnap = await dealRef.get();
     if (dealSnap.exists) {
-        const crmOrderNo = dealSnap.data()?.crmOrderNo;
-        if (crmOrderNo) {
-            const ordersQuery = adminDb.collection('orders').where('crmOrderNo', '==', crmOrderNo);
-            const orderSnapshot = await ordersQuery.get();
-            if (!orderSnapshot.empty) {
-                const orderDoc = orderSnapshot.docs[0];
-                const orderData = orderDoc.data() as Order;
-                
-                // Mark step 4 (Quotation Making) as complete
-                const quotationStepId = 4;
-                const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === quotationStepId);
-                
-                if (!existingMilestone) {
-                    const newMilestone: O2DStatus = {
-                        stepId: quotationStepId,
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: values.representativeId ? `Salesman` : 'System',
-                        remarks: `Quotation #${newQuotation.quotationNo} created.`,
-                        selection: 'Done'
-                    };
-                    batch.update(orderDoc.ref, {
-                        o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
-                    });
-                }
+        const dealData = dealSnap.data() as Deal;
+        const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealSnap.id);
+        const orderSnapshot = await ordersQuery.get();
+
+        if (!orderSnapshot.empty) {
+            const orderDoc = orderSnapshot.docs[0];
+            const orderData = orderDoc.data() as Order;
+            
+            // Mark step 4 (Quotation Making) as complete
+            const quotationStepId = 4;
+            const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === quotationStepId);
+            
+            if (!existingMilestone) {
+                const newMilestone: O2DStatus = {
+                    stepId: quotationStepId,
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: values.representativeId ? `Salesman` : 'System',
+                    remarks: `Quotation #${newQuotation.quotationNo} created.`,
+                    selection: 'Done'
+                };
+                batch.update(orderDoc.ref, {
+                    o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
+                });
             }
         }
     }
@@ -416,8 +415,10 @@ export async function addMeasurementAction(
 
         const newMeasurementForDb: any = { ...newMeasurementData, id: newMeasurementRef.id };
         delete newMeasurementForDb.file; // Remove the file object before saving
-        if (!newMeasurementForDb.fileUrl) {
-            delete newMeasurementForDb.fileUrl; // Don't save undefined
+        if (newMeasurementData.fileUrl === undefined) {
+          // Do not add the fileUrl property if it is undefined
+        } else {
+          newMeasurementForDb.fileUrl = newMeasurementData.fileUrl;
         }
 
         const batch = adminDb.batch();
@@ -427,18 +428,13 @@ export async function addMeasurementAction(
         if (!dealSnap.exists) {
             return { success: false, message: "Could not find the parent deal." };
         }
-        const crmOrderNo = dealSnap.data()?.crmOrderNo;
-
-        if (!crmOrderNo) {
-             return { success: true, message: "Measurement added, but no associated CRM Order No. found to update O2D status." };
-        }
-
+        
         // Automation: Find the associated order and update the O2D milestone
         const allMeasurementsSnap = await measurementsRef.get();
         const hasMeasurements = !allMeasurementsSnap.empty;
 
         if (hasMeasurements) {
-            const ordersQuery = adminDb.collection('orders').where('crmOrderNo', '==', crmOrderNo);
+            const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
             const orderSnapshot = await ordersQuery.get();
 
             if (!orderSnapshot.empty) {
@@ -533,18 +529,13 @@ export async function addCpdAction(
     if (!dealSnap.exists) {
         return { success: false, message: "Could not find the parent deal." };
     }
-    const crmOrderNo = dealSnap.data()?.crmOrderNo;
-
-    if (!crmOrderNo) {
-         return { success: true, message: "CPD saved, but no associated CRM Order No. found to update O2D status." };
-    }
 
     // Automation: Find the associated order and update the O2D milestone
     const allCpdsSnap = await cpdsRef.get();
     const hasCpds = !allCpdsSnap.empty;
     
     if (hasCpds) {
-        const ordersQuery = adminDb.collection('orders').where('crmOrderNo', '==', crmOrderNo);
+        const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
         const orderSnapshot = await ordersQuery.get();
 
         if (!orderSnapshot.empty) {
@@ -603,5 +594,3 @@ export async function getCpdsForDeal(customerId: string, dealId: string): Promis
         return [];
     }
 }
-
-    
