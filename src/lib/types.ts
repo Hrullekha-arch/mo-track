@@ -59,6 +59,18 @@ export interface O2DStep {
     }
 }
 
+export interface O2DProcess {
+    id: string; // Document ID, should be the same as the Deal's document ID
+    dealId: string; // The 4-digit numeric deal ID
+    dealName: string;
+    customerId: string;
+    customerName: string;
+    salesPerson: string;
+    milestones: O2DStatus[];
+    createdAt: string; // ISO Date string of deal creation
+    isAcknowledged: boolean; // Becomes true when the final O2D step is complete
+}
+
 export interface InboundMilestone {
     stepId: number;
     status: 'completed' | 'pending';
@@ -106,7 +118,7 @@ export interface Order {
   orderType: OrderType;
   storeName?: string;
   milestones: Milestone[];
-  o2dMilestones?: O2DStatus[];
+  o2dMilestones?: O2DStatus[]; // Legacy, will be phased out
   pmsMilestones?: PmsStatus[];
   remarks?: string;
   assignedTo?: string; // Installer User ID
@@ -400,6 +412,7 @@ export interface Deal {
     visits?: DealVisit[];
     measurements?: DealMeasurement[];
     advanceForMeasurement?: 'Yes' | 'No' | 'Old';
+    isAcknowledged?: boolean; // True if the O2D process is complete.
 }
 
 export interface QuotationItem {

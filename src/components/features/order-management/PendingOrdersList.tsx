@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -59,15 +60,8 @@ export function PendingOrdersList() {
     }, [toast]);
     
     const pendingOrders = useMemo(() => {
-        // An order is "pending" if its first milestone ("Order Received") is not complete.
-        // This handles orders created from external sources like Google Sheets.
-        return allOrders.filter(order => {
-             // A new condition: isAcknowledged is false for orders from "New Order" dialog, which go to O2D
-            if (order.isAcknowledged === false) return false;
-
-            const firstMilestone = order.milestones.find(m => m.id === 1);
-            return firstMilestone && !firstMilestone.completed;
-        });
+        // An order is "pending" if it has not been acknowledged yet.
+        return allOrders.filter(order => !order.isAcknowledged);
     }, [allOrders]);
 
     const handleAcknowledgeOrder = async (orderToAck: Order) => {
@@ -92,11 +86,6 @@ export function PendingOrdersList() {
                 milestones: newMilestones,
                 isAcknowledged: true,
             };
-
-            // If o2dMilestones doesn't exist, initialize it.
-            if (!orderToAck.o2dMilestones) {
-                updatePayload.o2dMilestones = [];
-            }
             
             await updateDoc(orderRef, updatePayload);
 

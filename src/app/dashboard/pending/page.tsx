@@ -28,7 +28,7 @@ export default function PendingOrdersPage() {
             <header className="flex items-center justify-between mb-8">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Orders to be Received</h1>
-                    <p className="text-muted-foreground">Acknowledge new orders from external sources to add them to the main workflow.</p>
+                    <p className="text-muted-foreground">Acknowledge new orders from external sources (e.g., Google Sheets) to add them to the main workflow.</p>
                 </div>
                  <Button onClick={handleRefresh} disabled={isRefreshing} variant="outline">
                     {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}

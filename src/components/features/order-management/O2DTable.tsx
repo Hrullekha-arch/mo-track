@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -27,7 +28,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer, O2DStep } from "@/lib/types";
+import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer, O2DStep, O2DProcess } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format, isPast, formatDistanceToNow } from "date-fns";
@@ -64,8 +65,7 @@ interface O2DViewItem {
       user: string;
   }[];
   expectedDates: Record<number, Date>;
-  originalDeal: Deal & {customerId: string};
-  originalOrder?: Order;
+  originalO2D: O2DProcess;
 }
 
 const creatorName = (userId: string | undefined, userList: User[]) => {
@@ -87,166 +87,78 @@ export function O2DTable() {
   const fetchData = React.useCallback(async () => {
     setLoading(true);
     try {
-      const usersQuery = query(collection(db, "users"));
-      const dealsQuery = query(collectionGroup(db, 'deals'));
-
-      const [usersSnapshot, dealsSnapshot] = await Promise.all([
-        getDocs(usersQuery),
-        getDocs(dealsQuery)
-      ]);
-
-      const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-      
-      const deals = dealsSnapshot.docs
-        .map(doc => {
-            const parentPath = doc.ref.parent.parent?.path;
-            if (!parentPath) return null;
-            return { ...doc.data(), id: doc.id, customerId: parentPath.split('/')[1] } as Deal & { customerId: string };
-        })
-        .filter((d): d is Deal & { customerId: string } => d !== null && !d.isAcknowledged);
-
-      const customerIds = [...new Set(deals.map(d => d.customerId))];
-      const dealIds = deals.map(d => d.id);
-      const crmOrderNos = deals.map(d => d.dealId ? `MOTRACK-${d.dealId}`: '').filter(Boolean);
-
-      const customerPromises = customerIds.map(id => getDoc(doc(db, 'customers', id)));
-      const orderPromises = dealIds.length > 0 ? getDocs(query(collection(db, 'orders'), where('dealId', 'in', dealIds))) : Promise.resolve({ docs: [] });
-      const prPromises = crmOrderNos.length > 0 ? getDocs(query(collection(db, 'purchaseRequests'), where('dealId', 'in', crmOrderNos))) : Promise.resolve({ docs: [] });
-      const visitPromises = deals.map(d => getDocs(collection(db, 'customers', d.customerId, 'deals', d.id, 'visits')));
-      const quotationPromises = deals.map(d => getDocs(collection(db, 'customers', d.customerId, 'deals', d.id, 'quotations')));
-
-      const [
-          customerSnapshots,
-          orderSnapshot,
-          prSnapshot,
-          visitSnapshots,
-          quotationSnapshots
-      ] = await Promise.all([
-          Promise.all(customerPromises),
-          orderPromises,
-          prPromises,
-          Promise.all(visitPromises),
-          Promise.all(quotationPromises)
-      ]);
-
-      const customers = customerSnapshots.reduce((acc, snap) => {
-          if (snap.exists()) {
-              acc[snap.id] = { id: snap.id, ...snap.data() } as Customer;
-          }
-          return acc;
-      }, {} as Record<string, Customer>);
-
-      const ordersByDealId = orderSnapshot.docs.reduce((acc, doc) => {
-          const order = {id: doc.id, ...doc.data()} as Order;
-          if (order.dealId) acc[order.dealId] = order;
-          return acc;
-      }, {} as Record<string, Order>);
-
-      const prsByOrderId = prSnapshot.docs.reduce((acc, doc) => {
-          const pr = doc.data() as PurchaseRequest;
-          if (pr.dealId) acc[pr.dealId] = pr;
-          return acc;
-      }, {} as Record<string, PurchaseRequest>);
-
-      const visitsByDealId = visitSnapshots.flatMap(snap => snap.docs).reduce((acc, doc) => {
-          const visit = doc.data() as DealVisit;
-          const dealId = deals.find(d => d.dealId === visit.dealId)?.id;
-          if (dealId) {
-              if (!acc[dealId]) acc[dealId] = [];
-              acc[dealId].push(visit);
-          }
-          return acc;
-      }, {} as Record<string, DealVisit[]>);
-
-      const quotationsByDealId = quotationSnapshots.flatMap(snap => snap.docs).reduce((acc, doc) => {
-          const quote = doc.data() as Quotation;
-          const dealId = deals.find(d => d.dealName === quote.dealName)?.id;
-          if (dealId) {
-              if (!acc[dealId]) acc[dealId] = [];
-              acc[dealId].push(quote);
-          }
-          return acc;
-      }, {} as Record<string, Quotation[]>);
-
-      const enrichedData = deals.map((deal) => {
-        const customer = customers[deal.customerId];
-        if (!customer) return null;
-
-        const order = ordersByDealId[deal.id];
-        const purchaseRequest = order ? prsByOrderId[order.crmOrderNo] : undefined;
-        const dealVisits = visitsByDealId[deal.id] || [];
-        const dealQuotations = quotationsByDealId[deal.id] || [];
+        const o2dQuery = query(collection(db, 'o2d'), where('isAcknowledged', '==', false));
+        const o2dSnapshot = await getDocs(o2dQuery);
         
-        const dealSalesperson = users.find(u => u.id === deal.representativeId);
-        const orderCrmHandler = order ? users.find(u => u.id === order.handledByCrm) : undefined;
-        
-        const history: O2DViewItem['history'] = [];
-        const expectedDates = order ? calculateExpectedDatesForOrder(order) : {};
+        const o2dProcesses = o2dSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()} as O2DProcess));
 
-        const addHistory = (stepName: string, status: string, timestamp: string | undefined, user: string) => {
-            if (timestamp) {
-              history.push({ stepName, status, timestamp, user });
-            }
-        };
-        
-        addHistory('Deal Created', 'Completed', deal.createdAt, dealSalesperson?.name || 'System');
-        addHistory(O2D_PROCESS_CONFIG[0].step, deal.advanceForMeasurement === 'Yes' ? 'Completed' : 'Skipped', deal.createdAt, dealSalesperson?.name || 'System');
-        
-        const latestVisit = dealVisits.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-        if (latestVisit) addHistory(O2D_PROCESS_CONFIG[2].step, 'Completed', latestVisit.createdAt, latestVisit.createdBy);
-        
-        const latestQuotation = dealQuotations.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-        if (latestQuotation) addHistory(O2D_PROCESS_CONFIG[4].step, 'Completed', latestQuotation.createdAt, creatorName(latestQuotation.createdBy, users));
-        if (latestQuotation?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[5].step, 'Completed', (latestQuotation as any).approvedAt || latestQuotation.createdAt, (latestQuotation as any).approvedBy?.name || 'System');
-        
-        if (order?.status === 'Approved') addHistory(O2D_PROCESS_CONFIG[6].step, 'Completed', (order as any).approvedAt || order.createdAt, (order as any).approvedBy?.name || 'System');
-        if (purchaseRequest?.status === 'Completed') addHistory(O2D_PROCESS_CONFIG[8].step, 'Completed', purchaseRequest.completedAt!, purchaseRequest.completedBy?.name || 'System');
-        
-        const completedStepNames = history.map(h => h.stepName);
-        let currentStatusInfo = history[history.length - 1];
-        let nextStepInfo: O2DViewItem['nextStatus'] = null;
+        const enrichedData = o2dProcesses.map((o2d) => {
+            const history: O2DViewItem['history'] = o2d.milestones.map(m => ({
+                stepName: O2D_PROCESS_CONFIG.find(s => s.id === m.stepId)?.step || 'Unknown Step',
+                status: m.status,
+                timestamp: m.completedAt,
+                user: m.completedBy,
+            })).sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-        const allPossibleSteps = O2D_PROCESS_CONFIG.map(s => s.step);
-        const firstPendingStepIndex = allPossibleSteps.findIndex(step => !completedStepNames.includes(step));
+            const completedStepIds = o2d.milestones.map(m => m.stepId);
+            let currentStatusInfo = history[history.length - 1];
+            let nextStepInfo: O2DViewItem['nextStatus'] = null;
 
-        if (firstPendingStepIndex !== -1) {
-            const nextStepConfig = O2D_PROCESS_CONFIG[firstPendingStepIndex];
-            if (nextStepConfig && order) {
+            const firstPendingStep = O2D_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
+
+            if (firstPendingStep) {
+                // This logic needs to be revisited as it depends on having the Order object which is not directly on o2d
+                // For now, we'll create a placeholder expected date.
+                 const dummyOrderForDates: Order = {
+                    id: o2d.dealId,
+                    crmOrderNo: o2d.dealId,
+                    customerName: o2d.customerName,
+                    customerPhone: '',
+                    customerAddress: '',
+                    salesPerson: o2d.salesPerson,
+                    orderType: 'stitching', // assumption
+                    milestones: [],
+                    createdAt: o2d.createdAt,
+                    isAcknowledged: false,
+                    o2dMilestones: o2d.milestones,
+                };
+                const expectedDates = calculateExpectedDatesForOrder(dummyOrderForDates);
+                const expectedDate = expectedDates[firstPendingStep.id] || new Date();
+
                 nextStepInfo = {
-                    text: nextStepConfig.step,
-                    role: nextStepConfig.role,
-                    expectedDate: expectedDates[nextStepConfig.id] || new Date(),
+                    text: firstPendingStep.step,
+                    role: firstPendingStep.role,
+                    expectedDate: expectedDate
                 };
             }
-        }
-        
-        const isOverdue = nextStepInfo ? isPast(nextStepInfo.expectedDate) : false;
+            
+            const isOverdue = nextStepInfo ? isPast(nextStepInfo.expectedDate) : false;
 
-        const status = { 
-            text: currentStatusInfo?.stepName || "Deal Created", 
-            timestamp: currentStatusInfo?.timestamp || deal.createdAt, 
-            user: currentStatusInfo?.user || (dealSalesperson?.name || 'System'), 
-            isCompleted: firstPendingStepIndex === -1,
-            isOverdue
-        };
+             const status = { 
+                text: currentStatusInfo?.stepName || "Deal Created", 
+                timestamp: currentStatusInfo?.timestamp || o2d.createdAt, 
+                user: currentStatusInfo?.user || o2d.salesPerson, 
+                isCompleted: !firstPendingStep,
+                isOverdue
+            };
 
-        return {
-            dealId: deal.dealId,
-            customerName: customer?.name || 'Unknown',
-            salesPerson: dealSalesperson?.name || 'N/A',
-            crmHandler: orderCrmHandler?.name || 'N/A',
-            orderId: order?.id,
-            dealCreatedAt: deal.createdAt,
-            status,
-            nextStatus: nextStepInfo,
-            history,
-            expectedDates,
-            originalDeal: deal,
-            originalOrder: order,
-        };
-      }).filter(Boolean) as O2DViewItem[];
+            return {
+                dealId: o2d.dealId,
+                customerName: o2d.customerName,
+                salesPerson: o2d.salesPerson,
+                crmHandler: 'N/A', // CRM handler is on the Order, may need to adjust
+                orderId: undefined, // Not available directly on o2d doc yet
+                dealCreatedAt: o2d.createdAt,
+                status,
+                nextStatus: nextStepInfo,
+                history,
+                expectedDates: {}, // Placeholder
+                originalO2D: o2d,
+            };
+        });
 
-      setViewData(enrichedData.filter(item => !item.status.isCompleted));
+      setViewData(enrichedData);
+
     } catch (error) {
         console.error("Error fetching data for O2D Table:", error);
         toast({
@@ -261,26 +173,6 @@ export function O2DTable() {
   React.useEffect(() => {
     fetchData();
   }, [fetchData]);
-
-  const handleFollowUp = async (orderId?: string) => {
-    if (!orderId) {
-        toast({variant: 'destructive', title: 'No Order ID found for this deal yet.'});
-        return;
-    }
-    const order = viewData.find(d => d.orderId === orderId)?.originalOrder;
-    const isFullKittingReady = !!order?.milestones.find(m => m.id === 4)?.completed;
-    if (!isFullKittingReady) {
-        toast({variant: 'destructive', title: 'Action Not Allowed', description: 'Follow-up can only be initiated after "Full Kitting Ready".'});
-        return;
-    }
-    try {
-        await setBalanceFollowUp(orderId);
-        toast({title: 'Follow-up Marked', description: `Order ${orderId} has been marked for balance payment follow-up.`});
-    } catch (error) {
-        toast({variant: 'destructive', title: 'Update Failed'});
-        console.error("Error marking follow-up:", error);
-    }
-  };
 
   const columns: ColumnDef<O2DViewItem>[] = [
     { accessorKey: "orderId", header: "Order ID", cell: ({ row }) => (row.original.orderId ? (
@@ -397,7 +289,6 @@ export function O2DTable() {
                     {selectedDeal && O2D_PROCESS_CONFIG.map((stepConfig) => {
                        const event = selectedDeal.history.find(h => h.stepName === stepConfig.step);
                        const isCompleted = !!event;
-                       const expectedDate = selectedDeal.expectedDates[stepConfig.id];
 
                        return (
                             <li key={stepConfig.id} className="relative flex items-start gap-4">
@@ -410,9 +301,6 @@ export function O2DTable() {
                                          <p className="text-sm text-muted-foreground">by {event.user} on {format(new Date(event.timestamp), 'PPP p')}</p>
                                     ) : (
                                         <p className="text-sm text-muted-foreground">Pending</p>
-                                    )}
-                                    {expectedDate && (
-                                         <p className="text-xs text-muted-foreground/80">Expected: {format(new Date(expectedDate), 'dd/MM/yy')}</p>
                                     )}
                                 </div>
                             </li>

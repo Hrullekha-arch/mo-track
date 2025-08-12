@@ -92,41 +92,7 @@ export async function createQuotationAction(customerId: string, dealId: string, 
         totalAmount: totalAmount,
     };
     
-    const batch = adminDb.batch();
-    batch.set(quotationRef, newQuotation);
-    
-    // AUTOMATION: Find the associated order and update the O2D milestone
-    const dealSnap = await dealRef.get();
-    if (dealSnap.exists) {
-        const dealData = dealSnap.data() as Deal;
-        const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealSnap.id);
-        const orderSnapshot = await ordersQuery.get();
-
-        if (!orderSnapshot.empty) {
-            const orderDoc = orderSnapshot.docs[0];
-            const orderData = orderDoc.data() as Order;
-            
-            // Mark step 4 (Quotation Making) as complete
-            const quotationStepId = 4;
-            const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === quotationStepId);
-            
-            if (!existingMilestone) {
-                const newMilestone: O2DStatus = {
-                    stepId: quotationStepId,
-                    status: 'completed',
-                    completedAt: new Date().toISOString(),
-                    completedBy: values.representativeId ? `Salesman` : 'System',
-                    remarks: `Quotation #${newQuotation.quotationNo} created.`,
-                    selection: 'Done'
-                };
-                batch.update(orderDoc.ref, {
-                    o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
-                });
-            }
-        }
-    }
-    
-    await batch.commit();
+    await quotationRef.set(newQuotation);
 
     return { 
         success: true, 
@@ -402,7 +368,7 @@ export async function addMeasurementAction(
         const measurementsRef = dealRef.collection('measurements');
         const newMeasurementRef = measurementsRef.doc();
         
-        const newMeasurementData: Omit<DealMeasurement, 'id' | 'fileUrl'> & { fileUrl?: string } = {
+        const newMeasurementForDb: Omit<DealMeasurement, 'id' | 'fileUrl'> & { fileUrl?: string } = {
             ...measurementData,
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
@@ -410,51 +376,40 @@ export async function addMeasurementAction(
         
         // This is a placeholder for actual file upload logic
         if (measurementData.file && measurementData.file.name) {
-            newMeasurementData.fileUrl = `https://placehold.co/100x100.png`;
+            newMeasurementForDb.fileUrl = `https://placehold.co/100x100.png`;
         }
 
-        const newMeasurementForDb: any = { ...newMeasurementData, id: newMeasurementRef.id };
-        delete newMeasurementForDb.file; // Remove the file object before saving
-
         const batch = adminDb.batch();
-        batch.set(newMeasurementRef, newMeasurementForDb);
-        
-        const measurementsSnap = await measurementsRef.get();
-        if (measurementsSnap.docs.length >= 0) { // Check if we have at least one measurement (this one)
-            const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
-            const orderSnapshot = await ordersQuery.get();
+        batch.set(newMeasurementRef, { ...newMeasurementForDb, id: newMeasurementRef.id });
 
-            if (!orderSnapshot.empty) {
-                const orderDoc = orderSnapshot.docs[0];
-                const orderData = orderDoc.data() as Order;
+        const measurementsSnap = await measurementsRef.get();
+        if (measurementsSnap.docs.length >= 0) { // If any measurements exist (including the one we're about to add)
+            const o2dProcessRef = adminDb.collection('o2d').doc(dealId);
+            const o2dProcessDoc = await o2dProcessRef.get();
+            if (o2dProcessDoc.exists) {
                 const measurementStepId = 2; // Corresponds to "Measurement"
-                const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === measurementStepId);
-                
-                if (!existingMilestone) {
-                    const newMilestone: O2DStatus = {
-                        stepId: measurementStepId,
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: creatorName,
-                        remarks: `Measurement recorded.`,
-                        selection: 'Done'
-                    };
-                    batch.update(orderDoc.ref, {
-                        o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
-                    });
-                }
+                const newMilestone: O2DStatus = {
+                    stepId: measurementStepId,
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: creatorName,
+                    remarks: `Measurement recorded.`,
+                    selection: 'Done'
+                };
+                batch.update(o2dProcessRef, {
+                    milestones: adminDb.FieldValue.arrayUnion(newMilestone)
+                });
             }
         }
         
         await batch.commit();
 
-        return { success: true, message: "Measurement added successfully and O2D step marked complete.", measurement: JSON.parse(JSON.stringify(newMeasurementForDb)) };
+        return { success: true, message: "Measurement added successfully and O2D step marked complete.", measurement: JSON.parse(JSON.stringify({ ...newMeasurementForDb, id: newMeasurementRef.id })) };
     } catch (error: any) {
         console.error("Error adding measurement:", error);
         return { success: false, message: `Server error: ${error.message}` };
     }
 }
-
 
 export async function getMeasurementsForDeal(customerId: string, dealId: string): Promise<DealMeasurement[]> {
     try {
@@ -513,30 +468,22 @@ export async function addCpdAction(
     batch.set(newCpdRef, fullCpdData);
     
     const allCpdsSnap = await cpdsRef.get();
-    if (allCpdsSnap.docs.length >= 0) {
-        const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
-        const orderSnapshot = await ordersQuery.get();
-
-        if (!orderSnapshot.empty) {
-            const orderDoc = orderSnapshot.docs[0];
-            const orderData = orderDoc.data() as Order;
-
+    if (allCpdsSnap.docs.length >= 0) { // If any CPDs exist (including the new one)
+        const o2dProcessRef = adminDb.collection('o2d').doc(dealId);
+        const o2dProcessDoc = await o2dProcessRef.get();
+        if (o2dProcessDoc.exists) {
             const finalSelectionStepId = 3; // Corresponds to "Final Material Selection"
-            const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === finalSelectionStepId);
-
-            if (!existingMilestone) {
-                const newMilestone: O2DStatus = {
-                    stepId: finalSelectionStepId,
-                    status: 'completed',
-                    completedAt: new Date().toISOString(),
-                    completedBy: creatorName,
-                    remarks: `CPD #${newCpdId} created for this deal.`,
-                    selection: 'Done'
-                };
-                batch.update(orderDoc.ref, {
-                    o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
-                });
-            }
+            const newMilestone: O2DStatus = {
+                stepId: finalSelectionStepId,
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: creatorName,
+                remarks: `CPD #${newCpdId} created for this deal.`,
+                selection: 'Done'
+            };
+            batch.update(o2dProcessRef, {
+                milestones: adminDb.FieldValue.arrayUnion(newMilestone)
+            });
         }
     }
     

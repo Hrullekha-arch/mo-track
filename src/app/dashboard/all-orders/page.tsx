@@ -53,7 +53,6 @@ export default function AllOrdersPage() {
                     <TabsList className="inline-flex h-auto">
                         <TabsTrigger value="all-orders">All Orders</TabsTrigger>
                         <TabsTrigger value="o2d">O2D</TabsTrigger>
-                        <TabsTrigger value="orders">Orders</TabsTrigger>
                         <TabsTrigger value="purchase">Purchase</TabsTrigger>
                         <TabsTrigger value="po-tracking">PO Tracking</TabsTrigger>
                         <TabsTrigger value="inbound">Inbound</TabsTrigger>
@@ -69,11 +68,6 @@ export default function AllOrdersPage() {
                 <TabsContent value="o2d" className="mt-4">
                     <Suspense fallback={<AllOrdersSkeleton />}>
                         <O2DTable />
-                    </Suspense>
-                </TabsContent>
-                 <TabsContent value="orders" className="mt-4">
-                    <Suspense fallback={<AllOrdersSkeleton />}>
-                        <AllOrdersTable />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="purchase" className="mt-4">
