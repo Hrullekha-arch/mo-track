@@ -97,8 +97,8 @@ export async function createQuotationAction(customerId: string, dealId: string, 
     
     // AUTOMATION: Find the associated order and update the O2D milestone
     const dealSnap = await dealRef.get();
-    if (dealSnap.exists()) {
-        const crmOrderNo = dealSnap.data()?.dealId;
+    if (dealSnap.exists) {
+        const crmOrderNo = dealSnap.data()?.crmOrderNo;
         if (crmOrderNo) {
             const ordersQuery = adminDb.collection('orders').where('crmOrderNo', '==', crmOrderNo);
             const orderSnapshot = await ordersQuery.get();
@@ -313,7 +313,7 @@ export async function addVisitAction(
     try {
         const customerRef = adminDb.collection('customers').doc(customerId);
         const customerSnap = await customerRef.get();
-        if (!customerSnap.exists()) {
+        if (!customerSnap.exists) {
             return { success: false, message: "Customer not found." };
         }
         const customerData = customerSnap.data() as any;
@@ -414,17 +414,20 @@ export async function addMeasurementAction(
             newMeasurementData.fileUrl = `https://placehold.co/100x100.png`;
         }
 
-        const newMeasurementForDb = { ...newMeasurementData, id: newMeasurementRef.id };
-        delete (newMeasurementForDb as any).file; // Remove the file object before saving
+        const newMeasurementForDb: any = { ...newMeasurementData, id: newMeasurementRef.id };
+        delete newMeasurementForDb.file; // Remove the file object before saving
+        if (!newMeasurementForDb.fileUrl) {
+            delete newMeasurementForDb.fileUrl; // Don't save undefined
+        }
 
         const batch = adminDb.batch();
         batch.set(newMeasurementRef, newMeasurementForDb);
         
         const dealSnap = await dealRef.get();
-        if (!dealSnap.exists()) {
+        if (!dealSnap.exists) {
             return { success: false, message: "Could not find the parent deal." };
         }
-        const crmOrderNo = dealSnap.data()?.dealId;
+        const crmOrderNo = dealSnap.data()?.crmOrderNo;
 
         if (!crmOrderNo) {
              return { success: true, message: "Measurement added, but no associated CRM Order No. found to update O2D status." };
@@ -527,10 +530,10 @@ export async function addCpdAction(
     batch.set(newCpdRef, fullCpdData);
     
     const dealSnap = await dealRef.get();
-    if (!dealSnap.exists()) {
+    if (!dealSnap.exists) {
         return { success: false, message: "Could not find the parent deal." };
     }
-    const crmOrderNo = dealSnap.data()?.dealId;
+    const crmOrderNo = dealSnap.data()?.crmOrderNo;
 
     if (!crmOrderNo) {
          return { success: true, message: "CPD saved, but no associated CRM Order No. found to update O2D status." };
