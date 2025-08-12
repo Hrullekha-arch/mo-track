@@ -32,7 +32,6 @@ import Image from "next/image";
 import { Separator } from "../ui/separator";
 import { useTheme } from "next-themes";
 import { Switch } from "../ui/switch";
-import { Label } from "../ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
