@@ -7,6 +7,23 @@ import { FormValues as QuotationFormValues } from '@/components/features/order-m
 import { VisitFormValues, MeasurementFormValues, CpdFormValues } from './page';
 import { getMilestonesForOrder } from '@/lib/constants';
 
+// Dummy function to simulate sending an SMS.
+// Replace this with your actual SMS API sending logic.
+async function sendVisitSms(customerPhone: string, message: string) {
+    console.log(`Sending SMS to ${customerPhone}: "${message}"`);
+    // In a real implementation, you would use fetch() or a library
+    // to call your SMS provider's API endpoint.
+    // Example:
+    // const apiKey = process.env.SMS_API_KEY;
+    // const response = await fetch(`https://api.smsprovider.com/send?to=${customerPhone}&message=${encodeURIComponent(message)}&apiKey=${apiKey}`);
+    // if (!response.ok) {
+    //     throw new Error('Failed to send SMS');
+    // }
+    // For now, we'll just simulate success.
+    return { success: true };
+}
+
+
 export async function getDealById(customerId: string, dealId: string): Promise<Deal | null> {
     try {
         const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
@@ -243,6 +260,13 @@ export async function addVisitAction(
   creatorName: string
 ): Promise<{ success: boolean; message: string; visit?: DealVisit }> {
     try {
+        const customerRef = adminDb.collection('customers').doc(customerId);
+        const customerSnap = await customerRef.get();
+        if (!customerSnap.exists()) {
+            return { success: false, message: "Customer not found." };
+        }
+        const customerData = customerSnap.data() as any;
+
         const visitsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('visits');
         const newVisitRef = visitsRef.doc();
 
@@ -266,7 +290,21 @@ export async function addVisitAction(
         
         const savedVisit: DealVisit = { id: newVisitRef.id, ...newVisit };
 
-        return { success: true, message: "Visit added successfully.", visit: JSON.parse(JSON.stringify(savedVisit)) };
+        // Automatically send SMS
+        const visitDate = new Date(savedVisit.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+        const visitTime = new Date(savedVisit.dueDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        const smsMessage = `Hi ${customerData.name}, your MoTrack visit is scheduled for ${visitDate} at ${visitTime}. We look forward to seeing you!`;
+        
+        try {
+            await sendVisitSms(customerData.mobileNo, smsMessage);
+        } catch (smsError) {
+            console.error("Failed to send SMS, but visit was created:", smsError);
+            // We don't fail the whole operation if SMS fails, but we can return a partial success message.
+            return { success: true, message: "Visit added, but failed to send SMS notification.", visit: JSON.parse(JSON.stringify(savedVisit)) };
+        }
+
+
+        return { success: true, message: "Visit added and SMS sent successfully.", visit: JSON.parse(JSON.stringify(savedVisit)) };
     } catch (error: any) {
         console.error("Error adding visit:", error);
         return { success: false, message: `Server error: ${error.message}` };

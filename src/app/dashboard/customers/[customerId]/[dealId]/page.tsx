@@ -2306,6 +2306,11 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   }
 
   const representative = salesmen.find(s => s.id === deal.representativeId);
+  const calculateTotalApprovedQuotationAmount = (dealId: string) => {       {/*also delete 2309,2310,2311,2312,2313 row in case of any error */}
+    return quotations
+        .filter(q => q.dealName === deals.find(d => d.id === dealId)?.dealName && (q.status === 'Approved' || q.status === 'Converted to Order'))
+        .reduce((total, q) => total + q.totalAmount, 0);
+};
 
   return (
     <div className="flex h-full bg-card">
@@ -2319,7 +2324,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Deal Amount:</p>
-            <p className="font-semibold">{deal.dealAmount.toFixed(2)}</p>
+            {/* <p className="font-semibold">{deal.dealAmount.toFixed(2)}</p> */}
+            <p className="font-semibold">₹{calculateTotalApprovedQuotationAmount(deal.id).toLocaleString('en-IN')}</p> {/*remove this line in case of error and uncomment upper line */}
           </div>
            <div>
             <p className="text-xs text-muted-foreground">Deal Stage:</p>
