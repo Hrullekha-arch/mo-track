@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Customer, Deal, User, Quotation, O2DProcess } from '@/lib/types';
+import { Customer, Deal, User, Quotation, O2DProcess, O2DStatus } from '@/lib/types';
 import { query, where } from 'firebase/firestore';
 
 export async function searchCustomersAction(filters: {
@@ -103,7 +103,7 @@ export async function getSalesmen(): Promise<User[]> {
         if (snapshot.empty) {
             return [];
         }
-        const salesmen = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as User);
+        const salesmen = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         return JSON.parse(JSON.stringify(salesmen));
     } catch (error) {
         console.error('Error fetching salesmen:', error);
@@ -181,6 +181,19 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
     const salesmanDoc = await adminDb.collection('users').doc(dealData.representativeId).get();
     const salesmanName = salesmanDoc.exists ? salesmanDoc.data()?.name : 'N/A';
 
+    // Conditionally create the first milestone
+    const initialMilestones: O2DStatus[] = [];
+    if (dealData.advanceForMeasurement === 'Yes' || dealData.advanceForMeasurement === 'Old') {
+        initialMilestones.push({
+            stepId: 1,
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            completedBy: salesmanName,
+            remarks: dealData.advanceForMeasurement === 'Old' ? 'Old' : 'Advance Received',
+            selection: 'Done'
+        });
+    }
+
     // Create the O2D document
     const newO2dProcess: Omit<O2DProcess, 'id'> = {
         dealId: dealId,
@@ -188,7 +201,7 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
         customerId: customerId,
         customerName: customerData.name,
         salesPerson: salesmanName,
-        milestones: [], // Starts empty
+        milestones: initialMilestones,
         createdAt: newDeal.createdAt,
         isAcknowledged: false,
     };
@@ -209,4 +222,3 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
     return { success: false, message: `Server error: ${error.message}` };
   }
 }
-
