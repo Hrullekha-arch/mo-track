@@ -164,8 +164,8 @@ export function O2DTable() {
 
   const columns: ColumnDef<O2DViewItem>[] = [
     { accessorKey: "dealId", header: "Deal ID", cell: ({ row }) => (
-        <Button variant="link" asChild className="p-0 h-auto font-medium">
-             <Link href={`/dashboard/customers/${row.original.originalO2D.customerId}/${row.original.dealDocId}`}>{row.original.dealId}</Link>
+        <Button variant="link" asChild className="p-0 h-auto font-medium cursor-pointer">
+             <div onClick={() => setSelectedDeal(row.original)}>{row.original.dealId}</div>
         </Button>
     )},
     { accessorKey: "customerName", header: "Customer Name" },
@@ -278,7 +278,7 @@ export function O2DTable() {
                                 <div className="pl-6">
                                     <p className="font-semibold">{stepConfig.step}</p>
                                     {isCompleted ? (
-                                         <p className="text-sm text-muted-foreground">by {event.user} on {format(new Date(event.timestamp), 'PPP p')}</p>
+                                         <p className="text-sm text-muted-foreground">by {event.user} on {format(new Date(event.timestamp), 'PP p')}</p>
                                     ) : (
                                         <p className="text-sm text-muted-foreground">Pending</p>
                                     )}
