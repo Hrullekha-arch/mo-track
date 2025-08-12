@@ -20,7 +20,7 @@ import { PrintableQuotationProfessional } from '@/components/features/order-mana
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { getStockById } from "../inventory/actions";
-import { approveOrderAndCreatePurchaseRequest, confirmPaymentReceived } from "./actions";
+import { approveOrderAndCreatePurchaseRequest, confirmPaymentReceived, approveQuotationAction } from "./actions";
 
 interface EnrichedQuotation extends Quotation {
     dealId: string;
@@ -117,56 +117,20 @@ function ApproveQuotationTab() {
         if (!selectedQuotation || !user) return;
         setUpdatingId(selectedQuotation.id);
         try {
-            const batch = writeBatch(db);
-
-            // 1. Update quotation status
-            const quotationRef = doc(db, 'customers', selectedQuotation.customerId, 'deals', selectedQuotation.dealId, 'quotations', selectedQuotation.id);
-            batch.update(quotationRef, {
-                status: 'Approved'
-            });
-
-            // 2. Add to approvedQuotations collection for logging/history
-            const approvedQuotationRef = doc(db, 'approvedQuotations', selectedQuotation.id);
-            batch.set(approvedQuotationRef, { 
-                ...selectedQuotation, 
-                status: 'Approved',
-                approvedAt: new Date().toISOString(),
-                approvedBy: {
-                    id: user.id,
-                    name: user.name,
-                }
-            });
-
-            // 3. Update O2D Process
-            const o2dProcessRef = doc(db, 'o2d', selectedQuotation.dealId);
-            const o2dProcessDoc = await getDoc(o2dProcessRef);
-            
-            if (o2dProcessDoc.exists()) {
-                const quotationRecheckStepId = 5; // "Quotation Re-Check"
-                const existingMilestones = (o2dProcessDoc.data()?.milestones || []) as O2DStatus[];
-                
-                if (!existingMilestones.some(m => m.stepId === quotationRecheckStepId)) {
-                    const newMilestone: O2DStatus = {
-                        stepId: quotationRecheckStepId,
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: user.name,
-                        remarks: `Quotation #${selectedQuotation.quotationNo} approved.`,
-                        selection: 'Done'
-                    };
-                    batch.update(o2dProcessRef, {
-                        milestones: arrayUnion(newMilestone)
-                    });
-                }
+            const result = await approveQuotationAction(selectedQuotation, { id: user.id, name: user.name });
+            if (result.success) {
+                toast({
+                    title: 'Quotation Approved',
+                    description: result.message
+                });
+                // The onSnapshot listener will automatically remove the quotation from the list
+            } else {
+                 toast({
+                    variant: 'destructive',
+                    title: 'Error',
+                    description: result.message
+                });
             }
-
-            await batch.commit();
-            
-            toast({
-                title: 'Quotation Approved',
-                description: `Quotation #${selectedQuotation.quotationNo} has been approved.`
-            });
-            setQuotations(prev => prev.filter(q => q.id !== selectedQuotation.id));
         } catch (error) {
             console.error('Error approving quotation:', error);
             toast({
@@ -482,7 +446,7 @@ export default function ApprovalsPage() {
                 <h1 className="text-3xl font-bold tracking-tight">Approvals</h1>
                 <p className="text-muted-foreground">Review and approve quotations, orders, and payments.</p>
             </header>
-            <Tabs defaultValue="orders" className="w-full">
+            <Tabs defaultValue="quotations" className="w-full">
                 <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="quotations">Approve Quotations</TabsTrigger>
                     <TabsTrigger value="orders">Approve Orders</TabsTrigger>

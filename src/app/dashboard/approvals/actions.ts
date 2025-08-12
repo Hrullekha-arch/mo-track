@@ -3,7 +3,8 @@
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, PurchaseRequest, Stock, FabricDetail, O2DStatus } from "@/lib/types";
+import { Order, PurchaseRequest, Stock, FabricDetail, O2DStatus, Quotation } from "@/lib/types";
+import { FieldValue } from "firebase-admin/firestore";
 
 
 export async function approveOrderAndCreatePurchaseRequest(
@@ -120,4 +121,66 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
     }
 }
 
+export async function approveQuotationAction(
+  quotation: Quotation,
+  approver: { id: string; name: string }
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const batch = adminDb.batch();
+
+    // 1. Update quotation status
+    const quotationRef = adminDb
+      .collection('customers')
+      .doc(quotation.customerId)
+      .collection('deals')
+      .doc(quotation.dealId)
+      .collection('quotations')
+      .doc(quotation.id);
+    batch.update(quotationRef, {
+      status: 'Approved',
+    });
+
+    // 2. Add to approvedQuotations collection for logging/history
+    const approvedQuotationRef = adminDb.collection('approvedQuotations').doc(quotation.id);
+    batch.set(approvedQuotationRef, {
+      ...quotation,
+      status: 'Approved',
+      approvedAt: new Date().toISOString(),
+      approvedBy: approver,
+    });
+    
+    // 3. Update O2D Process
+    const o2dProcessRef = adminDb.collection('o2d').doc(quotation.dealId);
+    const o2dProcessDoc = await o2dProcessRef.get();
+
+    if (o2dProcessDoc.exists) {
+      const quotationRecheckStepId = 5; // Corresponds to "Quotation Re-Check"
+      const existingMilestones = (o2dProcessDoc.data()?.milestones || []) as O2DStatus[];
+
+      if (!existingMilestones.some((m) => m.stepId === quotationRecheckStepId)) {
+        const newMilestone: O2DStatus = {
+          stepId: quotationRecheckStepId,
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          completedBy: approver.name,
+          remarks: `Quotation #${quotation.quotationNo} approved.`,
+          selection: 'Done',
+        };
+        batch.update(o2dProcessRef, {
+          milestones: FieldValue.arrayUnion(newMilestone),
+        });
+      }
+    }
+
+    await batch.commit();
+
+    return {
+      success: true,
+      message: `Quotation #${quotation.quotationNo} has been approved.`,
+    };
+  } catch (error: any) {
+    console.error('Error approving quotation:', error);
+    return { success: false, message: `Failed to approve quotation: ${error.message}` };
+  }
+}
     
