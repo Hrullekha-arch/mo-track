@@ -73,7 +73,7 @@ export async function approveOrderAndCreatePurchaseRequest(
             purchaseMessage = ` A purchase request has been generated for ${itemsToPurchase.length} out-of-stock item(s).`;
         }
         
-        // AUTOMATION: Mark Quotation Re-check (5) and Advance Confirmation (6) as complete
+        // AUTOMATION: Mark Quotation Re-check (5) and Advance Confirmation (7) as complete
         const o2dMilestones: O2DStatus[] = [
             {
                 stepId: 5,
@@ -84,7 +84,7 @@ export async function approveOrderAndCreatePurchaseRequest(
                 selection: "Done"
             },
             {
-                stepId: 6,
+                stepId: 7,
                 status: 'completed',
                 completedAt: new Date().toISOString(),
                 completedBy: approver.name,
@@ -108,13 +108,40 @@ export async function approveOrderAndCreatePurchaseRequest(
 export async function confirmPaymentReceived(orderId: string, approver: { id: string; name: string }): Promise<{ success: boolean; message: string }> {
     try {
         const orderRef = adminDb.collection('orders').doc(orderId);
+        
+        // Mark payment as confirmed
         await orderRef.update({
             paymentConfirmed: true,
-            balanceFollowUp: false, // Turn off the follow-up flag
-            paymentConfirmedBy: approver,
-            paymentConfirmedAt: new Date().toISOString()
+            balanceFollowUp: false,
         });
-        return { success: true, message: `Payment confirmed for order ${orderId}.` };
+
+        // Now, find the associated O2D process and mark step 7 as complete.
+        const orderDoc = await orderRef.get();
+        if (!orderDoc.exists) {
+             throw new Error("Order not found after update.");
+        }
+        const orderData = orderDoc.data() as Order;
+        const dealId = orderData.dealId;
+
+        if (dealId) {
+            const o2dRef = adminDb.collection('o2d').doc(dealId);
+            const o2dDoc = await o2dRef.get();
+            if (o2dDoc.exists) {
+                const advanceConfirmationStep: O2DStatus = {
+                    stepId: 7, // Advance Receiving Confirmation
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: approver.name,
+                    remarks: `Payment confirmed by ${approver.name}.`,
+                    selection: 'Done'
+                };
+                await o2dRef.update({
+                    milestones: FieldValue.arrayUnion(advanceConfirmationStep)
+                });
+            }
+        }
+
+        return { success: true, message: `Payment confirmed for order ${orderId} and O2D updated.` };
     } catch (error: any) {
         console.error("Error confirming payment:", error);
         return { success: false, message: `Failed to confirm payment: ${error.message}` };

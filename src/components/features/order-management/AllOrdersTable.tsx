@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -14,7 +15,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, MapPin, CheckCircle2, XCircle, ShieldAlert } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, MapPin, CheckCircle2, XCircle, ShieldAlert, PhoneCall } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { MILESTONES_CONFIG } from "@/lib/constants";
+import { setBalanceFollowUp } from "@/app/dashboard/all-orders/actions";
 
 function LocationDisplay({ location }: { location: { latitude: number; longitude: number; } }) {
     const [area, setArea] = React.useState("Fetching area...");
@@ -85,6 +87,8 @@ export function AllOrdersTable() {
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
   const [deletingOrder, setDeletingOrder] = React.useState<Order | null>(null);
+  const [followUpOrder, setFollowUpOrder] = React.useState<Order | null>(null);
+
 
   const { toast } = useToast();
   const { role } = useAuth();
@@ -124,6 +128,22 @@ export function AllOrdersTable() {
     } catch (error) {
       console.error("Error deleting order: ", error);
       toast({ variant: "destructive", title: "Error", description: "Failed to delete order." });
+    }
+  };
+  
+  const handleFollowUp = async () => {
+    if (!followUpOrder) return;
+    try {
+        const result = await setBalanceFollowUp(followUpOrder.id);
+        if (result.success) {
+            toast({ title: "Follow-up Initiated", description: result.message });
+        } else {
+            toast({ variant: "destructive", title: "Error", description: result.message });
+        }
+    } catch (error) {
+        toast({ variant: "destructive", title: "Server Error", description: "Could not initiate follow-up." });
+    } finally {
+        setFollowUpOrder(null);
     }
   };
 
@@ -257,6 +277,14 @@ export function AllOrdersTable() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => setFollowUpOrder(order)}
+                disabled={!!order.balanceFollowUp || !!order.paymentConfirmed}
+              >
+                <PhoneCall className="mr-2 h-4 w-4" />
+                Balance Follow-up
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onClick={() => setDeletingOrder(order)}
@@ -529,6 +557,20 @@ export function AllOrdersTable() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+        <AlertDialog open={!!followUpOrder} onOpenChange={() => setFollowUpOrder(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Confirm Follow-up</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Have you followed up with {followUpOrder?.customerName} for the balance payment? This will send it to the Accounts team for payment confirmation.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleFollowUp}>Yes, I have</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     </TooltipProvider>
     </>
   );
