@@ -1,9 +1,8 @@
 
-
 "use client";
 
 import * as React from "react";
-import { InvoiceBatch, Order, Stock } from "@/lib/types";
+import { Invoice, InvoiceBatch, Order, Stock } from "@/lib/types";
 import { format } from "date-fns";
 import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
@@ -39,6 +38,7 @@ const numberToWords = (num: number): string => {
 
 export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
     const [stockDetails, setStockDetails] = React.useState<Record<string, Stock>>({});
+    const [invoiceDetails, setInvoiceDetails] = React.useState<Invoice | null>(null);
     const [logoSrc, setLogoSrc] = React.useState<string | null>(null);
 
     // Assuming we are generating an invoice for the first selected batch/order
@@ -49,7 +49,7 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
         // Set the absolute URL for the logo on the client side
         setLogoSrc(`${window.location.origin}/logo.png`);
 
-        const fetchStockDetails = async () => {
+        const fetchDetails = async () => {
             const allItems = batches.flatMap(b => b.items);
             const uniqueBcns = [...new Set(allItems.map(item => item.bcn))];
             const newStockDetails: Record<string, Stock> = {};
@@ -62,11 +62,20 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
                 }
             }
             setStockDetails(newStockDetails);
+
+            // Fetch the invoice document to get the invoiceNo
+            if (primaryBatch.invoiceId) {
+                const invoiceRef = doc(db, 'invoices', primaryBatch.invoiceId);
+                const invoiceSnap = await getDoc(invoiceRef);
+                if (invoiceSnap.exists()) {
+                    setInvoiceDetails(invoiceSnap.data() as Invoice);
+                }
+            }
         };
         if(batches.length > 0) {
-            fetchStockDetails();
+            fetchDetails();
         }
-    }, [batches]);
+    }, [batches, primaryBatch]);
     
     if (!primaryBatch || !primaryOrder) {
         return <div className="p-8">Select an order to generate an invoice.</div>;
@@ -131,7 +140,7 @@ export function PrintableInvoice({ batches, orders }: PrintableInvoiceProps) {
                 </div>
                 <div style={{ width: '38%', border: '1px solid black' }}>
                     <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Date</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{format(new Date(primaryBatch.createdAt.toDate()), 'dd/MM/yyyy')}</strong></p></div>
-                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Invoice No</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{primaryBatch.invoiceId || 'N/A'}</strong></p></div>
+                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Invoice No</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{invoiceDetails?.invoiceNo || 'N/A'}</strong></p></div>
                     <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Architect</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{/* Placeholder */}</strong></p></div>
                     <div style={{ display: 'flex' }}><p style={{width: '50%', margin: '2px 4px'}}>Sales Representative</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{primaryOrder.salesPerson}</strong></p></div>
                 </div>
