@@ -22,8 +22,12 @@ export async function approveOrderAndCreatePurchaseRequest(
         const orderData = orderSnap.data() as Order;
         const batch = adminDb.batch();
 
-        // 1. Update the root Order status
-        batch.update(orderRef, { status: 'Approved', approvedBy: approver, approvedAt: new Date().toISOString() });
+        // 1. Update the root Order status with approver details
+        batch.update(orderRef, { 
+            status: 'Approved', 
+            approvedBy: approver, 
+            approvedAt: new Date().toISOString() 
+        });
         
         // 2. Update the DealOrder status in the customer's subcollection
         if (orderData.customerId && orderData.dealId && orderData.dealOrderDocId) {
