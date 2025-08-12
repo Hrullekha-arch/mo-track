@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -24,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc, where } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc, where, orderBy, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format, isWithinInterval } from "date-fns";
@@ -74,6 +75,18 @@ function GenerateInvoiceDialog({
         const batch = writeBatch(db);
         const primaryOrder = orders[0];
         
+        // Generate a new 4-digit unique numeric invoice number
+        const invoicesRef = collection(db, "invoices");
+        const q = query(invoicesRef, orderBy("invoiceNo", "desc"), limit(1));
+        const lastInvoiceSnap = await getDocs(q);
+        let newInvoiceNumber = 1001;
+        if (!lastInvoiceSnap.empty) {
+            const lastInvoiceNo = parseInt(lastInvoiceSnap.docs[0].data().invoiceNo, 10);
+            if (!isNaN(lastInvoiceNo)) {
+                newInvoiceNumber = lastInvoiceNo + 1;
+            }
+        }
+        
         // Combine all items from all selected batches
         const allItems = batches.flatMap(b => b.items);
 
@@ -100,10 +113,10 @@ function GenerateInvoiceDialog({
         const roundedAmount = Math.round(netAmount);
         const roundOff = roundedAmount - netAmount;
         
-        // 1. Create the new Invoice document
-        const newInvoiceRef = doc(collection(db, "invoices"));
+        // 1. Create the new Invoice document with the numeric ID
+        const newInvoiceRef = doc(collection(db, "invoices")); // Still generate a doc for a unique ID
         const newInvoice: Omit<Invoice, 'id'> = {
-            invoiceNo: newInvoiceRef.id, // Use Firestore's generated ID for uniqueness
+            invoiceNo: String(newInvoiceNumber), // Use the new numeric string ID
             orderId: primaryOrder.id,
             tallyBillNo: tallyBillNo || undefined,
             customer: {
@@ -179,7 +192,7 @@ function GenerateInvoiceDialog({
         
         await batch.commit();
 
-        toast({ title: "Invoice Generated!", description: `Invoice ${newInvoiceRef.id} has been created and sent for cutting.`});
+        toast({ title: "Invoice Generated!", description: `Invoice ${String(newInvoiceNumber)} has been created and sent for cutting.`});
         onClose();
     } catch (error) {
         console.error("Error finalizing invoice:", error);
