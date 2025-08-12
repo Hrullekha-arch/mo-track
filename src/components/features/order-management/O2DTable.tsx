@@ -14,7 +14,7 @@ import {
   SortingState,
   ColumnFiltersState
 } from "@tanstack/react-table";
-import { ArrowUpDown, CheckCircle, Clock, MoreHorizontal, Link as LinkIcon } from "lucide-react";
+import { ArrowUpDown, CheckCircle, Clock, MoreHorizontal, Link as LinkIcon, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -38,6 +38,8 @@ import { O2D_PROCESS_CONFIG, calculateExpectedDatesForOrder } from "@/lib/consta
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Link from 'next/link';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+
 
 interface O2DViewItem {
   dealId: string;
@@ -74,6 +76,7 @@ export function O2DTable() {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [selectedDeal, setSelectedDeal] = React.useState<O2DViewItem | null>(null);
+  const [followUpOrder, setFollowUpOrder] = React.useState<O2DViewItem | null>(null);
 
   const { toast } = useToast();
   
@@ -161,6 +164,27 @@ export function O2DTable() {
 
     return () => unsubscribe();
   }, [toast]);
+  
+  const handleFollowUp = async () => {
+    if (!followUpOrder) return;
+    try {
+        const orderId = `MOTRACK-${followUpOrder.dealId}`;
+        const result = await setBalanceFollowUp(orderId);
+        if (result.success) {
+            toast({ title: "Follow-up Initiated", description: result.message });
+            // The O2D table doesn't directly update the `balanceFollowUp` flag,
+            // but the next step in the process will be updated based on this action.
+            // The onSnapshot listener will handle the UI update.
+        } else {
+            toast({ variant: "destructive", title: "Error", description: result.message });
+        }
+    } catch (error) {
+        toast({ variant: "destructive", title: "Server Error", description: "Could not initiate follow-up." });
+    } finally {
+        setFollowUpOrder(null);
+    }
+  };
+
 
   const columns: ColumnDef<O2DViewItem>[] = [
     { accessorKey: "dealId", header: "Deal ID", cell: ({ row }) => (
@@ -194,6 +218,25 @@ export function O2DTable() {
         )
     }},
     { accessorKey: "dealCreatedAt", header: ({ column }) => ( <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>Created <ArrowUpDown className="ml-2 h-4 w-4" /></Button>), cell: ({ row }) => format(new Date(row.original.dealCreatedAt), 'dd/MM/yyyy') },
+     {
+      id: "actions",
+      header: "Actions",
+      cell: ({ row }) => {
+        const deal = row.original;
+        const isFollowUpStep = deal.nextStatus?.text === 'Balance Payment Follow Up';
+        if (isFollowUpStep) {
+          return (
+             <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" onClick={() => setFollowUpOrder(deal)}>
+                  <PhoneCall className="mr-2 h-4 w-4" />
+                  Follow-up
+                </Button>
+            </AlertDialogTrigger>
+          );
+        }
+        return null;
+      },
+    },
   ];
 
   const table = useReactTable({
@@ -209,7 +252,7 @@ export function O2DTable() {
   });
 
   return (
-    <>
+    <AlertDialog>
     <Card>
       <CardHeader>
         <CardTitle>O2D Orders</CardTitle>
@@ -293,6 +336,18 @@ export function O2DTable() {
             </DialogFooter>
         </DialogContent>
     </Dialog>
-    </>
+     <AlertDialogContent>
+        <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Follow-up</AlertDialogTitle>
+            <AlertDialogDescription>
+                Have you followed up with {followUpOrder?.customerName} for the balance payment? This will send it to the Accounts team for payment confirmation.
+            </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setFollowUpOrder(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleFollowUp}>Yes, I have</AlertDialogAction>
+        </AlertDialogFooter>
+    </AlertDialogContent>
+    </AlertDialog>
   );
 }
