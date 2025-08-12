@@ -10,6 +10,7 @@ import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Order, Quotation, PurchaseRequest, InboundRequest, DealVisit, CuttingTask, InvoiceBatch } from "@/lib/types";
+import Image from "next/image";
 
 interface SummaryCardProps {
     title: string;
@@ -117,7 +118,10 @@ export default function DashboardPage() {
       ];
 
     return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8">
+        <div className="container mx-auto p-4 md:p-6 lg:p-8 relative">
+            <div className="absolute inset-0 flex items-center justify-center -z-10">
+                <Image src="/logo.png" alt="MoTrack Watermark" width={500} height={250} className="opacity-5" data-ai-hint="logo watermark" />
+            </div>
             <header className="mb-8">
                 <h1 className="text-3xl font-bold tracking-tight">Home Dashboard</h1>
                 <p className="text-muted-foreground">Welcome! Here's a summary of your operations.</p>
