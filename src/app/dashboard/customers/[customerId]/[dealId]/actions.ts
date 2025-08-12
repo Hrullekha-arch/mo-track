@@ -1,4 +1,5 @@
 
+
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -367,30 +368,30 @@ export async function addMeasurementAction(
         const measurementsRef = dealRef.collection('measurements');
         const newMeasurementRef = measurementsRef.doc();
         
-        const fileUrl = measurementData.file ? `https://placehold.co/100x100.png` : undefined;
-
-        const newMeasurement: DealMeasurement = {
-            id: newMeasurementRef.id,
+        const newMeasurementData: Omit<DealMeasurement, 'id' | 'fileUrl'> & { fileUrl?: string } = {
             ...measurementData,
-            fileUrl,
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
         };
         
+        if (measurementData.file) {
+            // For now, we'll use a placeholder. In a real app, this would involve
+            // uploading the file to Cloud Storage and getting the URL.
+            newMeasurementData.fileUrl = `https://placehold.co/100x100.png`;
+        }
+
+        const newMeasurement: DealMeasurement = {
+            id: newMeasurementRef.id,
+            ...newMeasurementData,
+        };
+
         const batch = adminDb.batch();
 
         batch.set(newMeasurementRef, newMeasurement);
         
         // Automation: Find the associated order and update the O2D milestone
-        const dealSnap = await dealRef.get();
-        if (!dealSnap.exists()) {
-             throw new Error("Deal not found.");
-        }
-        const dealData = dealSnap.data() as Deal;
-        
-        // Check if any measurement document exists for this deal.
         const allMeasurementsSnap = await measurementsRef.limit(1).get();
-        const hasMeasurements = !allMeasurementsSnap.empty || !!measurementData; // consider the one being added
+        const hasMeasurements = !allMeasurementsSnap.empty || !!measurementData; 
 
         if (hasMeasurements) {
             const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
@@ -399,7 +400,7 @@ export async function addMeasurementAction(
             if (!orderSnapshot.empty) {
                 const orderDoc = orderSnapshot.docs[0];
                 const orderData = orderDoc.data() as Order;
-                const measurementStepId = 2; // Corresponds to "Measurement" in the config
+                const measurementStepId = 2; // Corresponds to "Measurement"
                 const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === measurementStepId);
                 
                 if (!existingMilestone) {
@@ -486,15 +487,8 @@ export async function addCpdAction(
     batch.set(newCpdRef, fullCpdData);
     
     // Automation: Find the associated order and update the O2D milestone
-    const dealSnap = await dealRef.get();
-    if (!dealSnap.exists()) {
-        throw new Error("Deal not found.");
-    }
-    const dealData = dealSnap.data() as Deal;
-
-    // Check if any CPD document exists for this deal.
     const allCpdsSnap = await cpdsRef.limit(1).get();
-    const hasCpds = !allCpdsSnap.empty || !!cpdData; // consider the one being added
+    const hasCpds = !allCpdsSnap.empty || !!cpdData; 
     
     if (hasCpds) {
         const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
