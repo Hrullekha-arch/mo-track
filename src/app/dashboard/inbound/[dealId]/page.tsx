@@ -203,24 +203,31 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 });
 
                 // Now, check if ALL related purchase requests for the deal are complete.
-                const allPrQuery = query(collection(db, 'purchaseRequests'), where('dealId', '==', request.dealId));
+                const parentPurchaseRequestSnap = await getDoc(purchaseRequestRef);
+                if (!parentPurchaseRequestSnap.exists()) return;
+
+                const parentPR = parentPurchaseRequestSnap.data() as PurchaseRequest;
+                const dealIdForQuery = parentPR.dealId;
+                
+                const allPrQuery = query(collection(db, 'purchaseRequests'), where('dealId', '==', dealIdForQuery));
                 const allPrSnapshot = await getDocs(allPrQuery);
                 const allPrDocs = allPrSnapshot.docs.map(d => d.data() as PurchaseRequest);
 
                 const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
                 
                 if (allPrsForDealAreComplete) {
-                    // The O2D document's ID is the same as the Deal's Document ID, which is stored in purchaseRequestId
+                    // The O2D document's ID is the same as the Deal's Document ID,
+                    // which is stored in the purchaseRequestId field of the inbound document.
                     const o2dDocRef = doc(db, 'o2d', request.purchaseRequestId);
                     const o2dDoc = await getDoc(o2dDocRef);
 
                     if (o2dDoc.exists()) {
                         const o2dData = o2dDoc.data() as O2DProcess;
-                        const o2dStep = o2dData.milestones?.find(m => m.stepId === 7);
+                        const o2dStep = o2dData.milestones?.find(m => m.stepId === 7); // Step 7: Purchase Material Receiving
 
                         if (!o2dStep || o2dStep.status !== 'completed') {
                             const newMilestone: O2DStatus = {
-                                stepId: 7, // 'Purchase Material Receiving'
+                                stepId: 7, 
                                 status: 'completed',
                                 completedAt: new Date().toISOString(),
                                 completedBy: "System (All Inbounds Complete)",
