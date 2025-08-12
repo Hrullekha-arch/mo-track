@@ -43,6 +43,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 interface O2DViewItem {
   dealId: string;
+  orderId?: string; // New field for the order ID
   customerName: string;
   salesPerson: string;
   crmHandler: string;
@@ -82,10 +83,14 @@ export function O2DTable() {
   
   React.useEffect(() => {
     setLoading(true);
-    const o2dQuery = query(collection(db, 'o2d'), where('isAcknowledged', '==', false));
+    const o2dQuery = query(collection(db, 'o2d'));
 
-    const unsubscribe = onSnapshot(o2dQuery, (snapshot) => {
+    const unsubscribe = onSnapshot(o2dQuery, async (snapshot) => {
         const o2dProcesses = snapshot.docs.map(doc => ({id: doc.id, ...doc.data()} as O2DProcess));
+
+        // Fetch all orders to link them to O2D processes
+        const ordersSnapshot = await getDocs(collection(db, "orders"));
+        const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
 
         const enrichedData = o2dProcesses.map((o2d) => {
             const history: O2DViewItem['history'] = (o2d.milestones || []).map(m => ({
@@ -127,8 +132,8 @@ export function O2DTable() {
             }
             
             const isOverdue = nextStepInfo ? isPast(nextStepInfo.expectedDate) : false;
-
-             const status = { 
+            
+            const status = { 
                 text: currentStatusInfo?.stepName || "Deal Created", 
                 timestamp: currentStatusInfo?.timestamp || o2d.createdAt, 
                 user: currentStatusInfo?.user || o2d.salesPerson, 
@@ -136,8 +141,12 @@ export function O2DTable() {
                 isOverdue
             };
 
+            // Find the matching order for this deal
+            const matchingOrder = allOrders.find(order => order.dealId === o2d.dealId);
+
             return {
                 dealId: o2d.dealId,
+                orderId: matchingOrder?.id,
                 dealDocId: o2d.id,
                 customerName: o2d.customerName,
                 salesPerson: o2d.salesPerson,
@@ -172,9 +181,6 @@ export function O2DTable() {
         const result = await setBalanceFollowUp(orderId);
         if (result.success) {
             toast({ title: "Follow-up Initiated", description: result.message });
-            // The O2D table doesn't directly update the `balanceFollowUp` flag,
-            // but the next step in the process will be updated based on this action.
-            // The onSnapshot listener will handle the UI update.
         } else {
             toast({ variant: "destructive", title: "Error", description: result.message });
         }
@@ -187,6 +193,20 @@ export function O2DTable() {
 
 
   const columns: ColumnDef<O2DViewItem>[] = [
+    { 
+        accessorKey: "orderId", 
+        header: "Order ID",
+        cell: ({ row }) => {
+            const orderId = row.original.orderId;
+            return orderId ? (
+                 <Button variant="link" asChild className="p-0 h-auto font-medium cursor-pointer">
+                    <Link href={`/dashboard/orders/${orderId}`}>{orderId}</Link>
+                 </Button>
+            ) : (
+                <span className="text-xs text-muted-foreground">Order not Created Yet</span>
+            );
+        }
+    },
     { accessorKey: "dealId", header: "Deal ID", cell: ({ row }) => (
         <Button variant="link" asChild className="p-0 h-auto font-medium cursor-pointer">
              <div onClick={() => setSelectedDeal(row.original)}>{row.original.dealId}</div>
@@ -238,9 +258,19 @@ export function O2DTable() {
       },
     },
   ];
+  
+  const filteredData = React.useMemo(() => {
+    if (!globalFilter) return viewData;
+    const lowercasedFilter = globalFilter.toLowerCase();
+    return viewData.filter(item => 
+        item.customerName.toLowerCase().includes(lowercasedFilter) ||
+        item.dealId.toLowerCase().includes(lowercasedFilter) ||
+        item.orderId?.toLowerCase().includes(lowercasedFilter)
+    );
+  }, [viewData, globalFilter]);
 
   const table = useReactTable({
-    data: viewData,
+    data: filteredData,
     columns,
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
@@ -261,7 +291,7 @@ export function O2DTable() {
       <CardContent>
         <div className="flex items-center py-4">
           <Input
-            placeholder="Filter customers..."
+            placeholder="Filter by customer, Deal ID or Order ID..."
             value={globalFilter ?? ''}
             onChange={(event) =>
                 setGlobalFilter(event.target.value)
