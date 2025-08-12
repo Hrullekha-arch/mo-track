@@ -378,22 +378,15 @@ export default function O2DPage() {
         if (!followUpOrder || !user) return;
     
         const orderId = followUpOrder.id;
-        const stepId = 6; // 'Balance Payment Follow Up'
-    
-        // Immediately mark the milestone as complete in Firestore
-        const newStatus: O2DStatus = {
-          stepId: stepId,
-          status: 'completed',
-          completedAt: new Date().toISOString(),
-          completedBy: user.name,
-          remarks: "Follow-up initiated.",
-          selection: "Done",
-        };
+        const o2dDocId = followUpOrder.id; // This is the deal doc ID used for O2D documents.
     
         try {
-          const orderRef = doc(db, "orders", orderId);
-          await updateDoc(orderRef, { o2dMilestones: arrayUnion(newStatus) });
-          toast({ title: "Follow-up Step Completed", description: "The O2D timeline has been updated." });
+          const result = await setBalanceFollowUp(orderId, o2dDocId, user.name);
+          if (result.success) {
+            toast({ title: "Follow-up Step Completed", description: result.message });
+          } else {
+             toast({ variant: "destructive", title: "Update Failed", description: result.message });
+          }
         } catch (error) {
           console.error("Error updating O2D step:", error);
           toast({ variant: "destructive", title: "Update Failed", description: "Could not complete the follow-up step." });
@@ -714,7 +707,7 @@ export default function O2DPage() {
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirm Follow-up</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Have you followed up with {followUpOrder?.customerName} for the balance payment? This will complete the "Balance Payment Follow Up" step in the O2D process.
+                        Have you followed up with {followUpOrder?.customerName} for the balance payment? This will complete the "Balance Payment Follow Up" step in the O2D process and send the order for payment confirmation.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
