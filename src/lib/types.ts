@@ -87,6 +87,7 @@ export interface FabricDetail {
     hasPanels?: boolean;
     type?: string;
     panels?: string;
+    status?: 'pending for po' | 'po generated' | 'in stock' | 'allocated';
 }
 
 export interface FurnitureDetail {
@@ -529,5 +530,3 @@ export interface CuttingTask {
 }
 
 export { type ComboboxOption };
-
-    

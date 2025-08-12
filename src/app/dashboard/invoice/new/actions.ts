@@ -84,9 +84,18 @@ export async function createDealOrderAction(
     const orderId = `MOTRACK-${quotation.quotationNo}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
 
-    const allFabricDetails: FabricDetail[] = quotation.items.map(item => ({
-      fabricName: item.collectionBrand,
-      quantity: String(item.quantity),
+    const allFabricDetails: FabricDetail[] = await Promise.all(quotation.items.map(async (item) => {
+        const stockId = item.collectionBrand.replace(/\//g, '-');
+        const stockRef = adminDb.collection('stocks').doc(stockId);
+        const stockSnap = await stockRef.get();
+        const currentStockQty = (stockSnap.data() as Stock)?.quantity || 0;
+        const requiredQty = item.quantity;
+
+        return {
+            fabricName: item.collectionBrand,
+            quantity: String(requiredQty),
+            status: requiredQty <= currentStockQty ? 'in stock' : 'pending for po',
+        };
     }));
     
     const initialMilestones = getMilestonesForOrder(orderType);
@@ -157,5 +166,3 @@ export async function createDealOrderAction(
     return { success: false, message: `Server error: ${error.message}` };
   }
 }
-
-    

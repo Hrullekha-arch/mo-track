@@ -26,9 +26,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer, O2DStep, O2DProcess } from "@/lib/types";
+import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer, O2DStep, O2DProcess, O2DStatus } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format, isPast, formatDistanceToNow } from "date-fns";
@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Link from 'next/link';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { useAuth } from "@/context/AuthContext";
 
 
 interface O2DViewItem {
@@ -80,6 +81,43 @@ export function O2DTable() {
   const [followUpOrder, setFollowUpOrder] = React.useState<O2DViewItem | null>(null);
 
   const { toast } = useToast();
+  const { user } = useAuth();
+  
+  const checkAndUpdatePurchaseMilestone = React.useCallback(async (order: Order, o2dDocRef: any) => {
+    if (!order.fabricDetails || order.fabricDetails.length === 0) {
+      return; // No items to check
+    }
+  
+    const allInStock = order.fabricDetails.every(
+      (item) => item.status === 'in stock' || item.status === 'allocated'
+    );
+  
+    if (allInStock) {
+      // Check if the milestone is already completed
+      const o2dDocSnap = await getDoc(o2dDocRef);
+      if (o2dDocSnap.exists()) {
+        const o2dData = o2dDocSnap.data() as O2DProcess;
+        const purchaseMilestone = o2dData.milestones.find(m => m.stepId === 7);
+        if (!purchaseMilestone || purchaseMilestone.status !== 'completed') {
+          const newMilestone: O2DStatus = {
+            stepId: 7, // 'Purchase Material Receiving'
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            completedBy: 'System (Stock Check)',
+            remarks: 'All required materials were already in stock.',
+            selection: 'Done',
+          };
+          await updateDoc(o2dDocRef, {
+            milestones: arrayUnion(newMilestone),
+          });
+          toast({
+              title: "O2D Step Automated",
+              description: `Material Receiving for Deal ${order.dealId} marked as complete.`
+          });
+        }
+      }
+    }
+  }, [toast]);
   
   React.useEffect(() => {
     setLoading(true);
@@ -92,7 +130,7 @@ export function O2DTable() {
         const ordersSnapshot = await getDocs(collection(db, "orders"));
         const allOrders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
 
-        const enrichedData = o2dProcesses.map((o2d) => {
+        const enrichedDataPromises = o2dProcesses.map(async (o2d) => {
             const history: O2DViewItem['history'] = (o2d.milestones || []).map(m => ({
                 stepName: O2D_PROCESS_CONFIG.find(s => s.id === m.stepId)?.step || 'Unknown Step',
                 status: m.status,
@@ -143,6 +181,11 @@ export function O2DTable() {
 
             // Find the matching order for this deal
             const matchingOrder = allOrders.find(order => order.dealId === o2d.dealId);
+            
+            if (matchingOrder) {
+                const o2dDocRef = doc(db, "o2d", o2d.id);
+                await checkAndUpdatePurchaseMilestone(matchingOrder, o2dDocRef);
+            }
 
             return {
                 dealId: o2d.dealId,
@@ -158,6 +201,8 @@ export function O2DTable() {
                 originalO2D: o2d,
             };
         });
+        
+      const enrichedData = await Promise.all(enrichedDataPromises);
 
       setViewData(enrichedData.sort((a, b) => new Date(b.dealCreatedAt).getTime() - new Date(a.dealCreatedAt).getTime()));
       setLoading(false);
@@ -172,13 +217,12 @@ export function O2DTable() {
     });
 
     return () => unsubscribe();
-  }, [toast]);
+  }, [toast, checkAndUpdatePurchaseMilestone]);
   
   const handleFollowUp = async () => {
-    if (!followUpOrder) return;
+    if (!followUpOrder || !user) return;
     try {
-        const orderId = `MOTRACK-${followUpOrder.dealId}`;
-        const result = await setBalanceFollowUp(orderId);
+        const result = await setBalanceFollowUp(followUpOrder.orderId!, followUpOrder.dealDocId, user.name);
         if (result.success) {
             toast({ title: "Follow-up Initiated", description: result.message });
         } else {
@@ -244,7 +288,7 @@ export function O2DTable() {
       cell: ({ row }) => {
         const deal = row.original;
         const isFollowUpStep = deal.nextStatus?.text === 'Balance Payment Follow Up';
-        if (isFollowUpStep) {
+        if (isFollowUpStep && deal.orderId) {
           return (
              <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm" onClick={() => setFollowUpOrder(deal)}>
