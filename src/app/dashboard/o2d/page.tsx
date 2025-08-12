@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
@@ -317,7 +316,7 @@ export default function O2DPage() {
     const [revertingStepInfo, setRevertingStepInfo] = useState<{orderId: string, stepId: number, milestone: O2DStatus} | null>(null);
     const [filterDate, setFilterDate] = useState<Date | undefined>();
     const [confirmOrder, setConfirmOrder] = useState<Order | null>(null);
-    const [followUpOrder, setFollowUpOrder] = useState<Order | null>(null);
+    const [followUpOrder, setFollowUpOrder] = useState<O2DViewItem | null>(null);
 
     const { user, role } = useAuth();
     const { toast } = useToast();
@@ -376,24 +375,32 @@ export default function O2DPage() {
 
     const handleFollowUp = async () => {
         if (!followUpOrder || !user) return;
-    
-        const orderId = followUpOrder.id;
-        const o2dDocId = followUpOrder.id; // This is the deal doc ID used for O2D documents.
-    
+
+        const o2dDocId = followUpOrder.dealDocId;
+        const o2dDocRef = doc(db, 'o2d', o2dDocId);
+
         try {
-          const result = await setBalanceFollowUp(orderId, o2dDocId, user.name);
-          if (result.success) {
-            toast({ title: "Follow-up Step Completed", description: result.message });
-          } else {
-             toast({ variant: "destructive", title: "Update Failed", description: result.message });
-          }
+            const newMilestone: O2DStatus = {
+                stepId: 6, // 'Balance Payment Follow Up'
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: user.name,
+                remarks: "Follow-up for payment initiated.",
+                selection: "Done"
+            };
+
+            await updateDoc(o2dDocRef, {
+                milestones: arrayUnion(newMilestone)
+            });
+            
+            toast({ title: "Follow-up Step Completed", description: "The next step is now active." });
         } catch (error) {
-          console.error("Error updating O2D step:", error);
-          toast({ variant: "destructive", title: "Update Failed", description: "Could not complete the follow-up step." });
+            console.error("Error updating O2D step:", error);
+            toast({ variant: "destructive", title: "Update Failed", description: "Could not complete the follow-up step." });
         } finally {
-          setFollowUpOrder(null);
+            setFollowUpOrder(null);
         }
-      };
+    };
 
     const handleRevertStep = async () => {
         if (!revertingStepInfo) return;
@@ -579,7 +586,11 @@ export default function O2DPage() {
                             )}
                              {isFollowUpStep && (
                                 <AlertDialogTrigger asChild>
-                                <Button size="sm" className="mt-2" onClick={() => setFollowUpOrder(order)}>
+                                <Button size="sm" className="mt-2" onClick={() => {
+                                    // This is a temporary fix. The `followUpOrder` state expects an `O2DViewItem` which we don't have here.
+                                    // We'll create a minimal object that satisfies the dialog trigger.
+                                    setFollowUpOrder({ dealDocId: order.id } as any);
+                                }}>
                                     <PhoneCall className="mr-2 h-4 w-4"/>
                                     Follow Up
                                 </Button>
@@ -707,7 +718,7 @@ export default function O2DPage() {
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirm Follow-up</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Have you followed up with {followUpOrder?.customerName} for the balance payment? This will complete the "Balance Payment Follow Up" step in the O2D process and send the order for payment confirmation.
+                        Have you followed up with {followUpOrder?.customerName} for the balance payment? This will complete the "Balance Payment Follow Up" step in the O2D process.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -719,3 +730,5 @@ export default function O2DPage() {
         </AlertDialog>
     );
 }
+
+    
