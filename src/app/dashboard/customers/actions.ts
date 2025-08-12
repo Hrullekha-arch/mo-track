@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Customer, Deal, User, Quotation } from '@/lib/types';
+import { Customer, Deal, User, Quotation, O2DProcess } from '@/lib/types';
 import { query, where } from 'firebase/firestore';
 
 export async function searchCustomersAction(filters: {
@@ -103,7 +103,7 @@ export async function getSalesmen(): Promise<User[]> {
         if (snapshot.empty) {
             return [];
         }
-        const salesmen = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as User);
+        const salesmen = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
         return JSON.parse(JSON.stringify(salesmen));
     } catch (error) {
         console.error('Error fetching salesmen:', error);
@@ -147,7 +147,9 @@ type AddDealInput = Omit<Deal, 'id' | 'createdAt' | 'dealId'> & { customerId: st
 export async function addDealAction(data: AddDealInput): Promise<{ success: boolean; message: string; deal?: Deal }> {
   try {
     const { customerId, ...dealData } = data;
-    const dealsRef = adminDb.collection('customers').doc(customerId).collection('deals');
+    const customerRef = adminDb.collection('customers').doc(customerId);
+    const dealsRef = customerRef.collection('deals');
+    const o2dRef = adminDb.collection('o2d');
     
     // Generate a unique 4-digit numeric dealId
     let dealId: string;
@@ -161,16 +163,43 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
       }
     } while (!isUnique);
 
-    const newDealRef = dealsRef.doc(); // Firestore's auto-generated ID for the document
+    const newDealRef = dealsRef.doc();
 
     const newDeal: Deal = {
         ...dealData,
         id: newDealRef.id,
         dealId: dealId,
         createdAt: new Date().toISOString(),
+        isAcknowledged: false, // O2D process starts now
+    };
+    
+    // Fetch customer and salesman details for the O2D doc
+    const customerDoc = await customerRef.get();
+    if (!customerDoc.exists) throw new Error("Customer not found");
+    const customerData = customerDoc.data() as Customer;
+    
+    const salesmanDoc = await adminDb.collection('users').doc(dealData.representativeId).get();
+    const salesmanName = salesmanDoc.exists() ? salesmanDoc.data()?.name : 'N/A';
+
+    // Create the O2D document
+    const newO2dProcess: Omit<O2DProcess, 'id'> = {
+        dealId: dealId,
+        dealName: dealData.dealName,
+        customerId: customerId,
+        customerName: customerData.name,
+        salesPerson: salesmanName,
+        milestones: [], // Starts empty
+        createdAt: newDeal.createdAt,
+        isAcknowledged: false,
     };
 
-    await newDealRef.set(newDeal);
+    // Use a batch to write both documents atomically
+    const batch = adminDb.batch();
+    batch.set(newDealRef, newDeal);
+    batch.set(o2dRef.doc(newDealRef.id), newO2dProcess);
+    
+    await batch.commit();
+
     const savedDeal = { ...newDeal };
 
     return { success: true, message: "Deal created successfully.", deal: JSON.parse(JSON.stringify(savedDeal)) };
