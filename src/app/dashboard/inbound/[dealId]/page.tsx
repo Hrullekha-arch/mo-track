@@ -210,39 +210,28 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
                 
                 if (allPrsForDealAreComplete) {
-                    // Find the O2D document using the deal's Firestore ID, which is stored in the purchase request.
-                    // The O2D document ID is the same as the Deal document ID.
-                    const firstPr = allPrDocs[0];
-                    if (firstPr) {
-                        const dealQuery = query(collection(db, 'customers'), where('deals.dealId', '==', firstPr.dealId), limit(1));
-                        const dealSnapshot = await getDocs(dealQuery);
+                    const o2dRef = doc(db, 'o2d', request.dealId); // The dealId on the inbound request IS the o2d doc ID
+                    const o2dDoc = await getDoc(o2dRef);
 
-                        if(!dealSnapshot.empty) {
-                            const dealDoc = dealSnapshot.docs[0];
-                            const o2dRef = doc(db, 'o2d', dealDoc.id);
-                            const o2dDoc = await getDoc(o2dRef);
+                    if (o2dDoc.exists()) {
+                        const o2dData = o2dDoc.data() as O2DProcess;
+                        const o2dStep = o2dData.milestones?.find(m => m.stepId === 7);
 
-                            if (o2dDoc.exists()) {
-                                const o2dData = o2dDoc.data() as O2DProcess;
-                                const o2dStep = o2dData.milestones?.find(m => m.stepId === 7);
-
-                                if (!o2dStep || o2dStep.status !== 'completed') {
-                                    const newMilestone: O2DStatus = {
-                                        stepId: 7, // 'Purchase Material Receiving'
-                                        status: 'completed',
-                                        completedAt: new Date().toISOString(),
-                                        completedBy: "System (All Inbounds Complete)",
-                                        remarks: "Automatically completed after all items for this deal were received.",
-                                        selection: 'Done'
-                                    };
-                                    
-                                    await updateDoc(o2dRef, { milestones: arrayUnion(newMilestone) });
-                                     toast({
-                                        title: "O2D Step 7 Completed!",
-                                        description: `Purchase Material Receiving marked as done for deal ${o2dData.dealId}.`,
-                                    });
-                                }
-                            }
+                        if (!o2dStep || o2dStep.status !== 'completed') {
+                            const newMilestone: O2DStatus = {
+                                stepId: 7, // 'Purchase Material Receiving'
+                                status: 'completed',
+                                completedAt: new Date().toISOString(),
+                                completedBy: "System (All Inbounds Complete)",
+                                remarks: "Automatically completed after all items for this deal were received.",
+                                selection: 'Done'
+                            };
+                            
+                            await updateDoc(o2dRef, { milestones: arrayUnion(newMilestone) });
+                                toast({
+                                title: "O2D Step 7 Completed!",
+                                description: `Purchase Material Receiving marked as done for deal ${o2dData.dealId}.`,
+                            });
                         }
                     }
                 }
