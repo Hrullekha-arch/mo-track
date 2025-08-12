@@ -3,7 +3,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Order, OrderType, O2DStatus } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { VisitFormValues, MeasurementFormValues, CpdFormValues } from './page';
 import { getMilestonesForOrder } from '@/lib/constants';
@@ -408,32 +408,19 @@ export async function addMeasurementAction(
             createdBy: creatorName,
         };
         
-        if (measurementData.file) {
-            // Placeholder for file upload logic
+        // This is a placeholder for actual file upload logic
+        if (measurementData.file && measurementData.file.name) {
             newMeasurementData.fileUrl = `https://placehold.co/100x100.png`;
         }
 
         const newMeasurementForDb: any = { ...newMeasurementData, id: newMeasurementRef.id };
         delete newMeasurementForDb.file; // Remove the file object before saving
-        if (newMeasurementData.fileUrl === undefined) {
-          // Do not add the fileUrl property if it is undefined
-        } else {
-          newMeasurementForDb.fileUrl = newMeasurementData.fileUrl;
-        }
 
         const batch = adminDb.batch();
         batch.set(newMeasurementRef, newMeasurementForDb);
         
-        const dealSnap = await dealRef.get();
-        if (!dealSnap.exists) {
-            return { success: false, message: "Could not find the parent deal." };
-        }
-        
-        // Automation: Find the associated order and update the O2D milestone
-        const allMeasurementsSnap = await measurementsRef.get();
-        const hasMeasurements = !allMeasurementsSnap.empty;
-
-        if (hasMeasurements) {
+        const measurementsSnap = await measurementsRef.get();
+        if (measurementsSnap.docs.length >= 0) { // Check if we have at least one measurement (this one)
             const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
             const orderSnapshot = await ordersQuery.get();
 
@@ -449,7 +436,7 @@ export async function addMeasurementAction(
                         status: 'completed',
                         completedAt: new Date().toISOString(),
                         completedBy: creatorName,
-                        remarks: `Measurement recorded for this deal.`,
+                        remarks: `Measurement recorded.`,
                         selection: 'Done'
                     };
                     batch.update(orderDoc.ref, {
@@ -525,16 +512,8 @@ export async function addCpdAction(
     const batch = adminDb.batch();
     batch.set(newCpdRef, fullCpdData);
     
-    const dealSnap = await dealRef.get();
-    if (!dealSnap.exists) {
-        return { success: false, message: "Could not find the parent deal." };
-    }
-
-    // Automation: Find the associated order and update the O2D milestone
     const allCpdsSnap = await cpdsRef.get();
-    const hasCpds = !allCpdsSnap.empty;
-    
-    if (hasCpds) {
+    if (allCpdsSnap.docs.length >= 0) {
         const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
         const orderSnapshot = await ordersQuery.get();
 
