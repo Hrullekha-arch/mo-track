@@ -375,20 +375,30 @@ export default function O2DPage() {
     };
 
     const handleFollowUp = async () => {
-        if (!followUpOrder) return;
+        if (!followUpOrder || !user) return;
+    
+        const orderId = followUpOrder.id;
+        const stepId = 6; // 'Balance Payment Follow Up'
+    
+        // Immediately mark the milestone as complete in Firestore
+        const newStatus: O2DStatus = {
+          stepId: stepId,
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          completedBy: user.name,
+          remarks: "Follow-up initiated.",
+          selection: "Done",
+        };
+    
         try {
-            // The O2D process operates on the Order document, which has a predictable ID.
-            const orderId = followUpOrder.id; // The O2D "order" object IS the order.
-            const result = await setBalanceFollowUp(orderId);
-            if (result.success) {
-                toast({ title: "Follow-up Initiated", description: result.message });
-            } else {
-                toast({ variant: "destructive", title: "Error", description: result.message });
-            }
+          const orderRef = doc(db, "orders", orderId);
+          await updateDoc(orderRef, { o2dMilestones: arrayUnion(newStatus) });
+          toast({ title: "Follow-up Step Completed", description: "The O2D timeline has been updated." });
         } catch (error) {
-            toast({ variant: "destructive", title: "Server Error", description: "Could not initiate follow-up." });
+          console.error("Error updating O2D step:", error);
+          toast({ variant: "destructive", title: "Update Failed", description: "Could not complete the follow-up step." });
         } finally {
-            setFollowUpOrder(null);
+          setFollowUpOrder(null);
         }
       };
 
@@ -704,7 +714,7 @@ export default function O2DPage() {
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirm Follow-up</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Have you followed up with {followUpOrder?.customerName} for the balance payment? This will send it to the Accounts team for payment confirmation.
+                        Have you followed up with {followUpOrder?.customerName} for the balance payment? This will complete the "Balance Payment Follow Up" step in the O2D process.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
