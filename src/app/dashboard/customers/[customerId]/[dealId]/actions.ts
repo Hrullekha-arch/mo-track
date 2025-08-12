@@ -282,7 +282,8 @@ export async function addVisitAction(
         }
         const customerData = customerSnap.data() as any;
 
-        const visitsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('visits');
+        const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
+        const visitsRef = dealRef.collection('visits');
         const newVisitRef = visitsRef.doc();
 
         const newVisit: Omit<DealVisit, 'id'> = {
@@ -358,11 +359,10 @@ export async function addMeasurementAction(
     creatorName: string
 ): Promise<{ success: boolean; message: string; measurement?: DealMeasurement }> {
     try {
-        const measurementsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('measurements');
+        const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
+        const measurementsRef = dealRef.collection('measurements');
         const newMeasurementRef = measurementsRef.doc();
         
-        // Note: Real file upload would happen client-side to get a URL.
-        // Here we just simulate it for the database record.
         const fileUrl = measurementData.file ? `https://placehold.co/100x100.png` : undefined;
 
         const newMeasurement: DealMeasurement = {
@@ -372,10 +372,42 @@ export async function addMeasurementAction(
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
         };
+        
+        const batch = adminDb.batch();
 
-        await newMeasurementRef.set(newMeasurement);
+        batch.set(newMeasurementRef, newMeasurement);
+        
+        // Automation: Find the associated order and update the O2D milestone
+        const dealSnap = await dealRef.get();
+        const dealData = dealSnap.data() as Deal;
 
-        return { success: true, message: "Measurement added successfully.", measurement: JSON.parse(JSON.stringify(newMeasurement)) };
+        const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealData.id);
+        const orderSnapshot = await ordersQuery.get();
+
+        if (!orderSnapshot.empty) {
+            const orderDoc = orderSnapshot.docs[0];
+            const orderData = orderDoc.data() as Order;
+            const measurementStepId = 2; // Corresponds to "Measurement" in the config
+            const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === measurementStepId);
+            
+            if (!existingMilestone) {
+                 const newMilestone: O2DStatus = {
+                    stepId: measurementStepId,
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: creatorName,
+                    remarks: `Automatically completed upon measurement creation.`,
+                    selection: 'Done'
+                };
+                 batch.update(orderDoc.ref, {
+                    o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
+                });
+            }
+        }
+        
+        await batch.commit();
+
+        return { success: true, message: "Measurement added successfully and O2D step marked complete.", measurement: JSON.parse(JSON.stringify(newMeasurement)) };
     } catch (error: any) {
         console.error("Error adding measurement:", error);
         return { success: false, message: `Server error: ${error.message}` };
@@ -444,14 +476,14 @@ export async function addCpdAction(
     const dealSnap = await dealRef.get();
     const dealData = dealSnap.data() as Deal;
 
-    const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealData.dealId);
+    const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealData.id);
     const orderSnapshot = await ordersQuery.get();
 
     if (!orderSnapshot.empty) {
         const orderDoc = orderSnapshot.docs[0];
         const orderData = orderDoc.data() as Order;
 
-        const finalSelectionStepId = 3; // Corresponds to "Final Material Selection" in the new config
+        const finalSelectionStepId = 3; // Corresponds to "Final Material Selection"
         const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === finalSelectionStepId);
 
         if (!existingMilestone) {
