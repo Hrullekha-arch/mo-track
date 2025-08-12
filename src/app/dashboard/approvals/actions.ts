@@ -13,13 +13,7 @@ export async function approveOrderAndCreatePurchaseRequest(
 ): Promise<{ success: boolean; message: string }> {
     try {
         const orderRef = adminDb.collection('orders').doc(orderId);
-        const orderSnap = await orderRef.get();
-
-        if (!orderSnap.exists) {
-            return { success: false, message: "Order not found." };
-        }
-
-        const orderData = orderSnap.data() as Order;
+        
         const batch = adminDb.batch();
 
         // 1. Update the root Order status with approver details
@@ -29,12 +23,25 @@ export async function approveOrderAndCreatePurchaseRequest(
             approvedAt: new Date().toISOString() 
         });
         
+        // We need the order data to proceed with other actions
+        const orderSnap = await orderRef.get();
+        if (!orderSnap.exists) {
+            return { success: false, message: "Order not found." };
+        }
+        const orderData = orderSnap.data() as Order;
+
         // 2. Update the DealOrder status in the customer's subcollection
         if (orderData.customerId && orderData.dealId && orderData.dealOrderDocId) {
-            const dealOrderRef = adminDb.collection('customers').doc(orderData.customerId)
-                                        .collection('deals').doc(orderData.dealId)
+            // To get the deal's firestore ID, we can query for it using the numeric dealId
+            const dealsQuery = adminDb.collection('customers').doc(orderData.customerId).collection('deals').where('dealId', '==', orderData.dealId);
+            const dealsSnapshot = await dealsQuery.get();
+            if(!dealsSnapshot.empty) {
+                const dealDoc = dealsSnapshot.docs[0];
+                 const dealOrderRef = adminDb.collection('customers').doc(orderData.customerId)
+                                        .collection('deals').doc(dealDoc.id)
                                         .collection('orders').doc(orderData.dealOrderDocId);
-            batch.update(dealOrderRef, { status: 'Approved' });
+                batch.update(dealOrderRef, { status: 'Approved' });
+            }
         }
 
         // 3. Check stock and prepare purchase request if needed
@@ -79,9 +86,12 @@ export async function approveOrderAndCreatePurchaseRequest(
         
         // AUTOMATION: Mark "Advance receive for Order" as complete
         if (orderData.dealId) {
-            const o2dRef = adminDb.collection('o2d').doc(orderData.dealId);
-            const o2dDoc = await o2dRef.get();
-            if (o2dDoc.exists) {
+            const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
+            const o2dSnapshot = await o2dQuery.get();
+            
+            if (!o2dSnapshot.empty) {
+                const o2dDoc = o2dSnapshot.docs[0];
+                const o2dRef = o2dDoc.ref;
                 const advanceMilestone: O2DStatus = {
                     stepId: 6, // 'Advance receive for Order'
                     status: 'completed',
@@ -90,7 +100,7 @@ export async function approveOrderAndCreatePurchaseRequest(
                     remarks: "Advance confirmed during order approval.",
                     selection: "Done"
                 };
-                batch.update(o2dRef, { o2dMilestones: FieldValue.arrayUnion(advanceMilestone) });
+                batch.update(o2dRef, { milestones: FieldValue.arrayUnion(advanceMilestone) });
             }
         }
         
@@ -107,12 +117,7 @@ export async function approveOrderAndCreatePurchaseRequest(
 export async function confirmPaymentReceived(orderId: string, approver: { id: string; name: string }): Promise<{ success: boolean; message: string }> {
     try {
         const orderRef = adminDb.collection('orders').doc(orderId);
-        const orderDoc = await orderRef.get();
-        if (!orderDoc.exists) {
-             throw new Error("Order not found after update.");
-        }
-        const orderData = orderDoc.data() as Order;
-
+        
         const batch = adminDb.batch();
 
         // 1. Mark payment as confirmed in the Order
@@ -121,31 +126,32 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
             balanceFollowUp: false,
         });
 
-        // 2. Now, find the associated O2D process and mark step 7 as complete.
-        // The dealId is stored on the order itself, but the O2D process ID is the deal's Firestore document ID.
-        if (orderData.dealId) {
-            // We need the deal's firestore document ID, not the numeric dealId.
-            // Let's assume the O2D doc ID is the same as the deal's firestore ID.
-            const dealsQuery = adminDb.collection('customers').doc(orderData.customerId!).collection('deals').where('dealId', '==', orderData.dealId);
-            const dealsSnapshot = await dealsQuery.get();
-            if (!dealsSnapshot.empty) {
-                const dealDoc = dealsSnapshot.docs[0];
-                const o2dRef = adminDb.collection('o2d').doc(dealDoc.id);
-                const o2dDoc = await o2dRef.get();
+        // We need order data to find the O2D document
+        const orderDoc = await orderRef.get();
+        if (!orderDoc.exists) {
+             throw new Error("Order not found after update.");
+        }
+        const orderData = orderDoc.data() as Order;
 
-                if (o2dDoc.exists) {
-                    const advanceConfirmationStep: O2DStatus = {
-                        stepId: 6, // 'Advance receive for Order'
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: approver.name,
-                        remarks: `Payment confirmed by ${approver.name}.`,
-                        selection: 'Done'
-                    };
-                    batch.update(o2dRef, {
-                        milestones: FieldValue.arrayUnion(advanceConfirmationStep)
-                    });
-                }
+        // 2. Now, find the associated O2D process and mark step 7 as complete.
+        if (orderData.dealId) {
+            const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
+            const o2dSnapshot = await o2dQuery.get();
+
+            if (!o2dSnapshot.empty) {
+                const o2dDoc = o2dSnapshot.docs[0];
+                const o2dRef = o2dDoc.ref;
+                const advanceConfirmationStep: O2DStatus = {
+                    stepId: 6, // 'Advance receive for Order'
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: approver.name,
+                    remarks: `Payment confirmed by ${approver.name}.`,
+                    selection: 'Done'
+                };
+                batch.update(o2dRef, {
+                    milestones: FieldValue.arrayUnion(advanceConfirmationStep)
+                });
             }
         }
         
@@ -187,26 +193,28 @@ export async function approveQuotationAction(
     });
     
     // 3. Update O2D Process
-    const o2dProcessRef = adminDb.collection('o2d').doc(quotation.dealId);
-    const o2dProcessDoc = await o2dProcessRef.get();
+    const o2dQuery = adminDb.collection('o2d').where('dealId', '==', quotation.dealName);
+    const o2dSnapshot = await o2dQuery.get();
+    
+    if (!o2dSnapshot.empty) {
+        const o2dDoc = o2dSnapshot.docs[0];
+        const o2dProcessRef = o2dDoc.ref;
+        const quotationRecheckStepId = 5; // Corresponds to "Quotation Re-Check"
+        const existingMilestones = (o2dDoc.data()?.milestones || []) as O2DStatus[];
 
-    if (o2dProcessDoc.exists) {
-      const quotationRecheckStepId = 5; // Corresponds to "Quotation Re-Check"
-      const existingMilestones = (o2dProcessDoc.data()?.milestones || []) as O2DStatus[];
-
-      if (!existingMilestones.some((m) => m.stepId === quotationRecheckStepId)) {
-        const newMilestone: O2DStatus = {
-          stepId: quotationRecheckStepId,
-          status: 'completed',
-          completedAt: new Date().toISOString(),
-          completedBy: approver.name,
-          remarks: `Quotation #${quotation.quotationNo} approved.`,
-          selection: 'Done',
-        };
-        batch.update(o2dProcessRef, {
-          milestones: FieldValue.arrayUnion(newMilestone),
-        });
-      }
+        if (!existingMilestones.some((m) => m.stepId === quotationRecheckStepId)) {
+            const newMilestone: O2DStatus = {
+            stepId: quotationRecheckStepId,
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            completedBy: approver.name,
+            remarks: `Quotation #${quotation.quotationNo} approved.`,
+            selection: 'Done',
+            };
+            batch.update(o2dProcessRef, {
+            milestones: FieldValue.arrayUnion(newMilestone),
+            });
+        }
     }
 
     await batch.commit();
