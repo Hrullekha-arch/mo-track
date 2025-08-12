@@ -117,7 +117,10 @@ function ApproveQuotationTab() {
         if (!selectedQuotation || !user) return;
         setUpdatingId(selectedQuotation.id);
         try {
-            const result = await approveQuotationAction(selectedQuotation, { id: user.id, name: user.name });
+            // Serialize the quotation object before passing it to the server action
+            const plainQuotationObject = JSON.parse(JSON.stringify(selectedQuotation));
+
+            const result = await approveQuotationAction(plainQuotationObject, { id: user.id, name: user.name });
             if (result.success) {
                 toast({
                     title: 'Quotation Approved',

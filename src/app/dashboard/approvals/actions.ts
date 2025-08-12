@@ -122,7 +122,7 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
 }
 
 export async function approveQuotationAction(
-  quotation: Quotation,
+  quotation: Omit<Quotation, 'date' | 'validTillDate'> & { date: string, validTillDate?: string }, // Expect plain object with ISO strings
   approver: { id: string; name: string }
 ): Promise<{ success: boolean; message: string }> {
   try {
