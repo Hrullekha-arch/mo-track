@@ -168,6 +168,16 @@ export async function allocateStockToAction(
                     milestones: FieldValue.arrayUnion(productionMilestone)
                 });
             }
+
+            // 7. Update the main order's "Fabric Allocated" milestone
+            const updatedMilestones = orderData.milestones.map(m => {
+                if (m.id === 2) { // ID for "Fabric Allocated"
+                    return { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: userName };
+                }
+                return m;
+            });
+            transaction.update(orderRef, { milestones: updatedMilestones });
+
        });
 
         return { success: true, message: 'Stock allocated and prepared for invoicing.' };
