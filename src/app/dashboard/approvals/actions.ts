@@ -108,38 +108,49 @@ export async function approveOrderAndCreatePurchaseRequest(
 export async function confirmPaymentReceived(orderId: string, approver: { id: string; name: string }): Promise<{ success: boolean; message: string }> {
     try {
         const orderRef = adminDb.collection('orders').doc(orderId);
-        
-        // Mark payment as confirmed
-        await orderRef.update({
-            paymentConfirmed: true,
-            balanceFollowUp: false,
-        });
-
-        // Now, find the associated O2D process and mark step 7 as complete.
         const orderDoc = await orderRef.get();
         if (!orderDoc.exists) {
              throw new Error("Order not found after update.");
         }
         const orderData = orderDoc.data() as Order;
-        const dealId = orderData.dealId;
 
-        if (dealId) {
-            const o2dRef = adminDb.collection('o2d').doc(dealId);
-            const o2dDoc = await o2dRef.get();
-            if (o2dDoc.exists) {
-                const advanceConfirmationStep: O2DStatus = {
-                    stepId: 7, // Advance Receiving Confirmation
-                    status: 'completed',
-                    completedAt: new Date().toISOString(),
-                    completedBy: approver.name,
-                    remarks: `Payment confirmed by ${approver.name}.`,
-                    selection: 'Done'
-                };
-                await o2dRef.update({
-                    milestones: FieldValue.arrayUnion(advanceConfirmationStep)
-                });
+        const batch = adminDb.batch();
+
+        // 1. Mark payment as confirmed in the Order
+        batch.update(orderRef, {
+            paymentConfirmed: true,
+            balanceFollowUp: false,
+        });
+
+        // 2. Now, find the associated O2D process and mark step 7 as complete.
+        // The dealId is stored on the order itself, but the O2D process ID is the deal's Firestore document ID.
+        if (orderData.dealId) {
+            // We need the deal's firestore document ID, not the numeric dealId.
+            // Let's assume the O2D doc ID is the same as the deal's firestore ID.
+            const dealsQuery = adminDb.collection('customers').doc(orderData.customerId!).collection('deals').where('dealId', '==', orderData.dealId);
+            const dealsSnapshot = await dealsQuery.get();
+            if (!dealsSnapshot.empty) {
+                const dealDoc = dealsSnapshot.docs[0];
+                const o2dRef = adminDb.collection('o2d').doc(dealDoc.id);
+                const o2dDoc = await o2dRef.get();
+
+                if (o2dDoc.exists) {
+                    const advanceConfirmationStep: O2DStatus = {
+                        stepId: 7, // Advance Receiving Confirmation
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: approver.name,
+                        remarks: `Payment confirmed by ${approver.name}.`,
+                        selection: 'Done'
+                    };
+                    batch.update(o2dRef, {
+                        milestones: FieldValue.arrayUnion(advanceConfirmationStep)
+                    });
+                }
             }
         }
+        
+        await batch.commit();
 
         return { success: true, message: `Payment confirmed for order ${orderId} and O2D updated.` };
     } catch (error: any) {

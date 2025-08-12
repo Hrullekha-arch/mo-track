@@ -377,7 +377,8 @@ export default function O2DPage() {
     const handleFollowUp = async () => {
         if (!followUpOrder) return;
         try {
-            const orderId = `MOTRACK-${followUpOrder.crmOrderNo}`;
+            // The O2D process operates on the Order document, which has a predictable ID.
+            const orderId = followUpOrder.id; // The O2D "order" object IS the order.
             const result = await setBalanceFollowUp(orderId);
             if (result.success) {
                 toast({ title: "Follow-up Initiated", description: result.message });
@@ -699,23 +700,19 @@ export default function O2DPage() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             )}
-             {followUpOrder && (
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Confirm Follow-up</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Have you followed up with {followUpOrder?.customerName} for the balance payment? This will send it to the Accounts team for payment confirmation.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setFollowUpOrder(null)}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleFollowUp}>Yes, I have</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            )}
+             <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Confirm Follow-up</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Have you followed up with {followUpOrder?.customerName} for the balance payment? This will send it to the Accounts team for payment confirmation.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setFollowUpOrder(null)}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleFollowUp}>Yes, I have</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
         </div>
         </AlertDialog>
     );
 }
-
-    
