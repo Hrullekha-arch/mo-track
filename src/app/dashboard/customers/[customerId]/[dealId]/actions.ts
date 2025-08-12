@@ -7,6 +7,7 @@ import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, De
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { VisitFormValues, MeasurementFormValues, CpdFormValues } from './page';
 import { getMilestonesForOrder } from '@/lib/constants';
+import { FieldValue } from 'firebase-admin/firestore';
 
 // This function sends an SMS using the Fast2SMS API.
 async function sendVisitSms(customerPhone: string, message: string) {
@@ -114,7 +115,7 @@ export async function createQuotationAction(customerId: string, dealId: string, 
                 selection: 'Done'
             };
             batch.update(o2dProcessRef, {
-                milestones: adminDb.FieldValue.arrayUnion(newMilestone)
+                milestones: FieldValue.arrayUnion(newMilestone)
             });
         }
     }
@@ -398,16 +399,18 @@ export async function addMeasurementAction(
         const measurementsRef = dealRef.collection('measurements');
         const newMeasurementRef = measurementsRef.doc();
         
-        const newMeasurementForDb: Omit<DealMeasurement, 'id' | 'fileUrl'> & { fileUrl?: string } = {
+        const newMeasurementForDb: Partial<DealMeasurement> = {
             ...measurementData,
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
+            id: newMeasurementRef.id,
         };
         
         if (measurementData.file && measurementData.file.name) {
             newMeasurementForDb.fileUrl = `https://placehold.co/100x100.png`;
         }
-        batch.set(newMeasurementRef, { ...newMeasurementForDb, id: newMeasurementRef.id });
+        delete (newMeasurementForDb as any).file;
+        batch.set(newMeasurementRef, newMeasurementForDb);
 
         // 2. Update the O2D process
         const o2dProcessRef = adminDb.collection('o2d').doc(dealId); // The O2D doc ID is the deal's Firestore ID
@@ -428,14 +431,14 @@ export async function addMeasurementAction(
                     selection: 'Done'
                 };
                 batch.update(o2dProcessRef, {
-                    milestones: adminDb.FieldValue.arrayUnion(newMilestone)
+                    milestones: FieldValue.arrayUnion(newMilestone)
                 });
             }
         }
         
         await batch.commit();
 
-        return { success: true, message: "Measurement added successfully and O2D step marked complete.", measurement: JSON.parse(JSON.stringify({ ...newMeasurementForDb, id: newMeasurementRef.id })) };
+        return { success: true, message: "Measurement added successfully and O2D step marked complete.", measurement: JSON.parse(JSON.stringify(newMeasurementForDb)) };
     } catch (error: any) {
         console.error("Error adding measurement:", error);
         return { success: false, message: `Server error: ${error.message}` };
@@ -516,7 +519,7 @@ export async function addCpdAction(
                 selection: 'Done'
             };
             batch.update(o2dProcessRef, {
-                milestones: adminDb.FieldValue.arrayUnion(newMilestone)
+                milestones: FieldValue.arrayUnion(newMilestone)
             });
         }
     }
