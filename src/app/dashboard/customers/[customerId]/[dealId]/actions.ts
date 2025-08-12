@@ -2,7 +2,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Order, OrderType } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Order, OrderType, O2DStatus } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { VisitFormValues, MeasurementFormValues, CpdFormValues } from './page';
 import { getMilestonesForOrder } from '@/lib/constants';
@@ -309,18 +309,7 @@ export async function addVisitAction(
         const visitDate = new Date(savedVisit.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
         const visitTime = new Date(savedVisit.dueDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
         
-        const smsMessage = `Dear ${customerData.name},
-
-Thank you for choosing Mo Design Pvt. Ltd..
-Our team will be visiting your location for the measurement on ${visitDate} at ${visitTime}. Please ensure the area is accessible so we can take accurate measurements without delay.
-
-If you need to reschedule or have any special requirements, feel free to contact us at ${customerData.mobileNo || '0124-4777888'} or ${customerData.email || 'info@modesigns.in'}.
-
-We look forward to serving you!
-
-Warm regards,
-Team Mo Design Pvt. Ltd.
-0124-4777888 | info@modesigns.in | https://modesigns.in/`;
+        const smsMessage = `Dear ${customerData.name},\n\nThank you for choosing Mo Design Pvt. Ltd..\nOur team will be visiting your location for the measurement on ${visitDate} at ${visitTime}. Please ensure the area is accessible so we can take accurate measurements without delay.\n\nIf you need to reschedule or have any special requirements, feel free to contact us at ${customerData.mobileNo || '0124-4777888'} or ${customerData.email || 'info@modesigns.in'}.\n\nWe look forward to serving you!\n\nWarm regards,\nTeam Mo Design Pvt. Ltd.\n0124-4777888 | info@modesigns.in | https://modesigns.in/`;
 
         try {
             await sendVisitSms(customerData.mobileNo, smsMessage);
@@ -424,7 +413,8 @@ export async function addCpdAction(
   creatorName: string
 ): Promise<{ success: boolean; message: string; cpd?: Cpd }> {
   try {
-    const cpdsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('cpds');
+    const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
+    const cpdsRef = dealRef.collection('cpds');
     
     // Generate a unique 4-digit cpdId
     let newCpdId: string;
@@ -445,11 +435,45 @@ export async function addCpdAction(
       createdAt: new Date().toISOString(),
       createdBy: creatorName,
     };
+    
+    const batch = adminDb.batch();
 
-    await newCpdRef.set(fullCpdData);
+    batch.set(newCpdRef, fullCpdData);
+    
+    // Automation: Find the associated order and update the O2D milestone
+    const dealSnap = await dealRef.get();
+    const dealData = dealSnap.data() as Deal;
+
+    const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealData.dealId);
+    const orderSnapshot = await ordersQuery.get();
+
+    if (!orderSnapshot.empty) {
+        const orderDoc = orderSnapshot.docs[0];
+        const orderData = orderDoc.data() as Order;
+
+        const finalSelectionStepId = 3; // Corresponds to "Final Material Selection" in the new config
+        const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === finalSelectionStepId);
+
+        if (!existingMilestone) {
+             const newMilestone: O2DStatus = {
+                stepId: finalSelectionStepId,
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: creatorName,
+                remarks: `Automatically completed upon CPD #${newCpdId} creation.`,
+                selection: 'Done'
+            };
+             batch.update(orderDoc.ref, {
+                o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
+            });
+        }
+    }
+    
+    await batch.commit();
+
     const savedCpd = { ...fullCpdData, id: newCpdRef.id };
 
-    return { success: true, message: 'CPD saved successfully!', cpd: JSON.parse(JSON.stringify(savedCpd)) };
+    return { success: true, message: 'CPD saved successfully and material selection marked as complete.', cpd: JSON.parse(JSON.stringify(savedCpd)) };
   } catch (error: any) {
     console.error('Error saving CPD:', error);
     return { success: false, message: `Failed to save CPD: ${error.message}` };

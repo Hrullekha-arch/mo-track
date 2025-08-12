@@ -36,15 +36,13 @@ export function getMilestonesForOrder(orderType: OrderType): Milestone[] {
 
 export const O2D_PROCESS_CONFIG: O2DStep[] = [
     { id: 1, step: "Receive Advance ₹1000", details: "For measurement/Fabric order", time: "30 min", role: "Salesman", icon: User, expectedDuration: { minutes: 30 } },
-    { id: 2, step: "Material Selection", details: "For Delivery/Production", time: "7 Days", role: "Salesman", icon: User, expectedDuration: { days: 7 } },
-    { id: 3, step: "Measurement", details: "Coordinate to CRM", time: "1 Day", role: "CRM", icon: Users, expectedDuration: { days: 1 } },
-    { id: 4, step: "Final Material Selection", details: "For Delivery/Production", time: "7 Days", role: "CRM / Salesman", icon: Users, expectedDuration: { days: 7 } },
-    { id: 5, step: "Quotation Making", details: "Final quotation for the customer", time: "1 Day", role: "Salesman", icon: User, expectedDuration: { days: 1 } },
-    { id: 6, step: "Quotation Re-Check", details: "Verification of the quotation", time: "1 Hour", role: "Accounts", icon: Banknote, expectedDuration: { hours: 1 } },
-    { id: 7, step: "Advance Receiving Confirmation", details: "Before Material Ordering", time: "2 Hours", role: "Accounts", icon: Banknote, expectedDuration: { hours: 2 } },
-    { id: 8, step: "PO Item List Tally", details: "Tally with Customer Quotation/Estimate", time: "1 Hour", role: "Salesman", icon: ClipboardCheck, expectedDuration: { hours: 1 } },
-    { id: 9, step: "Purchase Material Receiving", details: "Time linked to another page", time: "Variable", role: "Purchase Dept.", icon: Box, expectedDuration: { days: 3 } }, // Assuming 3 days for variable
-    { id: 10, step: "Move to Order Dashboard", details: "Order moves to the main tracking workflow", time: "Instant", role: "System", icon: ArrowRightCircle, expectedDuration: { minutes: 5 } }
+    { id: 2, step: "Measurement", details: "Coordinate with CRM for site visit", time: "1 Day", role: "CRM", icon: Users, expectedDuration: { days: 1 } },
+    { id: 3, step: "Final Material Selection", details: "Finalize materials post-measurement (on CPD creation)", time: "7 Days", role: "System / Salesman", icon: UserCheck, expectedDuration: { days: 7 } },
+    { id: 4, step: "Quotation Making", details: "Final quotation for the customer", time: "1 Day", role: "Salesman", icon: FileText, expectedDuration: { days: 1 } },
+    { id: 5, step: "Quotation Re-Check", details: "Verification of the quotation by accounts", time: "1 Hour", role: "Accounts", icon: Banknote, expectedDuration: { hours: 1 } },
+    { id: 6, step: "Advance Receiving Confirmation", details: "Confirm >50% advance before ordering", time: "2 Hours", role: "Accounts", icon: BadgePercent, expectedDuration: { hours: 2 } },
+    { id: 7, step: "Purchase Material Receiving", details: "Track inbound materials from vendors", time: "Variable", role: "Purchase Dept.", icon: PackageSearch, expectedDuration: { days: 3 } },
+    { id: 8, step: "Move to Order Dashboard", details: "Order moves to the main tracking workflow", time: "Instant", role: "System", icon: ArrowRightCircle, expectedDuration: { minutes: 5 } }
 ];
 
 

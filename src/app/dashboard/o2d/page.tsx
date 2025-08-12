@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X, Eye, EyeOff, Sparkles } from 'lucide-react';
+import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X, Eye, EyeOff, Sparkles, UserCheck, PackageSearch, FileText, BadgePercent } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, getDoc, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, O2DStep, O2DStatus, OrderType } from "@/lib/types";
@@ -23,7 +23,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { ConfirmOrderTypeDialog } from "@/components/features/order-management/ConfirmOrderTypeDialog";
-import { getMilestonesForOrder } from '@/lib/constants';
+import { getMilestonesForOrder, O2D_PROCESS_CONFIG, calculateExpectedDatesForOrder } from '@/lib/constants';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,55 +31,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const O2D_PROCESS_CONFIG: O2DStep[] = [
-    { id: 1, step: "Receive Advance ₹1000", details: "For measurement/Fabric order", time: "30 min", role: "Salesman", icon: User, expectedDuration: { minutes: 30 } },
-    { id: 2, step: "Material Selection", details: "For Delivery/Production", time: "7 Days", role: "Salesman", icon: User, expectedDuration: { days: 7 } },
-    { id: 3, step: "Measurement", details: "Coordinate to CRM", time: "1 Day", role: "CRM", icon: Users, expectedDuration: { days: 1 } },
-    { id: 4, step: "Final Material Selection", details: "For Delivery/Production", time: "7 Days", role: "CRM / Salesman", icon: Users, expectedDuration: { days: 7 } },
-    { id: 5, step: "Quotation Making", details: "Final quotation for the customer", time: "1 Day", role: "Salesman", icon: User, expectedDuration: { days: 1 } },
-    { id: 6, step: "Quotation Re-Check", details: "Verification of the quotation", time: "1 Hour", role: "Accounts", icon: Banknote, expectedDuration: { hours: 1 } },
-    { id: 7, step: "Advance Receiving Confirmation", details: "Before Material Ordering", time: "2 Hours", role: "Accounts", icon: Banknote, expectedDuration: { hours: 2 } },
-    { id: 8, step: "PO Item List Tally", details: "Tally with Customer Quotation/Estimate", time: "1 Hour", role: "Salesman", icon: ClipboardCheck, expectedDuration: { hours: 1 } },
-    { id: 9, step: "Purchase Material Receiving", details: "Time linked to another page", time: "Variable", role: "Purchase Dept.", icon: Box, expectedDuration: { days: 3 } }, // Assuming 3 days for variable
-    { id: 10, step: "Move to Order Dashboard", details: "Order moves to the main tracking workflow", time: "Instant", role: "System", icon: ArrowRightCircle, expectedDuration: { minutes: 5 } }
-];
-
-function getExpectedCompletionDate(step: O2DStep, startDate: Date): Date {
-    const { days = 0, hours = 0, minutes = 0 } = step.expectedDuration;
-    let completionDate = addDays(startDate, days);
-    completionDate = addHours(completionDate, hours);
-    completionDate = addMinutes(completionDate, minutes);
-    return completionDate;
-}
 
 const formatTimestamp = (date: Date) => {
     return format(date, 'dd/MM/yyyy - HH:mm:ss');
 };
-
-const calculateExpectedDatesForOrder = (order: Order) => {
-    return O2D_PROCESS_CONFIG.reduce((acc, currentStep) => {
-        let startDate: Date;
-        if (currentStep.id === 1) {
-            startDate = order.createdAt ? new Date(order.createdAt) : new Date();
-        } else {
-            const previousStepConfig = O2D_PROCESS_CONFIG.find(s => s.id === currentStep.id - 1);
-            if (!previousStepConfig) {
-                 startDate = new Date(); // Fallback, should not happen
-            } else {
-                const previousStepStatus = (order.o2dMilestones || []).find(m => m.stepId === previousStepConfig.id);
-                if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
-                    // Rule 2: If previous step is done, start from its actual completion time.
-                    startDate = new Date(previousStepStatus.completedAt);
-                } else {
-                    // Rule 1: If previous step is pending, start from its expected completion time.
-                    startDate = acc[previousStepConfig.id];
-                }
-            }
-        }
-        acc[currentStep.id] = getExpectedCompletionDate(currentStep, startDate);
-        return acc;
-    }, {} as Record<number, Date>);
-}
 
 function O2DProcessTimeline({ 
     order, 
@@ -116,7 +71,8 @@ function O2DProcessTimeline({
 
 
     const handleAction = (status: 'completed' | 'skipped', selection: string, stepId: number, isOverdue: boolean) => {
-      if (stepId === 10 && status === 'completed') {
+      // The final step triggers the order type confirmation dialog
+      if (stepId === O2D_PROCESS_CONFIG[O2D_PROCESS_CONFIG.length - 1].id && status === 'completed') {
         onConfirmOrderType(order);
       } else if ((status === 'skipped') || (status === 'completed' && isOverdue)) {
         onStepUpdate(order.id, stepId, isOverdue, status, selection);
@@ -126,7 +82,7 @@ function O2DProcessTimeline({
     };
     
     const checkPermission = (stepRole: string) => {
-        if (userRole === 'admin' || stepRole === 'System') return true;
+        if (userRole === 'admin' || stepRole.toLowerCase().includes('system')) return true;
 
         const requiredRoles = stepRole.split(' / ').map(r => r.trim().toLowerCase());
         
@@ -384,7 +340,7 @@ export default function O2DPage() {
 
     const pendingOrders = useMemo(() => {
         let orders = allOrders.filter(order => {
-            const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === 10);
+            const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === O2D_PROCESS_CONFIG[O2D_PROCESS_CONFIG.length - 1].id);
             return !finalO2DStep; // If final step doesn't exist, it's pending
         });
 
@@ -467,7 +423,7 @@ export default function O2DPage() {
             return;
         }
 
-        const stepId = 10;
+        const stepId = O2D_PROCESS_CONFIG[O2D_PROCESS_CONFIG.length - 1].id;
         const newStatus: O2DStatus = {
             stepId: stepId,
             status: 'completed',
@@ -545,7 +501,7 @@ export default function O2DPage() {
         const currentStep = nextStepIndex !== -1 ? O2D_PROCESS_CONFIG[nextStepIndex] : null;
 
         // Check if the order is ready for final acknowledgement
-        const isReadyForAcknowledgement = currentStep?.id === 10;
+        const isReadyForAcknowledgement = currentStep?.id === O2D_PROCESS_CONFIG[O2D_PROCESS_CONFIG.length - 1].id;
         
         let cardBorderColor = "border-border";
         let statusTextColor = "text-primary";
