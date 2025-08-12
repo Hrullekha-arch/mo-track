@@ -92,7 +92,42 @@ export async function createQuotationAction(customerId: string, dealId: string, 
         totalAmount: totalAmount,
     };
     
-    await quotationRef.set(newQuotation);
+    const batch = adminDb.batch();
+    batch.set(quotationRef, newQuotation);
+    
+    // AUTOMATION: Find the associated order and update the O2D milestone
+    const dealSnap = await dealRef.get();
+    if (dealSnap.exists()) {
+        const crmOrderNo = dealSnap.data()?.dealId;
+        if (crmOrderNo) {
+            const ordersQuery = adminDb.collection('orders').where('crmOrderNo', '==', crmOrderNo);
+            const orderSnapshot = await ordersQuery.get();
+            if (!orderSnapshot.empty) {
+                const orderDoc = orderSnapshot.docs[0];
+                const orderData = orderDoc.data() as Order;
+                
+                // Mark step 4 (Quotation Making) as complete
+                const quotationStepId = 4;
+                const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === quotationStepId);
+                
+                if (!existingMilestone) {
+                    const newMilestone: O2DStatus = {
+                        stepId: quotationStepId,
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: values.representativeId ? `Salesman` : 'System',
+                        remarks: `Quotation #${newQuotation.quotationNo} created.`,
+                        selection: 'Done'
+                    };
+                    batch.update(orderDoc.ref, {
+                        o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
+                    });
+                }
+            }
+        }
+    }
+    
+    await batch.commit();
 
     return { 
         success: true, 
@@ -373,7 +408,7 @@ export async function addMeasurementAction(
             id: newMeasurementRef.id,
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
-            file: undefined, // remove file object before saving
+            fileUrl: undefined, // ensure this is not set if file is null/undefined
         };
         
         if (measurementData.file) {
@@ -566,3 +601,5 @@ export async function getCpdsForDeal(customerId: string, dealId: string): Promis
         return [];
     }
 }
+
+    

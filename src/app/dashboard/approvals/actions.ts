@@ -1,8 +1,9 @@
 
+
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, PurchaseRequest, Stock, FabricDetail } from "@/lib/types";
+import { Order, PurchaseRequest, Stock, FabricDetail, O2DStatus } from "@/lib/types";
 
 
 export async function approveOrderAndCreatePurchaseRequest(
@@ -71,6 +72,28 @@ export async function approveOrderAndCreatePurchaseRequest(
             purchaseMessage = ` A purchase request has been generated for ${itemsToPurchase.length} out-of-stock item(s).`;
         }
         
+        // AUTOMATION: Mark Quotation Re-check (5) and Advance Confirmation (6) as complete
+        const o2dMilestones: O2DStatus[] = [
+            {
+                stepId: 5,
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: approver.name,
+                remarks: "Quotation approved and order generated.",
+                selection: "Done"
+            },
+            {
+                stepId: 6,
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: approver.name,
+                remarks: "Advance confirmed during order approval.",
+                selection: "Done"
+            }
+        ];
+        
+        batch.update(orderRef, { o2dMilestones: adminDb.FieldValue.arrayUnion(...o2dMilestones) });
+        
         await batch.commit();
 
         return { success: true, message: `Order ${orderId} has been approved.${purchaseMessage}` };
@@ -96,3 +119,5 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
         return { success: false, message: `Failed to confirm payment: ${error.message}` };
     }
 }
+
+    
