@@ -23,7 +23,7 @@ import { getStockById } from "../inventory/actions";
 import { approveOrderAndCreatePurchaseRequest, confirmPaymentReceived, approveQuotationAction } from "./actions";
 
 interface EnrichedQuotation extends Quotation {
-    dealDocId: string;
+    dealId: string; // Corrected from dealDocId
     customerId: string;
     dealName: string;
     customerName: string;
@@ -77,17 +77,17 @@ function ApproveQuotationTab() {
                 const quotationData = docSnap.data() as Quotation;
                 const pathParts = docSnap.ref.path.split('/');
                 const customerId = pathParts[1];
-                const dealDocId = pathParts[3];
+                const dealId = pathParts[3]; // This is the deal's document ID
 
                 try {
                     const customerSnap = await getDoc(doc(db, 'customers', customerId));
-                    const dealSnap = await getDoc(doc(db, 'customers', customerId, 'deals', dealDocId));
+                    const dealSnap = await getDoc(doc(db, 'customers', customerId, 'deals', dealId));
 
                     pendingQuotations.push({
                         ...quotationData,
                         id: docSnap.id,
                         customerId,
-                        dealDocId,
+                        dealId, // Correctly assign dealId
                         customerName: customerSnap.exists() ? customerSnap.data().name : 'Unknown Customer',
                         dealName: dealSnap.exists() ? dealSnap.data().dealName : 'Unknown Deal',
                     });

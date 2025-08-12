@@ -183,7 +183,7 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
 }
 
 export async function approveQuotationAction(
-  quotation: Quotation,
+  quotation: Quotation & { dealId: string },
   approver: { id: string; name: string }
 ): Promise<{ success: boolean; message: string }> {
   try {
