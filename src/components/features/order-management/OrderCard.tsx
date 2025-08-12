@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState } from "react";
@@ -146,9 +145,9 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         toast({ title: `Order ${currentOrder.id} Acknowledged`, description: `Generated OTP: ${updatePayload.otp}` });
       }
       
-      // --- NEW LOGIC: Update O2D when "Stitching Done" is completed ---
+      // Update O2D when "Stitching Done" is completed
       if (milestoneId === 4 && completed && currentOrder.dealId) {
-        const o2dQuery = query(collection(db, "o2d"), where("dealId", "==", currentOrder.dealId), where("isAcknowledged", "!=", true));
+        const o2dQuery = query(collection(db, "o2d"), where("dealId", "==", currentOrder.dealId));
         const o2dSnapshot = await getDocs(o2dQuery);
         if (!o2dSnapshot.empty) {
             const o2dDocRef = o2dSnapshot.docs[0].ref;
@@ -166,7 +165,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
              toast({ title: "O2D Step Automated", description: `Full Kiting marked as done for deal ${currentOrder.dealId}.` });
         }
       }
-      // --- END NEW LOGIC ---
 
       const updatedOrder = { ...currentOrder, ...updatePayload };
       await updateDoc(orderRef, updatePayload);
@@ -272,7 +270,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    // Because we are using Firestore real-time listeners, the data is always up-to-date.
     // This is a simulated refresh for user experience.
     setTimeout(() => {
         setIsRefreshing(false);
