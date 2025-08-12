@@ -216,18 +216,17 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
                 
                 if (allPrsForDealAreComplete) {
-                    const ordersRef = collection(db, "orders");
-                    const q = query(ordersRef, where("crmOrderNo", "==", request.dealId));
-                    const orderSnapshot = await getDocs(q);
+                    const o2dQuery = query(collection(db, "o2d"), where("dealId", "==", request.dealId));
+                    const o2dSnapshot = await getDocs(o2dQuery);
                     
-                    if (!orderSnapshot.empty) {
-                        const orderDoc = orderSnapshot.docs[0];
-                        const orderData = orderDoc.data() as Order;
-                        const o2dStep9 = orderData.o2dMilestones?.find(m => m.stepId === 9);
+                    if (!o2dSnapshot.empty) {
+                        const o2dDoc = o2dSnapshot.docs[0];
+                        const o2dData = o2dDoc.data() as O2DProcess;
+                        const o2dStep = o2dData.milestones?.find(m => m.stepId === 7);
 
-                        if (!o2dStep9 || o2dStep9.status !== 'completed') {
-                            const o2dMilestoneStep9: O2DStatus = {
-                                stepId: 9,
+                        if (!o2dStep || o2dStep.status !== 'completed') {
+                            const newMilestone: O2DStatus = {
+                                stepId: 7, // 'Purchase Material Receiving'
                                 status: 'completed',
                                 completedAt: new Date().toISOString(),
                                 completedBy: "System (All Inbounds Complete)",
@@ -235,17 +234,10 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                                 selection: 'Done'
                             };
                             
-                            const existingO2dStep9Index = (orderData.o2dMilestones || []).findIndex(m => m.stepId === 9);
-                            if (existingO2dStep9Index > -1) {
-                                const newO2dMilestones = [...(orderData.o2dMilestones || [])];
-                                newO2dMilestones[existingO2dStep9Index] = o2dMilestoneStep9;
-                                await updateDoc(orderDoc.ref, { o2dMilestones: newO2dMilestones });
-                            } else {
-                                await updateDoc(orderDoc.ref, { o2dMilestones: arrayUnion(o2dMilestoneStep9) });
-                            }
+                            await updateDoc(o2dDoc.ref, { milestones: arrayUnion(newMilestone) });
                              toast({
-                                title: "O2D Step 9 Completed!",
-                                description: `Purchase Material Receiving marked as done for order ${orderData.id}.`,
+                                title: "O2D Step 7 Completed!",
+                                description: `Purchase Material Receiving marked as done for deal ${o2dData.dealId}.`,
                             });
                         }
                     }

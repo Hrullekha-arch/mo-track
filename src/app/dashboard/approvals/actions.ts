@@ -73,27 +73,22 @@ export async function approveOrderAndCreatePurchaseRequest(
             purchaseMessage = ` A purchase request has been generated for ${itemsToPurchase.length} out-of-stock item(s).`;
         }
         
-        // AUTOMATION: Mark Quotation Re-check (5) and Advance Confirmation (7) as complete
-        const o2dMilestones: O2DStatus[] = [
-            {
-                stepId: 5,
-                status: 'completed',
-                completedAt: new Date().toISOString(),
-                completedBy: approver.name,
-                remarks: "Quotation approved and order generated.",
-                selection: "Done"
-            },
-            {
-                stepId: 7,
-                status: 'completed',
-                completedAt: new Date().toISOString(),
-                completedBy: approver.name,
-                remarks: "Advance confirmed during order approval.",
-                selection: "Done"
+        // AUTOMATION: Mark "Advance receive for Order" as complete
+        if (orderData.dealId) {
+            const o2dRef = adminDb.collection('o2d').doc(orderData.dealId);
+            const o2dDoc = await o2dRef.get();
+            if (o2dDoc.exists) {
+                const advanceMilestone: O2DStatus = {
+                    stepId: 6, // 'Advance receive for Order'
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: approver.name,
+                    remarks: "Advance confirmed during order approval.",
+                    selection: "Done"
+                };
+                batch.update(o2dRef, { o2dMilestones: FieldValue.arrayUnion(advanceMilestone) });
             }
-        ];
-        
-        batch.update(orderRef, { o2dMilestones: adminDb.FieldValue.arrayUnion(...o2dMilestones) });
+        }
         
         await batch.commit();
 
@@ -136,7 +131,7 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
 
                 if (o2dDoc.exists) {
                     const advanceConfirmationStep: O2DStatus = {
-                        stepId: 7, // Advance Receiving Confirmation
+                        stepId: 6, // 'Advance receive for Order'
                         status: 'completed',
                         completedAt: new Date().toISOString(),
                         completedBy: approver.name,
@@ -160,7 +155,7 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
 }
 
 export async function approveQuotationAction(
-  quotation: Omit<Quotation, 'date' | 'validTillDate'> & { date: string, validTillDate?: string }, // Expect plain object with ISO strings
+  quotation: Quotation,
   approver: { id: string; name: string }
 ): Promise<{ success: boolean; message: string }> {
   try {

@@ -1,7 +1,7 @@
 
 
 import { type Milestone, type OrderType, type PurchaseStep, O2DStep, type ComboboxOption } from './types';
-import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart, PhoneCall } from 'lucide-react';
+import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart, PhoneCall, Factory, Layers } from 'lucide-react';
 import { addDays, addHours, addMinutes } from 'date-fns';
 
 
@@ -40,10 +40,11 @@ export const O2D_PROCESS_CONFIG: O2DStep[] = [
     { id: 3, step: "Final Material Selection", details: "Finalize materials post-measurement (on CPD creation)", time: "7 Days", role: "System / Salesman", icon: UserCheck, expectedDuration: { days: 7 } },
     { id: 4, step: "Quotation Making", details: "Final quotation for the customer", time: "1 Day", role: "Salesman", icon: FileText, expectedDuration: { days: 1 } },
     { id: 5, step: "Quotation Re-Check", details: "Verification of the quotation by accounts", time: "1 Hour", role: "Accounts", icon: Banknote, expectedDuration: { hours: 1 } },
-    { id: 6, step: "Balance Payment Follow Up", details: "Follow up with customer for balance payment", time: "Variable", role: "Accounts", icon: PhoneCall, expectedDuration: { days: 1 } },
-    { id: 7, step: "Advance Receiving Confirmation", details: "Confirm >50% advance before ordering", time: "2 Hours", role: "Accounts", icon: BadgePercent, expectedDuration: { hours: 2 } },
-    { id: 8, step: "Purchase Material Receiving", details: "Track inbound materials from vendors", time: "Variable", role: "Purchase Dept.", icon: PackageSearch, expectedDuration: { days: 3 } },
-    { id: 9, step: "Move to Order Dashboard", details: "Order moves to the main tracking workflow", time: "Instant", role: "System", icon: ArrowRightCircle, expectedDuration: { minutes: 5 } }
+    { id: 6, step: "Advance receive for Order", details: "Accounts confirms full advance payment for the order", time: "2 Hours", role: "Accounts", icon: BadgePercent, expectedDuration: { hours: 2 } },
+    { id: 7, step: "Purchase Material Receiving", details: "All materials for the order are received in inbound", time: "Variable", role: "System / Inbound", icon: PackageSearch, expectedDuration: { days: 3 } },
+    { id: 8, step: "Production", details: "Order fabric is allocated in the main dashboard", time: "Variable", role: "System / Allocator", icon: Factory, expectedDuration: { days: 1 } },
+    { id: 9, step: "Full Kiting", details: "All components are kitted for production", time: "1 Day", role: "PC", icon: Layers, expectedDuration: { days: 1 } },
+    { id: 10, step: "Move to Order Dashboard", details: "Order moves to the main tracking workflow", time: "Instant", role: "System", icon: ArrowRightCircle, expectedDuration: { minutes: 5 } }
 ];
 
 
