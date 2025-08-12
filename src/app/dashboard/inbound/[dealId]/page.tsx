@@ -210,8 +210,10 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
                 
                 if (allPrsForDealAreComplete) {
-                    const o2dRef = doc(db, 'o2d', request.dealId); // The dealId on the inbound request IS the o2d doc ID
-                    const o2dDoc = await getDoc(o2dRef);
+                    // The O2D document ID is the same as the original Deal's Firestore ID.
+                    // The purchase request's `dealId` is the original Deal's `id`.
+                    const o2dDocRef = doc(db, 'o2d', request.purchaseRequestId);
+                    const o2dDoc = await getDoc(o2dDocRef);
 
                     if (o2dDoc.exists()) {
                         const o2dData = o2dDoc.data() as O2DProcess;
@@ -227,7 +229,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                                 selection: 'Done'
                             };
                             
-                            await updateDoc(o2dRef, { milestones: arrayUnion(newMilestone) });
+                            await updateDoc(o2dDocRef, { milestones: arrayUnion(newMilestone) });
                                 toast({
                                 title: "O2D Step 7 Completed!",
                                 description: `Purchase Material Receiving marked as done for deal ${o2dData.dealId}.`,
@@ -275,7 +277,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
             }
             
             toast({ title: "Step Reverted", description: "The process step has been successfully reverted." });
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error reverting inbound status:", error);
             toast({ variant: "destructive", title: "Revert Failed", description: "Could not revert the item process status." });
         } finally {
