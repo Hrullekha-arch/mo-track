@@ -4,7 +4,7 @@
 import { useState, useEffect, use } from 'react';
 import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion, collection, query, where, getDocs, writeBatch, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { InboundRequest, InboundItem, InboundMilestone, Order, O2DStatus, StockTransaction, PurchaseRequest } from "@/lib/types";
+import { InboundRequest, InboundItem, InboundMilestone, Order, O2DStatus, StockTransaction, PurchaseRequest, O2DProcess } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2, ScanLine } from 'lucide-react';
@@ -210,8 +210,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
                 
                 if (allPrsForDealAreComplete) {
-                    // The O2D document ID is the same as the original Deal's Firestore ID.
-                    // The purchase request's `dealId` is the original Deal's `id`.
+                    // The O2D document's ID is the same as the Deal's Document ID, which is stored in purchaseRequestId
                     const o2dDocRef = doc(db, 'o2d', request.purchaseRequestId);
                     const o2dDoc = await getDoc(o2dDocRef);
 
