@@ -24,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format, isWithinInterval } from "date-fns";
@@ -48,11 +48,13 @@ function GenerateInvoiceDialog({
   onClose,
   batches,
   orders,
+  creator,
 }: {
   isOpen: boolean;
   onClose: () => void;
   batches: InvoiceBatch[];
   orders: Order[];
+  creator: { id: string, name: string } | null;
 }) {
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isTallyDialogOpen, setIsTallyDialogOpen] = React.useState(false);
@@ -60,6 +62,10 @@ function GenerateInvoiceDialog({
   const { toast } = useToast();
 
   const handleFinalGenerate = async () => {
+    if (!creator) {
+        toast({ variant: 'destructive', title: 'Error', description: 'You must be logged in to perform this action.' });
+        return;
+    }
     setIsTallyDialogOpen(false);
     setIsGenerating(true);
     
@@ -117,7 +123,7 @@ function GenerateInvoiceDialog({
                 grandTotal: roundedAmount,
             },
             createdAt: new Date().toISOString(),
-            createdBy: "System", // Replace with actual user later
+            createdBy: creator.name,
         };
         batch.set(newInvoiceRef, newInvoice);
 
@@ -145,6 +151,30 @@ function GenerateInvoiceDialog({
             const batchRef = doc(db, "invoiceBatches", b.id);
             batch.update(batchRef, { status: "invoiced", tallyBillNo: tallyBillNo || null, invoiceId: newInvoiceRef.id });
         });
+
+        // 4. Check if all items for the order are now invoiced and update the milestone
+        const allOrderFabricNames = (primaryOrder.fabricDetails || []).map(f => f.fabricName);
+
+        // Fetch all invoice batches for this order to get a complete picture
+        const allBatchesQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', primaryOrder.id));
+        const allBatchesSnapshot = await getDocs(allBatchesQuery);
+        const allInvoicedItems = allBatchesSnapshot.docs.flatMap(doc => (doc.data() as InvoiceBatch).items.map(item => item.itemName));
+        
+        // Add items from the current batch being created
+        const currentBatchItems = allItems.map(item => item.itemName);
+        allInvoicedItems.push(...currentBatchItems);
+
+        const allItemsInvoiced = allOrderFabricNames.every(name => allInvoicedItems.includes(name));
+
+        if (allItemsInvoiced) {
+            const orderRef = doc(db, "orders", primaryOrder.id);
+            const updatedMilestones = primaryOrder.milestones.map(m =>
+                m.id === 3 // "Sent to Stitching" milestone
+                ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: creator.name }
+                : m
+            );
+            batch.update(orderRef, { milestones: updatedMilestones });
+        }
         
         await batch.commit();
 
@@ -241,6 +271,7 @@ function InvoiceTable({
     const [isGenerateDialogOpen, setIsGenerateDialogOpen] = React.useState(false);
     const [isViewInvoiceOpen, setIsViewInvoiceOpen] = React.useState(false);
     const [selectedBatchForView, setSelectedBatchForView] = React.useState<InvoiceBatch | null>(null);
+    const { user } = useAuth();
 
     const handleViewClick = (batch: InvoiceBatch) => {
         setSelectedBatchForView(batch);
@@ -435,6 +466,7 @@ function InvoiceTable({
             onClose={() => setIsGenerateDialogOpen(false)}
             batches={selectedBatches}
             orders={selectedOrders}
+            creator={user ? {id: user.uid, name: user.displayName || 'System'} : null}
         />
         {selectedBatchForView && (
             <Dialog open={isViewInvoiceOpen} onOpenChange={setIsViewInvoiceOpen}>
