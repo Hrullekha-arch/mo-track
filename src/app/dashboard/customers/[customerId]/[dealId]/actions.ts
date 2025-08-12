@@ -210,7 +210,7 @@ export async function createDealOrderAction(
       isAcknowledged: true,
       status: 'Pending Approval',
       customerId: customerId,
-      dealId: dealId,
+      dealId: dealData.dealId, // Storing the numeric dealId
       dealOrderDocId: newDealOrderRef.id,
       storeName: quotation.store,
       fabricDetails: allFabricDetails,
@@ -557,5 +557,7 @@ export async function getCpdsForDeal(customerId: string, dealId: string): Promis
         return [];
     }
 }
+
+    
 
     

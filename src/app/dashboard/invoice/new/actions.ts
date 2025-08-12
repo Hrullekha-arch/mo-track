@@ -111,7 +111,7 @@ export async function createDealOrderAction(
       isAcknowledged: true,
       status: 'Pending Approval', // Set status to Pending Approval
       customerId: customerId,
-      dealId: dealId,
+      dealId: dealData.dealId,
       dealOrderDocId: newDealOrderRef.id,
       storeName: quotation.store,
       fabricDetails: allFabricDetails,
@@ -157,3 +157,5 @@ export async function createDealOrderAction(
     return { success: false, message: `Server error: ${error.message}` };
   }
 }
+
+    
