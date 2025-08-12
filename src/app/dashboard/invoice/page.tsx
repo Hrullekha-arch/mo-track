@@ -61,6 +61,7 @@ function GenerateInvoiceDialog({
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isTallyDialogOpen, setIsTallyDialogOpen] = React.useState(false);
   const [tallyBillNo, setTallyBillNo] = React.useState('');
+  const [generatedInvoiceNo, setGeneratedInvoiceNo] = React.useState<string | null>(null);
   const { toast } = useToast();
 
   const handleFinalGenerate = async () => {
@@ -87,6 +88,9 @@ function GenerateInvoiceDialog({
             }
         }
         
+        const newInvoiceNumberStr = String(newInvoiceNumber);
+        setGeneratedInvoiceNo(newInvoiceNumberStr);
+
         // Combine all items from all selected batches
         const allItems = batches.flatMap(b => b.items);
 
@@ -116,7 +120,7 @@ function GenerateInvoiceDialog({
         // 1. Create the new Invoice document with the numeric ID
         const newInvoiceRef = doc(collection(db, "invoices")); // Still generate a doc for a unique ID
         const newInvoice: Omit<Invoice, 'id'> = {
-            invoiceNo: String(newInvoiceNumber), // Use the new numeric string ID
+            invoiceNo: newInvoiceNumberStr,
             orderId: primaryOrder.id,
             tallyBillNo: tallyBillNo || undefined,
             customer: {
@@ -193,7 +197,7 @@ function GenerateInvoiceDialog({
         await batch.commit();
 
         toast({ title: "Invoice Generated!", description: `Invoice ${String(newInvoiceNumber)} has been created and sent for cutting.`});
-        onClose();
+        // We do not close the dialog here, instead, we let the user print.
     } catch (error) {
         console.error("Error finalizing invoice:", error);
         toast({ variant: 'destructive', title: 'Error', description: 'Could not finalize the invoice.' });
@@ -230,12 +234,12 @@ function GenerateInvoiceDialog({
                 </DialogDescription>
             </DialogHeader>
             <div className="flex-grow overflow-y-auto pr-4" id="printable-invoice-content">
-                <PrintableInvoice batches={batches} orders={orders} />
+                <PrintableInvoice batches={batches} orders={orders} preGeneratedInvoiceNo={generatedInvoiceNo}/>
             </div>
             <DialogFooter>
                 <Button variant="ghost" onClick={onClose}>Cancel</Button>
                 <Button variant="outline" onClick={handlePrint}><Printer className="mr-2 h-4 w-4"/> Print</Button>
-                <Button onClick={() => setIsTallyDialogOpen(true)} disabled={isGenerating}>
+                <Button onClick={() => setIsTallyDialogOpen(true)} disabled={isGenerating || !!generatedInvoiceNo}>
                     {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Confirm & Generate
                 </Button>
