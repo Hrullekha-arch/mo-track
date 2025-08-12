@@ -103,7 +103,7 @@ export async function getSalesmen(): Promise<User[]> {
         if (snapshot.empty) {
             return [];
         }
-        const salesmen = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+        const salesmen = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as User);
         return JSON.parse(JSON.stringify(salesmen));
     } catch (error) {
         console.error('Error fetching salesmen:', error);
@@ -179,7 +179,7 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
     const customerData = customerDoc.data() as Customer;
     
     const salesmanDoc = await adminDb.collection('users').doc(dealData.representativeId).get();
-    const salesmanName = salesmanDoc.exists() ? salesmanDoc.data()?.name : 'N/A';
+    const salesmanName = salesmanDoc.exists ? salesmanDoc.data()?.name : 'N/A';
 
     // Create the O2D document
     const newO2dProcess: Omit<O2DProcess, 'id'> = {
@@ -209,3 +209,4 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
     return { success: false, message: `Server error: ${error.message}` };
   }
 }
+
