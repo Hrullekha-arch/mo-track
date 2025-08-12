@@ -7,14 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { Order, User, Milestone, PurchaseRequest, FabricDetail } from "@/lib/types";
+import { Order, User, Milestone, PurchaseRequest, FabricDetail, O2DStatus } from "@/lib/types";
 import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2, AlertCircle, ShoppingBag } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { AssignInstallerDialog } from "./AssignInstallerDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
-import { doc, updateDoc, deleteDoc, getDoc } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, getDoc, query, where, getDocs, collection, arrayUnion } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { AssignCrmDialog } from "./AssignCrmDialog";
@@ -146,6 +146,28 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         toast({ title: `Order ${currentOrder.id} Acknowledged`, description: `Generated OTP: ${updatePayload.otp}` });
       }
       
+      // --- NEW LOGIC: Update O2D when "Stitching Done" is completed ---
+      if (milestoneId === 4 && completed && currentOrder.dealId) {
+        const o2dQuery = query(collection(db, "o2d"), where("dealId", "==", currentOrder.dealId), where("isAcknowledged", "!=", true));
+        const o2dSnapshot = await getDocs(o2dQuery);
+        if (!o2dSnapshot.empty) {
+            const o2dDocRef = o2dSnapshot.docs[0].ref;
+            const fullKitingMilestone: O2DStatus = {
+                stepId: 9, // 'Full Kiting'
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: user?.name || "System",
+                remarks: "Automatically completed with Stitching Done.",
+                selection: "Done"
+            };
+            await updateDoc(o2dDocRef, {
+                milestones: arrayUnion(fullKitingMilestone)
+            });
+             toast({ title: "O2D Step Automated", description: `Full Kiting marked as done for deal ${currentOrder.dealId}.` });
+        }
+      }
+      // --- END NEW LOGIC ---
+
       const updatedOrder = { ...currentOrder, ...updatePayload };
       await updateDoc(orderRef, updatePayload);
       onUpdate(updatedOrder); 
