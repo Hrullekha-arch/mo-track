@@ -7,20 +7,35 @@ import { FormValues as QuotationFormValues } from '@/components/features/order-m
 import { VisitFormValues, MeasurementFormValues, CpdFormValues } from './page';
 import { getMilestonesForOrder } from '@/lib/constants';
 
-// Dummy function to simulate sending an SMS.
-// Replace this with your actual SMS API sending logic.
+// This function sends an SMS using the Fast2SMS API.
 async function sendVisitSms(customerPhone: string, message: string) {
-    console.log(`Sending SMS to ${customerPhone}: "${message}"`);
-    // In a real implementation, you would use fetch() or a library
-    // to call your SMS provider's API endpoint.
-    // Example:
-    // const apiKey = process.env.SMS_API_KEY;
-    // const response = await fetch(`https://api.smsprovider.com/send?to=${customerPhone}&message=${encodeURIComponent(message)}&apiKey=${apiKey}`);
-    // if (!response.ok) {
-    //     throw new Error('Failed to send SMS');
-    // }
-    // For now, we'll just simulate success.
-    return { success: true };
+    const apiKey = process.env.FAST2SMS_API_KEY;
+    if (!apiKey) {
+        console.error('Fast2SMS API key is not configured.');
+        throw new Error('SMS service is not configured.');
+    }
+
+    const url = 'https://www.fast2sms.com/dev/bulkV2';
+    const params = new URLSearchParams({
+        authorization: apiKey,
+        route: 'p', // Use 't' for transactional if your account supports it
+        message: message,
+        numbers: customerPhone,
+        flash: '0'
+    });
+
+    const response = await fetch(`${url}?${params.toString()}`, {
+        method: 'GET', // Fast2SMS uses GET for this endpoint
+    });
+    
+    const responseData = await response.json();
+
+    if (!response.ok || responseData.return === false) {
+        console.error('Fast2SMS API Error:', responseData);
+        throw new Error(`Failed to send SMS: ${responseData.message}`);
+    }
+
+    return { success: true, ...responseData };
 }
 
 
