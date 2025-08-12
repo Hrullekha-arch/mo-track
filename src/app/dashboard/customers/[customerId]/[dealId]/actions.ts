@@ -403,12 +403,10 @@ export async function addMeasurementAction(
         const measurementsRef = dealRef.collection('measurements');
         const newMeasurementRef = measurementsRef.doc();
         
-        const newMeasurementData: Partial<DealMeasurement> = {
+        const newMeasurementData: Omit<DealMeasurement, 'id' | 'fileUrl'> & { fileUrl?: string } = {
             ...measurementData,
-            id: newMeasurementRef.id,
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
-            fileUrl: undefined, // ensure this is not set if file is null/undefined
         };
         
         if (measurementData.file) {
@@ -416,10 +414,11 @@ export async function addMeasurementAction(
             newMeasurementData.fileUrl = `https://placehold.co/100x100.png`;
         }
 
-        const newMeasurement: DealMeasurement = newMeasurementData as DealMeasurement;
+        const newMeasurementForDb = { ...newMeasurementData, id: newMeasurementRef.id };
+        delete (newMeasurementForDb as any).file; // Remove the file object before saving
 
         const batch = adminDb.batch();
-        batch.set(newMeasurementRef, newMeasurement);
+        batch.set(newMeasurementRef, newMeasurementForDb);
         
         const dealSnap = await dealRef.get();
         if (!dealSnap.exists()) {
@@ -432,8 +431,8 @@ export async function addMeasurementAction(
         }
 
         // Automation: Find the associated order and update the O2D milestone
-        const allMeasurementsSnap = await measurementsRef.limit(1).get();
-        const hasMeasurements = !allMeasurementsSnap.empty || !!measurementData; 
+        const allMeasurementsSnap = await measurementsRef.get();
+        const hasMeasurements = !allMeasurementsSnap.empty;
 
         if (hasMeasurements) {
             const ordersQuery = adminDb.collection('orders').where('crmOrderNo', '==', crmOrderNo);
@@ -463,7 +462,7 @@ export async function addMeasurementAction(
         
         await batch.commit();
 
-        return { success: true, message: "Measurement added successfully and O2D step marked complete.", measurement: JSON.parse(JSON.stringify(newMeasurement)) };
+        return { success: true, message: "Measurement added successfully and O2D step marked complete.", measurement: JSON.parse(JSON.stringify(newMeasurementForDb)) };
     } catch (error: any) {
         console.error("Error adding measurement:", error);
         return { success: false, message: `Server error: ${error.message}` };
@@ -538,8 +537,8 @@ export async function addCpdAction(
     }
 
     // Automation: Find the associated order and update the O2D milestone
-    const allCpdsSnap = await cpdsRef.limit(1).get();
-    const hasCpds = !allCpdsSnap.empty || !!cpdData; 
+    const allCpdsSnap = await cpdsRef.get();
+    const hasCpds = !allCpdsSnap.empty;
     
     if (hasCpds) {
         const ordersQuery = adminDb.collection('orders').where('crmOrderNo', '==', crmOrderNo);
