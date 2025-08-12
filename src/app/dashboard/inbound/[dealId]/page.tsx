@@ -207,7 +207,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 if (!parentPurchaseRequestSnap.exists()) return;
 
                 const parentPR = parentPurchaseRequestSnap.data() as PurchaseRequest;
-                const dealIdForQuery = parentPR.dealId;
+                const dealIdForQuery = parentPR.dealId; // Use the dealId from the PR
                 
                 const allPrQuery = query(collection(db, 'purchaseRequests'), where('dealId', '==', dealIdForQuery));
                 const allPrSnapshot = await getDocs(allPrQuery);
@@ -216,8 +216,8 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
                 
                 if (allPrsForDealAreComplete) {
-                    // The O2D document's ID is the same as the Deal's Document ID,
-                    // which is stored in the purchaseRequestId field of the inbound document.
+                    // The O2D document's ID is the same as the Deal's Document ID.
+                    // We can get this ID from the purchase request document.
                     const o2dDocRef = doc(db, 'o2d', request.purchaseRequestId);
                     const o2dDoc = await getDoc(o2dDocRef);
 
