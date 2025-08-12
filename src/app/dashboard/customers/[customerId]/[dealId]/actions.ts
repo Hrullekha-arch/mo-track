@@ -308,8 +308,20 @@ export async function addVisitAction(
         // Automatically send SMS
         const visitDate = new Date(savedVisit.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
         const visitTime = new Date(savedVisit.dueDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-        const smsMessage = `Hi ${customerData.name}, your MoTrack visit is scheduled for ${visitDate} at ${visitTime}. We look forward to seeing you!`;
         
+        const smsMessage = `Dear ${customerData.name},
+
+Thank you for choosing Mo Design Pvt. Ltd..
+Our team will be visiting your location for the measurement on ${visitDate} at ${visitTime}. Please ensure the area is accessible so we can take accurate measurements without delay.
+
+If you need to reschedule or have any special requirements, feel free to contact us at ${customerData.mobileNo || '0124-4777888'} or ${customerData.email || 'info@modesigns.in'}.
+
+We look forward to serving you!
+
+Warm regards,
+Team Mo Design Pvt. Ltd.
+0124-4777888 | info@modesigns.in | https://modesigns.in/`;
+
         try {
             await sendVisitSms(customerData.mobileNo, smsMessage);
         } catch (smsError) {
