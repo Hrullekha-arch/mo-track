@@ -64,6 +64,8 @@ export async function approveOrderAndCreatePurchaseRequest(
         }
         
         let purchaseMessage = "";
+        const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
+
         // 4. Create a new Purchase Request document if there are items to purchase
         if (itemsToPurchase.length > 0) {
             const prRef = adminDb.collection('purchaseRequests').doc(orderData.crmOrderNo);
@@ -82,11 +84,27 @@ export async function approveOrderAndCreatePurchaseRequest(
             };
             batch.set(prRef, newPurchaseRequest);
             purchaseMessage = ` A purchase request has been generated for ${itemsToPurchase.length} out-of-stock item(s).`;
+        } else {
+            // AUTOMATION: If no items to purchase, all stock is available. Mark material receiving as complete.
+            const o2dSnapshot = await o2dQuery.get();
+            if (!o2dSnapshot.empty) {
+                const o2dDoc = o2dSnapshot.docs[0];
+                const o2dRef = o2dDoc.ref;
+                const materialReceivingMilestone: O2DStatus = {
+                    stepId: 7, // 'Purchase Material Receiving'
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: "System (Stock available)",
+                    remarks: "All required materials were already in stock.",
+                    selection: "Done"
+                };
+                batch.update(o2dRef, { milestones: FieldValue.arrayUnion(materialReceivingMilestone) });
+                purchaseMessage = " All items are in stock. Purchase Material Receiving step has been automatically completed."
+            }
         }
         
         // AUTOMATION: Mark "Advance receive for Order" as complete
         if (orderData.dealId) {
-            const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
             const o2dSnapshot = await o2dQuery.get();
             
             if (!o2dSnapshot.empty) {
