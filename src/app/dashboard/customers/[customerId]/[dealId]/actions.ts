@@ -285,6 +285,10 @@ export async function addVisitAction(
         const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
         const visitsRef = dealRef.collection('visits');
         const newVisitRef = visitsRef.doc();
+        
+        const dealSnap = await dealRef.get();
+        const dealData = dealSnap.data() as Deal;
+
 
         const newVisit: Omit<DealVisit, 'id'> = {
             representative: visitData.representative,
@@ -299,7 +303,7 @@ export async function addVisitAction(
             deliveryInstallations: visitData.deliveryInstallations,
             subDeliveryInstallations: visitData.subDeliveryInstallations,
             otherDelivery: visitData.otherDelivery,
-            dealId: "" // This is incorrect, dealId should be the 4 digit one. Assuming it's part of the deal object
+            dealId: dealData.dealId // This is correct, dealId should be the 4 digit one. Assuming it's part of the deal object
         };
 
         await newVisitRef.set(newVisit);
@@ -310,7 +314,7 @@ export async function addVisitAction(
         const visitDate = new Date(savedVisit.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
         const visitTime = new Date(savedVisit.dueDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
         
-        const smsMessage = `Dear ${customerData.name},\n\nThank you for choosing Mo Design Pvt. Ltd..\nOur team will be visiting your location for the measurement on ${visitDate} at ${visitTime}. Please ensure the area is accessible so we can take accurate measurements without delay.\n\nIf you need to reschedule or have any special requirements, feel free to contact us at ${customerData.mobileNo || '0124-4777888'} or ${customerData.email || 'info@modesigns.in'}.\n\nWe look forward to serving you!\n\nWarm regards,\nTeam Mo Design Pvt. Ltd.\n0124-4777888 | info@modesigns.in | https://modesigns.in/`;
+        const smsMessage = `Dear ${customerData.name},\n\nThank you for choosing Mo Design Pvt. Ltd..\nOur team will be visiting your location for the measurement on ${visitDate} at ${visitTime}. Please ensure the area is accessible so we can take accurate measurements without delay.\n\nIf you need to reschedule or have any special requirements, feel free to contact us at ${customerData.mobileNo || '0124-4777888'} or info@modesigns.in.\n\nWe look forward to serving you!\n\nWarm regards,\nTeam Mo Design Pvt. Ltd.\n0124-4777888 | info@modesigns.in | https://modesigns.in/`;
 
         try {
             await sendVisitSms(customerData.mobileNo, smsMessage);
@@ -379,29 +383,38 @@ export async function addMeasurementAction(
         
         // Automation: Find the associated order and update the O2D milestone
         const dealSnap = await dealRef.get();
+        if (!dealSnap.exists()) {
+             throw new Error("Deal not found.");
+        }
         const dealData = dealSnap.data() as Deal;
+        
+        // Check if any measurement document exists for this deal.
+        const allMeasurementsSnap = await measurementsRef.limit(1).get();
+        const hasMeasurements = !allMeasurementsSnap.empty || !!measurementData; // consider the one being added
 
-        const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealData.id);
-        const orderSnapshot = await ordersQuery.get();
+        if (hasMeasurements) {
+            const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
+            const orderSnapshot = await ordersQuery.get();
 
-        if (!orderSnapshot.empty) {
-            const orderDoc = orderSnapshot.docs[0];
-            const orderData = orderDoc.data() as Order;
-            const measurementStepId = 2; // Corresponds to "Measurement" in the config
-            const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === measurementStepId);
-            
-            if (!existingMilestone) {
-                 const newMilestone: O2DStatus = {
-                    stepId: measurementStepId,
-                    status: 'completed',
-                    completedAt: new Date().toISOString(),
-                    completedBy: creatorName,
-                    remarks: `Automatically completed upon measurement creation.`,
-                    selection: 'Done'
-                };
-                 batch.update(orderDoc.ref, {
-                    o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
-                });
+            if (!orderSnapshot.empty) {
+                const orderDoc = orderSnapshot.docs[0];
+                const orderData = orderDoc.data() as Order;
+                const measurementStepId = 2; // Corresponds to "Measurement" in the config
+                const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === measurementStepId);
+                
+                if (!existingMilestone) {
+                    const newMilestone: O2DStatus = {
+                        stepId: measurementStepId,
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: creatorName,
+                        remarks: `Measurement recorded for this deal.`,
+                        selection: 'Done'
+                    };
+                    batch.update(orderDoc.ref, {
+                        o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
+                    });
+                }
             }
         }
         
@@ -474,30 +487,39 @@ export async function addCpdAction(
     
     // Automation: Find the associated order and update the O2D milestone
     const dealSnap = await dealRef.get();
+    if (!dealSnap.exists()) {
+        throw new Error("Deal not found.");
+    }
     const dealData = dealSnap.data() as Deal;
 
-    const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealData.id);
-    const orderSnapshot = await ordersQuery.get();
+    // Check if any CPD document exists for this deal.
+    const allCpdsSnap = await cpdsRef.limit(1).get();
+    const hasCpds = !allCpdsSnap.empty || !!cpdData; // consider the one being added
+    
+    if (hasCpds) {
+        const ordersQuery = adminDb.collection('orders').where('dealId', '==', dealId);
+        const orderSnapshot = await ordersQuery.get();
 
-    if (!orderSnapshot.empty) {
-        const orderDoc = orderSnapshot.docs[0];
-        const orderData = orderDoc.data() as Order;
+        if (!orderSnapshot.empty) {
+            const orderDoc = orderSnapshot.docs[0];
+            const orderData = orderDoc.data() as Order;
 
-        const finalSelectionStepId = 3; // Corresponds to "Final Material Selection"
-        const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === finalSelectionStepId);
+            const finalSelectionStepId = 3; // Corresponds to "Final Material Selection"
+            const existingMilestone = orderData.o2dMilestones?.find(m => m.stepId === finalSelectionStepId);
 
-        if (!existingMilestone) {
-             const newMilestone: O2DStatus = {
-                stepId: finalSelectionStepId,
-                status: 'completed',
-                completedAt: new Date().toISOString(),
-                completedBy: creatorName,
-                remarks: `Automatically completed upon CPD #${newCpdId} creation.`,
-                selection: 'Done'
-            };
-             batch.update(orderDoc.ref, {
-                o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
-            });
+            if (!existingMilestone) {
+                const newMilestone: O2DStatus = {
+                    stepId: finalSelectionStepId,
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: creatorName,
+                    remarks: `CPD #${newCpdId} created for this deal.`,
+                    selection: 'Done'
+                };
+                batch.update(orderDoc.ref, {
+                    o2dMilestones: adminDb.FieldValue.arrayUnion(newMilestone)
+                });
+            }
         }
     }
     
