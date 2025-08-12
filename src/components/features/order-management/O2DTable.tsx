@@ -44,7 +44,7 @@ interface O2DViewItem {
   customerName: string;
   salesPerson: string;
   crmHandler: string;
-  orderId?: string;
+  dealDocId: string;
   dealCreatedAt: string;
   status: {
     text: string;
@@ -64,14 +64,8 @@ interface O2DViewItem {
       timestamp: string;
       user: string;
   }[];
-  expectedDates: Record<number, Date>;
   originalO2D: O2DProcess;
 }
-
-const creatorName = (userId: string | undefined, userList: User[]) => {
-    if (!userId) return 'System';
-    return userList.find(u => u.id === userId)?.name || 'Unknown';
-};
 
 
 export function O2DTable() {
@@ -79,52 +73,49 @@ export function O2DTable() {
   const [loading, setLoading] = React.useState(true);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [selectedDeal, setSelectedDeal] = React.useState<O2DViewItem | null>(null);
 
   const { toast } = useToast();
   
-  const fetchData = React.useCallback(async () => {
+  React.useEffect(() => {
     setLoading(true);
-    try {
-        const o2dQuery = query(collection(db, 'o2d'), where('isAcknowledged', '==', false));
-        const o2dSnapshot = await getDocs(o2dQuery);
-        
-        const o2dProcesses = o2dSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()} as O2DProcess));
+    const o2dQuery = query(collection(db, 'o2d'), where('isAcknowledged', '==', false));
+
+    const unsubscribe = onSnapshot(o2dQuery, (snapshot) => {
+        const o2dProcesses = snapshot.docs.map(doc => ({id: doc.id, ...doc.data()} as O2DProcess));
 
         const enrichedData = o2dProcesses.map((o2d) => {
-            const history: O2DViewItem['history'] = o2d.milestones.map(m => ({
+            const history: O2DViewItem['history'] = (o2d.milestones || []).map(m => ({
                 stepName: O2D_PROCESS_CONFIG.find(s => s.id === m.stepId)?.step || 'Unknown Step',
                 status: m.status,
                 timestamp: m.completedAt,
                 user: m.completedBy,
             })).sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-            const completedStepIds = o2d.milestones.map(m => m.stepId);
+            const completedStepIds = (o2d.milestones || []).map(m => m.stepId);
             let currentStatusInfo = history[history.length - 1];
             let nextStepInfo: O2DViewItem['nextStatus'] = null;
 
             const firstPendingStep = O2D_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
 
+            // Create a temporary simplified order object just for date calculation
+            const tempOrderForDates: Order = {
+                id: o2d.id,
+                crmOrderNo: o2d.dealId,
+                createdAt: o2d.createdAt,
+                o2dMilestones: o2d.milestones,
+                customerName: o2d.customerName,
+                customerPhone: '',
+                customerAddress: '',
+                salesPerson: o2d.salesPerson,
+                orderType: 'stitching',
+                milestones: [],
+                isAcknowledged: false,
+            };
+            const expectedDates = calculateExpectedDatesForOrder(tempOrderForDates);
+            
             if (firstPendingStep) {
-                // This logic needs to be revisited as it depends on having the Order object which is not directly on o2d
-                // For now, we'll create a placeholder expected date.
-                 const dummyOrderForDates: Order = {
-                    id: o2d.dealId,
-                    crmOrderNo: o2d.dealId,
-                    customerName: o2d.customerName,
-                    customerPhone: '',
-                    customerAddress: '',
-                    salesPerson: o2d.salesPerson,
-                    orderType: 'stitching', // assumption
-                    milestones: [],
-                    createdAt: o2d.createdAt,
-                    isAcknowledged: false,
-                    o2dMilestones: o2d.milestones,
-                };
-                const expectedDates = calculateExpectedDatesForOrder(dummyOrderForDates);
                 const expectedDate = expectedDates[firstPendingStep.id] || new Date();
-
                 nextStepInfo = {
                     text: firstPendingStep.step,
                     role: firstPendingStep.role,
@@ -144,51 +135,41 @@ export function O2DTable() {
 
             return {
                 dealId: o2d.dealId,
+                dealDocId: o2d.id,
                 customerName: o2d.customerName,
                 salesPerson: o2d.salesPerson,
                 crmHandler: 'N/A', // CRM handler is on the Order, may need to adjust
-                orderId: undefined, // Not available directly on o2d doc yet
                 dealCreatedAt: o2d.createdAt,
                 status,
                 nextStatus: nextStepInfo,
                 history,
-                expectedDates: {}, // Placeholder
                 originalO2D: o2d,
             };
         });
 
-      setViewData(enrichedData);
+      setViewData(enrichedData.sort((a, b) => new Date(b.dealCreatedAt).getTime() - new Date(a.dealCreatedAt).getTime()));
+      setLoading(false);
 
-    } catch (error) {
+    }, (error) => {
         console.error("Error fetching data for O2D Table:", error);
         toast({
             variant: "destructive",
             title: "Error loading O2D data",
         });
-    } finally {
         setLoading(false);
-    }
+    });
+
+    return () => unsubscribe();
   }, [toast]);
 
-  React.useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
   const columns: ColumnDef<O2DViewItem>[] = [
-    { accessorKey: "orderId", header: "Order ID", cell: ({ row }) => (row.original.orderId ? (
-        <Button variant="link" asChild className="p-0 h-auto font-medium">
-            <Link href={`/dashboard/orders/${row.original.orderId}`}>{row.original.orderId}</Link>
-        </Button>
-    ) : 'Not Created Yet')},
     { accessorKey: "dealId", header: "Deal ID", cell: ({ row }) => (
-        <Button variant="link" onClick={() => setSelectedDeal(row.original)} className="p-0 h-auto">
-            <LinkIcon className="h-4 w-4 mr-2" />
-            {row.original.dealId}
+        <Button variant="link" asChild className="p-0 h-auto font-medium">
+             <Link href={`/dashboard/customers/${row.original.originalO2D.customerId}/${row.original.dealDocId}`}>{row.original.dealId}</Link>
         </Button>
     )},
     { accessorKey: "customerName", header: "Customer Name" },
     { accessorKey: "salesPerson", header: "Sales Person" },
-    { accessorKey: "crmHandler", header: "CRM Handler" },
     { id: 'status', header: 'Current Status', cell: ({ row }) => (
         <div className={cn("flex items-center gap-2", row.original.status.isOverdue && "text-red-600")}>
             {row.original.status.isOverdue ? <Clock className="h-4 w-4"/> : <CheckCircle className="h-4 w-4 text-green-500"/>}
@@ -224,8 +205,7 @@ export function O2DTable() {
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     onGlobalFilterChange: setGlobalFilter,
-    onColumnFiltersChange: setColumnFilters,
-    state: { sorting, columnFilters, globalFilter },
+    state: { sorting, globalFilter },
   });
 
   return (
@@ -233,7 +213,7 @@ export function O2DTable() {
     <Card>
       <CardHeader>
         <CardTitle>O2D Orders</CardTitle>
-        <CardDescription>A detailed view of all deals from creation to delivery.</CardDescription>
+        <CardDescription>A detailed view of all deals from creation to final acknowledgement.</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex items-center py-4">
