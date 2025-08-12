@@ -3,7 +3,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Order, Stock, StockTransaction, InvoiceBatch, InvoiceBatchItem } from '@/lib/types';
+import { Order, Stock, StockTransaction, InvoiceBatch, InvoiceBatchItem, O2DStatus } from '@/lib/types';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 
@@ -63,6 +63,11 @@ export async function allocateStockToAction(
             // Fetch all original transaction docs that need to be read before writing.
             const originalTxRefs = allocatedLengths.map(p => stockRef.collection('stockAdded').doc(p.transactionId));
             const originalTxDocs = await Promise.all(originalTxRefs.map(ref => transaction.get(ref)));
+            
+            // Find the O2D document to update later
+            const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId).limit(1);
+            const o2dSnapshot = await transaction.get(o2dQuery);
+
 
             // --- ALL WRITES MUST BE EXECUTED AFTER ALL READS ---
             let originalLengthForInvoice = 0;
@@ -147,6 +152,22 @@ export async function allocateStockToAction(
               quantity: FieldValue.increment(-totalAllocatedQty),
               lastUpdatedAt: new Date().toISOString()
             });
+
+            // 6. Update O2D Milestone for Production
+            if (!o2dSnapshot.empty) {
+                const o2dDocRef = o2dSnapshot.docs[0].ref;
+                const productionMilestone: O2DStatus = {
+                    stepId: 8, // 'Production'
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: userName,
+                    remarks: "Stock allocated, moving to production.",
+                    selection: "Done"
+                };
+                transaction.update(o2dDocRef, {
+                    milestones: FieldValue.arrayUnion(productionMilestone)
+                });
+            }
        });
 
         return { success: true, message: 'Stock allocated and prepared for invoicing.' };
