@@ -4,7 +4,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar as CalendarIcon, Download, BarChart2, Loader2 } from "lucide-react";
+import { Calendar as CalendarIcon, Download, BarChart2, Loader2, DollarSign, ShoppingCart } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { useState, useEffect } from "react";
@@ -13,11 +13,13 @@ import { DateRange } from "react-day-picker";
 import { User, Order, PurchaseRequest, StockTransaction } from "@/lib/types";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { getReportData, ReportData } from "./actions";
+import { getReportData, ReportData, SalesPerformanceData } from "./actions";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import * as XLSX from "xlsx";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 type ReportType = 'order-summary' | 'sales-performance' | 'purchase-report' | 'stock-ledger' | 'profit-loss';
 
@@ -133,6 +135,54 @@ const ReportTable = ({ data, type }: { data: ReportData, type: ReportType }) => 
     return null;
 }
 
+const AnalysisDashboard = ({ salesPerformanceData, orderData }: { salesPerformanceData: SalesPerformanceData[], orderData: Order[] }) => {
+    
+    const totalOrders = orderData.length;
+    const totalSalesValue = orderData.reduce((acc, order) => acc + (order.totalAmount || 0), 0);
+
+    return (
+        <div className="space-y-6 mt-6">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
+                         <DollarSign className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">₹{totalSalesValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
+                         <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{totalOrders}</div>
+                    </CardContent>
+                </Card>
+            </div>
+            <Card>
+                <CardHeader>
+                    <CardTitle>Sales Performance</CardTitle>
+                    <CardDescription>Total sales value by salesperson.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <ResponsiveContainer width="100%" height={350}>
+                        <BarChart data={salesPerformanceData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="salesman" />
+                            <YAxis tickFormatter={(value) => `₹${Number(value).toLocaleString()}`} />
+                            <Tooltip formatter={(value) => `₹${Number(value).toLocaleString()}`} />
+                            <Bar dataKey="totalValue" fill="#8884d8" name="Total Sales" />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </CardContent>
+            </Card>
+        </div>
+    )
+}
+
 
 export default function ReportsPage() {
   const [reportType, setReportType] = useState<ReportType>('order-summary');
@@ -162,7 +212,7 @@ export default function ReportsPage() {
         userId: selectedUserId
       });
       setReportData(data);
-       if (!data || Object.values(data).every(arr => arr.length === 0)) {
+       if (!data || Object.values(data).every(arr => (arr || []).length === 0)) {
         toast({ title: "No Data", description: "No data found for the selected criteria." });
       }
     } catch (error) {
@@ -236,112 +286,128 @@ export default function ReportsPage() {
         <p className="text-muted-foreground">Generate and export various reports for sales, stock, and performance.</p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Generate a New Report</CardTitle>
-          <CardDescription>Select the report type and filters to generate a report.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Report Type</label>
-              <Select value={reportType} onValueChange={(value) => setReportType(value as ReportType)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a report type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="order-summary">Order Summary</SelectItem>
-                  <SelectItem value="sales-performance">Salesman Performance</SelectItem>
-                  <SelectItem value="purchase-report">Purchase Report</SelectItem>
-                  <SelectItem value="stock-ledger">Stock Ledger</SelectItem>
-                  <SelectItem value="profit-loss" disabled>Profit & Loss (soon)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+      <Tabs defaultValue="generator">
+        <TabsList>
+          <TabsTrigger value="generator">Report Generator</TabsTrigger>
+          <TabsTrigger value="analysis">Analysis Dashboard</TabsTrigger>
+        </TabsList>
+        <TabsContent value="generator">
+            <Card>
+                <CardHeader>
+                <CardTitle>Generate a New Report</CardTitle>
+                <CardDescription>Select the report type and filters to generate a report.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="space-y-2">
+                    <label className="text-sm font-medium">Report Type</label>
+                    <Select value={reportType} onValueChange={(value) => setReportType(value as ReportType)}>
+                        <SelectTrigger>
+                        <SelectValue placeholder="Select a report type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                        <SelectItem value="order-summary">Order Summary</SelectItem>
+                        <SelectItem value="sales-performance">Salesman Performance</SelectItem>
+                        <SelectItem value="purchase-report">Purchase Report</SelectItem>
+                        <SelectItem value="stock-ledger">Stock Ledger</SelectItem>
+                        <SelectItem value="profit-loss" disabled>Profit & Loss (soon)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    </div>
+                    
+                    <div className="space-y-2">
+                    <label className="text-sm font-medium">Date Range</label>
+                    <Popover>
+                        <PopoverTrigger asChild>
+                        <Button
+                            variant={"outline"}
+                            className="w-full justify-start text-left font-normal"
+                        >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {dateRange?.from ? (
+                            dateRange.to ? (
+                                <>
+                                {format(dateRange.from, "LLL dd, y")} -{" "}
+                                {format(dateRange.to, "LLL dd, y")}
+                                </>
+                            ) : (
+                                format(dateRange.from, "LLL dd, y")
+                            )
+                            ) : (
+                            <span>Pick a date range</span>
+                            )}
+                        </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                            initialFocus
+                            mode="range"
+                            defaultMonth={dateRange?.from}
+                            selected={dateRange}
+                            onSelect={setDateRange}
+                            numberOfMonths={2}
+                        />
+                        </PopoverContent>
+                    </Popover>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Filter by User</label>
+                        <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select a user (optional)" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Users</SelectItem>
+                                {users.map(user => (
+                                    <SelectItem key={user.id} value={user.id}>{user.name} ({user.role})</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                    <Button onClick={handleGenerateReport} disabled={loading}>
+                        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BarChart2 className="mr-2 h-4 w-4" />} 
+                        Generate Report
+                    </Button>
+                    <Button onClick={handleExport} disabled={!reportData}>
+                        <Download className="mr-2 h-4 w-4" /> Download CSV
+                    </Button>
+                </div>
+                </CardContent>
+            </Card>
             
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Date Range</label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant={"outline"}
-                    className="w-full justify-start text-left font-normal"
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateRange?.from ? (
-                      dateRange.to ? (
-                        <>
-                          {format(dateRange.from, "LLL dd, y")} -{" "}
-                          {format(dateRange.to, "LLL dd, y")}
-                        </>
-                      ) : (
-                        format(dateRange.from, "LLL dd, y")
-                      )
-                    ) : (
-                      <span>Pick a date range</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    initialFocus
-                    mode="range"
-                    defaultMonth={dateRange?.from}
-                    selected={dateRange}
-                    onSelect={setDateRange}
-                    numberOfMonths={2}
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
+            {loading && (
+                <div className="flex justify-center items-center py-10">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+            )}
 
-            <div className="space-y-2">
-                <label className="text-sm font-medium">Filter by User</label>
-                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Select a user (optional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">All Users</SelectItem>
-                        {users.map(user => (
-                            <SelectItem key={user.id} value={user.id}>{user.name} ({user.role})</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button onClick={handleGenerateReport} disabled={loading}>
-                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BarChart2 className="mr-2 h-4 w-4" />} 
-                Generate Report
-            </Button>
-            <Button onClick={handleExport} disabled={!reportData}>
-                <Download className="mr-2 h-4 w-4" /> Download CSV
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-      
-      {loading && (
-        <div className="flex justify-center items-center py-10">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      )}
-
-      {reportData && (
-        <Card className="mt-8">
-            <CardHeader>
-                <CardTitle>{reportType.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} Report</CardTitle>
-                <CardDescription>
-                    Showing results for the selected criteria.
-                </CardDescription>
-            </CardHeader>
-            <CardContent>
-                <ReportTable data={reportData} type={reportType} />
-            </CardContent>
-        </Card>
-      )}
-
+            {reportData && (
+                <Card className="mt-8">
+                    <CardHeader>
+                        <CardTitle>{reportType.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} Report</CardTitle>
+                        <CardDescription>
+                            Showing results for the selected criteria.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <ReportTable data={reportData} type={reportType} />
+                    </CardContent>
+                </Card>
+            )}
+        </TabsContent>
+        <TabsContent value="analysis">
+           {(reportData && reportData.salesPerformance && reportData.orders) ? (
+                <AnalysisDashboard salesPerformanceData={reportData.salesPerformance} orderData={reportData.orders} />
+            ) : (
+                <div className="text-center py-10 text-muted-foreground border-dashed border-2 rounded-lg mt-6">
+                    <p>Please generate a "Sales Performance" or "Order Summary" report first to see analytics.</p>
+                </div>
+            )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
