@@ -4,12 +4,12 @@
 import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw } from "lucide-react";
-import { Order, Milestone, DealVisit } from "@/lib/types";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck } from "lucide-react";
+import { Order, Milestone, DealVisit, User, Customer, Deal } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
-import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, where, doc, updateDoc, writeBatch, getDocs, limit } from "firebase/firestore";
+import { useEffect, useState, useMemo } from "react";
+import { collection, onSnapshot, query, where, doc, updateDoc, writeBatch, getDocs, limit, collectionGroup } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -20,10 +20,23 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { format } from "date-fns";
+import { useRouter } from "next/navigation";
+
+
+type InstallerTask = 
+    | { type: 'order'; data: Order }
+    | { type: 'visit'; data: EnrichedInstallerVisit };
+
+interface EnrichedInstallerVisit extends DealVisit {
+    customer: Customer | null;
+    deal: Deal | null;
+    dealDocId: string;
+}
 
 export function MobileView() {
   const { user, logout } = useAuth();
-  const [assignedOrders, setAssignedOrders] = useState<Order[]>([]);
+  const [tasks, setTasks] = useState<InstallerTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -50,18 +63,100 @@ export function MobileView() {
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-    const q = query(collection(db, "orders"), where("assignedTo", "==", user.id));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+
+    // Fetch Orders
+    const ordersQuery = query(collection(db, "orders"), where("assignedTo", "==", user.id));
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
         const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        setAssignedOrders(ordersData);
+        setTasks(prevTasks => {
+            const otherTasks = prevTasks.filter(t => t.type !== 'order');
+            const newOrderTasks: InstallerTask[] = ordersData.map(o => ({ type: 'order', data: o }));
+            return [...otherTasks, ...newOrderTasks];
+        });
         setLoading(false);
     });
-    return () => unsubscribe();
+    
+    // Fetch Visits
+    const visitsQuery = query(
+        collectionGroup(db, "visits"),
+        where("assignedTo", "==", user.id),
+        where("status", "!=", "completed")
+    );
+     const unsubscribeVisits = onSnapshot(visitsQuery, async (snapshot) => {
+        const customerCache = new Map<string, Customer>();
+        const dealCache = new Map<string, Deal>();
+        
+        const visitsDataPromises = snapshot.docs.map(async (docSnap) => {
+            const visit = docSnap.data() as DealVisit;
+            const pathParts = docSnap.ref.path.split('/');
+            const customerId = pathParts[1];
+            const dealDocId = pathParts[3];
+
+            let customerData: Customer | null = customerCache.get(customerId) || null;
+            if (!customerData) {
+                const customerRef = doc(db, 'customers', customerId);
+                const customerSnap = await getDoc(customerRef);
+                if (customerSnap.exists()) {
+                    customerData = { id: customerSnap.id, ...customerSnap.data() } as Customer;
+                    customerCache.set(customerId, customerData);
+                }
+            }
+            
+            const dealCacheKey = `${customerId}-${dealDocId}`;
+            let dealData: Deal | null = dealCache.get(dealCacheKey) || null;
+            if (!dealData) {
+                    const dealRef = doc(db, 'customers', customerId, 'deals', dealDocId);
+                    const dealSnap = await getDoc(dealRef);
+                    if (dealSnap.exists()) {
+                    dealData = { id: dealSnap.id, ...dealSnap.data() } as Deal;
+                    dealCache.set(dealCacheKey, dealData);
+                }
+            }
+
+            return {
+                ...visit,
+                id: docSnap.id,
+                customer: customerData,
+                deal: dealData,
+                dealDocId: dealDocId,
+            } as EnrichedInstallerVisit;
+        });
+        
+        const visitsData = await Promise.all(visitsDataPromises);
+        setTasks(prevTasks => {
+            const otherTasks = prevTasks.filter(t => t.type !== 'visit');
+            const newVisitTasks: InstallerTask[] = visitsData.map(v => ({ type: 'visit', data: v }));
+            return [...otherTasks, ...newVisitTasks];
+        });
+        setLoading(false);
+    });
+
+
+    return () => {
+        unsubscribeOrders();
+        unsubscribeVisits();
+    };
   }, [user]);
 
-  // Filter for active orders (not fully completed with feedback)
-  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
-  const activeOrders = assignedOrders.filter(o => !isFullyCompleted(o));
+  const activeTasks = useMemo(() => {
+    return tasks
+      .filter(task => {
+        if (task.type === 'order') {
+          const isCompleted = task.data.milestones.every(m => m.completed) && (!!task.data.feedbackRating || task.data.bypassedOtp === true);
+          return !isCompleted;
+        }
+        if (task.type === 'visit') {
+          return task.data.status !== 'completed';
+        }
+        return false;
+      })
+      .sort((a, b) => {
+        const dateA = a.type === 'order' ? new Date(a.data.createdAt) : new Date(a.data.dueDate);
+        const dateB = b.type === 'order' ? new Date(b.data.createdAt) : new Date(b.data.dueDate);
+        return dateA.getTime() - dateB.getTime();
+      });
+  }, [tasks]);
+
 
   if (loading) {
     return (
@@ -104,12 +199,6 @@ export function MobileView() {
             <h1 className="text-2xl font-bold">Your Tasks</h1>
             <p className="text-muted-foreground">Here are your active assignments.</p>
         </div>
-        <Button asChild variant="outline" size="sm">
-            <Link href="/mobile/completed">
-                <CheckCheck className="mr-2 h-4 w-4" />
-                History
-            </Link>
-        </Button>
       </div>
 
        {locationError && (
@@ -122,10 +211,10 @@ export function MobileView() {
         </Alert>
       )}
 
-      {activeOrders.length > 0 ? (
+      {activeTasks.length > 0 ? (
         <div className="space-y-4">
-          {activeOrders.map(order => (
-            <InstallerOrderCard key={order.id} order={order} location={location} locationError={locationError} />
+          {activeTasks.map(task => (
+            <InstallerTaskCard key={`${task.type}-${task.data.id}`} task={task} location={location} />
           ))}
         </div>
       ) : (
@@ -138,13 +227,51 @@ export function MobileView() {
   );
 }
 
-interface InstallerOrderCardProps {
-    order: Order;
-    location: { latitude: number; longitude: number; } | null;
-    locationError: string | null;
+const InstallerTaskCard = ({ task, location }: { task: InstallerTask, location: { latitude: number; longitude: number; } | null }) => {
+    if (task.type === 'order') {
+        return <InstallerOrderCard order={task.data} location={location} />;
+    }
+    if (task.type === 'visit') {
+        return <InstallerVisitCard visit={task.data} />;
+    }
+    return null;
 }
 
-export function InstallerOrderCard({ order, location, locationError }: InstallerOrderCardProps) {
+const InstallerVisitCard = ({ visit }: { visit: EnrichedInstallerVisit }) => {
+    const router = useRouter();
+
+    const handleStartVisit = () => {
+        if (visit.typeOfVisit === 'measurement') {
+            router.push(`/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customer?.id}`);
+        } else {
+            // Placeholder for other visit types
+        }
+    };
+    
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="capitalize">{visit.customer?.name || "Unknown Customer"}</CardTitle>
+                <CardDescription>
+                    {visit.typeOfVisit} visit for Deal #{visit.deal?.dealId || 'N/A'}
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm space-y-3">
+                 <p className="flex items-center gap-2 font-semibold"><CalendarCheck className="h-4 w-4 text-muted-foreground" /> <span>{format(new Date(visit.dueDate), 'PPP p')}</span></p>
+                 <p className="flex items-center gap-2"><Phone className="h-4 w-4 text-muted-foreground" /> {visit.customer?.mobileNo || 'N/A'}</p>
+                 <p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-muted-foreground" /> {visit.customer?.addressPinCode || visit.customer?.city || 'N/A'}</p>
+            </CardContent>
+             <CardFooter>
+                 <Button className="w-full" onClick={handleStartVisit}>
+                    Start {visit.typeOfVisit}
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+            </CardFooter>
+        </Card>
+    );
+}
+
+export function InstallerOrderCard({ order, location }: { order: Order; location: { latitude: number; longitude: number; } | null; }) {
     const { user } = useAuth();
     const { toast } = useToast();
     const [isUpdating, setIsUpdating] = useState(false);
