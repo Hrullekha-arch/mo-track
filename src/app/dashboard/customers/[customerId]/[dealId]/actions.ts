@@ -8,8 +8,6 @@ import { FormValues as QuotationFormValues } from '@/components/features/order-m
 import { VisitFormValues } from './page';
 import { getMilestonesForOrder } from '@/lib/constants';
 import { FieldValue } from 'firebase-admin/firestore';
-import { google } from 'googleapis';
-import stream from 'stream';
 
 // This function sends an SMS using the Fast2SMS API.
 async function sendVisitSms(customerPhone: string, message: string) {
@@ -41,60 +39,6 @@ async function sendVisitSms(customerPhone: string, message: string) {
 
     return { success: true, ...responseData };
 }
-
-async function getGoogleDriveClient() {
-    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-    if (!serviceAccountKey) {
-        throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set.');
-    }
-    const credentials = JSON.parse(serviceAccountKey);
-
-    const auth = new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive'],
-    });
-
-    const authClient = await auth.getClient();
-    return google.drive({ version: 'v3', auth: authClient });
-}
-
-export async function uploadFileToDriveAction(fileName: string, fileType: string, fileDataB64: string): Promise<string> {
-    const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-    if (!folderId) {
-        throw new Error("Google Drive folder ID is not configured.");
-    }
-    
-    try {
-        const drive = await getGoogleDriveClient();
-        const fileBuffer = Buffer.from(fileDataB64, 'base64');
-        const bufferStream = new stream.PassThrough();
-        bufferStream.end(fileBuffer);
-
-        const { data } = await drive.files.create({
-            media: {
-                mimeType: fileType,
-                body: bufferStream,
-            },
-            requestBody: {
-                name: fileName,
-                parents: [folderId],
-            },
-            fields: 'id, webViewLink',
-        });
-        
-        if (!data.webViewLink) {
-            throw new Error("File uploaded, but no viewable link was returned.");
-        }
-
-        return data.webViewLink;
-
-    } catch (error: any) {
-        console.error("Google Drive API Error:", error.response?.data?.error || error.message);
-        const specificError = error.response?.data?.error?.message || error.message;
-        throw new Error(`Failed to upload file to Google Drive. API Error: ${specificError}`);
-    }
-}
-
 
 export async function getDealById(customerId: string, dealId: string): Promise<Deal | null> {
     try {
