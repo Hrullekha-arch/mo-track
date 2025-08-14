@@ -1,5 +1,8 @@
 
 {
     "name": "invoice",
-    "main": "./PrintableInvoice.tsx"
+    "main": "./PrintableInvoice.tsx",
+    "components": [
+        "./InvoiceLogTable.tsx"
+    ]
 }

@@ -25,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, collectionGroup } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, collectionGroup, doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DealVisit, Customer, Deal, User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -73,9 +73,9 @@ export default function AllVisitsPage() {
         const customerCache = new Map<string, Customer>();
         const dealCache = new Map<string, Deal>();
 
-        for (const doc of snapshot.docs) {
-            const visit = doc.data() as DealVisit;
-            const pathParts = doc.ref.path.split('/');
+        for (const docSnap of snapshot.docs) {
+            const visit = docSnap.data() as DealVisit;
+            const pathParts = docSnap.ref.path.split('/');
             const customerId = pathParts[1];
             const dealDocId = pathParts[3];
 
@@ -85,7 +85,7 @@ export default function AllVisitsPage() {
 
             // Fetch customer if not in cache
             if (!customerCache.has(customerId)) {
-                const customerRef = doc.ref.parent.parent!.parent!.parent!; // customers/{customerId}
+                const customerRef = doc(db, 'customers', customerId);
                 const customerSnap = await getDoc(customerRef);
                 if (customerSnap.exists()) {
                     customerCache.set(customerId, { id: customerSnap.id, ...customerSnap.data() } as Customer);
@@ -96,7 +96,7 @@ export default function AllVisitsPage() {
             // Fetch deal if not in cache
             const dealCacheKey = `${customerId}-${dealDocId}`;
             if (!dealCache.has(dealCacheKey)) {
-                const dealRef = doc.ref.parent.parent!; // customers/{customerId}/deals/{dealId}
+                const dealRef = doc(db, 'customers', customerId, 'deals', dealDocId);
                 const dealSnap = await getDoc(dealRef);
                  if (dealSnap.exists()) {
                     dealCache.set(dealCacheKey, { id: dealSnap.id, ...dealSnap.data() } as Deal);
@@ -108,7 +108,7 @@ export default function AllVisitsPage() {
 
             visitsData.push({
                 ...visit,
-                id: doc.id,
+                id: docSnap.id,
                 customerId,
                 dealDocId,
                 customerName,
@@ -270,7 +270,7 @@ export default function AllVisitsPage() {
             <CardContent className="p-4">
                  <div className="flex items-center py-4">
                     <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
                             placeholder="Filter by customer..."
                             value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}

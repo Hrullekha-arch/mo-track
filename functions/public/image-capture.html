@@ -1,0 +1,270 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoTrack - Image Capture Studio</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        :root {
+            --background: 240 20% 97.1%;
+            --foreground: 224 71.4% 4.1%;
+            --card: 0 0% 100%;
+            --card-foreground: 224 71.4% 4.1%;
+            --primary: 217.2 91.2% 59.8%;
+            --primary-foreground: 210 20% 98%;
+            --secondary: 220 13% 91%;
+            --secondary-foreground: 220 9.1% 43.1%;
+            --muted: 220 13% 91%;
+            --muted-foreground: 220 8.9% 43.1%;
+            --accent: 145.1 63.2% 49%;
+            --accent-foreground: 145 85.7% 97.3%;
+            --destructive: 0 84.2% 60.2%;
+            --border: 220 13% 91%;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: hsl(var(--background));
+            color: hsl(var(--card-foreground));
+            margin: 0;
+            padding: 2rem;
+        }
+        h1, h2 {
+            text-align: center;
+        }
+        .studio-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 3rem;
+        }
+        .capture-section {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+            padding: 2rem;
+            background-color: #e0e7ff;
+            border-radius: 12px;
+        }
+        .capture-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            text-align: center;
+        }
+        .capture-controls h3 {
+            margin: 0;
+            font-size: 1.25rem;
+        }
+        .capture-controls p {
+            font-size: 0.9rem;
+            color: hsl(var(--muted-foreground));
+            margin: 0;
+        }
+        .download-btn {
+            background-color: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .download-btn:hover {
+            background-color: hsl(217.2, 91.2%, 50%);
+        }
+
+        /* Common Frame Styles */
+        .mockup-container {
+            transform: scale(0.9);
+            transform-origin: center;
+        }
+        .browser-view {
+            width: 800px;
+            height: 550px;
+            background: hsl(var(--card));
+            border: 1px solid hsl(var(--border));
+            border-radius: 8px;
+            box-shadow: 0 10px 20px -5px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .browser-header {
+            height: 36px; background: #e2e8f0; display: flex; align-items: center; padding: 0 10px; flex-shrink: 0;
+        }
+        .browser-header span { width: 12px; height: 12px; border-radius: 50%; background: #cbd5e1; margin-right: 6px; }
+        .browser-body { flex-grow: 1; padding: 24px; background: hsl(var(--background)); overflow-y: auto; }
+        .mobile-view {
+            width: 340px; height: 650px; background: #1e293b; border-radius: 40px;
+            box-shadow: 0 0 0 8px #1e293b, 0 10px 20px -5px rgba(0,0,0,0.2);
+            padding: 15px; display: flex; flex-direction: column;
+        }
+        .mobile-body { flex-grow: 1; background: hsl(var(--background)); border-radius: 30px; padding: 15px; overflow-y: auto; }
+
+        /* UI Element styles to match the app */
+        .card { background-color: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .card-title { font-size: 1.1rem; font-weight: 600; margin: 0 0 4px 0; }
+        .card-description { font-size: 0.85rem; color: hsl(var(--muted-foreground)); margin: 0; }
+        .badge { display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid transparent; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
+        .badge-outline { color: hsl(var(--foreground)); border-color: hsl(var(--border)); }
+        .flex { display: flex; }
+        .items-center { align-items: center; }
+        .gap-2 { gap: 0.5rem; }
+        .text-muted-foreground { color: hsl(var(--muted-foreground)); }
+        .text-sm { font-size: 0.875rem; }
+        .font-semibold { font-weight: 600; }
+        .font-medium { font-weight: 500; }
+        .space-y-4 > * + * { margin-top: 1rem; }
+    </style>
+</head>
+<body>
+
+    <div class="studio-container">
+        <header>
+            <h1>Image Capture Studio</h1>
+            <p style="text-align: center; color: hsl(var(--muted-foreground))">Click the "Download Image" button next to each module to save it as a PNG file.</p>
+        </header>
+
+        <!-- Login Page -->
+        <section class="capture-section">
+            <div class="capture-controls">
+                <h3>1. Login Page</h3>
+                <p>The entry point for all users.</p>
+                <button class="download-btn" onclick="captureElement('login-page', 'motrack-login.png')">Download Image</button>
+            </div>
+            <div class="mockup-container" id="login-page">
+                <div class="browser-view">
+                    <div class="browser-header"><span></span><span></span><span></span></div>
+                    <div class="browser-body" style="display: flex; align-items: center; justify-content: center;">
+                        <div style="width: 350px;">
+                            <div class="card" style="padding: 24px;">
+                                <img src="/logo.png" alt="MoTrack Logo" style="width: 150px; height: auto; margin: 0 auto 1rem auto; display: block;">
+                                <p class="card-description" style="text-align: center; margin-bottom: 1rem;">Enter your credentials to access your account</p>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label for="email" style="font-size: 0.875rem; font-weight: 500; display: block; margin-bottom: 4px;">Email</label>
+                                        <input type="email" value="admin@example.com" readonly style="width: 100%; height: 36px; border-radius: 6px; border: 1px solid hsl(var(--border)); padding: 0 12px;">
+                                    </div>
+                                    <div>
+                                        <label for="password" style="font-size: 0.875rem; font-weight: 500; display: block; margin-bottom: 4px;">Password</label>
+                                        <input type="password" value="●●●●●●●●" readonly style="width: 100%; height: 36px; border-radius: 6px; border: 1px solid hsl(var(--border)); padding: 0 12px;">
+                                    </div>
+                                    <button style="width: 100%; height: 40px; background-color: hsl(var(--primary)); color: hsl(var(--primary-foreground)); border: none; border-radius: 6px; font-weight: 500;">Sign In</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Dashboard -->
+        <section class="capture-section">
+            <div class="capture-controls">
+                <h3>2. Main Dashboard</h3>
+                <p>The central hub for all modules.</p>
+                <button class="download-btn" onclick="captureElement('dashboard-page', 'motrack-dashboard.png')">Download Image</button>
+            </div>
+            <div class="mockup-container" id="dashboard-page">
+                <div class="browser-view">
+                    <div class="browser-header"><span></span><span></span><span></span></div>
+                    <div class="browser-body">
+                        <h2 style="margin: 0 0 20px 0; font-size: 1.8rem;">Home Dashboard</h2>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+                            <div class="card"><h3 class="card-title">O2D</h3><p class="card-description">Pre-production workflow.</p></div>
+                            <div class="card"><h3 class="card-title">Orders</h3><p class="card-description">Track all active orders.</p></div>
+                            <div class="card"><h3 class="card-title">Purchase</h3><p class="card-description">Manage all procurement.</p></div>
+                            <div class="card"><h3 class="card-title">Inbound</h3><p class="card-description">Manage incoming stock.</p></div>
+                            <div class="card"><h3 class="card-title">Users</h3><p class="card-description">Manage all accounts.</p></div>
+                            <div class="card"><h3 class="card-title">Details</h3><p class="card-description">View detailed reports.</p></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Orders Dashboard -->
+        <section class="capture-section">
+            <div class="capture-controls">
+                <h3>3. Orders Dashboard</h3>
+                <p>View of an active customer order.</p>
+                <button class="download-btn" onclick="captureElement('orders-page', 'motrack-orders.png')">Download Image</button>
+            </div>
+             <div class="mockup-container" id="orders-page">
+                <div class="browser-view">
+                    <div class="browser-header"><span></span><span></span><span></span></div>
+                    <div class="browser-body">
+                         <h2 style="margin: 0 0 20px 0; font-size: 1.8rem;">Orders Dashboard</h2>
+                         <div class="card">
+                            <h3 class="card-title">Ravi Sharma</h3>
+                            <p class="card-description">ID: MOTRACK-1234</p>
+                            <div style="margin-top: 1rem; border-top: 1px solid hsl(var(--border)); padding-top: 1rem;">
+                                <p style="font-weight: 500; margin-bottom: 8px;">Milestone Progress</p>
+                                <div style="width: 100%; background: hsl(var(--muted)); height: 8px; border-radius: 4px; overflow: hidden;">
+                                    <div style="width: 60%; height: 100%; background: hsl(var(--accent)); border-radius: 4px;"></div>
+                                </div>
+                            </div>
+                         </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Installer Mobile View -->
+        <section class="capture-section">
+            <div class="capture-controls">
+                <h3>4. Installer Mobile View</h3>
+                <p>The simplified interface for field staff.</p>
+                <button class="download-btn" onclick="captureElement('mobile-page', 'motrack-mobile.png')">Download Image</button>
+            </div>
+            <div class="mockup-container" id="mobile-page">
+                <div class="mobile-view">
+                    <div class="mobile-body">
+                        <h4 style="text-align: center; margin: 0 0 20px 0; font-size: 1.2rem;">Your Tasks</h4>
+                        <div class="card space-y-4">
+                            <div>
+                                <h5 class="card-title" style="font-size: 1rem;">Ravi Sharma</h5>
+                                <p class="card-description" style="font-size: .8rem;">ID: MOTRACK-1234</p>
+                                <p class="card-description" style="font-size: .8rem;">Address: 123 Main St, Anytown</p>
+                            </div>
+                            <button style="width: 100%; height: 40px; background-color: hsl(var(--accent)); color: hsl(var(--primary-foreground)); border: none; border-radius: 8px; font-weight: 500;">
+                                Mark "Out for Delivery"
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <script>
+        function captureElement(elementId, filename) {
+            const element = document.getElementById(elementId);
+            if (!element) {
+                console.error('Element not found:', elementId);
+                return;
+            }
+            
+            html2canvas(element, {
+                useCORS: true,
+                scale: 2, // Higher scale for better resolution
+                backgroundColor: null // Use transparent background
+            }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = filename;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            });
+        }
+    </script>
+
+</body>
+</html>

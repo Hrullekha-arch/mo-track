@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserManagement } from "@/components/features/user-management/UserManagement";
 import { O2DTable } from "@/components/features/order-management/O2DTable";
 import { PurchaseRequestTable } from "@/components/features/purchase/PurchaseRequestTable";
+import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -56,6 +57,7 @@ export default function AllOrdersPage() {
                         <TabsTrigger value="purchase">Purchase</TabsTrigger>
                         <TabsTrigger value="po-tracking">PO Tracking</TabsTrigger>
                         <TabsTrigger value="inbound">Inbound</TabsTrigger>
+                        <TabsTrigger value="tally-log">Tally Log</TabsTrigger>
                         <TabsTrigger value="users">Users</TabsTrigger>
                     </TabsList>
                     <ScrollBar orientation="horizontal" />
@@ -83,6 +85,11 @@ export default function AllOrdersPage() {
                  <TabsContent value="inbound" className="mt-4">
                      <Suspense fallback={<AllOrdersSkeleton />}>
                         <PurchaseRequestTable tableData={purchaseRequests} view="all" />
+                    </Suspense>
+                </TabsContent>
+                <TabsContent value="tally-log" className="mt-4">
+                    <Suspense fallback={<AllOrdersSkeleton />}>
+                        <InvoiceLogTable />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="users" className="mt-4">
