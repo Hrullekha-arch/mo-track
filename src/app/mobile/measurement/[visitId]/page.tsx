@@ -54,8 +54,8 @@ const measurementSchema = z.object({
 
 export type MeasurementFormValues = z.infer<typeof measurementSchema>;
 
-const CURTAIN_TYPE = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
-const OTHER_TYPE = ["TU", "OP", "NC", "VN", "MU"];
+const CURTAIN_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
+const OTHER_MEASUREMENT_TYPES = ["Blind", "Rod", "Channel"];
 const DOER_OPTIONS = [
     { value: "TU", label: "TU" },
     { value: "OP", label: "OP" },
@@ -189,9 +189,13 @@ export default function MeasurementPage() {
         );
     }
 
-    const doerOptions = OTHER_TYPE.includes(typeOf) 
-        ? DOER_OPTIONS.map(opt => ({ id: opt.value, name: opt.label })) 
-        : salesmen;
+    const doerOptions = CURTAIN_TYPES.includes(typeOf)
+        ? salesmen
+        : DOER_OPTIONS.map(opt => ({ id: opt.value, name: opt.label }));
+        
+    const isCurtainTypeSelected = CURTAIN_TYPES.includes(typeOf);
+    const isOtherTypeSelected = OTHER_MEASUREMENT_TYPES.includes(typeOf);
+
 
     return (
         <div className="min-h-screen bg-gray-50 p-4">
@@ -224,7 +228,7 @@ export default function MeasurementPage() {
                                                 <SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                                {[...CURTAIN_TYPE, ...OTHER_TYPE].map(opt => (
+                                                {[...CURTAIN_TYPES, ...OTHER_MEASUREMENT_TYPES].map(opt => (
                                                     <SelectItem key={opt} value={opt}>{opt}</SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -265,7 +269,7 @@ export default function MeasurementPage() {
                                 <div key={field.id} className="p-3 border rounded-lg space-y-3 bg-white relative">
                                     <Button type="button" variant="destructive" size="icon" className="absolute -top-3 -right-3 h-7 w-7" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button>
                                     
-                                    {CURTAIN_TYPE.includes(typeOf) && (
+                                    {isCurtainTypeSelected && (
                                         <div className="space-y-3">
                                             <FormField control={form.control} name={`entries.${index}.roomName`} render={({ field }) => (<FormItem><FormLabel>Room Name</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                                             <FormField control={form.control} name={`entries.${index}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
@@ -277,7 +281,7 @@ export default function MeasurementPage() {
                                         </div>
                                     )}
 
-                                    {OTHER_TYPE.includes(typeOf) && (
+                                    {isOtherTypeSelected && (
                                         <div className="space-y-3">
                                             <FormField control={form.control} name={`entries.${index}.noOfSheet`} render={({ field }) => (<FormItem><FormLabel>No Of Sheet</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                                             <FormField control={form.control} name={`entries.${index}.fabricQty1`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 1</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
