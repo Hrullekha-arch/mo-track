@@ -388,7 +388,7 @@ export async function getVisitsForDeal(customerId: string, dealId: string): Prom
 export async function addMeasurementAction(
     customerId: string,
     dealId: string,
-    measurementData: MeasurementFormValues,
+    measurementData: DealMeasurement,
     creatorName: string
 ): Promise<{ success: boolean; message: string; measurement?: DealMeasurement }> {
     try {
@@ -402,11 +402,6 @@ export async function addMeasurementAction(
             ...measurementData,
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
-            // Assuming file URLs are handled on the client and passed here
-            // This is just a placeholder logic.
-            // In a real app, you'd upload to Cloud Storage and get the URL.
-            imageUrl: measurementData.imageUrl, 
-            audioUrl: measurementData.audioUrl,
         };
         
         batch.set(newMeasurementRef, newMeasurementForDb);

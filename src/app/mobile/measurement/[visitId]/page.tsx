@@ -31,8 +31,10 @@ const measurementEntrySchema = z.object({
     height: z.string().optional(),
     width: z.string().optional(),
     image: z.any().optional(),
+    imageUrl: z.string().optional(),
     remark: z.string().optional(),
     recordAudio: z.any().optional(),
+    audioUrl: z.string().optional(),
     noOfSheet: z.string().optional(),
     fabricQty1: z.string().optional(),
     fabricQty2: z.string().optional(),
@@ -40,7 +42,9 @@ const measurementEntrySchema = z.object({
     casement: z.string().optional(),
     niwar: z.string().optional(),
     picture: z.any().optional(),
+    pictureUrl: z.string().optional(),
 });
+
 
 const measurementSchema = z.object({
     typeOf: z.string().min(1, "Type is required"),
@@ -52,6 +56,14 @@ export type MeasurementFormValues = z.infer<typeof measurementSchema>;
 
 const CURTAIN_TYPE = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
 const OTHER_TYPE = ["TU", "OP", "NC", "VN", "MU"];
+const DOER_OPTIONS = [
+    { value: "TU", label: "TU" },
+    { value: "OP", label: "OP" },
+    { value: "NC", label: "NC" },
+    { value: "VN", label: "VN" },
+    { value: "MU", label: "MU" },
+];
+
 
 export default function MeasurementPage() {
     const params = useParams();
@@ -66,7 +78,7 @@ export default function MeasurementPage() {
 
     const [customer, setCustomer] = React.useState<Customer | null>(null);
     const [deal, setDeal] = React.useState<Deal | null>(null);
-    const [doerOptions, setDoerOptions] = React.useState<User[]>([]);
+    const [salesmen, setSalesmen] = React.useState<User[]>([]);
     const [loading, setLoading] = React.useState(true);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
 
@@ -103,7 +115,7 @@ export default function MeasurementPage() {
                 ]);
                 setCustomer(customerData);
                 setDeal(dealData);
-                setDoerOptions(salesmenData);
+                setSalesmen(salesmenData);
             } catch (error) {
                 console.error("Failed to fetch data:", error);
                 toast({ variant: "destructive", title: "Error", description: "Could not load required data." });
@@ -151,7 +163,7 @@ export default function MeasurementPage() {
                 entries: processedEntries
             };
             
-            const result = await addMeasurementAction(customerId, dealId, measurementData, user.name);
+            const result = await addMeasurementAction(customerId, dealId, measurementData as DealMeasurement, user.name);
 
             if (result.success) {
                 toast({ title: 'Success', description: 'Measurement saved successfully.' });
@@ -177,6 +189,10 @@ export default function MeasurementPage() {
         );
     }
 
+    const doerOptions = OTHER_TYPE.includes(typeOf) 
+        ? DOER_OPTIONS.map(opt => ({ id: opt.value, name: opt.label })) 
+        : salesmen;
+
     return (
         <div className="min-h-screen bg-gray-50 p-4">
             <header className="flex items-center gap-2 mb-4">
@@ -188,7 +204,7 @@ export default function MeasurementPage() {
             <FormProvider {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                     <Card>
-                        <CardContent className="pt-6 grid grid-cols-2 gap-4">
+                        <CardContent className="pt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1">
                                 <FormLabel>Deal ID</FormLabel>
                                 <Input value={deal?.dealId || ''} readOnly disabled />
@@ -223,7 +239,7 @@ export default function MeasurementPage() {
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Doer Name</FormLabel>
-                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <Select onValueChange={field.onChange} value={field.value}>
                                             <FormControl>
                                                 <SelectTrigger><SelectValue placeholder="Select Doer" /></SelectTrigger>
                                             </FormControl>

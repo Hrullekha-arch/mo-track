@@ -344,30 +344,29 @@ export interface DealVisit {
     otherDelivery?: string;
 }
 
+export interface MeasurementEntry {
+    roomName?: string;
+    noOfPannel?: string;
+    height?: string;
+    width?: string;
+    imageUrl?: string;
+    remark?: string;
+    audioUrl?: string;
+    noOfSheet?: string;
+    fabricQty1?: string;
+    fabricQty2?: string;
+    marking?: string;
+    casement?: string;
+    niwar?: string;
+    pictureUrl?: string;
+}
 
 export interface DealMeasurement {
     id: string;
     // Common fields
     typeOf: string;
     doerName: string;
-    entries: {
-        // Curtain type fields
-        roomName?: string;
-        noOfPannel?: string;
-        height?: string;
-        width?: string;
-        imageUrl?: string;
-        remark?: string;
-        audioUrl?: string;
-        // Other type fields
-        noOfSheet?: string;
-        fabricQty1?: string;
-        fabricQty2?: string;
-        marking?: string;
-        casement?: string;
-        niwar?: string;
-        pictureUrl?: string;
-    }[];
+    entries: MeasurementEntry[];
     createdAt: string; // ISO string
     createdBy: string;
 }
