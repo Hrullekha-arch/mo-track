@@ -8,6 +8,9 @@ import { FormValues as QuotationFormValues } from '@/components/features/order-m
 import { VisitFormValues } from './page';
 import { getMilestonesForOrder } from '@/lib/constants';
 import { FieldValue } from 'firebase-admin/firestore';
+import { google } from 'googleapis';
+import { Readable } from 'stream';
+
 
 // This function sends an SMS using the Fast2SMS API.
 async function sendVisitSms(customerPhone: string, message: string) {
@@ -38,6 +41,69 @@ async function sendVisitSms(customerPhone: string, message: string) {
     }
 
     return { success: true, ...responseData };
+}
+
+export async function uploadFileToDriveAction(
+  fileName: string,
+  mimeType: string,
+  base64Data: string
+): Promise<string> {
+  const FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  if (!FOLDER_ID) {
+    throw new Error('Google Drive folder ID is not configured in environment variables.');
+  }
+
+  const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  if (!serviceAccountKey) {
+    throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set.');
+  }
+  const credentials = JSON.parse(serviceAccountKey);
+
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/drive.file'],
+  });
+
+  const drive = google.drive({ version: 'v3', auth });
+  const fileBuffer = Buffer.from(base64Data, 'base64');
+  const media = {
+    mimeType: mimeType,
+    body: Readable.from(fileBuffer),
+  };
+
+  try {
+    const file = await drive.files.create({
+      requestBody: {
+        name: fileName,
+        parents: [FOLDER_ID],
+      },
+      media: media,
+      supportsAllDrives: true,
+      fields: 'id, webViewLink',
+    });
+
+    if (!file.data.id || !file.data.webViewLink) {
+        throw new Error("File ID or link not returned from Google Drive API.");
+    }
+    
+    // Make file publicly readable
+    await drive.permissions.create({
+        fileId: file.data.id,
+        requestBody: {
+            role: 'reader',
+            type: 'anyone'
+        },
+        supportsAllDrives: true,
+    });
+    
+    // The webViewLink is the user-facing URL. For direct embedding/access, we might need webContentLink.
+    return file.data.webViewLink;
+
+  } catch (error: any) {
+    console.error("Google Drive API Error:", error.response?.data?.error || error.message);
+    const specificError = error.response?.data?.error?.message || error.message;
+    throw new Error(`Failed to upload file to Google Drive. API Error: ${specificError}`);
+  }
 }
 
 export async function getDealById(customerId: string, dealId: string): Promise<Deal | null> {

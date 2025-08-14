@@ -293,7 +293,7 @@ export default function MeasurementPage() {
         return await uploadFileToDriveAction(file.name, file.type, b64Data);
     };
     
-    const generateAndUploadPdf = async () => {
+    const generateAndUploadPdf = async (): Promise<string> => {
         const input = document.getElementById('measurement-preview-content');
         if (!input) {
             throw new Error("Preview content not found for PDF generation");
@@ -315,10 +315,10 @@ export default function MeasurementPage() {
         return await handleFileUpload(pdfFile);
     };
 
-    const onSubmit = async () => {
+    const onSubmit = async (values: MeasurementFormValues) => {
         if (!user || !customerId || !dealId) {
             toast({ variant: 'destructive', title: 'Error', description: 'Missing critical information.' });
-            setIsSubmitting(false); // Ensure reset
+            setIsSubmitting(false);
             return;
         }
     
@@ -328,13 +328,14 @@ export default function MeasurementPage() {
             const pdfUrl = await generateAndUploadPdf();
             
             const processedEntries = await Promise.all(
-                watchedFormValues.entries.map(async (entry) => {
+                values.entries.map(async (entry) => {
                     const audioUrl = entry.recordAudio ? await handleFileUpload(entry.recordAudio) : undefined;
                     
                     let pictureUrls: string[] = [];
-                    const pictures = Array.isArray(entry.pictures) ? entry.pictures : Array.from(entry.pictures || []);
+                    const pictures = entry.pictures;
                     if (pictures && pictures.length > 0) {
-                        pictureUrls = await Promise.all(pictures.map(file => handleFileUpload(file)));
+                        const filesToUpload = Array.from(pictures as File[]);
+                        pictureUrls = await Promise.all(filesToUpload.map(file => handleFileUpload(file)));
                     }
     
                     const cleanedEntry: Partial<MeasurementEntry> = { ...entry };
@@ -350,8 +351,8 @@ export default function MeasurementPage() {
             );
     
             const measurementData: Omit<DealMeasurement, 'id' | 'createdAt' | 'createdBy'> = {
-                typeOf: watchedFormValues.typeOf,
-                doerName: watchedFormValues.doerName,
+                typeOf: values.typeOf,
+                doerName: values.doerName,
                 entries: processedEntries as MeasurementEntry[],
             };
             
