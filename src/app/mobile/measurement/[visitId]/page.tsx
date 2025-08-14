@@ -19,12 +19,11 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2, ArrowLeft, PlusCircle, Trash2, Mic, Camera } from "lucide-react";
-import { getDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { Loader2, ArrowLeft, PlusCircle, Trash2 } from "lucide-react";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const measurementEntrySchema = z.object({
+    // Curtain/Wallpaper fields
     roomName: z.string().optional(),
     noOfPannel: z.string().optional(),
     height: z.string().optional(),
@@ -34,6 +33,16 @@ const measurementEntrySchema = z.object({
     remark: z.string().optional(),
     recordAudio: z.any().optional(),
     audioUrl: z.string().optional(),
+
+    // Sofa Measurement fields
+    noOfSheet: z.string().optional(),
+    fabricQty1: z.string().optional(),
+    fabricQty2: z.string().optional(),
+    marking: z.string().optional(),
+    casement: z.string().optional(),
+    niwar: z.string().optional(),
+    picture: z.any().optional(),
+    pictureUrl: z.string().optional(),
 });
 
 
@@ -48,6 +57,40 @@ export type MeasurementFormValues = z.infer<typeof measurementSchema>;
 const MEASUREMENT_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
 const DOER_OPTIONS = ["TU", "OP", "NC", "VN", "MU"];
 
+const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index: number) => void }) => {
+    const { control, watch } = useForm<MeasurementFormValues>();
+    const typeOf = watch("typeOf");
+
+    return (
+        <Card className="relative">
+            <Button type="button" variant="destructive" size="icon" className="absolute -top-3 -right-3 h-7 w-7" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button>
+            <CardContent className="pt-6">
+                {typeOf === "Sofa Measurement" ? (
+                    <div className="space-y-3">
+                        <FormField control={control} name={`entries.${index}.noOfSheet`} render={({ field }) => (<FormItem><FormLabel>No Of Sheet</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.fabricQty1`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 1</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.fabricQty2`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 2</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.marking`} render={({ field }) => (<FormItem><FormLabel>Marking (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.casement`} render={({ field }) => (<FormItem><FormLabel>Casement (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.niwar`} render={({ field }) => (<FormItem><FormLabel>Niwar (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.picture`} render={({ field }) => (<FormItem><FormLabel>Picture (Upto 5)</FormLabel><FormControl><Input type="file" accept="image/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        <FormField control={control} name={`entries.${index}.roomName`} render={({ field }) => (<FormItem><FormLabel>Room Name</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.height`} render={({ field }) => (<FormItem><FormLabel>Height</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.width`} render={({ field }) => (<FormItem><FormLabel>Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.image`} render={({ field }) => (<FormItem><FormLabel>Image</FormLabel><FormControl><Input type="file" accept="image/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.recordAudio`} render={({ field }) => (<FormItem><FormLabel>Record Audio</FormLabel><FormControl><Input type="file" accept="audio/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    )
+}
 
 export default function MeasurementPage() {
     const params = useParams();
@@ -124,13 +167,16 @@ export default function MeasurementPage() {
             const processedEntries = await Promise.all(data.entries.map(async (entry) => {
                 const imageUrl = entry.image?.[0] ? await handleFileUpload(entry.image[0]) : undefined;
                 const audioUrl = entry.recordAudio?.[0] ? await handleFileUpload(entry.recordAudio[0]) : undefined;
+                const pictureUrl = entry.picture?.[0] ? await handleFileUpload(entry.picture[0]) : undefined;
 
                 return {
                     ...entry,
                     image: undefined,
                     recordAudio: undefined,
+                    picture: undefined,
                     imageUrl,
                     audioUrl,
+                    pictureUrl,
                 };
             }));
 
@@ -234,19 +280,7 @@ export default function MeasurementPage() {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {fields.map((field, index) => (
-                                <div key={field.id} className="p-3 border rounded-lg space-y-3 bg-white relative">
-                                    <Button type="button" variant="destructive" size="icon" className="absolute -top-3 -right-3 h-7 w-7" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button>
-                                    
-                                    <div className="space-y-3">
-                                        <FormField control={form.control} name={`entries.${index}.roomName`} render={({ field }) => (<FormItem><FormLabel>Room Name</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                        <FormField control={form.control} name={`entries.${index}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                        <FormField control={form.control} name={`entries.${index}.height`} render={({ field }) => (<FormItem><FormLabel>Height</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                        <FormField control={form.control} name={`entries.${index}.width`} render={({ field }) => (<FormItem><FormLabel>Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                        <FormField control={form.control} name={`entries.${index}.image`} render={({ field }) => (<FormItem><FormLabel>Image</FormLabel><FormControl><Input type="file" accept="image/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
-                                        <FormField control={form.control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
-                                        <FormField control={form.control} name={`entries.${index}.recordAudio`} render={({ field }) => (<FormItem><FormLabel>Record Audio</FormLabel><FormControl><Input type="file" accept="audio/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
-                                    </div>
-                                </div>
+                               <MeasurementEntryCard key={field.id} index={index} remove={remove} />
                             ))}
                             <Button type="button" variant="outline" onClick={() => append({})}><PlusCircle className="mr-2 h-4 w-4"/>Add</Button>
                         </CardContent>
@@ -262,5 +296,3 @@ export default function MeasurementPage() {
         </div>
     );
 }
-
-    

@@ -1,4 +1,5 @@
 
+
 import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp } from "firebase/firestore";
 
@@ -352,6 +353,7 @@ export interface MeasurementEntry {
     imageUrl?: string;
     remark?: string;
     audioUrl?: string;
+    // Sofa measurement fields
     noOfSheet?: string;
     fabricQty1?: string;
     fabricQty2?: string;
