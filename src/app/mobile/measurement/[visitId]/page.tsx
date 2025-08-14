@@ -185,26 +185,44 @@ const MeasurementPreview = ({
                     </div>
 
                     {values.entries.map((entry, index) => (
-                        <div key={index} className="border-t pt-4">
+                        <div key={index} className="border-t pt-4 space-y-2">
                             <h4 className="font-semibold mb-2">Entry #{index + 1}</h4>
                             {values.typeOf === 'Sofa Measurement' ? (
                                 <div className="grid grid-cols-2 gap-2 text-sm">
-                                    <p><strong>No. of Sheet:</strong> {entry.noOfSheet}</p>
-                                    <p><strong>Fabric Qty 1:</strong> {entry.fabricQty1}</p>
-                                    <p><strong>Fabric Qty 2:</strong> {entry.fabricQty2}</p>
-                                    <p><strong>Marking:</strong> {entry.marking} MTR</p>
-                                    <p><strong>Casement:</strong> {entry.casement} MTR</p>
-                                    <p><strong>Niwar:</strong> {entry.niwar} MTR</p>
+                                    <p><strong>No. of Sheet:</strong> {entry.noOfSheet || 'N/A'}</p>
+                                    <p><strong>Fabric Qty 1:</strong> {entry.fabricQty1 || 'N/A'}</p>
+                                    <p><strong>Fabric Qty 2:</strong> {entry.fabricQty2 || 'N/A'}</p>
+                                    <p><strong>Marking:</strong> {entry.marking ? `${entry.marking} MTR` : 'N/A'}</p>
+                                    <p><strong>Casement:</strong> {entry.casement ? `${entry.casement} MTR` : 'N/A'}</p>
+                                    <p><strong>Niwar:</strong> {entry.niwar ? `${entry.niwar} MTR` : 'N/A'}</p>
                                 </div>
                             ) : (
                                  <div className="grid grid-cols-2 gap-2 text-sm">
-                                    <p><strong>Room:</strong> {entry.roomName}</p>
-                                    <p><strong>No. of Pannel:</strong> {entry.noOfPannel}</p>
-                                    <p><strong>Height:</strong> {entry.height}</p>
-                                    <p><strong>Width:</strong> {entry.width}</p>
+                                    <p><strong>Room:</strong> {entry.roomName || 'N/A'}</p>
+                                    <p><strong>No. of Pannel:</strong> {entry.noOfPannel || 'N/A'}</p>
+                                    <p><strong>Height:</strong> {entry.height || 'N/A'}</p>
+                                    <p><strong>Width:</strong> {entry.width || 'N/A'}</p>
                                 </div>
                             )}
                              <p className="text-sm mt-2"><strong>Remarks:</strong> {entry.remark || 'N/A'}</p>
+
+                             {entry.pictures && Array.from(entry.pictures as File[]).length > 0 && (
+                                <div className="mt-2">
+                                    <p className="text-sm font-semibold">Attached Images:</p>
+                                    <div className="flex flex-wrap gap-2 mt-1">
+                                        {Array.from(entry.pictures as File[]).map((file, i) => (
+                                            <Image 
+                                                key={i}
+                                                src={URL.createObjectURL(file)} 
+                                                alt={`Entry ${index+1} Image ${i+1}`} 
+                                                width={100} 
+                                                height={100} 
+                                                className="rounded-md object-cover"
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                             )}
                         </div>
                     ))}
                 </CardContent>
@@ -350,13 +368,13 @@ export default function MeasurementPage() {
                 })
             );
     
-            const measurementData: Omit<DealMeasurement, 'id' | 'createdAt' | 'createdBy'> = {
+            const measurementData: Omit<DealMeasurement, 'id' | 'createdAt' | 'createdBy' | 'pdfUrl'> = {
                 typeOf: values.typeOf,
                 doerName: values.doerName,
                 entries: processedEntries as MeasurementEntry[],
             };
             
-            const result = await addMeasurementAction(customerId, dealId, visitId, measurementData as DealMeasurement, user.name, pdfUrl);
+            const result = await addMeasurementAction(customerId, dealId, visitId, measurementData as any, user.name, pdfUrl);
     
             if (result.success) {
                 toast({ title: 'Success', description: 'Measurement saved successfully.' });
