@@ -360,7 +360,7 @@ export interface MeasurementEntry {
     marking?: string;
     casement?: string;
     niwar?: string;
-    pictureUrl?: string;
+    pictureUrls?: string[];
 }
 
 export interface DealMeasurement {

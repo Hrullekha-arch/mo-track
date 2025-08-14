@@ -9,7 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/context/AuthContext';
-import { Customer, Deal, DealMeasurement, User } from '@/lib/types';
+import { Customer, Deal, DealMeasurement, User, MeasurementEntry } from '@/lib/types';
 import { getCustomerById } from '@/app/dashboard/customers/actions';
 import { getDealById, addMeasurementAction } from '@/app/dashboard/customers/[customerId]/[dealId]/actions';
 
@@ -22,6 +22,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2, ArrowLeft, PlusCircle, Trash2 } from "lucide-react";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import Image from 'next/image';
+
 
 const measurementEntrySchema = z.object({
     // Curtain/Wallpaper fields
@@ -42,8 +44,8 @@ const measurementEntrySchema = z.object({
     marking: z.string().optional(),
     casement: z.string().optional(),
     niwar: z.string().optional(),
-    picture: z.any().optional(),
-    pictureUrl: z.string().optional(),
+    pictures: z.any().optional(),
+    pictureUrls: z.array(z.string()).optional(),
 });
 
 
@@ -59,8 +61,24 @@ const MEASUREMENT_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measur
 const DOER_OPTIONS = ["TU", "OP", "NC", "VN", "MU"];
 
 const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index: number) => void }) => {
-    const { control } = useFormContext<MeasurementFormValues>();
+    const { control, setValue } = useFormContext<MeasurementFormValues>();
     const typeOf = useWatch({ control, name: "typeOf" });
+    const [imagePreviews, setImagePreviews] = React.useState<string[]>([]);
+
+    const handlePictureChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files;
+        if (files) {
+            if (files.length > 5) {
+                alert("You can only upload a maximum of 5 images.");
+                return;
+            }
+            const fileArray = Array.from(files);
+            setValue(`entries.${index}.pictures`, fileArray);
+            
+            const previewUrls = fileArray.map(file => URL.createObjectURL(file));
+            setImagePreviews(previewUrls);
+        }
+    };
 
     return (
         <Card className="relative">
@@ -74,7 +92,19 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                         <FormField control={control} name={`entries.${index}.marking`} render={({ field }) => (<FormItem><FormLabel>Marking (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
                         <FormField control={control} name={`entries.${index}.casement`} render={({ field }) => (<FormItem><FormLabel>Casement (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
                         <FormField control={control} name={`entries.${index}.niwar`} render={({ field }) => (<FormItem><FormLabel>Niwar (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.picture`} render={({ field }) => (<FormItem><FormLabel>Picture (Upto 5)</FormLabel><FormControl><Input type="file" accept="image/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
+                        <FormItem>
+                            <FormLabel>Picture (Upto 5)</FormLabel>
+                            <FormControl>
+                                <Input type="file" accept="image/*" multiple onChange={handlePictureChange} />
+                            </FormControl>
+                        </FormItem>
+                         {imagePreviews.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                {imagePreviews.map((src, i) => (
+                                    <Image key={i} src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover" data-ai-hint="sofa measurement" />
+                                ))}
+                            </div>
+                        )}
                         <FormField control={control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
                     </div>
                 ) : (
@@ -168,16 +198,22 @@ export default function MeasurementPage() {
             const processedEntries = await Promise.all(data.entries.map(async (entry) => {
                 const imageUrl = entry.image?.[0] ? await handleFileUpload(entry.image[0]) : undefined;
                 const audioUrl = entry.recordAudio?.[0] ? await handleFileUpload(entry.recordAudio[0]) : undefined;
-                const pictureUrl = entry.picture?.[0] ? await handleFileUpload(entry.picture[0]) : undefined;
+                
+                let pictureUrls: string[] = [];
+                if (entry.pictures && entry.pictures.length > 0) {
+                     pictureUrls = await Promise.all(
+                        Array.from(entry.pictures).map(file => handleFileUpload(file as File))
+                     );
+                }
 
                 return {
                     ...entry,
                     image: undefined,
                     recordAudio: undefined,
-                    picture: undefined,
+                    pictures: undefined,
                     imageUrl,
                     audioUrl,
-                    pictureUrl,
+                    pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined,
                 };
             }));
 
