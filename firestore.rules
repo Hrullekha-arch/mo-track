@@ -4,106 +4,80 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ==================================================================
-    //                        Helper Functions
-    // ==================================================================
+    // Helper function to check if a user is authenticated
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    // Helper function to check if a user has a specific role
+    function hasRole(role) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
     }
 
-    function isAdmin() {
-      return isAuthenticated() && getUserData().role == 'admin';
-    }
-
-    function isEmployee() {
-      return isAuthenticated() && getUserData().role == 'employee';
-    }
-
-    function isInstaller() {
-      return isAuthenticated() && getUserData().role == 'installer';
-    }
-    
-    function isAccounts() {
-       return isAuthenticated() && getUserData().role == 'Accounts';
-    }
-
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    // ==================================================================
-    //                        Global Rules
-    // ==================================================================
-    
-    // Admins have god-mode. They can read/write anything, anywhere.
+    // Admins can read and write all documents
     match /{document=**} {
-      allow read, write: if isAdmin();
+      allow read, write: if hasRole('admin');
     }
-    
-    // ==================================================================
-    //                      Collection-Specific Rules
-    // ==================================================================
 
-    // --- Users Collection ---
-    // Any authenticated user can read user profiles (to get names, etc.)
-    // Only admins can modify user profiles (handled by the global admin rule)
+    // Users can read and write their own user document
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      // Write is covered by global admin rule.
+      allow read, write: if request.auth.uid == userId || hasRole('admin');
     }
 
-    // --- Customer Data (Customers, Deals, Quotations, etc.) ---
-    // Employees can manage all customer-related data.
-    // Admin access is already granted globally.
-    match /customers/{customerId}/{document=**} {
-      allow read, write: if isEmployee();
+    // Rules for customers
+    match /customers/{customerId} {
+      // Authenticated users can read/create customers
+      allow read, create: if isAuthenticated();
+      
+      // Only admins or assigned CRMs/Salesmen can update
+      allow update: if hasRole('admin') || hasRole('employee');
+      
+      // Deals subcollection
+      match /deals/{dealId} {
+        allow read, create, update: if isAuthenticated();
+
+        // Quotations and Orders sub-subcollections
+        match /{subcollection}/{docId} {
+           allow read, create, update: if isAuthenticated();
+        }
+      }
     }
     
-    // --- Standalone Approved Quotations Collection ---
-    match /approvedQuotations/{quotationId} {
-        allow read, write: if isEmployee();
+    // Rule for the 'visits' collection group
+    match /{path=**}/visits/{visitId} {
+      allow read: if isAuthenticated() && (resource.data.assignedTo == request.auth.uid || hasRole('admin') || hasRole('employee'));
+      allow update: if isAuthenticated() && (resource.data.assignedTo == request.auth.uid || hasRole('admin') || hasRole('employee'));
     }
 
-    // --- Orders Collection ---
+    // Authenticated users can read most top-level collections
     match /orders/{orderId} {
-      // Employees can read/create/delete orders.
-      allow read, create, delete: if isEmployee();
-      
-      // Installers can only read orders assigned to them.
-      allow read: if isInstaller() && resource.data.assignedTo == request.auth.uid;
-      
-      // Update rules are more granular.
-      allow update: if isEmployee() || 
-                      (isInstaller() && resource.data.assignedTo == request.auth.uid && request.resource.data.keys().hasOnly(['milestones', 'feedbackRating', 'feedbackRemarks', 'bypassedOtp']));
-                      
-      // Allow public access ONLY for the tracking page (read-only 'get').
+      allow read, update: if isAuthenticated();
+    }
+    match /purchaseRequests/{requestId} {
+      allow read, update: if isAuthenticated();
+    }
+     match /inbounds/{inboundId} {
+      allow read, update: if isAuthenticated();
+    }
+    match /Cutting/{taskId} {
+      allow read, update: if isAuthenticated();
+    }
+
+    // Public tracking access for orders (read-only)
+    match /orders/{orderId} {
       allow get: if true;
     }
-
-    // --- Purchase & Inbound ---
-    match /purchaseRequests/{requestId} {
-        allow read, write: if isEmployee() || isAccounts();
-    }
-
-    match /inbounds/{inboundId}/{document=**} {
-        allow read, write: if isEmployee();
+    
+    // Installers can only update orders assigned to them
+    match /orders/{orderId} {
+        allow update: if isAuthenticated() && (
+            hasRole('installer') && resource.data.assignedTo == request.auth.uid
+        );
     }
     
-    // --- Inventory & Stock Transactions ---
-    // Only allow authenticated users to read stock levels.
-    // Writes are denied from the client to force using server-side logic for safety.
-    match /stocks/{stockId}/{document=**} {
+    // Allow read access to stocks for authenticated users
+    match /stocks/{stockId} {
         allow read: if isAuthenticated();
-        allow write: if false; // Must be updated via server-side actions
-    }
-    
-    // --- Assignments ---
-    match /salesmanCrmAssignments/{salesmanId} {
-        allow read, write: if isEmployee();
     }
   }
 }
