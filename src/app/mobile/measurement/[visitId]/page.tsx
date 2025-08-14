@@ -40,7 +40,7 @@ const measurementEntrySchema = z.object({
     marking: z.string().optional(),
     casement: z.string().optional(),
     niwar: z.string().optional(),
-    pictures: z.any().optional(), 
+    pictures: z.any().optional(),
     pictureUrls: z.array(z.string()).optional(),
 });
 
@@ -323,26 +323,29 @@ export default function MeasurementPage() {
         try {
             const pdfUrl = await generateAndUploadPdf();
             
-            const processedEntries = await Promise.all(watchedFormValues.entries.map(async (entry) => {
-                const audioUrl = entry.recordAudio ? await handleFileUpload(entry.recordAudio) : undefined;
-                
-                let pictureUrls: string[] = [];
-                if (entry.pictures && entry.pictures.length > 0) {
-                     pictureUrls = await Promise.all(
-                        Array.from(entry.pictures).map(file => handleFileUpload(file as File))
-                     );
-                }
+            const processedEntries = await Promise.all(
+                watchedFormValues.entries.map(async (entry) => {
+                    const audioUrl = entry.recordAudio ? await handleFileUpload(entry.recordAudio) : undefined;
+                    
+                    let pictureUrls: string[] = [];
+                    if (entry.pictures && entry.pictures.length > 0) {
+                        const filesToUpload = Array.from(entry.pictures as FileList);
+                        pictureUrls = await Promise.all(
+                            filesToUpload.map(file => handleFileUpload(file))
+                        );
+                    }
 
-                const cleanedEntry: Partial<MeasurementEntry> = { ...entry };
-                delete cleanedEntry.recordAudio;
-                delete cleanedEntry.pictures;
+                    const cleanedEntry: Partial<MeasurementEntry> = { ...entry };
+                    delete cleanedEntry.recordAudio;
+                    delete cleanedEntry.pictures;
 
-                return { 
-                    ...cleanedEntry, 
-                    audioUrl, 
-                    pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined, 
-                };
-            }));
+                    return { 
+                        ...cleanedEntry, 
+                        audioUrl, 
+                        pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined, 
+                    };
+                })
+            );
 
             const measurementData: Omit<DealMeasurement, 'id' | 'createdAt' | 'createdBy'> = {
                 typeOf: watchedFormValues.typeOf,
