@@ -90,7 +90,8 @@ export async function uploadFileToDriveAction(fileName: string, fileType: string
 
     } catch (error: any) {
         console.error("Google Drive API Error:", error.response?.data?.error || error.message);
-        throw new Error("Failed to upload file to Google Drive. Check service account permissions for the Drive folder.");
+        const specificError = error.response?.data?.error?.message || error.message;
+        throw new Error(`Failed to upload file to Google Drive. API Error: ${specificError}`);
     }
 }
 
