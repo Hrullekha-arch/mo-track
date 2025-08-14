@@ -469,6 +469,7 @@ export async function addMeasurementAction(
             ...measurementData,
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
+            pdfUrl: pdfUrl,
         };
         
         batch.set(newMeasurementRef, newMeasurementForDb);
@@ -494,7 +495,7 @@ export async function addMeasurementAction(
                     status: 'completed',
                     completedAt: new Date().toISOString(),
                     completedBy: creatorName,
-                    remarks: `Measurement recorded.`,
+                    remarks: `Measurement recorded. PDF: ${pdfUrl}`,
                     selection: 'Done'
                 };
                 batch.update(o2dProcessRef, {
