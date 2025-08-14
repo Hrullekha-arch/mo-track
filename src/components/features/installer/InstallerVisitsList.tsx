@@ -115,7 +115,9 @@ export function InstallerVisitsList({ installerId }: { installerId: string }) {
             const customerCache = new Map<string, Customer>();
             const dealCache = new Map<string, Deal>();
             
-            const visitsDataPromises = snapshot.docs.map(async (docSnap) => {
+            const visitsDataPromises = snapshot.docs
+              .filter(docSnap => docSnap.data().status !== 'completed') // Filter out completed visits
+              .map(async (docSnap) => {
                 const visit = docSnap.data() as DealVisit;
                 const pathParts = docSnap.ref.path.split('/');
                 const customerId = pathParts[1];
