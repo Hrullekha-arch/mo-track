@@ -14,7 +14,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, Search } from "lucide-react";
+import { ArrowUpDown, Search, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,7 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, collectionGroup, doc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DealVisit, Customer, Deal, User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -161,8 +161,10 @@ export default function AllVisitsPage() {
       accessorKey: "dealId",
       header: "Deal ID",
       cell: ({ row }) => (
-          <Button variant="link" className="p-0 h-auto" onClick={() => setSelectedVisit(row.original)}>
-            {row.original.dealId}
+          <Button variant="link" className="p-0 h-auto font-medium cursor-pointer">
+            <Link href={`/dashboard/customers/${row.original.customerId}/${row.original.dealDocId}`}>
+                {row.original.dealId}
+            </Link>
           </Button>
       )
     },
@@ -214,6 +216,14 @@ export default function AllVisitsPage() {
       header: "Created On",
       cell: ({ row }) => format(new Date(row.getValue("createdAt")), "dd/MM/yyyy"),
     },
+    {
+      id: "actions",
+      cell: ({ row }) => (
+        <Button variant="ghost" size="icon" onClick={() => setSelectedVisit(row.original)}>
+          <Eye className="h-4 w-4" />
+        </Button>
+      ),
+    },
   ];
 
   const table = useReactTable({
@@ -232,25 +242,25 @@ export default function AllVisitsPage() {
   });
 
   const renderMeasurementDetails = (visit: DealVisit) => (
-      <div className="space-y-2">
+      <div className="space-y-4">
           <div>
-              <h4 className="font-semibold">Measurements Selected:</h4>
-              <ul className="list-disc list-inside text-muted-foreground">
+              <h4 className="font-semibold text-sm">Measurements Selected:</h4>
+              <ul className="list-disc list-inside text-muted-foreground text-sm">
                   {(visit.measurements && visit.measurements.length > 0) ? visit.measurements.map(m => <li key={m}>{measurementItems.find(mi => mi.id === m)?.label || m}</li>) : <li>None</li>}
               </ul>
           </div>
           {visit.blinds && visit.blinds.length > 0 && (
               <div>
-                  <h4 className="font-semibold">Blind Types:</h4>
-                  <ul className="list-disc list-inside text-muted-foreground">
+                  <h4 className="font-semibold text-sm">Blind Types:</h4>
+                  <ul className="list-disc list-inside text-muted-foreground text-sm">
                       {visit.blinds.map(b => <li key={b}>{subMeasurementBlinds.find(s => s.id === b)?.label || b}</li>)}
                   </ul>
               </div>
           )}
           {visit.curtain && visit.curtain.length > 0 && (
               <div>
-                  <h4 className="font-semibold">Curtain Types:</h4>
-                  <ul className="list-disc list-inside text-muted-foreground">
+                  <h4 className="font-semibold text-sm">Curtain Types:</h4>
+                  <ul className="list-disc list-inside text-muted-foreground text-sm">
                       {visit.curtain.map(c => <li key={c}>{subMeasurementCurtain.find(s => s.id === c)?.label || c}</li>)}
                       {visit.otherCurtain && <li>Other: {visit.otherCurtain}</li>}
                   </ul>
@@ -260,10 +270,10 @@ export default function AllVisitsPage() {
   );
 
   const renderDeliveryDetails = (visit: DealVisit) => (
-      <div className="space-y-2">
+      <div className="space-y-4">
           <div>
-              <h4 className="font-semibold">Delivery/Installation Selected:</h4>
-              <ul className="list-disc list-inside text-muted-foreground">
+              <h4 className="font-semibold text-sm">Delivery/Installation Selected:</h4>
+              <ul className="list-disc list-inside text-muted-foreground text-sm">
                   {(visit.deliveryInstallations && visit.deliveryInstallations.length > 0) ? 
                       visit.deliveryInstallations.map(d => d && <li key={d.id}>{deliveryInstallationItems.find(di => di.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>) 
                       : <li>None</li>}
@@ -272,8 +282,8 @@ export default function AllVisitsPage() {
           </div>
           {visit.subDeliveryInstallations && visit.subDeliveryInstallations.length > 0 && (
               <div>
-                  <h4 className="font-semibold">Sub-Delivery/Installation:</h4>
-                  <ul className="list-disc list-inside text-muted-foreground">
+                  <h4 className="font-semibold text-sm">Sub-Delivery/Installation:</h4>
+                  <ul className="list-disc list-inside text-muted-foreground text-sm">
                       {visit.subDeliveryInstallations.map(d => d && <li key={d.id}>{subDeliveryInstallationItems.find(sdi => sdi.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>)}
                   </ul>
               </div>
@@ -389,7 +399,7 @@ export default function AllVisitsPage() {
                     <DialogHeader>
                         <DialogTitle>Visit Details for Deal #{selectedVisit.dealId}</DialogTitle>
                         <DialogDescription>
-                            {selectedVisit.customerName} - {selectedVisit.dealName}
+                           {selectedVisit.customerName} - {selectedVisit.dealName}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="py-4 space-y-4">
@@ -397,9 +407,9 @@ export default function AllVisitsPage() {
                             ? renderMeasurementDetails(selectedVisit)
                             : renderDeliveryDetails(selectedVisit)}
                     </div>
-                    <DialogFooter>
+                     <DialogFooter>
+                        <Button variant="ghost" onClick={() => setSelectedVisit(null)}>Close</Button>
                         <Button variant="secondary" onClick={() => setIsAssigning(true)}>Assign to Installer</Button>
-                        <Button variant="outline" onClick={() => setSelectedVisit(null)}>Close</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
