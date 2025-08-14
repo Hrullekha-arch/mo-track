@@ -1,0 +1,9 @@
+
+{
+    "name": "installer",
+    "main": "./MobileView.tsx",
+    "components": [
+        "./InstallerVisitsList.tsx",
+        "./CompletedVisitsList.tsx"
+    ]
+}
