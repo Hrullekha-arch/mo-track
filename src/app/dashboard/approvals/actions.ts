@@ -103,22 +103,22 @@ export async function approveOrderAndCreatePurchaseRequest(
             }
         }
         
-        // AUTOMATION: Mark "Advance receive for Order" as complete
+        // AUTOMATION: Mark "Balance Payment Follow Up" as complete (since order is approved)
         if (orderData.dealId) {
             const o2dSnapshot = await o2dQuery.get();
             
             if (!o2dSnapshot.empty) {
                 const o2dDoc = o2dSnapshot.docs[0];
                 const o2dRef = o2dDoc.ref;
-                const advanceMilestone: O2DStatus = {
-                    stepId: 6, // 'Advance receive for Order'
+                const balancePaymentMilestone: O2DStatus = {
+                    stepId: 6, // 'Balance Payment Follow Up'
                     status: 'completed',
                     completedAt: new Date().toISOString(),
                     completedBy: approver.name,
-                    remarks: "Advance confirmed during order approval.",
+                    remarks: "Payment confirmed during order approval.",
                     selection: "Done"
                 };
-                batch.update(o2dRef, { milestones: FieldValue.arrayUnion(advanceMilestone) });
+                batch.update(o2dRef, { milestones: FieldValue.arrayUnion(balancePaymentMilestone) });
             }
         }
         
@@ -159,8 +159,8 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
             if (!o2dSnapshot.empty) {
                 const o2dDoc = o2dSnapshot.docs[0];
                 const o2dRef = o2dDoc.ref;
-                const advanceConfirmationStep: O2DStatus = {
-                    stepId: 6, // 'Advance receive for Order'
+                const paymentConfirmationStep: O2DStatus = {
+                    stepId: 7, // 'Payment Received Conf'
                     status: 'completed',
                     completedAt: new Date().toISOString(),
                     completedBy: approver.name,
@@ -168,7 +168,7 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
                     selection: 'Done'
                 };
                 batch.update(o2dRef, {
-                    milestones: FieldValue.arrayUnion(advanceConfirmationStep)
+                    milestones: FieldValue.arrayUnion(paymentConfirmationStep)
                 });
             }
         }
