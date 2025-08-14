@@ -6,10 +6,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw } from "lucide-react";
-import { Order, Milestone } from "@/lib/types";
+import { Order, Milestone, DealVisit } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, where, doc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, updateDoc, writeBatch, getDocs, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -176,7 +176,9 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
         }
         setIsUpdating(true);
         try {
+            const batch = writeBatch(db);
             const orderRef = doc(db, "orders", order.id);
+
             const updatedMilestones = order.milestones.map(m =>
                 m.id === milestoneToUpdate.id ? { 
                     ...m, 
@@ -186,7 +188,43 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
                     location: location
                 } : m
             );
-            await updateDoc(orderRef, { milestones: updatedMilestones });
+            batch.update(orderRef, { milestones: updatedMilestones });
+
+            // If this is the final installation milestone, also update the related visit.
+            if (milestoneToUpdate.id === 8 && order.customerId && order.dealId) {
+                // Find the associated Deal Document ID
+                const dealQuery = query(collection(db, 'customers', order.customerId, 'deals'), where('dealId', '==', order.dealId), limit(1));
+                const dealSnapshot = await getDocs(dealQuery);
+
+                if (!dealSnapshot.empty) {
+                    const dealDocId = dealSnapshot.docs[0].id;
+
+                    // Query for the specific visit linked to this order
+                    const visitQuery = query(collection(db, 'customers', order.customerId, 'deals', dealDocId, 'visits'), where('orderId', '==', order.id), limit(1));
+                    const visitSnapshot = await getDocs(visitQuery);
+                    
+                    if (!visitSnapshot.empty) {
+                        const visitRef = visitSnapshot.docs[0].ref;
+                        batch.update(visitRef, { status: 'completed' });
+                    }
+                    
+                    // Also update the final O2D step
+                    const o2dDocRef = doc(db, 'o2d', dealDocId);
+                    batch.update(o2dDocRef, {
+                        milestones: arrayUnion({
+                            stepId: 13, // Installation Done
+                            status: 'completed',
+                            completedAt: new Date().toISOString(),
+                            completedBy: user.name,
+                            selection: "Done",
+                            remarks: "Completed via mobile app"
+                        })
+                    });
+                }
+            }
+            
+            await batch.commit();
+
             toast({ title: `Order updated: ${milestoneToUpdate.name}` });
         } catch (error) {
             console.error(error);
@@ -315,7 +353,7 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
                                 <Label>Rating</Label>
                                 <div className="flex items-center gap-1">
                                     {[1,2,3,4,5].map(star => (
-                                        <button key={star} onClick={() => setRating(star)}>
+                                        <button key={star} type="button" onClick={() => setRating(star)}>
                                             <Star className={cn("h-8 w-8", rating >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
                                         </button>
                                     ))}
@@ -394,7 +432,7 @@ export function InstallerOrderCard({ order, location, locationError }: Installer
                                         <Star key={star} className={cn("h-5 w-5", order.feedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
                                     ))}
                                 </div>
-                                {order.feedbackRemarks && <p className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">"{order.feedbackRemarks}"</p>}
+                                {order.feedbackRemarks && <p className="text-xs text-muted-foreground mt-1 p-1.5 border rounded-md bg-muted/50">"{order.feedbackRemarks}"</p>}
                            </>
                         )}
                     </div>
