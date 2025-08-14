@@ -8,9 +8,10 @@ import { DealVisit, Customer, Deal } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, User, Clock, MapPin, GanttChartSquare, Phone, ArrowRight, MoreVertical, CheckCheck } from "lucide-react";
+import { Calendar, User, Clock, MapPin, GanttChartSquare, Phone, ArrowRight, MoreVertical, CheckCheck, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 interface EnrichedInstallerVisit extends DealVisit {
     customer: Customer | null;
@@ -108,6 +109,16 @@ export function CompletedVisitsList({ installerId }: { installerId: string }) {
                             <p className="flex items-center gap-2 font-semibold"><Calendar className="h-4 w-4 text-muted-foreground" /> <span>{format(new Date(visit.dueDate), 'PPP p')}</span></p>
                             <p className="text-sm text-green-600 font-medium">Completed on: {format(new Date(visit.createdAt), 'PPP p')}</p>
                         </CardContent>
+                        {visit.typeOfVisit === 'measurement' && visit.measurementPdfUrl && (
+                            <CardFooter>
+                                <Button asChild variant="secondary" className="w-full">
+                                    <Link href={visit.measurementPdfUrl} target="_blank" rel="noopener noreferrer">
+                                        <Eye className="mr-2 h-4 w-4" />
+                                        View Measurement
+                                    </Link>
+                                </Button>
+                            </CardFooter>
+                        )}
                     </Card>
                 ))
             ) : (
