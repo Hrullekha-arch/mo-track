@@ -92,6 +92,7 @@ const visitSchema = z.object({
     deliveryInstallations: z.array(deliveryInstallationItemSchema.nullable()).optional(),
     subDeliveryInstallations: z.array(deliveryInstallationItemSchema.nullable()).optional(),
     otherDelivery: z.string().optional(),
+    orderId: z.string().optional(),
 });
 
 
@@ -860,7 +861,7 @@ function DimensionFields({ roomIndex, itemIndex, dimensionIndex, onRemoveDimensi
   )
 }
 
-function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void, visits: DealVisit[] }) {
+function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void, visits: DealVisit[], orders: DealOrder[] }) {
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('measurement');
     const { toast } = useToast();
@@ -881,6 +882,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
             deliveryInstallations: [],
             subDeliveryInstallations: [],
             otherDelivery: '',
+            orderId: '',
         }
     });
 
@@ -921,6 +923,30 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits }: { sal
     
     const DeliveryVisitTabContent = (
         <div className="space-y-6">
+            <FormField
+                control={form.control}
+                name="orderId"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Select Order Number</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select an order to associate with this visit" />
+                                </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                {orders.map(order => (
+                                    <SelectItem key={order.id} value={order.orderNo}>
+                                        {order.orderNo}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Delivery/Installation Column */}
                 <div className="space-y-3">
@@ -1979,7 +2005,7 @@ function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string 
     )
 }
 
-function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded }: { customerId: string, dealId: string, salesmen: User[], visits: DealVisit[], onVisitAdded: (visit: DealVisit) => void }) {
+function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders }: { customerId: string, dealId: string, salesmen: User[], visits: DealVisit[], onVisitAdded: (visit: DealVisit) => void, orders: DealOrder[] }) {
     const [loading, setLoading] = useState(false);
     const [selectedVisit, setSelectedVisit] = useState<DealVisit | null>(null);
 
@@ -2036,7 +2062,7 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded }: { cus
 
     return (
         <div>
-            <VisitForm salesmen={salesmen} customerId={customerId} dealId={dealId} onVisitAdded={onVisitAdded} visits={visits} />
+            <VisitForm salesmen={salesmen} customerId={customerId} dealId={dealId} onVisitAdded={onVisitAdded} visits={visits} orders={orders} />
             <Card className="mt-6">
                 <CardHeader>
                     <CardTitle>Visit History</CardTitle>
@@ -2382,7 +2408,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsList>
           
           <TabsContent value="visits">
-            <VisitsTab customerId={customerId} dealId={dealId} salesmen={salesmen} visits={visits} onVisitAdded={fetchVisits} />
+            <VisitsTab customerId={customerId} dealId={dealId} salesmen={salesmen} visits={visits} onVisitAdded={fetchVisits} orders={orders} />
           </TabsContent>
           
           <TabsContent value="measurement">

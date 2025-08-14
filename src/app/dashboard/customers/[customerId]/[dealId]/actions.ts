@@ -3,7 +3,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { VisitFormValues } from './page';
 import { getMilestonesForOrder } from '@/lib/constants';
@@ -365,10 +365,12 @@ export async function getOrdersForDeal(customerId: string, dealId: string): Prom
 export async function addVisitAction(
   customerId: string,
   dealId: string,
-  visitData: Omit<VisitFormValues, 'date'> & { dueDate: Date, typeOfVisit: string },
+  visitData: Omit<VisitFormValues, 'date'> & { dueDate: Date, typeOfVisit: string, orderId?: string },
   creatorName: string
 ): Promise<{ success: boolean; message: string; visit?: DealVisit }> {
     try {
+        const batch = adminDb.batch();
+
         const customerRef = adminDb.collection('customers').doc(customerId);
         const customerSnap = await customerRef.get();
         if (!customerSnap.exists) {
@@ -398,12 +400,43 @@ export async function addVisitAction(
             subDeliveryInstallations: visitData.subDeliveryInstallations,
             otherDelivery: visitData.otherDelivery,
             dealId: dealData.dealId,
-            status: 'pending'
+            status: 'pending',
+            orderId: visitData.orderId
         };
 
-        await newVisitRef.set(newVisit);
+        batch.set(newVisitRef, newVisit);
         
         const savedVisit: DealVisit = { id: newVisitRef.id, ...newVisit };
+
+        // If it's a delivery visit with an order ID, update the O2D process
+        if (visitData.typeOfVisit === 'delivery' && visitData.orderId) {
+             const o2dQuery = adminDb.collection('o2d').where('dealId', '==', dealData.dealId).limit(1);
+             const o2dSnapshot = await o2dQuery.get();
+
+             if (!o2dSnapshot.empty) {
+                 const o2dDocRef = o2dSnapshot.docs[0].ref;
+                 const o2dDoc = await o2dDocRef.get();
+                 const o2dData = o2dDoc.data() as O2DProcess;
+                 const scheduleStepId = 12; // Installation/Delivery Schedule
+                 
+                 const milestoneExists = o2dData.milestones.some(m => m.stepId === scheduleStepId);
+
+                 if (!milestoneExists) {
+                     const scheduleMilestone: O2DStatus = {
+                        stepId: scheduleStepId,
+                        status: 'completed',
+                        completedAt: new Date().toISOString(),
+                        completedBy: creatorName,
+                        remarks: `Delivery visit created for order ${visitData.orderId}`,
+                        selection: 'Done'
+                    };
+                    batch.update(o2dDocRef, {
+                        milestones: FieldValue.arrayUnion(scheduleMilestone)
+                    });
+                 }
+             }
+        }
+
 
         // Automatically send SMS
         const visitDate = new Date(savedVisit.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -415,10 +448,11 @@ export async function addVisitAction(
             await sendVisitSms(customerData.mobileNo, smsMessage);
         } catch (smsError) {
             console.error("Failed to send SMS, but visit was created:", smsError);
-            // We don't fail the whole operation if SMS fails, but we can return a partial success message.
+            await batch.commit(); // Commit the DB changes even if SMS fails
             return { success: true, message: "Visit added, but failed to send SMS notification.", visit: JSON.parse(JSON.stringify(savedVisit)) };
         }
-
+        
+        await batch.commit();
 
         return { success: true, message: "Visit added and SMS sent successfully.", visit: JSON.parse(JSON.stringify(savedVisit)) };
     } catch (error: any) {
