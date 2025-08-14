@@ -151,7 +151,7 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
         }
         const orderData = orderDoc.data() as Order;
 
-        // 2. Now, find the associated O2D process and mark step 7 as complete.
+        // 2. Now, find the associated O2D process and mark step 11 as complete.
         if (orderData.dealId) {
             const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
             const o2dSnapshot = await o2dQuery.get();
@@ -160,7 +160,7 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
                 const o2dDoc = o2dSnapshot.docs[0];
                 const o2dRef = o2dDoc.ref;
                 const paymentConfirmationStep: O2DStatus = {
-                    stepId: 7, // 'Payment Received Conf'
+                    stepId: 11, // 'Payment Received Conf'
                     status: 'completed',
                     completedAt: new Date().toISOString(),
                     completedBy: approver.name,
