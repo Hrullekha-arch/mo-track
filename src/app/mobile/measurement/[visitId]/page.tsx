@@ -315,10 +315,12 @@ export default function MeasurementPage() {
     const onSubmit = async () => {
         if (!user || !customerId || !dealId) {
             toast({ variant: 'destructive', title: 'Error', description: 'Missing critical information.' });
+            setIsSubmitting(false); // Ensure reset
             return;
         }
+    
         setIsSubmitting(true);
-        
+    
         try {
             const pdfUrl = await generateAndUploadPdf();
             
@@ -330,15 +332,13 @@ export default function MeasurementPage() {
                     const pictures = entry.pictures;
                     if (pictures && pictures.length > 0) {
                         const filesToUpload = Array.from(pictures as File[]);
-                        pictureUrls = await Promise.all(
-                            filesToUpload.map(file => handleFileUpload(file))
-                        );
+                        pictureUrls = await Promise.all(filesToUpload.map(file => handleFileUpload(file)));
                     }
-
+    
                     const cleanedEntry: Partial<MeasurementEntry> = { ...entry };
                     delete cleanedEntry.recordAudio;
                     delete cleanedEntry.pictures;
-
+    
                     return { 
                         ...cleanedEntry, 
                         audioUrl, 
@@ -346,7 +346,7 @@ export default function MeasurementPage() {
                     };
                 })
             );
-
+    
             const measurementData: Omit<DealMeasurement, 'id' | 'createdAt' | 'createdBy'> = {
                 typeOf: watchedFormValues.typeOf,
                 doerName: watchedFormValues.doerName,
@@ -354,7 +354,7 @@ export default function MeasurementPage() {
             };
             
             const result = await addMeasurementAction(customerId, dealId, visitId, measurementData as DealMeasurement, user.name, pdfUrl);
-
+    
             if (result.success) {
                 toast({ title: 'Success', description: 'Measurement saved successfully.' });
                 router.push('/mobile');
@@ -365,7 +365,7 @@ export default function MeasurementPage() {
             console.error("Error submitting measurement:", error);
             toast({ variant: 'destructive', title: 'Error', description: `An unexpected error occurred: ${error.message}` });
         } finally {
-            setIsSubmitting(false);
+            setIsSubmitting(false); // Always reset spinner
         }
     };
     
@@ -394,7 +394,7 @@ export default function MeasurementPage() {
     }
     
     if (view === 'preview') {
-        return <MeasurementPreview values={watchedFormValues} customer={customer} deal={deal} onBack={() => setView('form')} onSubmit={onSubmit} loading={isSubmitting} />
+        return <MeasurementPreview values={watchedFormValues} customer={customer} deal={deal} onBack={() => setView('form')} onSubmit={() => form.handleSubmit(onSubmit)()} loading={isSubmitting} />
     }
 
     return (
