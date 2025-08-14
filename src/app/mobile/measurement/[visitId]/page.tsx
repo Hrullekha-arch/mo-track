@@ -1,8 +1,9 @@
 
+
 "use client";
 
 import * as React from 'react';
-import { useForm, useFieldArray, FormProvider } from "react-hook-form";
+import { useForm, useFieldArray, FormProvider, useFormContext, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -58,8 +59,8 @@ const MEASUREMENT_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measur
 const DOER_OPTIONS = ["TU", "OP", "NC", "VN", "MU"];
 
 const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index: number) => void }) => {
-    const { control, watch } = useForm<MeasurementFormValues>();
-    const typeOf = watch("typeOf");
+    const { control } = useFormContext<MeasurementFormValues>();
+    const typeOf = useWatch({ control, name: "typeOf" });
 
     return (
         <Card className="relative">
@@ -111,7 +112,7 @@ export default function MeasurementPage() {
     const form = useForm<MeasurementFormValues>({
         resolver: zodResolver(measurementSchema),
         defaultValues: {
-            typeOf: "",
+            typeOf: "Curtains",
             doerName: "",
             entries: [{}]
         }
