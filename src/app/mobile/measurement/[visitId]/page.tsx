@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from 'react';
@@ -177,7 +176,7 @@ const MeasurementPreview = ({
                     <CardDescription>Please review the details before confirming.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                    <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                         <p><strong>Customer:</strong> {customer.name}</p>
                         <p><strong>Deal ID:</strong> {deal.dealId}</p>
                         <p><strong>Measurement Type:</strong> {values.typeOf}</p>
@@ -197,7 +196,7 @@ const MeasurementPreview = ({
                                     <p><strong>Niwar:</strong> {entry.niwar ? `${entry.niwar} MTR` : 'N/A'}</p>
                                 </div>
                             ) : (
-                                 <div className="grid grid-cols-2 gap-2 text-sm">
+                                 <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                                     <p><strong>Room:</strong> {entry.roomName || 'N/A'}</p>
                                     <p><strong>No. of Pannel:</strong> {entry.noOfPannel || 'N/A'}</p>
                                     <p><strong>Height:</strong> {entry.height || 'N/A'}</p>
