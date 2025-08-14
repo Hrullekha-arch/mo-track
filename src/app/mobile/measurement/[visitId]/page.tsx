@@ -35,14 +35,6 @@ const measurementEntrySchema = z.object({
     remark: z.string().optional(),
     recordAudio: z.any().optional(),
     audioUrl: z.string().optional(),
-    noOfSheet: z.string().optional(),
-    fabricQty1: z.string().optional(),
-    fabricQty2: z.string().optional(),
-    marking: z.string().optional(),
-    casement: z.string().optional(),
-    niwar: z.string().optional(),
-    picture: z.any().optional(),
-    pictureUrl: z.string().optional(),
 });
 
 
@@ -54,8 +46,7 @@ const measurementSchema = z.object({
 
 export type MeasurementFormValues = z.infer<typeof measurementSchema>;
 
-const CURTAIN_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
-const OTHER_MEASUREMENT_TYPES = ["Blind", "Rod", "Channel"];
+const MEASUREMENT_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
 const DOER_OPTIONS = [
     { value: "TU", label: "TU" },
     { value: "OP", label: "OP" },
@@ -69,7 +60,7 @@ export default function MeasurementPage() {
     const params = useParams();
     const searchParams = useSearchParams();
     const router = useRouter();
-    const { user, role } = useAuth();
+    const { user } = useAuth();
     const { toast } = useToast();
 
     const visitId = params.visitId as string;
@@ -78,7 +69,6 @@ export default function MeasurementPage() {
 
     const [customer, setCustomer] = React.useState<Customer | null>(null);
     const [deal, setDeal] = React.useState<Deal | null>(null);
-    const [salesmen, setSalesmen] = React.useState<User[]>([]);
     const [loading, setLoading] = React.useState(true);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
 
@@ -86,7 +76,7 @@ export default function MeasurementPage() {
         resolver: zodResolver(measurementSchema),
         defaultValues: {
             typeOf: "",
-            doerName: user?.id || "",
+            doerName: "",
             entries: [{}]
         }
     });
@@ -96,8 +86,6 @@ export default function MeasurementPage() {
         name: "entries"
     });
     
-    const typeOf = form.watch("typeOf");
-
     React.useEffect(() => {
         if (!customerId || !dealId) {
             toast({ variant: 'destructive', title: 'Error', description: 'Missing customer or deal ID.' });
@@ -108,14 +96,12 @@ export default function MeasurementPage() {
         const fetchData = async () => {
             setLoading(true);
             try {
-                const [customerData, dealData, salesmenData] = await Promise.all([
+                const [customerData, dealData] = await Promise.all([
                     getCustomerById(customerId),
                     getDealById(customerId, dealId),
-                    getSalesmen()
                 ]);
                 setCustomer(customerData);
                 setDeal(dealData);
-                setSalesmen(salesmenData);
             } catch (error) {
                 console.error("Failed to fetch data:", error);
                 toast({ variant: "destructive", title: "Error", description: "Could not load required data." });
@@ -145,16 +131,13 @@ export default function MeasurementPage() {
             const processedEntries = await Promise.all(data.entries.map(async (entry) => {
                 const imageUrl = entry.image?.[0] ? await handleFileUpload(entry.image[0]) : undefined;
                 const audioUrl = entry.recordAudio?.[0] ? await handleFileUpload(entry.recordAudio[0]) : undefined;
-                const pictureUrl = entry.picture?.[0] ? await handleFileUpload(entry.picture[0]) : undefined;
 
                 return {
                     ...entry,
                     image: undefined,
                     recordAudio: undefined,
-                    picture: undefined,
                     imageUrl,
                     audioUrl,
-                    pictureUrl,
                 };
             }));
 
@@ -189,14 +172,6 @@ export default function MeasurementPage() {
         );
     }
 
-    const doerOptions = CURTAIN_TYPES.includes(typeOf)
-        ? salesmen
-        : DOER_OPTIONS.map(opt => ({ id: opt.value, name: opt.label }));
-        
-    const isCurtainTypeSelected = CURTAIN_TYPES.includes(typeOf);
-    const isOtherTypeSelected = OTHER_MEASUREMENT_TYPES.includes(typeOf);
-
-
     return (
         <div className="min-h-screen bg-gray-50 p-4">
             <header className="flex items-center gap-2 mb-4">
@@ -228,7 +203,7 @@ export default function MeasurementPage() {
                                                 <SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                                {[...CURTAIN_TYPES, ...OTHER_MEASUREMENT_TYPES].map(opt => (
+                                                {MEASUREMENT_TYPES.map(opt => (
                                                     <SelectItem key={opt} value={opt}>{opt}</SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -248,8 +223,8 @@ export default function MeasurementPage() {
                                                 <SelectTrigger><SelectValue placeholder="Select Doer" /></SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                                {doerOptions.map(d => (
-                                                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                                                {DOER_OPTIONS.map(d => (
+                                                    <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
@@ -269,30 +244,15 @@ export default function MeasurementPage() {
                                 <div key={field.id} className="p-3 border rounded-lg space-y-3 bg-white relative">
                                     <Button type="button" variant="destructive" size="icon" className="absolute -top-3 -right-3 h-7 w-7" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button>
                                     
-                                    {isCurtainTypeSelected && (
-                                        <div className="space-y-3">
-                                            <FormField control={form.control} name={`entries.${index}.roomName`} render={({ field }) => (<FormItem><FormLabel>Room Name</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.height`} render={({ field }) => (<FormItem><FormLabel>Height</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.width`} render={({ field }) => (<FormItem><FormLabel>Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.image`} render={({ field }) => (<FormItem><FormLabel>Image</FormLabel><FormControl><Input type="file" accept="image/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.recordAudio`} render={({ field }) => (<FormItem><FormLabel>Record Audio</FormLabel><FormControl><Input type="file" accept="audio/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
-                                        </div>
-                                    )}
-
-                                    {isOtherTypeSelected && (
-                                        <div className="space-y-3">
-                                            <FormField control={form.control} name={`entries.${index}.noOfSheet`} render={({ field }) => (<FormItem><FormLabel>No Of Sheet</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.fabricQty1`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 1</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.fabricQty2`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 2</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.marking`} render={({ field }) => (<FormItem><FormLabel>Marking (MTR)</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.casement`} render={({ field }) => (<FormItem><FormLabel>Casement(MTR)</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.niwar`} render={({ field }) => (<FormItem><FormLabel>Niwar (MTR)</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.picture`} render={({ field }) => (<FormItem><FormLabel>Picture</FormLabel><FormDescription>Upto five pic</FormDescription><FormControl><Input type="file" accept="image/*" multiple onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
-                                            <FormField control={form.control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
-                                        </div>
-                                    )}
+                                    <div className="space-y-3">
+                                        <FormField control={form.control} name={`entries.${index}.roomName`} render={({ field }) => (<FormItem><FormLabel>Room Name</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                        <FormField control={form.control} name={`entries.${index}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                        <FormField control={form.control} name={`entries.${index}.height`} render={({ field }) => (<FormItem><FormLabel>Height</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                        <FormField control={form.control} name={`entries.${index}.width`} render={({ field }) => (<FormItem><FormLabel>Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                        <FormField control={form.control} name={`entries.${index}.image`} render={({ field }) => (<FormItem><FormLabel>Image</FormLabel><FormControl><Input type="file" accept="image/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
+                                        <FormField control={form.control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
+                                        <FormField control={form.control} name={`entries.${index}.recordAudio`} render={({ field }) => (<FormItem><FormLabel>Record Audio</FormLabel><FormControl><Input type="file" accept="audio/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
+                                    </div>
                                 </div>
                             ))}
                             <Button type="button" variant="outline" onClick={() => append({})}><PlusCircle className="mr-2 h-4 w-4"/>Add</Button>
