@@ -3,12 +3,13 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { VisitFormValues } from './page';
-import { MeasurementFormValues } from '@/app/mobile/measurement/[visitId]/page';
 import { getMilestonesForOrder } from '@/lib/constants';
 import { FieldValue } from 'firebase-admin/firestore';
+import { google } from 'googleapis';
+import stream from 'stream';
 
 // This function sends an SMS using the Fast2SMS API.
 async function sendVisitSms(customerPhone: string, message: string) {
@@ -39,6 +40,58 @@ async function sendVisitSms(customerPhone: string, message: string) {
     }
 
     return { success: true, ...responseData };
+}
+
+async function getGoogleDriveClient() {
+    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    if (!serviceAccountKey) {
+        throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set.');
+    }
+    const credentials = JSON.parse(serviceAccountKey);
+
+    const auth = new google.auth.GoogleAuth({
+        credentials,
+        scopes: ['https://www.googleapis.com/auth/drive'],
+    });
+
+    const authClient = await auth.getClient();
+    return google.drive({ version: 'v3', auth: authClient });
+}
+
+export async function uploadFileToDriveAction(fileName: string, fileType: string, fileDataB64: string): Promise<string> {
+    const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+    if (!folderId) {
+        throw new Error("Google Drive folder ID is not configured.");
+    }
+    
+    try {
+        const drive = await getGoogleDriveClient();
+        const fileBuffer = Buffer.from(fileDataB64, 'base64');
+        const bufferStream = new stream.PassThrough();
+        bufferStream.end(fileBuffer);
+
+        const { data } = await drive.files.create({
+            media: {
+                mimeType: fileType,
+                body: bufferStream,
+            },
+            requestBody: {
+                name: fileName,
+                parents: [folderId],
+            },
+            fields: 'id, webViewLink',
+        });
+        
+        if (!data.webViewLink) {
+            throw new Error("File uploaded, but no viewable link was returned.");
+        }
+
+        return data.webViewLink;
+
+    } catch (error: any) {
+        console.error("Google Drive API Error:", error.response?.data?.error || error.message);
+        throw new Error("Failed to upload file to Google Drive. Check service account permissions for the Drive folder.");
+    }
 }
 
 
@@ -387,10 +440,12 @@ export async function getVisitsForDeal(customerId: string, dealId: string): Prom
 }
 
 export async function addMeasurementAction(
-    customerId: string,
-    dealId: string,
-    measurementData: DealMeasurement,
-    creatorName: string
+  customerId: string,
+  dealId: string,
+  visitId: string,
+  measurementData: Omit<DealMeasurement, 'id' | 'createdAt' | 'createdBy'>,
+  creatorName: string,
+  pdfUrl: string
 ): Promise<{ success: boolean; message: string; measurement?: DealMeasurement }> {
     try {
         const batch = adminDb.batch();
@@ -406,6 +461,13 @@ export async function addMeasurementAction(
         };
         
         batch.set(newMeasurementRef, newMeasurementForDb);
+
+        // Update the visit document with status and PDF URL
+        const visitRef = dealRef.collection('visits').doc(visitId);
+        batch.update(visitRef, {
+            status: 'completed',
+            measurementPdfUrl: pdfUrl,
+        });
 
         // Update the O2D process if it's the first measurement for this deal
         const o2dProcessRef = adminDb.collection('o2d').doc(dealId);

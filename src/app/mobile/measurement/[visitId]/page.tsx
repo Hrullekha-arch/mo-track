@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from 'react';
@@ -10,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/context/AuthContext';
 import { Customer, Deal, DealMeasurement, User, MeasurementEntry } from '@/lib/types';
 import { getCustomerById } from '@/app/dashboard/customers/actions';
-import { getDealById, addMeasurementAction } from '@/app/dashboard/customers/[customerId]/[dealId]/actions';
+import { getDealById, addMeasurementAction, uploadFileToDriveAction } from '@/app/dashboard/customers/[customerId]/[dealId]/actions';
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -20,7 +21,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2, ArrowLeft, PlusCircle, Trash2, Eye, StepBack } from "lucide-react";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Image from 'next/image';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -215,7 +215,7 @@ const MeasurementPreview = ({
                     {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Confirm & Save
                 </Button>
-            </CardFooter>
+             </CardFooter>
         </Card>
     )
 }
@@ -278,13 +278,19 @@ export default function MeasurementPage() {
         };
         fetchData();
     }, [customerId, dealId, toast, router]);
+    
+    const fileToB64 = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve((reader.result as string).split(',')[1]);
+            reader.onerror = error => reject(error);
+        });
+    }
 
     const handleFileUpload = async (file: File): Promise<string> => {
-        const storage = getStorage();
-        const storageRef = ref(storage, `measurements/${dealId}/${Date.now()}_${file.name}`);
-        await uploadBytes(storageRef, file);
-        const downloadURL = await getDownloadURL(storageRef);
-        return downloadURL;
+        const b64Data = await fileToB64(file);
+        return await uploadFileToDriveAction(file.name, file.type, b64Data);
     };
     
     const generateAndUploadPdf = async () => {
@@ -304,36 +310,31 @@ export default function MeasurementPage() {
     
         pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
         const pdfBlob = await pdf.output('blob');
-        
-        const storage = getStorage();
-        const pdfRef = ref(storage, `measurements/${dealId}/${visitId}.pdf`);
-        await uploadBytes(pdfRef, pdfBlob);
-        return await getDownloadURL(pdfRef);
+        const pdfFile = new File([pdfBlob], `${visitId}.pdf`, { type: 'application/pdf' });
+
+        return await handleFileUpload(pdfFile);
     };
 
     const onSubmit = async () => {
         if (!user || !customerId || !dealId) {
             toast({ variant: 'destructive', title: 'Error', description: 'Missing critical information.' });
-            setIsSubmitting(false);
+            setIsSubmitting(false); // Ensure reset
             return;
         }
     
         setIsSubmitting(true);
     
         try {
-            console.log("Starting PDF generation and upload...");
             const pdfUrl = await generateAndUploadPdf();
-            console.log("PDF uploaded, URL:", pdfUrl);
             
             const processedEntries = await Promise.all(
                 watchedFormValues.entries.map(async (entry) => {
                     const audioUrl = entry.recordAudio ? await handleFileUpload(entry.recordAudio) : undefined;
                     
                     let pictureUrls: string[] = [];
-                    const pictures = entry.pictures;
+                    const pictures = Array.isArray(entry.pictures) ? entry.pictures : Array.from(entry.pictures || []);
                     if (pictures && pictures.length > 0) {
-                        const filesToUpload = Array.isArray(pictures) ? pictures : Array.from(pictures as FileList);
-                        pictureUrls = await Promise.all(filesToUpload.map(file => handleFileUpload(file)));
+                        pictureUrls = await Promise.all(pictures.map(file => handleFileUpload(file)));
                     }
     
                     const cleanedEntry: Partial<MeasurementEntry> = { ...entry };
@@ -363,16 +364,15 @@ export default function MeasurementPage() {
                 toast({ variant: 'destructive', title: 'Error', description: result.message });
             }
         } catch (error: any) {
-            console.error("Error during submission process:", error);
-            const errorMessage = error.code ? `Firebase Storage Error: ${error.code}. Ensure CORS is configured correctly.` : `An unexpected error occurred: ${error.message}`;
+            console.error("Error submitting measurement:", error);
             toast({ 
                 variant: 'destructive', 
                 title: 'Submission Failed', 
-                description: errorMessage,
+                description: `An unexpected error occurred: ${error.message}`,
                 duration: 9000
             });
         } finally {
-            setIsSubmitting(false);
+            setIsSubmitting(false); // Always reset spinner
         }
     };
     
