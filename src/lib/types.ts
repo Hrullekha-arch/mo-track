@@ -343,6 +343,8 @@ export interface DealVisit {
     deliveryInstallations?: DeliveryInstallationItem[];
     subDeliveryInstallations?: DeliveryInstallationItem[];
     otherDelivery?: string;
+    status?: 'pending' | 'completed';
+    measurementPdfUrl?: string;
 }
 
 export interface MeasurementEntry {

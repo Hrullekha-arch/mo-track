@@ -20,13 +20,13 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2, ArrowLeft, PlusCircle, Trash2 } from "lucide-react";
+import { Loader2, ArrowLeft, PlusCircle, Trash2, Eye, StepBack } from "lucide-react";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Image from 'next/image';
-
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 const measurementEntrySchema = z.object({
-    // Curtain/Wallpaper fields
     roomName: z.string().optional(),
     noOfPannel: z.string().optional(),
     height: z.string().optional(),
@@ -34,20 +34,15 @@ const measurementEntrySchema = z.object({
     remark: z.string().optional(),
     recordAudio: z.any().optional(),
     audioUrl: z.string().optional(),
-
-    // Sofa Measurement fields
     noOfSheet: z.string().optional(),
     fabricQty1: z.string().optional(),
     fabricQty2: z.string().optional(),
     marking: z.string().optional(),
     casement: z.string().optional(),
     niwar: z.string().optional(),
-
-    // Shared image fields
-    pictures: z.any().optional(), // Holds the FileList object
+    pictures: z.any().optional(), 
     pictureUrls: z.array(z.string()).optional(),
 });
-
 
 const measurementSchema = z.object({
     typeOf: z.string().min(1, "Type is required"),
@@ -65,7 +60,6 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
     const typeOf = useWatch({ control, name: "typeOf" });
     const { toast } = useToast();
     
-    // This state now holds the object URLs for previewing
     const [imagePreviews, setImagePreviews] = React.useState<string[]>([]);
 
     const handlePictureChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,9 +79,7 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
             
             setValue(`entries.${index}.pictures`, combinedFiles, { shouldValidate: true });
             
-            // Generate and set new preview URLs
             const newPreviewUrls = combinedFiles.map(file => URL.createObjectURL(file));
-            // Clean up old URLs before setting new ones to prevent memory leaks
             imagePreviews.forEach(URL.revokeObjectURL);
             setImagePreviews(newPreviewUrls);
         }
@@ -98,14 +90,12 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
         const updatedFiles = currentFiles.filter((_, i) => i !== imageIndex);
         setValue(`entries.${index}.pictures`, updatedFiles, { shouldValidate: true });
         
-        // Generate and set new preview URLs
         const newPreviewUrls = updatedFiles.map(file => URL.createObjectURL(file));
         imagePreviews.forEach(URL.revokeObjectURL);
         setImagePreviews(newPreviewUrls);
     }
     
     React.useEffect(() => {
-        // Clean up object URLs when the component unmounts
         return () => {
             imagePreviews.forEach(URL.revokeObjectURL);
         };
@@ -133,7 +123,6 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                     </div>
                 )}
 
-                {/* Shared Fields for all types */}
                  <div className="space-y-3 mt-3">
                     <FormItem>
                         <FormLabel>Pictures (Upto 5)</FormLabel>
@@ -167,6 +156,73 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
     )
 }
 
+const MeasurementPreview = ({
+    values,
+    customer,
+    deal,
+    onBack,
+    onSubmit,
+    loading
+} : {
+    values: MeasurementFormValues,
+    customer: Customer,
+    deal: Deal,
+    onBack: () => void,
+    onSubmit: () => void,
+    loading: boolean
+}) => {
+    const previewRef = React.useRef<HTMLDivElement>(null);
+    return (
+        <Card>
+            <div ref={previewRef} className="p-6">
+                <CardHeader>
+                    <CardTitle>Measurement Preview</CardTitle>
+                    <CardDescription>Please review the details before confirming.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                        <p><strong>Customer:</strong> {customer.name}</p>
+                        <p><strong>Deal ID:</strong> {deal.dealId}</p>
+                        <p><strong>Measurement Type:</strong> {values.typeOf}</p>
+                        <p><strong>Doer Name:</strong> {values.doerName}</p>
+                    </div>
+
+                    {values.entries.map((entry, index) => (
+                        <div key={index} className="border-t pt-4">
+                            <h4 className="font-semibold mb-2">Entry #{index + 1}</h4>
+                            {values.typeOf === 'Sofa Measurement' ? (
+                                <div className="grid grid-cols-2 gap-2 text-sm">
+                                    <p><strong>No. of Sheet:</strong> {entry.noOfSheet}</p>
+                                    <p><strong>Fabric Qty 1:</strong> {entry.fabricQty1}</p>
+                                    <p><strong>Fabric Qty 2:</strong> {entry.fabricQty2}</p>
+                                    <p><strong>Marking:</strong> {entry.marking} MTR</p>
+                                    <p><strong>Casement:</strong> {entry.casement} MTR</p>
+                                    <p><strong>Niwar:</strong> {entry.niwar} MTR</p>
+                                </div>
+                            ) : (
+                                 <div className="grid grid-cols-2 gap-2 text-sm">
+                                    <p><strong>Room:</strong> {entry.roomName}</p>
+                                    <p><strong>No. of Pannel:</strong> {entry.noOfPannel}</p>
+                                    <p><strong>Height:</strong> {entry.height}</p>
+                                    <p><strong>Width:</strong> {entry.width}</p>
+                                </div>
+                            )}
+                             <p className="text-sm mt-2"><strong>Remarks:</strong> {entry.remark || 'N/A'}</p>
+                        </div>
+                    ))}
+                </CardContent>
+            </div>
+             <CardFooter className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={onBack}><StepBack className="mr-2 h-4 w-4"/> Back to Edit</Button>
+                <Button onClick={onSubmit} disabled={loading}>
+                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Confirm & Save
+                </Button>
+            </CardFooter>
+        </Card>
+    )
+}
+
 export default function MeasurementPage() {
     const params = useParams();
     const searchParams = useSearchParams();
@@ -182,6 +238,7 @@ export default function MeasurementPage() {
     const [deal, setDeal] = React.useState<Deal | null>(null);
     const [loading, setLoading] = React.useState(true);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
+    const [view, setView] = React.useState<'form' | 'preview'>('form');
 
     const form = useForm<MeasurementFormValues>({
         resolver: zodResolver(measurementSchema),
@@ -191,6 +248,8 @@ export default function MeasurementPage() {
             entries: [{}]
         }
     });
+    
+    const watchedFormValues = form.watch();
 
     const { fields, append, remove } = useFieldArray({
         control: form.control,
@@ -230,8 +289,32 @@ export default function MeasurementPage() {
         const downloadURL = await getDownloadURL(storageRef);
         return downloadURL;
     };
+    
+    const generateAndUploadPdf = async () => {
+        const input = document.getElementById('measurement-preview-content');
+        if (!input) {
+            throw new Error("Preview content not found for PDF generation");
+        }
+    
+        const canvas = await html2canvas(input, { scale: 2 });
+        const imgData = canvas.toDataURL('image/png');
+    
+        const pdf = new jsPDF({
+            orientation: 'p',
+            unit: 'px',
+            format: [canvas.width, canvas.height]
+        });
+    
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        const pdfBlob = pdf.blob;
+        
+        const storage = getStorage();
+        const pdfRef = ref(storage, `measurements/${dealId}/${visitId}.pdf`);
+        await uploadBytes(pdfRef, pdfBlob);
+        return await getDownloadURL(pdfRef);
+    };
 
-    const onSubmit = async (data: MeasurementFormValues) => {
+    const onSubmit = async () => {
         if (!user || !customerId || !dealId) {
             toast({ variant: 'destructive', title: 'Error', description: 'Missing critical information.' });
             return;
@@ -239,7 +322,9 @@ export default function MeasurementPage() {
         setIsSubmitting(true);
         
         try {
-            const processedEntries = await Promise.all(data.entries.map(async (entry) => {
+            const pdfUrl = await generateAndUploadPdf();
+            
+            const processedEntries = await Promise.all(watchedFormValues.entries.map(async (entry) => {
                 const audioUrl = entry.recordAudio?.[0] ? await handleFileUpload(entry.recordAudio[0]) : undefined;
                 
                 let pictureUrls: string[] = [];
@@ -249,21 +334,12 @@ export default function MeasurementPage() {
                      );
                 }
 
-                return {
-                    ...entry,
-                    recordAudio: undefined,
-                    pictures: undefined,
-                    audioUrl,
-                    pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined,
-                };
+                return { ...entry, recordAudio: undefined, pictures: undefined, audioUrl, pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined, };
             }));
 
-            const measurementData = {
-                ...data,
-                entries: processedEntries
-            };
+            const measurementData = { ...watchedFormValues, entries: processedEntries };
             
-            const result = await addMeasurementAction(customerId, dealId, measurementData as DealMeasurement, user.name);
+            const result = await addMeasurementAction(customerId, dealId, visitId, measurementData as DealMeasurement, user.name, pdfUrl);
 
             if (result.success) {
                 toast({ title: 'Success', description: 'Measurement saved successfully.' });
@@ -278,6 +354,16 @@ export default function MeasurementPage() {
             setIsSubmitting(false);
         }
     };
+    
+    const handlePreview = () => {
+        form.trigger().then(isValid => {
+            if (isValid) {
+                setView('preview');
+            } else {
+                toast({ variant: 'destructive', title: 'Validation Error', description: 'Please fill in all required fields.' });
+            }
+        });
+    };
 
     if (loading) {
         return (
@@ -287,6 +373,14 @@ export default function MeasurementPage() {
                 <Skeleton className="h-64 w-full" />
             </div>
         );
+    }
+    
+    if (!customer || !deal) {
+        return <p>Error loading data.</p>
+    }
+    
+    if (view === 'preview') {
+        return <MeasurementPreview values={watchedFormValues} customer={customer} deal={deal} onBack={() => setView('form')} onSubmit={onSubmit} loading={isSubmitting} />
     }
 
     return (
@@ -298,7 +392,7 @@ export default function MeasurementPage() {
                  <h1 className="text-xl font-bold">Measurements</h1>
             </header>
             <FormProvider {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <form className="space-y-4">
                     <Card>
                         <CardContent className="pt-6 grid grid-cols-1 gap-4">
                             <div className="space-y-1">
@@ -363,9 +457,9 @@ export default function MeasurementPage() {
                             <Button type="button" variant="outline" onClick={() => append({})}><PlusCircle className="mr-2 h-4 w-4"/>Add</Button>
                         </CardContent>
                         <CardFooter>
-                            <Button type="submit" className="w-full" disabled={isSubmitting}>
-                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Add
+                            <Button type="button" className="w-full" onClick={handlePreview}>
+                                <Eye className="mr-2 h-4 w-4" />
+                                Proceed to Preview
                             </Button>
                         </CardFooter>
                     </Card>
