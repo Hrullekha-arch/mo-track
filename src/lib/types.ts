@@ -1,5 +1,4 @@
 
-
 import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp } from "firebase/firestore";
 
@@ -274,7 +273,7 @@ export interface StockTransaction {
   stockId: string;
   bcn: string;
   type: 'addition' | 'deduction';
-  quantityChange: number; // if addition, total length. If deduction, length cut.
+  quantityChange: number; // if addition, total length. if deduction, length cut.
   poNumber?: string;
   orderId?: string;
   lengths?: number[]; // if addition, original lengths. if deduction, length(s) cut.
@@ -348,11 +347,27 @@ export interface DealVisit {
 
 export interface DealMeasurement {
     id: string;
-    room: string;
-    measurementReference: string;
-    noOfUnits: string;
-    measurement: string;
-    fileUrl?: string; // URL to the uploaded file in storage
+    // Common fields
+    typeOf: string;
+    doerName: string;
+    entries: {
+        // Curtain type fields
+        roomName?: string;
+        noOfPannel?: string;
+        height?: string;
+        width?: string;
+        imageUrl?: string;
+        remark?: string;
+        audioUrl?: string;
+        // Other type fields
+        noOfSheet?: string;
+        fabricQty1?: string;
+        fabricQty2?: string;
+        marking?: string;
+        casement?: string;
+        niwar?: string;
+        pictureUrl?: string;
+    }[];
     createdAt: string; // ISO string
     createdBy: string;
 }

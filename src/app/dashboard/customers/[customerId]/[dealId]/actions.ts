@@ -1,11 +1,11 @@
 
-
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
 import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
-import { VisitFormValues, MeasurementFormValues, CpdFormValues } from './page';
+import { VisitFormValues } from './page';
+import { MeasurementFormValues } from '@/app/mobile/measurement/[visitId]/page';
 import { getMilestonesForOrder } from '@/lib/constants';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -394,33 +394,31 @@ export async function addMeasurementAction(
     try {
         const batch = adminDb.batch();
         
-        // 1. Add the measurement document
         const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
         const measurementsRef = dealRef.collection('measurements');
         const newMeasurementRef = measurementsRef.doc();
         
-        const newMeasurementForDb: Partial<DealMeasurement> = {
+        const newMeasurementForDb: Omit<DealMeasurement, 'id'> = {
             ...measurementData,
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
-            id: newMeasurementRef.id,
+            // Assuming file URLs are handled on the client and passed here
+            // This is just a placeholder logic.
+            // In a real app, you'd upload to Cloud Storage and get the URL.
+            imageUrl: measurementData.imageUrl, 
+            audioUrl: measurementData.audioUrl,
         };
         
-        if (measurementData.file && measurementData.file.name) {
-            newMeasurementForDb.fileUrl = `https://placehold.co/100x100.png`;
-        }
-        delete (newMeasurementForDb as any).file;
         batch.set(newMeasurementRef, newMeasurementForDb);
 
-        // 2. Update the O2D process
-        const o2dProcessRef = adminDb.collection('o2d').doc(dealId); // The O2D doc ID is the deal's Firestore ID
+        // Update the O2D process if it's the first measurement for this deal
+        const o2dProcessRef = adminDb.collection('o2d').doc(dealId);
         const o2dProcessDoc = await o2dProcessRef.get();
         
         if (o2dProcessDoc.exists) {
             const measurementStepId = 2; // Corresponds to "Measurement"
             const existingMilestones = (o2dProcessDoc.data()?.milestones || []) as O2DStatus[];
             
-            // Avoid adding duplicate milestones
             if (!existingMilestones.some(m => m.stepId === measurementStepId)) {
                 const newMilestone: O2DStatus = {
                     stepId: measurementStepId,
@@ -437,13 +435,16 @@ export async function addMeasurementAction(
         }
         
         await batch.commit();
+        
+        const savedMeasurement = { ...newMeasurementForDb, id: newMeasurementRef.id };
 
-        return { success: true, message: "Measurement added successfully and O2D step marked complete.", measurement: JSON.parse(JSON.stringify(newMeasurementForDb)) };
+        return { success: true, message: "Measurement added successfully.", measurement: JSON.parse(JSON.stringify(savedMeasurement)) };
     } catch (error: any) {
         console.error("Error adding measurement:", error);
         return { success: false, message: `Server error: ${error.message}` };
     }
 }
+
 
 export async function getMeasurementsForDeal(customerId: string, dealId: string): Promise<DealMeasurement[]> {
     try {

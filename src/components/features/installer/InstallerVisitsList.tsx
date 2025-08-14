@@ -200,14 +200,16 @@ export function InstallerVisitsList({ installerId }: { installerId: string }) {
                              <p className="flex items-center gap-2"><Phone className="h-4 w-4 text-muted-foreground" /> {visit.customer?.mobileNo || 'N/A'}</p>
                              <p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-muted-foreground" /> {visit.customer?.addressPinCode || visit.customer?.city || 'N/A'}</p>
                         </CardContent>
-                         <CardFooter>
-                            <Button asChild className="w-full">
-                                <Link href={`/dashboard/customers/${visit.customer?.id}/${visit.dealDocId}?tab=measurement`}>
-                                    Start Measurement
-                                    <ArrowRight className="ml-2 h-4 w-4" />
-                                </Link>
-                            </Button>
-                        </CardFooter>
+                         {visit.typeOfVisit === 'measurement' && (
+                            <CardFooter>
+                                <Button asChild className="w-full">
+                                    <Link href={`/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customer?.id}`}>
+                                        Start Measurement
+                                        <ArrowRight className="ml-2 h-4 w-4" />
+                                    </Link>
+                                </Button>
+                            </CardFooter>
+                         )}
                     </Card>
                 ))
             ) : (
