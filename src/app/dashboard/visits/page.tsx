@@ -195,12 +195,25 @@ export default function AllVisitsPage() {
         accessorKey: "status",
         header: "Status",
         cell: ({ row }) => {
-            const status = row.original.status;
-            return (
-                <Badge variant={status === 'completed' ? 'default' : 'secondary'} className={cn(status === 'completed' && 'bg-green-600')}>
+            const visit = row.original;
+            const status = visit.status;
+            const isCompletedMeasurement = status === 'completed' && visit.typeOfVisit === 'measurement' && visit.measurementPdfUrl;
+
+            const badge = (
+                <Badge variant={status === 'completed' ? 'default' : 'secondary'} className={cn(status === 'completed' && 'bg-green-600', isCompletedMeasurement && 'cursor-pointer hover:bg-green-700')}>
                     {status === 'completed' ? 'Done' : 'Pending'}
                 </Badge>
-            )
+            );
+
+            if (isCompletedMeasurement) {
+                return (
+                    <Link href={visit.measurementPdfUrl!} target="_blank" rel="noopener noreferrer">
+                        {badge}
+                    </Link>
+                );
+            }
+
+            return badge;
         }
     },
     {
