@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight } from "lucide-react";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight, Truck } from "lucide-react";
 import { Order, Milestone, DealVisit, User, Customer, Deal } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState, useMemo } from "react";
@@ -32,6 +32,7 @@ interface EnrichedInstallerVisit extends DealVisit {
     customer: Customer | null;
     deal: Deal | null;
     dealDocId: string;
+    customerId: string;
 }
 
 export function MobileView() {
@@ -119,6 +120,7 @@ export function MobileView() {
                 customer: customerData,
                 deal: dealData,
                 dealDocId: dealDocId,
+                customerId: customerId,
             } as EnrichedInstallerVisit;
         });
         
@@ -247,11 +249,24 @@ const InstallerVisitCard = ({ visit }: { visit: EnrichedInstallerVisit }) => {
 
     const handleStartVisit = () => {
         if (visit.typeOfVisit === 'measurement') {
-            router.push(`/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customer?.id}`);
-        } else {
-            // Placeholder for other visit types
+            router.push(`/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}`);
+        } else if (visit.typeOfVisit === 'delivery') {
+            router.push(`/mobile/delivery/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}&orderId=${visit.orderId}`);
         }
     };
+
+    const getButtonContent = () => {
+        switch(visit.typeOfVisit) {
+            case 'measurement':
+                return { text: 'Start Measurement', icon: <ArrowRight className="ml-2 h-4 w-4" /> };
+            case 'delivery':
+                return { text: 'Start Delivery', icon: <Truck className="ml-2 h-4 w-4" /> };
+            default:
+                return { text: 'Start Visit', icon: <ArrowRight className="ml-2 h-4 w-4" /> };
+        }
+    };
+
+    const buttonContent = getButtonContent();
     
     return (
         <Card>
@@ -268,8 +283,8 @@ const InstallerVisitCard = ({ visit }: { visit: EnrichedInstallerVisit }) => {
             </CardContent>
              <CardFooter>
                  <Button className="w-full" onClick={handleStartVisit}>
-                    Start {visit.typeOfVisit}
-                    <ArrowRight className="ml-2 h-4 w-4" />
+                    {buttonContent.text}
+                    {buttonContent.icon}
                 </Button>
             </CardFooter>
         </Card>
