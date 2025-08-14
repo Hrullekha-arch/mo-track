@@ -350,7 +350,6 @@ export interface MeasurementEntry {
     noOfPannel?: string;
     height?: string;
     width?: string;
-    imageUrl?: string;
     remark?: string;
     audioUrl?: string;
     // Sofa measurement fields

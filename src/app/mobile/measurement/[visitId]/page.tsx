@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from 'react';
@@ -31,8 +30,6 @@ const measurementEntrySchema = z.object({
     noOfPannel: z.string().optional(),
     height: z.string().optional(),
     width: z.string().optional(),
-    image: z.any().optional(),
-    imageUrl: z.string().optional(),
     remark: z.string().optional(),
     recordAudio: z.any().optional(),
     audioUrl: z.string().optional(),
@@ -44,7 +41,9 @@ const measurementEntrySchema = z.object({
     marking: z.string().optional(),
     casement: z.string().optional(),
     niwar: z.string().optional(),
-    pictures: z.any().optional(),
+
+    // Shared image fields
+    pictures: z.any().optional(), // Holds the FileList object
     pictureUrls: z.array(z.string()).optional(),
 });
 
@@ -61,22 +60,31 @@ const MEASUREMENT_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measur
 const DOER_OPTIONS = ["TU", "OP", "NC", "VN", "MU"];
 
 const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index: number) => void }) => {
-    const { control, setValue } = useFormContext<MeasurementFormValues>();
+    const { control, setValue, getValues } = useFormContext<MeasurementFormValues>();
     const typeOf = useWatch({ control, name: "typeOf" });
+    
+    // State to hold and display image previews
     const [imagePreviews, setImagePreviews] = React.useState<string[]>([]);
 
     const handlePictureChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = event.target.files;
-        if (files) {
-            if (files.length > 5) {
-                alert("You can only upload a maximum of 5 images.");
+        const newFiles = event.target.files;
+        if (newFiles) {
+            const currentFiles = getValues(`entries.${index}.pictures`) || [];
+            const combinedFiles = [...currentFiles, ...Array.from(newFiles)];
+            
+            if (combinedFiles.length > 5) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Upload Limit Exceeded',
+                    description: 'You can only upload a maximum of 5 images per entry.',
+                });
                 return;
             }
-            const fileArray = Array.from(files);
-            setValue(`entries.${index}.pictures`, fileArray);
             
-            const previewUrls = fileArray.map(file => URL.createObjectURL(file));
-            setImagePreviews(previewUrls);
+            setValue(`entries.${index}.pictures`, combinedFiles);
+            
+            const newPreviewUrls = combinedFiles.map(file => URL.createObjectURL(file));
+            setImagePreviews(newPreviewUrls);
         }
     };
 
@@ -92,20 +100,6 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                         <FormField control={control} name={`entries.${index}.marking`} render={({ field }) => (<FormItem><FormLabel>Marking (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
                         <FormField control={control} name={`entries.${index}.casement`} render={({ field }) => (<FormItem><FormLabel>Casement (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
                         <FormField control={control} name={`entries.${index}.niwar`} render={({ field }) => (<FormItem><FormLabel>Niwar (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-                        <FormItem>
-                            <FormLabel>Picture (Upto 5)</FormLabel>
-                            <FormControl>
-                                <Input type="file" accept="image/*" multiple onChange={handlePictureChange} />
-                            </FormControl>
-                        </FormItem>
-                         {imagePreviews.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                                {imagePreviews.map((src, i) => (
-                                    <Image key={i} src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover" data-ai-hint="sofa measurement" />
-                                ))}
-                            </div>
-                        )}
-                        <FormField control={control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
                     </div>
                 ) : (
                     <div className="space-y-3">
@@ -113,11 +107,27 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                         <FormField control={control} name={`entries.${index}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                         <FormField control={control} name={`entries.${index}.height`} render={({ field }) => (<FormItem><FormLabel>Height</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                         <FormField control={control} name={`entries.${index}.width`} render={({ field }) => (<FormItem><FormLabel>Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.image`} render={({ field }) => (<FormItem><FormLabel>Image</FormLabel><FormControl><Input type="file" accept="image/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.recordAudio`} render={({ field }) => (<FormItem><FormLabel>Record Audio</FormLabel><FormControl><Input type="file" accept="audio/*" onChange={(e) => field.onChange(e.target.files)} /></FormControl></FormItem>)} />
                     </div>
                 )}
+
+                {/* Shared Fields for all types */}
+                 <div className="space-y-3 mt-3">
+                    <FormItem>
+                        <FormLabel>Pictures (Upto 5)</FormLabel>
+                        <FormControl>
+                            <Input type="file" accept="image/*" multiple onChange={handlePictureChange} />
+                        </FormControl>
+                    </FormItem>
+                     {imagePreviews.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                            {imagePreviews.map((src, i) => (
+                                <Image key={i} src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover" data-ai-hint="measurement image"/>
+                            ))}
+                        </div>
+                    )}
+                    <FormField control={control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
+                    <FormField control={control} name={`entries.${index}.recordAudio`} render={({ field }) => (<FormItem><FormLabel>Record Audio</FormLabel><FormControl><Input type="file" accept="audio/*" onChange={(e) => field.onChange(e.target.files?.[0])} /></FormControl></FormItem>)} />
+                 </div>
             </CardContent>
         </Card>
     )
@@ -196,7 +206,6 @@ export default function MeasurementPage() {
         
         try {
             const processedEntries = await Promise.all(data.entries.map(async (entry) => {
-                const imageUrl = entry.image?.[0] ? await handleFileUpload(entry.image[0]) : undefined;
                 const audioUrl = entry.recordAudio?.[0] ? await handleFileUpload(entry.recordAudio[0]) : undefined;
                 
                 let pictureUrls: string[] = [];
@@ -208,10 +217,8 @@ export default function MeasurementPage() {
 
                 return {
                     ...entry,
-                    image: undefined,
                     recordAudio: undefined,
                     pictures: undefined,
-                    imageUrl,
                     audioUrl,
                     pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined,
                 };
