@@ -11,7 +11,6 @@ import { useAuth } from '@/context/AuthContext';
 import { Customer, Deal, DealMeasurement, User } from '@/lib/types';
 import { getCustomerById } from '@/app/dashboard/customers/actions';
 import { getDealById, addMeasurementAction } from '@/app/dashboard/customers/[customerId]/[dealId]/actions';
-import { getSalesmen } from '@/app/dashboard/customers/actions';
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -47,13 +46,7 @@ const measurementSchema = z.object({
 export type MeasurementFormValues = z.infer<typeof measurementSchema>;
 
 const MEASUREMENT_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
-const DOER_OPTIONS = [
-    { value: "TU", label: "TU" },
-    { value: "OP", label: "OP" },
-    { value: "NC", label: "NC" },
-    { value: "VN", label: "VN" },
-    { value: "MU", label: "MU" },
-];
+const DOER_OPTIONS = ["TU", "OP", "NC", "VN", "MU"];
 
 
 export default function MeasurementPage() {
@@ -183,7 +176,7 @@ export default function MeasurementPage() {
             <FormProvider {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                     <Card>
-                        <CardContent className="pt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <CardContent className="pt-6 grid grid-cols-1 gap-4">
                             <div className="space-y-1">
                                 <FormLabel>Deal ID</FormLabel>
                                 <Input value={deal?.dealId || ''} readOnly disabled />
@@ -224,7 +217,7 @@ export default function MeasurementPage() {
                                             </FormControl>
                                             <SelectContent>
                                                 {DOER_OPTIONS.map(d => (
-                                                    <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                                                    <SelectItem key={d} value={d}>{d}</SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
@@ -269,3 +262,5 @@ export default function MeasurementPage() {
         </div>
     );
 }
+
+    
