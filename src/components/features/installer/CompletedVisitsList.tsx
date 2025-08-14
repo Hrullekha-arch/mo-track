@@ -8,21 +8,26 @@ import { DealVisit, Customer, Deal } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, User, Clock, MapPin, GanttChartSquare, Phone, ArrowRight, MoreVertical, CheckCheck, Eye } from "lucide-react";
+import { Calendar, User, Clock, MapPin, GanttChartSquare, Phone, ArrowRight, MoreVertical, CheckCheck, Eye, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
+import Link from 'next/link';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { useRouter } from "next/navigation";
+
 
 interface EnrichedInstallerVisit extends DealVisit {
     customer: Customer | null;
     deal: Deal | null;
     dealDocId: string;
+    customerId: string;
 }
 
 export function CompletedVisitsList({ installerId }: { installerId: string }) {
     const [visits, setVisits] = useState<EnrichedInstallerVisit[]>([]);
     const [loading, setLoading] = useState(true);
     const { toast } = useToast();
+    const router = useRouter();
 
     useEffect(() => {
         setLoading(true);
@@ -69,6 +74,7 @@ export function CompletedVisitsList({ installerId }: { installerId: string }) {
                     customer: customerData,
                     deal: dealData,
                     dealDocId: dealDocId,
+                    customerId: customerId,
                 };
             });
             
@@ -84,6 +90,10 @@ export function CompletedVisitsList({ installerId }: { installerId: string }) {
 
         return () => unsubscribe();
     }, [installerId, toast]);
+    
+    const handleReMeasure = (visit: EnrichedInstallerVisit) => {
+      router.push(`/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}`);
+    };
 
     if (loading) {
         return (
@@ -110,13 +120,33 @@ export function CompletedVisitsList({ installerId }: { installerId: string }) {
                             <p className="text-sm text-green-600 font-medium">Completed on: {format(new Date(visit.createdAt), 'PPP p')}</p>
                         </CardContent>
                         {visit.typeOfVisit === 'measurement' && visit.measurementPdfUrl && (
-                            <CardFooter>
+                            <CardFooter className="flex-col items-stretch gap-2">
                                 <Button asChild variant="secondary" className="w-full">
                                     <Link href={visit.measurementPdfUrl} target="_blank" rel="noopener noreferrer">
                                         <Eye className="mr-2 h-4 w-4" />
                                         View Measurement
                                     </Link>
                                 </Button>
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button variant="outline" className="w-full">
+                                            <RefreshCw className="mr-2 h-4 w-4" />
+                                            Re-measure
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            This action will open the measurement form again. Submitting a new measurement will overwrite the previous data for this visit.
+                                        </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => handleReMeasure(visit)}>Continue</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
                             </CardFooter>
                         )}
                     </Card>
