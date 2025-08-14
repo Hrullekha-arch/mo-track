@@ -397,7 +397,8 @@ export async function addVisitAction(
             deliveryInstallations: visitData.deliveryInstallations,
             subDeliveryInstallations: visitData.subDeliveryInstallations,
             otherDelivery: visitData.otherDelivery,
-            dealId: dealData.dealId // This is correct, dealId should be the 4 digit one. Assuming it's part of the deal object
+            dealId: dealData.dealId,
+            status: 'pending'
         };
 
         await newVisitRef.set(newVisit);

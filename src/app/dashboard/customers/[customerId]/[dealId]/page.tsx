@@ -2051,6 +2051,7 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded }: { cus
                                     <TableHead>#</TableHead>
                                     <TableHead>Type</TableHead>
                                     <TableHead>Due Date</TableHead>
+                                    <TableHead>Status</TableHead>
                                     <TableHead>Representative</TableHead>
                                     <TableHead>Created By</TableHead>
                                     <TableHead>Created At</TableHead>
@@ -2063,6 +2064,11 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded }: { cus
                                         <TableCell>{i + 1}</TableCell>
                                         <TableCell className="capitalize">{visit.typeOfVisit}</TableCell>
                                         <TableCell>{format(new Date(visit.dueDate), 'PPP p')}</TableCell>
+                                        <TableCell>
+                                            <Badge variant={visit.status === 'completed' ? 'default' : 'secondary'} className={cn(visit.status === 'completed' && 'bg-green-600')}>
+                                                {visit.status === 'completed' ? 'Done' : 'Pending'}
+                                            </Badge>
+                                        </TableCell>
                                         <TableCell>{salesmen.find(s => s.id === visit.representative)?.name || visit.representative}</TableCell>
                                         <TableCell>{visit.createdBy}</TableCell>
                                         <TableCell>{format(new Date(visit.createdAt), 'dd/MM/yy')}</TableCell>
@@ -2137,34 +2143,34 @@ function MeasurementsTab({ customerId, dealId }: { customerId: string; dealId: s
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>#</TableHead>
-                                    <TableHead>Room</TableHead>
-                                    <TableHead>Reference</TableHead>
-                                    <TableHead>Units</TableHead>
-                                    <TableHead>Measurement</TableHead>
-                                    <TableHead>Attachment</TableHead>
+                                    <TableHead>Type</TableHead>
+                                    <TableHead>Doer</TableHead>
+                                    <TableHead>Entries</TableHead>
                                     <TableHead>Created</TableHead>
+                                    <TableHead>Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {measurements.map((m, i) => (
                                     <TableRow key={m.id}>
                                         <TableCell>{i + 1}</TableCell>
-                                        <TableCell>{m.room}</TableCell>
-                                        <TableCell>{m.measurementReference}</TableCell>
-                                        <TableCell>{m.noOfUnits}</TableCell>
-                                        <TableCell><p className="max-w-xs truncate">{m.measurement}</p></TableCell>
-                                        <TableCell>
-                                            {m.fileUrl && (
-                                                <a href={m.fileUrl} target="_blank" rel="noopener noreferrer">
-                                                    <Image src={m.fileUrl} alt="Thumbnail" width={40} height={40} className="rounded-md object-cover" data-ai-hint="measurement document" />
-                                                </a>
-                                            )}
-                                        </TableCell>
+                                        <TableCell>{m.typeOf}</TableCell>
+                                        <TableCell>{m.doerName}</TableCell>
+                                        <TableCell>{m.entries?.length || 0}</TableCell>
                                         <TableCell>
                                             <div className="text-xs">
                                                 <p>{m.createdBy}</p>
                                                 <p className="text-muted-foreground">{format(new Date(m.createdAt), 'dd/MM/yy')}</p>
                                             </div>
+                                        </TableCell>
+                                         <TableCell>
+                                            {m.pdfUrl && (
+                                                <Button asChild variant="ghost" size="icon">
+                                                    <Link href={m.pdfUrl} target="_blank" rel="noopener noreferrer">
+                                                        <Eye className="h-4 w-4" />
+                                                    </Link>
+                                                </Button>
+                                            )}
                                         </TableCell>
                                     </TableRow>
                                 ))}

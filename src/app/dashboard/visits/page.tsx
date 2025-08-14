@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -36,6 +37,7 @@ import Link from 'next/link';
 import { AssignInstallerDialog } from "@/components/features/order-management/AssignInstallerDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { measurementItems, subMeasurementBlinds, subMeasurementCurtain, deliveryInstallationItems, subDeliveryInstallationItems } from "@/app/dashboard/customers/[customerId]/[dealId]/page";
+import { cn } from "@/lib/utils";
 
 
 interface EnrichedDealVisit extends DealVisit {
@@ -188,6 +190,18 @@ export default function AllVisitsPage() {
         </Button>
       ),
       cell: ({ row }) => format(new Date(row.getValue("dueDate")), "PPP p"),
+    },
+    {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => {
+            const status = row.original.status;
+            return (
+                <Badge variant={status === 'completed' ? 'default' : 'secondary'} className={cn(status === 'completed' && 'bg-green-600')}>
+                    {status === 'completed' ? 'Done' : 'Pending'}
+                </Badge>
+            )
+        }
     },
     {
       accessorKey: "representative",
