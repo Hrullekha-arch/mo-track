@@ -29,7 +29,7 @@ export async function setBalanceFollowUp(
 
             // 2. Update the O2D document to complete the milestone
             const followUpMilestone: O2DStatus = {
-                stepId: 6, // 'Balance Payment Follow Up'
+                stepId: 10, // 'Balance Payment Follow Up'
                 status: 'completed',
                 completedAt: new Date().toISOString(),
                 completedBy: userName,
