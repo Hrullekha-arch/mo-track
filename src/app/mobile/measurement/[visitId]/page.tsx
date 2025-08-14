@@ -61,6 +61,8 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
     const { toast } = useToast();
     
     const [imagePreviews, setImagePreviews] = React.useState<string[]>([]);
+    const pictures = useWatch({ control, name: `entries.${index}.pictures` });
+
 
     const handlePictureChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const newFiles = event.target.files;
@@ -78,28 +80,26 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
             }
             
             setValue(`entries.${index}.pictures`, combinedFiles, { shouldValidate: true });
-            
-            const newPreviewUrls = combinedFiles.map(file => URL.createObjectURL(file));
-            imagePreviews.forEach(URL.revokeObjectURL);
-            setImagePreviews(newPreviewUrls);
         }
     };
+
+    React.useEffect(() => {
+        if (!pictures) {
+          setImagePreviews([]);
+          return;
+        }
+        const fileArray = Array.from(pictures as FileList);
+        const newUrls = fileArray.map((file) => URL.createObjectURL(file));
+        setImagePreviews(newUrls);
+    
+        return () => newUrls.forEach(URL.revokeObjectURL);
+      }, [pictures]);
     
     const handlePictureRemove = (imageIndex: number) => {
         const currentFiles = (getValues(`entries.${index}.pictures`) || []) as File[];
         const updatedFiles = currentFiles.filter((_, i) => i !== imageIndex);
         setValue(`entries.${index}.pictures`, updatedFiles, { shouldValidate: true });
-        
-        const newPreviewUrls = updatedFiles.map(file => URL.createObjectURL(file));
-        imagePreviews.forEach(URL.revokeObjectURL);
-        setImagePreviews(newPreviewUrls);
     }
-    
-    React.useEffect(() => {
-        return () => {
-            imagePreviews.forEach(URL.revokeObjectURL);
-        };
-    }, [imagePreviews]);
 
     return (
         <Card className="relative">
@@ -324,7 +324,7 @@ export default function MeasurementPage() {
             const pdfUrl = await generateAndUploadPdf();
             
             const processedEntries = await Promise.all(watchedFormValues.entries.map(async (entry) => {
-                const audioUrl = entry.recordAudio?.[0] ? await handleFileUpload(entry.recordAudio[0]) : undefined;
+                const audioUrl = entry.recordAudio ? await handleFileUpload(entry.recordAudio) : undefined;
                 
                 let pictureUrls: string[] = [];
                 if (entry.pictures && entry.pictures.length > 0) {
@@ -333,10 +333,22 @@ export default function MeasurementPage() {
                      );
                 }
 
-                return { ...entry, recordAudio: undefined, pictures: undefined, audioUrl, pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined, };
+                const cleanedEntry: Partial<MeasurementEntry> = { ...entry };
+                delete cleanedEntry.recordAudio;
+                delete cleanedEntry.pictures;
+
+                return { 
+                    ...cleanedEntry, 
+                    audioUrl, 
+                    pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined, 
+                };
             }));
 
-            const measurementData = { ...watchedFormValues, entries: processedEntries };
+            const measurementData: Omit<DealMeasurement, 'id' | 'createdAt' | 'createdBy'> = {
+                typeOf: watchedFormValues.typeOf,
+                doerName: watchedFormValues.doerName,
+                entries: processedEntries as MeasurementEntry[],
+            };
             
             const result = await addMeasurementAction(customerId, dealId, visitId, measurementData as DealMeasurement, user.name, pdfUrl);
 
