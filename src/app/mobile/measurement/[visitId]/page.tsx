@@ -107,19 +107,19 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
             <CardContent className="pt-6">
                 {typeOf === "Sofa Measurement" ? (
                     <div className="space-y-3">
-                        <FormField control={control} name={`entries.${index}.noOfSheet`} render={({ field }) => (<FormItem><FormLabel>No Of Sheet</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.fabricQty1`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 1</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.fabricQty2`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 2</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.marking`} render={({ field }) => (<FormItem><FormLabel>Marking (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.casement`} render={({ field }) => (<FormItem><FormLabel>Casement (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.niwar`} render={({ field }) => (<FormItem><FormLabel>Niwar (MTR)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.noOfSheet`} render={({ field }) => (<FormItem><FormLabel>No Of Sheet</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.fabricQty1`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 1</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.fabricQty2`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 2</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.marking`} render={({ field }) => (<FormItem><FormLabel>Marking (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.casement`} render={({ field }) => (<FormItem><FormLabel>Casement (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.niwar`} render={({ field }) => (<FormItem><FormLabel>Niwar (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
                     </div>
                 ) : (
                     <div className="space-y-3">
-                        <FormField control={control} name={`entries.${index}.roomName`} render={({ field }) => (<FormItem><FormLabel>Room Name</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.height`} render={({ field }) => (<FormItem><FormLabel>Height</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`entries.${index}.width`} render={({ field }) => (<FormItem><FormLabel>Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.roomName`} render={({ field }) => (<FormItem><FormLabel>Room Name</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.height`} render={({ field }) => (<FormItem><FormLabel>Height</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`entries.${index}.width`} render={({ field }) => (<FormItem><FormLabel>Width</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
                     </div>
                 )}
 
@@ -148,7 +148,7 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                             ))}
                         </div>
                     )}
-                    <FormField control={control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
+                    <FormField control={control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} value={field.value || ''} /></FormControl></FormItem>)} />
                     <FormField control={control} name={`entries.${index}.recordAudio`} render={({ field }) => (<FormItem><FormLabel>Record Audio</FormLabel><FormControl><Input type="file" accept="audio/*" onChange={(e) => field.onChange(e.target.files?.[0])} /></FormControl></FormItem>)} />
                  </div>
             </CardContent>
@@ -171,10 +171,9 @@ const MeasurementPreview = ({
     onSubmit: () => void,
     loading: boolean
 }) => {
-    const previewRef = React.useRef<HTMLDivElement>(null);
     return (
         <Card>
-            <div ref={previewRef} className="p-6">
+             <div id="measurement-preview-content" className="p-6">
                 <CardHeader>
                     <CardTitle>Measurement Preview</CardTitle>
                     <CardDescription>Please review the details before confirming.</CardDescription>
@@ -310,7 +309,7 @@ export default function MeasurementPage() {
         
         const storage = getStorage();
         const pdfRef = ref(storage, `measurements/${dealId}/${visitId}.pdf`);
-        await uploadBytes(pdfRef, pdfBlob);
+        await uploadBytes(pdfRef, pdfBlob as Blob);
         return await getDownloadURL(pdfRef);
     };
 
