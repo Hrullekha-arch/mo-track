@@ -216,6 +216,27 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
       );
       const updatedOrder = { ...currentOrder, milestones: updatedMilestones };
       await updateDoc(orderRef, { milestones: updatedMilestones });
+
+      // Find the O2D document and update it
+      if (currentOrder.dealId) {
+        const o2dQuery = query(collection(db, "o2d"), where("dealId", "==", currentOrder.dealId));
+        const o2dSnapshot = await getDocs(o2dQuery);
+        if (!o2dSnapshot.empty) {
+          const o2dDocRef = o2dSnapshot.docs[0].ref;
+          const scheduleMilestone: O2DStatus = {
+            stepId: 12, // 'Installation/Delivery Schedule'
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            completedBy: user?.name || "System",
+            remarks: "Automatically completed when scheduled from dashboard.",
+            selection: "Done"
+          };
+          await updateDoc(o2dDocRef, {
+            milestones: arrayUnion(scheduleMilestone)
+          });
+        }
+      }
+
       onUpdate(updatedOrder);
       setCurrentOrder(updatedOrder);
       setIsScheduling(false);
@@ -224,7 +245,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
       console.error("Error scheduling order: ", error);
       toast({ variant: "destructive", title: "Failed to schedule order." });
     }
-  }
+  };
 
   const handleDeleteOrder = async () => {
     if (!canDeleteOrder) return;
