@@ -314,14 +314,16 @@ export default function MeasurementPage() {
     const onSubmit = async () => {
         if (!user || !customerId || !dealId) {
             toast({ variant: 'destructive', title: 'Error', description: 'Missing critical information.' });
-            setIsSubmitting(false); // Ensure reset
+            setIsSubmitting(false);
             return;
         }
     
         setIsSubmitting(true);
     
         try {
+            console.log("Starting PDF generation and upload...");
             const pdfUrl = await generateAndUploadPdf();
+            console.log("PDF uploaded, URL:", pdfUrl);
             
             const processedEntries = await Promise.all(
                 watchedFormValues.entries.map(async (entry) => {
@@ -330,7 +332,7 @@ export default function MeasurementPage() {
                     let pictureUrls: string[] = [];
                     const pictures = entry.pictures;
                     if (pictures && pictures.length > 0) {
-                        const filesToUpload = Array.from(pictures as File[]);
+                        const filesToUpload = Array.isArray(pictures) ? pictures : Array.from(pictures as FileList);
                         pictureUrls = await Promise.all(filesToUpload.map(file => handleFileUpload(file)));
                     }
     
@@ -361,10 +363,16 @@ export default function MeasurementPage() {
                 toast({ variant: 'destructive', title: 'Error', description: result.message });
             }
         } catch (error: any) {
-            console.error("Error submitting measurement:", error);
-            toast({ variant: 'destructive', title: 'Error', description: `An unexpected error occurred: ${error.message}` });
+            console.error("Error during submission process:", error);
+            const errorMessage = error.code ? `Firebase Storage Error: ${error.code}. Ensure CORS is configured correctly.` : `An unexpected error occurred: ${error.message}`;
+            toast({ 
+                variant: 'destructive', 
+                title: 'Submission Failed', 
+                description: errorMessage,
+                duration: 9000
+            });
         } finally {
-            setIsSubmitting(false); // Always reset spinner
+            setIsSubmitting(false);
         }
     };
     
