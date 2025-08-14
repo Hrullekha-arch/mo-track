@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from 'react';
@@ -133,7 +132,7 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                         <div className="flex flex-wrap gap-2 mt-2">
                             {imagePreviews.map((src, i) => (
                                 <div key={i} className="relative">
-                                    <Image src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover" data-ai-hint="measurement image"/>
+                                    <Image src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover" style={{ height: 'auto' }} data-ai-hint="measurement image"/>
                                     <Button 
                                         type="button" 
                                         variant="destructive" 
