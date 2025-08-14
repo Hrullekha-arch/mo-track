@@ -5,11 +5,11 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck } from "lucide-react";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight } from "lucide-react";
 import { Order, Milestone, DealVisit, User, Customer, Deal } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState, useMemo } from "react";
-import { collection, onSnapshot, query, where, doc, updateDoc, writeBatch, getDocs, limit, collectionGroup } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, updateDoc, writeBatch, getDocs, limit, collectionGroup, getDoc, arrayUnion } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -213,8 +213,13 @@ export function MobileView() {
 
       {activeTasks.length > 0 ? (
         <div className="space-y-4">
-          {activeTasks.map(task => (
-            <InstallerTaskCard key={`${task.type}-${task.data.id}`} task={task} location={location} />
+          {activeTasks.map((task, index) => (
+             <div key={`${task.type}-${task.data.id}`} className="relative">
+                 <span className="absolute -top-2 -left-2 bg-primary text-primary-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs font-bold z-10">
+                    {index + 1}
+                </span>
+                <InstallerTaskCard task={task} location={location} />
+            </div>
           ))}
         </div>
       ) : (
