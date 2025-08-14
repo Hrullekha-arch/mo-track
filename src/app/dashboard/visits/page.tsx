@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -25,7 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, collectionGroup, doc, getDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, collectionGroup, doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DealVisit, Customer, Deal, User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -65,11 +66,9 @@ export default function AllVisitsPage() {
         setUsers(usersData);
     });
     
-    // More efficient query using collectionGroup
     const visitsQuery = collectionGroup(db, 'visits');
     const unsubscribeVisits = onSnapshot(visitsQuery, async (snapshot) => {
         const visitsData: EnrichedDealVisit[] = [];
-        // Use a map to avoid re-fetching the same customer/deal multiple times
         const customerCache = new Map<string, Customer>();
         const dealCache = new Map<string, Deal>();
 
@@ -83,7 +82,6 @@ export default function AllVisitsPage() {
             let dealName = 'Unknown';
             let dealId = 'N/A';
 
-            // Fetch customer if not in cache
             if (!customerCache.has(customerId)) {
                 const customerRef = doc(db, 'customers', customerId);
                 const customerSnap = await getDoc(customerRef);
@@ -93,7 +91,6 @@ export default function AllVisitsPage() {
             }
             customerName = customerCache.get(customerId)?.name || 'Unknown';
             
-            // Fetch deal if not in cache
             const dealCacheKey = `${customerId}-${dealDocId}`;
             if (!dealCache.has(dealCacheKey)) {
                 const dealRef = doc(db, 'customers', customerId, 'deals', dealDocId);
@@ -116,7 +113,7 @@ export default function AllVisitsPage() {
                 dealId
             });
         }
-        setVisits(visitsData);
+        setVisits(visitsData.sort((a,b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime()));
         setLoading(false);
     }, (error) => {
         console.error("Error fetching visits:", error);
@@ -135,6 +132,29 @@ export default function AllVisitsPage() {
   }, [toast]);
   
   const getRepresentativeName = (id: string) => users.find(u => u.id === id)?.name || id;
+
+  const handleAssignInstaller = async (installerId: string) => {
+      if (!selectedVisit) return;
+      
+      const visitRef = doc(db, 'customers', selectedVisit.customerId, 'deals', selectedVisit.dealDocId, 'visits', selectedVisit.id);
+      
+      try {
+          await updateDoc(visitRef, { assignedTo: installerId });
+          toast({
+              title: "Installer Assigned",
+              description: `Visit has been assigned successfully.`
+          });
+          // Optimistically update UI
+          setVisits(prevVisits => prevVisits.map(v => 
+              v.id === selectedVisit.id ? { ...v, assignedTo: installerId } : v
+          ));
+          setIsAssigning(false);
+          setSelectedVisit(null);
+      } catch (error) {
+          console.error("Failed to assign installer:", error);
+          toast({ variant: 'destructive', title: 'Assignment Failed' });
+      }
+  };
 
   const columns: ColumnDef<EnrichedDealVisit>[] = [
     {
@@ -172,6 +192,18 @@ export default function AllVisitsPage() {
       accessorKey: "representative",
       header: "Representative",
       cell: ({ row }) => getRepresentativeName(row.getValue("representative")),
+    },
+    {
+        id: 'assignedTo',
+        header: "Assigned To",
+        cell: ({ row }) => {
+            const assignedToId = row.original.assignedTo;
+            if (!assignedToId) {
+                return <Badge variant="destructive">Unassigned</Badge>;
+            }
+            const installer = users.find(u => u.id === assignedToId);
+            return installer ? installer.name : "Unknown";
+        }
     },
     {
       accessorKey: "createdBy",
@@ -375,10 +407,7 @@ export default function AllVisitsPage() {
         <AssignInstallerDialog
             isOpen={isAssigning}
             onClose={() => setIsAssigning(false)}
-            onAssign={(installerId) => {
-                console.log(`Assigning visit ${selectedVisit?.id} to installer ${installerId}`);
-                setIsAssigning(false);
-            }}
+            onAssign={handleAssignInstaller}
             installers={users.filter(u => u.role === 'installer')}
             currentInstallerId={selectedVisit?.assignedTo}
         />
