@@ -35,15 +35,19 @@ export function getMilestonesForOrder(orderType: OrderType): Milestone[] {
 }
 
 export const O2D_PROCESS_CONFIG: O2DStep[] = [
-    { id: 1, step: "Receive Advance ₹1000", details: "For measurement/Fabric order", time: "30 min", role: "Salesman", icon: User, expectedDuration: { minutes: 30 } },
+    { id: 1, step: "Receive Advance ₹1000", details: "For measurement/Fabric order", time: "30 min", role: "Salesman", icon: Banknote, expectedDuration: { minutes: 30 } },
     { id: 2, step: "Measurement", details: "Coordinate with CRM for site visit", time: "1 Day", role: "CRM", icon: Users, expectedDuration: { days: 1 } },
-    { id: 3, step: "Final Material Selection", details: "Finalize materials post-measurement (on CPD creation)", time: "7 Days", role: "System / Salesman", icon: UserCheck, expectedDuration: { days: 7 } },
+    { id: 3, step: "Final Material Selection", details: "Finalize materials post-measurement", time: "7 Days", role: "System / Salesman", icon: UserCheck, expectedDuration: { days: 7 } },
     { id: 4, step: "Quotation Making", details: "Final quotation for the customer", time: "1 Day", role: "Salesman", icon: FileText, expectedDuration: { days: 1 } },
-    { id: 5, step: "Quotation Re-Check", details: "Verification of the quotation by accounts", time: "1 Hour", role: "Accounts", icon: Banknote, expectedDuration: { hours: 1 } },
-    { id: 6, step: "Balance Payment Follow Up", details: "Sales/CRM follows up for balance payment", time: "Variable", role: "Admin / Accounts", icon: PhoneCall, expectedDuration: { days: 1 } },
-    { id: 7, step: "Payment Received Conf", details: "Accounts confirms final payment", time: "Variable", role: "System / Accounts", icon: CheckCircle, expectedDuration: { days: 1 } },
-    { id: 8, step: "Installation/Delivery Schedule", details: "Schedule the final service", time: "1 Day", role: "PC", icon: Truck, expectedDuration: { days: 1 } },
-    { id: 9, step: "Installation Done", details: "Final step in O2D, order moves to main board", time: "Variable", role: "Installer / System", icon: ThumbsUp, expectedDuration: { days: 2 } }
+    { id: 5, step: "Quotation Re-check", details: "Verification of the quotation by accounts", time: "1 Hour", role: "Accounts", icon: ClipboardCheck, expectedDuration: { hours: 1 } },
+    { id: 6, step: "Advance Receive For Order", details: "Receive advance payment for the main order", time: "Variable", role: "Accounts", icon: Banknote, expectedDuration: { days: 1 } },
+    { id: 7, step: "Purchase Material Receiving", details: "Confirm all purchased materials have been received", time: "Variable", role: "System / PC", icon: PackageSearch, expectedDuration: { days: 7 } },
+    { id: 8, step: "Production", details: "Production process begins", time: "Variable", role: "PC", icon: Factory, expectedDuration: { days: 5 } },
+    { id: 9, step: "Full Kiting", details: "All items kitted for stitching/delivery", time: "1 Day", role: "PC", icon: Box, expectedDuration: { days: 1 } },
+    { id: 10, step: "Balance Payment Follow Up", details: "Sales/CRM follows up for balance payment", time: "Variable", role: "Admin / Accounts", icon: PhoneCall, expectedDuration: { days: 1 } },
+    { id: 11, step: "Payment Received Conf", details: "Accounts confirms final payment", time: "Variable", role: "System / Accounts", icon: CheckCircle, expectedDuration: { days: 1 } },
+    { id: 12, step: "Installation/Delivery Schedule", details: "Schedule the final service", time: "1 Day", role: "PC", icon: Truck, expectedDuration: { days: 1 } },
+    { id: 13, step: "Installation Done", details: "Final step in O2D, order moves to main board", time: "Variable", role: "Installer / System", icon: ThumbsUp, expectedDuration: { days: 2 } }
 ];
 
 
@@ -363,3 +367,6 @@ export const calculateExpectedDatesForOrder = (order: Order) => {
 
     return expectedDates;
 }
+
+
+    
