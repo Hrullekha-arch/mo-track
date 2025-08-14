@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from 'react';
@@ -62,14 +63,15 @@ const DOER_OPTIONS = ["TU", "OP", "NC", "VN", "MU"];
 const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index: number) => void }) => {
     const { control, setValue, getValues } = useFormContext<MeasurementFormValues>();
     const typeOf = useWatch({ control, name: "typeOf" });
+    const { toast } = useToast();
     
-    // State to hold and display image previews
+    // This state now holds the object URLs for previewing
     const [imagePreviews, setImagePreviews] = React.useState<string[]>([]);
 
     const handlePictureChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const newFiles = event.target.files;
         if (newFiles) {
-            const currentFiles = getValues(`entries.${index}.pictures`) || [];
+            const currentFiles = (getValues(`entries.${index}.pictures`) || []) as File[];
             const combinedFiles = [...currentFiles, ...Array.from(newFiles)];
             
             if (combinedFiles.length > 5) {
@@ -81,12 +83,33 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                 return;
             }
             
-            setValue(`entries.${index}.pictures`, combinedFiles);
+            setValue(`entries.${index}.pictures`, combinedFiles, { shouldValidate: true });
             
+            // Generate and set new preview URLs
             const newPreviewUrls = combinedFiles.map(file => URL.createObjectURL(file));
+            // Clean up old URLs before setting new ones to prevent memory leaks
+            imagePreviews.forEach(URL.revokeObjectURL);
             setImagePreviews(newPreviewUrls);
         }
     };
+    
+    const handlePictureRemove = (imageIndex: number) => {
+        const currentFiles = (getValues(`entries.${index}.pictures`) || []) as File[];
+        const updatedFiles = currentFiles.filter((_, i) => i !== imageIndex);
+        setValue(`entries.${index}.pictures`, updatedFiles, { shouldValidate: true });
+        
+        // Generate and set new preview URLs
+        const newPreviewUrls = updatedFiles.map(file => URL.createObjectURL(file));
+        imagePreviews.forEach(URL.revokeObjectURL);
+        setImagePreviews(newPreviewUrls);
+    }
+    
+    React.useEffect(() => {
+        // Clean up object URLs when the component unmounts
+        return () => {
+            imagePreviews.forEach(URL.revokeObjectURL);
+        };
+    }, [imagePreviews]);
 
     return (
         <Card className="relative">
@@ -121,7 +144,18 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                      {imagePreviews.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-2">
                             {imagePreviews.map((src, i) => (
-                                <Image key={i} src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover" data-ai-hint="measurement image"/>
+                                <div key={i} className="relative">
+                                    <Image src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover" data-ai-hint="measurement image"/>
+                                    <Button 
+                                        type="button" 
+                                        variant="destructive" 
+                                        size="icon" 
+                                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
+                                        onClick={() => handlePictureRemove(i)}
+                                    >
+                                        <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                </div>
                             ))}
                         </div>
                     )}
