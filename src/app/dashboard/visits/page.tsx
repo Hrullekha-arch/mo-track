@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -26,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, doc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, doc, getDoc, updateDoc, collectionGroup } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DealVisit, Customer, Deal, User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -94,7 +93,7 @@ export default function AllVisitsPage() {
             const dealCacheKey = `${customerId}-${dealDocId}`;
             if (!dealCache.has(dealCacheKey)) {
                 const dealRef = doc(db, 'customers', customerId, 'deals', dealDocId);
-                const dealSnap = await getDoc(dealRef);
+                 const dealSnap = await getDoc(dealRef);
                  if (dealSnap.exists()) {
                     dealCache.set(dealCacheKey, { id: dealSnap.id, ...dealSnap.data() } as Deal);
                 }
