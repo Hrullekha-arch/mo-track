@@ -2091,9 +2091,15 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders 
                                         <TableCell className="capitalize">{visit.typeOfVisit}</TableCell>
                                         <TableCell>{format(new Date(visit.dueDate), 'PPP p')}</TableCell>
                                         <TableCell>
-                                            <Badge variant={visit.status === 'completed' ? 'default' : 'secondary'} className={cn(visit.status === 'completed' && 'bg-green-600')}>
-                                                {visit.status === 'completed' ? 'Done' : 'Pending'}
-                                            </Badge>
+                                            {(() => {
+                                                if (visit.visitStatus === 'Out for Delivery') {
+                                                    return <Badge className="bg-blue-600 hover:bg-blue-700">Out for Delivery</Badge>;
+                                                }
+                                                if (visit.status === 'completed') {
+                                                    return <Badge className="bg-green-600 hover:bg-green-700">Done</Badge>;
+                                                }
+                                                return <Badge variant="secondary">Pending</Badge>;
+                                            })()}
                                         </TableCell>
                                         <TableCell>{salesmen.find(s => s.id === visit.representative)?.name || visit.representative}</TableCell>
                                         <TableCell>{visit.createdBy}</TableCell>
