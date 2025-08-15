@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -143,18 +144,18 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
     {
       accessorKey: "dealId",
       header: "Order ID",
-      cell: ({ row }) => <div className="font-mono">{row.getValue("dealId")}</div>,
+      cell: ({ row }) => (
+          <Button variant="link" onClick={() => setTimelineRequest(row.original.originalRequest)} className="p-0 h-auto font-medium">
+              {row.getValue("dealId")}
+          </Button>
+      )
     },
     {
         accessorKey: 'poNumber',
         header: 'PO Number',
         cell: ({ row }) => {
           const poNumber = row.original.poNumber;
-          return poNumber ? (
-            <Button variant="link" onClick={() => setTimelineRequest(row.original.originalRequest)} className="p-0 h-auto font-medium">
-                {poNumber}
-            </Button>
-          ) : '-';
+          return poNumber ? poNumber : '-';
         }
     },
     {
@@ -486,6 +487,7 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog>
         <Dialog open={!!timelineRequest} onOpenChange={() => setTimelineRequest(null)}>
             <DialogContent className="max-w-2xl">
                  <DialogHeader>
@@ -496,18 +498,19 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
                 </DialogHeader>
                 <div className="py-4">
                     {timelineRequest && (
-                       <AlertDialog>
+                       
                             <PoTrackingTimeline 
                                 request={timelineRequest}
                                 onStepUpdate={() => {}} // Read-only view
                                 onRevertStep={() => {}} // Read-only view
                                 userRole={role}
                             />
-                       </AlertDialog>
+                       
                     )}
                 </div>
             </DialogContent>
         </Dialog>
+     </AlertDialog>
     </>
   );
 }

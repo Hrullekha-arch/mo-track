@@ -1,4 +1,5 @@
 
+
 import { type Milestone, type OrderType, type PurchaseStep, O2DStep, type ComboboxOption } from './types';
 import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart, PhoneCall, Factory, Layers, CheckCircle } from 'lucide-react';
 import { addDays, addHours, addMinutes } from 'date-fns';
@@ -54,9 +55,7 @@ export const PURCHASE_PROCESS_CONFIG: PurchaseStep[] = [
     { id: 1, step: "Verify Authorization", details: "Authorization for purchase is confirmed", time: "10 min", role: "System", icon: ThumbsUp, expectedDuration: { minutes: 10 } },
     { id: 2, step: "Mark Payment Verification", details: "Payment status verified by accounts", time: "30 min", role: "Accounts", icon: CheckCircle, expectedDuration: { minutes: 30 } },
     { id: 3, step: "Vendor Type", details: "Select if vendor is new or existing", time: "5 min", role: "PC", icon: UserCheck, expectedDuration: { minutes: 5 } },
-    { id: 4, step: "Stock Verification", details: "Check if item is available in stock", time: "1 hr", role: "PC", icon: PackageSearch, expectedDuration: { hours: 1 } },
-    { id: 5, step: "Select Vendor", details: "Choose the vendor for the purchase", time: "1 hr", role: "PC", icon: Briefcase, expectedDuration: { hours: 1 } },
-    { id: 6, step: "Place Order", details: "Generate and send PO to the vendor", time: "30 min", role: "PC", icon: Send, expectedDuration: { minutes: 30 } },
+    { id: 4, step: "Place Order", details: "Generate and send PO to the vendor", time: "30 min", role: "PC", icon: Send, expectedDuration: { minutes: 30 } },
 ];
 
 
