@@ -72,7 +72,7 @@ export default function AllOrdersPage() {
                 </TabsContent>
                  <TabsContent value="purchase" className="mt-4">
                     <Suspense fallback={<AllOrdersSkeleton />}>
-                        <PurchaseRequestTable tableData={purchaseRequests} view="default" />
+                        <PurchaseRequestTable tableData={purchaseRequests} view="default" timelineType="purchase" />
                     </Suspense>
                 </TabsContent>
                 <TabsContent value="po-gen" className="mt-4">

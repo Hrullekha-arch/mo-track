@@ -3,6 +3,7 @@
     "name": "purchase",
     "main": "./PurchaseRequestTable.tsx",
     "components": [
-        "./PoTrackingTimeline.tsx"
+        "./PoTrackingTimeline.tsx",
+        "./PurchaseProcessTimeline.tsx"
     ]
 }

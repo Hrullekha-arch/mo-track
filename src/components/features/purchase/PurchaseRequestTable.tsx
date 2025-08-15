@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -50,7 +49,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import Link from 'next/link';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PoTrackingTimeline } from "@/components/features/purchase/PoTrackingTimeline";
-
+import { PurchaseProcessTimeline } from "./PurchaseProcessTimeline";
 
 interface FlattenedPurchaseItem {
     id: string; // Unique ID for the row
@@ -68,7 +67,7 @@ interface FlattenedPurchaseItem {
 }
 
 
-export function PurchaseRequestTable({ tableData, view = "default" }: { tableData: PurchaseRequest[], view?: "default" | "all" | "po-tracking" }) {
+export function PurchaseRequestTable({ tableData, view = "default", timelineType }: { tableData: PurchaseRequest[], view?: "default" | "all" | "po-tracking", timelineType?: 'purchase' | 'po-tracking' }) {
   const [requests, setRequests] = React.useState<FlattenedPurchaseItem[]>([]);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -499,21 +498,27 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
         <Dialog open={!!timelineRequest} onOpenChange={() => setTimelineRequest(null)}>
             <DialogContent className="max-w-2xl">
                  <DialogHeader>
-                    <DialogTitle>PO Tracking for {timelineRequest?.dealId}</DialogTitle>
+                    <DialogTitle>Timeline for {timelineType === 'purchase' ? 'Purchase Request' : 'PO'} #{timelineRequest?.dealId}</DialogTitle>
                     <DialogDescription>
-                        This timeline shows the progress of the Purchase Order after it has been placed.
+                        This timeline shows the progress of the {timelineType === 'purchase' ? 'request before a PO is placed' : 'Purchase Order after it has been placed'}.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="py-4">
-                    {timelineRequest && (
-                       
-                            <PoTrackingTimeline 
-                                request={timelineRequest}
-                                onStepUpdate={() => {}} // Read-only view
-                                onRevertStep={() => {}} // Read-only view
-                                userRole={role}
-                            />
-                       
+                    {timelineRequest && timelineType === 'purchase' && (
+                       <PurchaseProcessTimeline
+                            request={timelineRequest}
+                            onStepUpdate={() => {}}
+                            onRevertStep={() => {}}
+                            userRole={role}
+                       />
+                    )}
+                    {timelineRequest && timelineType === 'po-tracking' && (
+                       <PoTrackingTimeline 
+                            request={timelineRequest}
+                            onStepUpdate={() => {}}
+                            onRevertStep={() => {}}
+                            userRole={role}
+                        />
                     )}
                 </div>
             </DialogContent>

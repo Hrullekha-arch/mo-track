@@ -32,6 +32,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PoTrackingTimeline } from "./PoTrackingTimeline";
+import { AlertDialog } from "@/components/ui/alert-dialog";
+
 
 interface FlattenedPoItem {
   id: string;
@@ -48,6 +52,7 @@ interface FlattenedPoItem {
 export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
   const [requests, setRequests] = React.useState<FlattenedPoItem[]>([]);
   const [globalFilter, setGlobalFilter] = React.useState('');
+  const [timelineRequest, setTimelineRequest] = React.useState<PurchaseRequest | null>(null);
 
   React.useEffect(() => {
     const flattenedData: FlattenedPoItem[] = tableData.flatMap(req => {
@@ -70,7 +75,13 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
   }, [tableData]);
 
   const columns: ColumnDef<FlattenedPoItem>[] = [
-    { accessorKey: "orderId", header: "Order ID" },
+    { accessorKey: "orderId", header: "Order ID",
+      cell: ({ row }) => (
+          <Button variant="link" onClick={() => setTimelineRequest(row.original.originalRequest)} className="p-0 h-auto font-medium">
+              {row.getValue("orderId")}
+          </Button>
+      )
+    },
     { accessorKey: "poNumber", header: "PO Number" },
     { accessorKey: "customerName", header: "Customer Name" },
     { accessorKey: "itemName", header: "Item Name" },
@@ -113,6 +124,7 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
   });
 
   return (
+    <>
     <Card>
       <CardContent className="p-4">
         <div className="flex items-center py-4">
@@ -163,5 +175,30 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
         </div>
       </CardContent>
     </Card>
+     <AlertDialog>
+        <Dialog open={!!timelineRequest} onOpenChange={() => setTimelineRequest(null)}>
+            <DialogContent className="max-w-2xl">
+                 <DialogHeader>
+                    <DialogTitle>PO Tracking for {timelineRequest?.dealId}</DialogTitle>
+                    <DialogDescription>
+                        This timeline shows the progress of the Purchase Order after it has been placed.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                    {timelineRequest && (
+                       
+                            <PoTrackingTimeline 
+                                request={timelineRequest}
+                                onStepUpdate={() => {}}
+                                onRevertStep={() => {}}
+                                userRole={null}
+                            />
+                       
+                    )}
+                </div>
+            </DialogContent>
+        </Dialog>
+     </AlertDialog>
+    </>
   );
 }
