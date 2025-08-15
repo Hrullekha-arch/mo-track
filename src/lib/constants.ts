@@ -1,7 +1,7 @@
 
 
 import { type Milestone, type OrderType, type PurchaseStep, O2DStep, type ComboboxOption } from './types';
-import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart, PhoneCall, Factory, Layers, CheckCircle } from 'lucide-react';
+import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart, PhoneCall, Factory, Layers, CheckCircle, Archive } from 'lucide-react';
 import { addDays, addHours, addMinutes, subDays } from 'date-fns';
 
 
@@ -374,5 +374,7 @@ export const calculateExpectedDatesForOrder = (order: Order) => {
     return expectedDates;
 }
 
+
+    
 
     
