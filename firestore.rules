@@ -2,118 +2,118 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-  
-    // Helper function to check if a user is authenticated
-    function isAuthenticated() {
+
+    // Helper functions
+    function isSignedIn() {
       return request.auth != null;
     }
 
-    // Helper function to check if a user has a specific role
-    function hasRole(role) {
-      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    function isRole(role) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
     }
     
-    // Helper function to check if a user has one of several roles
-    function hasAnyRole(roles) {
-      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in roles;
-    }
-    
-    // Helper function to check if user is admin or specific employee types
-    function isStaff() {
-        return hasAnyRole(['admin', 'employee']);
+    function isRoleIn(roles) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in roles;
     }
 
-    // Users collection rules
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isAssigned(resource) {
+      return resource.data.assignedTo == request.auth.uid;
+    }
+
+    // Users Collection
+    // Admins can read/write all users.
+    // All signed-in users can read their own data.
     match /users/{userId} {
-      // Anyone can read user info (e.g., for display names)
-      allow read: if isAuthenticated();
-      // Only admins can create or delete users
-      allow create, delete: if hasRole('admin');
-      // A user can update their own info, or an admin can update anyone's info
-      allow update: if isAuthenticated() && (request.auth.uid == userId || hasRole('admin'));
+      allow read, write: if isRole('admin');
+      allow read: if isSignedIn() && isOwner(userId);
     }
     
-    // Customers collection rules
-    match /customers/{customerId} {
-        allow read, write: if isStaff();
-        
-        // Rules for subcollections of customers
-        match /{allSubcollections}/{docId} {
-            allow read, write: if isStaff();
-        }
-
-        match /visits/{visitId} {
-            allow read, write: if isStaff();
-            allow update: if isAuthenticated() && resource.data.assignedTo == request.auth.uid;
-        }
+    // Customers Collection and Subcollections
+    // Admins and Employees can perform all actions.
+    match /customers/{customerId}/{document=**} {
+        allow read, write, delete: if isRoleIn(['admin', 'employee', 'Accounts']);
     }
     
-    // O2D collection rules
-    match /o2d/{dealId} {
-        allow read, write: if isStaff();
-        // Allow installers to update, but only specific fields (if needed later)
-        allow update: if isAuthenticated() && get(/databases/$(database)/documents/orders/{dealId}).data.assignedTo == request.auth.uid;
+    // O2D Collection
+    // Admins and Employees can read all documents.
+    // Specific updates are handled by server-side functions.
+    match /o2d/{o2dId} {
+      allow read: if isRoleIn(['admin', 'employee', 'Accounts']);
+      allow write: if isSignedIn(); // Allow updates from authenticated users (e.g., installers)
     }
 
-    // Orders collection rules
+    // Orders Collection
+    // Admins/Employees can read/write all.
+    // Installers can read/update orders they are assigned to.
     match /orders/{orderId} {
-        // Staff can read and write all orders
-        allow read, write: if isStaff();
-        
-        // Installers can read and update orders assigned to them
-        allow read, update: if isAuthenticated() && resource.data.assignedTo == request.auth.uid;
-
-        // Any authenticated user can track their own order if they have the code (for the tracking page)
-        // This is a broad read, but data in orders should be customer-safe.
-        allow get: if isAuthenticated();
-        
-        match /{allSubcollections}/{docId} {
-            allow read, write: if isStaff();
-        }
+      allow read: if isRoleIn(['admin', 'employee', 'Accounts']) || (isRole('installer') && isAssigned(resource));
+      allow write: if isRoleIn(['admin', 'employee', 'Accounts']) || (isRole('installer') && isAssigned(resource));
+      allow delete: if isRole('admin');
+      
+      // Allocations subcollection
+      match /allocations/{allocationId} {
+        allow read, write: if isRoleIn(['admin', 'employee']);
+      }
     }
     
-    // Rules for collection groups
-    match /{path=**}/visits/{visitId} {
-        // Admins and employees can list all visits
-        // Installers can only read visits assigned to them
-        allow read: if isStaff() || (isAuthenticated() && get(/databases/$(database)/documents/{path}/visits/$(visitId)).data.assignedTo == request.auth.uid);
-    }
-    
-    // Purchase Requests and Inbounds
+    // Purchase Requests Collection
+    // Admins and Employees can read/write.
     match /purchaseRequests/{requestId} {
-        allow read, write: if isStaff();
+      allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
     }
     
+    // Inbounds Collection
+    // Admins and Employees can read/write.
     match /inbounds/{inboundId} {
-        allow read, write: if isStaff();
+      allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
     }
     
-    // Inventory and Transactions
-    match /stocks/{stockId} {
-        allow read: if isAuthenticated();
-        allow write: if isStaff();
-
-        match /{allSubcollections}/{docId} {
-             allow read, write: if isStaff();
-        }
-    }
-    
-    // Salesman to CRM Assignments
-    match /salesmanCrmAssignments/{salesmanId} {
-        allow read, write: if hasRole('admin');
-    }
-
-    // Invoices and Cutting
+    // Invoices and Cutting Collections
+    // Admins and Employees can read/write.
     match /invoices/{invoiceId} {
-      allow read, write: if isStaff();
+      allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
+    }
+    match /Cutting/{cuttingId} {
+      allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
     }
 
-    match /Cutting/{taskId} {
-      allow read, write: if isStaff();
+    // Stocks and Stock Transactions
+    // Admins and Employees can read/write.
+    match /stocks/{stockId}/{document=**} {
+       allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
     }
     
-     match /approvedQuotations/{quotationId} {
-      allow read, write: if isStaff();
+    // Salesman CRM Assignments
+    // Admins can read/write.
+    match /salesmanCrmAssignments/{assignmentId} {
+        allow read, write: if isRole('admin');
+    }
+    
+    // Approved Quotations log
+    match /approvedQuotations/{quotationId} {
+        allow read, write: if isRoleIn(['admin', 'Accounts']);
+    }
+
+    // Invoice Batches
+    match /invoiceBatches/{batchId} {
+        allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
+    }
+    
+    // Rules for Collection Group queries
+    match /{path=**}/visits/{visitId} {
+      // Admins and employees can read all visits.
+      // Installers can read visits assigned to them.
+      allow read: if isRoleIn(['admin', 'employee', 'Accounts']) || (isRole('installer') && isAssigned(get(/databases/$(database)/documents/$(path)/$(visitId))));
+      allow write: if isRoleIn(['admin', 'employee', 'Accounts']) || (isRole('installer') && isAssigned(get(/databases/$(database)/documents/$(path)/$(visitId))));
+    }
+    
+    match /{path=**}/quotations/{quotationId} {
+       // Admins and employees can read all quotations.
+       allow read: if isRoleIn(['admin', 'employee', 'Accounts']);
     }
   }
 }
