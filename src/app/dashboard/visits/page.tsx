@@ -27,7 +27,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { collection, onSnapshot, query, getDocs, doc, getDoc, updateDoc, collectionGroup } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { DealVisit, Customer, Deal, User } from "@/lib/types";
+import { DealVisit, Customer, Deal, User, DeliveryInstallationItem } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
@@ -46,6 +46,57 @@ interface EnrichedDealVisit extends DealVisit {
     dealDocId: string;
     customerId: string;
 }
+
+const renderMeasurementDetails = (visit: DealVisit) => (
+    <div className="space-y-4 text-sm">
+        <div>
+            <h4 className="font-semibold mb-1">Measurements Selected:</h4>
+            <ul className="list-disc list-inside text-muted-foreground">
+                {(visit.measurements && visit.measurements.length > 0) ? visit.measurements.map(m => <li key={m}>{measurementItems.find(mi => mi.id === m)?.label || m}</li>) : <li>None</li>}
+            </ul>
+        </div>
+         {visit.blinds && visit.blinds.length > 0 && (
+            <div>
+                <h4 className="font-semibold mb-1">Blind Types:</h4>
+                <ul className="list-disc list-inside text-muted-foreground">
+                    {visit.blinds.map(b => <li key={b}>{subMeasurementBlinds.find(s => s.id === b)?.label || b}</li>)}
+                </ul>
+            </div>
+        )}
+         {visit.curtain && visit.curtain.length > 0 && (
+            <div>
+                <h4 className="font-semibold mb-1">Curtain Types:</h4>
+                <ul className="list-disc list-inside text-muted-foreground">
+                   {visit.curtain.map(c => <li key={c}>{subMeasurementCurtain.find(s => s.id === c)?.label || c}</li>)}
+                   {visit.otherCurtain && <li>Other: {visit.otherCurtain}</li>}
+                </ul>
+            </div>
+        )}
+    </div>
+);
+
+const renderDeliveryDetails = (visit: DealVisit) => (
+    <div className="space-y-4 text-sm">
+        <div>
+            <h4 className="font-semibold mb-1">Delivery/Installation Selected:</h4>
+            <ul className="list-disc list-inside text-muted-foreground">
+                {(visit.deliveryInstallations && visit.deliveryInstallations.length > 0) ? 
+                    visit.deliveryInstallations.map(d => d && <li key={d.id}>{deliveryInstallationItems.find(di => di.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>) 
+                    : <li>None</li>}
+                {visit.otherDelivery && <li>Other: {visit.otherDelivery}</li>}
+            </ul>
+        </div>
+         {visit.subDeliveryInstallations && visit.subDeliveryInstallations.length > 0 && (
+            <div>
+                <h4 className="font-semibold mb-1">Sub-Delivery/Installation:</h4>
+                <ul className="list-disc list-inside text-muted-foreground">
+                    {visit.subDeliveryInstallations.map(d => d && <li key={d.id}>{subDeliveryInstallationItems.find(sdi => sdi.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>)}
+                </ul>
+            </div>
+        )}
+    </div>
+);
+
 
 function VisitsTable({ 
     visits, 
@@ -327,9 +378,6 @@ export default function AllVisitsPage() {
     const link = `${baseURL}/visit/confirm/${visit.id}?customerId=${visit.customerId}&dealId=${visit.dealDocId}`;
     setShareableLink(link);
   };
-
-  const renderMeasurementDetails = (visit: DealVisit) => ( <div/> );
-  const renderDeliveryDetails = (visit: DealVisit) => ( <div/> );
   
   const requestedVisits = allVisits.filter(v => v.status === 'requested');
   const approvedVisits = allVisits.filter(v => v.status !== 'requested');
@@ -390,7 +438,7 @@ export default function AllVisitsPage() {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="py-4 space-y-4">
-                        {selectedVisit.typeOfVisit === 'measurement'
+                       {selectedVisit.typeOfVisit === 'measurement'
                             ? renderMeasurementDetails(selectedVisit)
                             : renderDeliveryDetails(selectedVisit)}
                     </div>

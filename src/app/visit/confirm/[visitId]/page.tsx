@@ -174,6 +174,7 @@ export default function ConfirmVisitPage() {
                 customerLandmark: landmark
             });
             
+            // Also update the main customer profile with the new address
             batch.update(customerRef, {
                 addressPinCode: address,
                 landmark: landmark
