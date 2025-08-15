@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, PurchaseRequest, Stock, FabricDetail, O2DStatus, Quotation } from "@/lib/types";
+import { Order, PurchaseRequest, Stock, FabricDetail, O2DStatus, Quotation, PurchaseStatus } from "@/lib/types";
 import { FieldValue } from "firebase-admin/firestore";
 
 
@@ -69,6 +69,12 @@ export async function approveOrderAndCreatePurchaseRequest(
         // 4. Create a new Purchase Request document if there are items to purchase
         if (itemsToPurchase.length > 0) {
             const prRef = adminDb.collection('purchaseRequests').doc(orderData.crmOrderNo);
+            
+            const initialMilestones: PurchaseStatus[] = [
+                { stepId: 1, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
+                { stepId: 2, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
+            ];
+
             const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
                 dealId: orderData.crmOrderNo,
                 customerName: orderData.customerName,
@@ -78,7 +84,7 @@ export async function approveOrderAndCreatePurchaseRequest(
                 fabricDetails: itemsToPurchase,
                 createdAt: new Date().toISOString(),
                 createdBy: approver,
-                milestones: [],
+                milestones: initialMilestones,
                 vendorType: 'undecided',
                 status: 'Approved', // This request should be approved and ready for SO to PO
             };

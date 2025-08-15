@@ -1,8 +1,10 @@
 
+
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { PurchaseRequest, Stock, InboundRequest, InboundItem } from "@/lib/types";
+import { PurchaseRequest, Stock, InboundRequest, InboundItem, PurchaseStatus } from "@/lib/types";
+import { FieldValue } from 'firebase-admin/firestore';
 
 export interface PendingPoItem {
     id: string; // Combination of orderId and itemName
@@ -67,6 +69,7 @@ export interface PoCreationData {
     vendor: string;
     courier: string;
     mode: string;
+    isNewVendor: boolean;
     item: PendingPoItem;
 }
 
@@ -81,7 +84,7 @@ export async function createPurchaseRequestAction(
     try {
         const batch = adminDb.batch();
         const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
-        const { item, vendor, courier, mode } = poData;
+        const { item, vendor, courier, mode, isNewVendor } = poData;
         const purchaseRequestId = item.orderId;
 
         const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
@@ -113,12 +116,28 @@ export async function createPurchaseRequestAction(
 
         const allItemsNowHavePo = newFabricDetails.every(i => !!i.poNumber);
 
+        const vendorTypeMilestone: PurchaseStatus = {
+            stepId: 3,
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            completedBy: creator.name,
+            remarks: isNewVendor ? "New Vendor" : "Existing Vendor"
+        };
+        const placeOrderMilestone: PurchaseStatus = {
+            stepId: 6,
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            completedBy: creator.name,
+            remarks: `PO ${poNumber} generated.`
+        };
+
         batch.update(requestRef, {
             status: allItemsNowHavePo ? 'PO Generated' : 'Approved',
             vendor: vendor, 
             courier: courier,
             mode: mode,
             fabricDetails: newFabricDetails,
+            milestones: FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
         });
 
         const inboundRef = adminDb.collection('inbounds').doc(poNumber);

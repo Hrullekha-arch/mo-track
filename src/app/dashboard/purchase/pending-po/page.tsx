@@ -50,12 +50,14 @@ function CreatePoDialog({
     item, 
     creator,
     onSuccess,
+    isNewVendor
 }: { 
     isOpen: boolean;
     onClose: () => void; 
     item: PendingPoItem | null; 
     creator: { id: string; name: string; } | null;
     onSuccess: () => void;
+    isNewVendor: boolean;
 }) {
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const { toast } = useToast();
@@ -83,6 +85,7 @@ function CreatePoDialog({
             const poData: PoCreationData = {
                 ...values,
                 item: item,
+                isNewVendor,
             };
             const result = await createPurchaseRequestAction(poData, creator);
 
@@ -224,6 +227,7 @@ export default function PendingPOPage() {
   const [itemForPo, setItemForPo] = React.useState<PendingPoItem | null>(null);
   const [isVerificationOpen, setIsVerificationOpen] = React.useState(false);
   const [isCreatePoOpen, setIsCreatePoOpen] = React.useState(false);
+  const [isNewVendor, setIsNewVendor] = React.useState(false);
   const [globalFilter, setGlobalFilter] = React.useState('');
   const { toast } = useToast();
   const { user } = useAuth();
@@ -254,7 +258,8 @@ export default function PendingPOPage() {
     setIsVerificationOpen(true);
   };
 
-  const handleVerificationConfirm = () => {
+  const handleVerificationConfirm = (isNew: boolean) => {
+      setIsNewVendor(isNew);
       setIsVerificationOpen(false);
       setIsCreatePoOpen(true);
   }
@@ -380,6 +385,7 @@ export default function PendingPOPage() {
         item={itemForPo}
         creator={user ? { id: user.id, name: user.name } : null}
         onSuccess={fetchData}
+        isNewVendor={isNewVendor}
     />
     </>
   )
