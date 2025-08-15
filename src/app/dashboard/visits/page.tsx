@@ -200,11 +200,15 @@ export default function AllVisitsPage() {
             const visitStatus = visit.visitStatus;
             const isCompletedMeasurement = status === 'completed' && visit.typeOfVisit === 'measurement' && visit.measurementPdfUrl;
             
-            let badgeText = status === 'completed' ? 'Done' : 'Pending';
-            let badgeVariant: "default" | "secondary" | "destructive" | "outline" = status === 'completed' ? 'default' : 'secondary';
-            let badgeClass = status === 'completed' ? 'bg-green-600' : '';
-            
-            if (visitStatus === 'Out for Delivery' && status !== 'completed') {
+            let badgeText = 'Pending';
+            let badgeVariant: "default" | "secondary" | "destructive" | "outline" = "secondary";
+            let badgeClass = '';
+
+            if (status === 'completed') {
+                badgeText = 'Done';
+                badgeVariant = 'default';
+                badgeClass = 'bg-green-600';
+            } else if (visitStatus === 'Out for Delivery') {
                 badgeText = 'Out for Delivery';
                 badgeVariant = 'default';
                 badgeClass = 'bg-blue-600';
