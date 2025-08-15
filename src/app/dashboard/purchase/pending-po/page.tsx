@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -179,10 +180,50 @@ function CreatePoDialog({
     )
 }
 
+function VendorVerificationDialog({
+    isOpen,
+    onClose,
+    onConfirm
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: (isNew: boolean) => void;
+}) {
+    const [selection, setSelection] = React.useState<string>("");
+
+    return (
+         <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Vendor Verification</DialogTitle>
+                    <DialogDescription>Is the selected vendor a new or existing vendor?</DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                    <Select value={selection} onValueChange={setSelection}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select one..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="yes">Yes (Existing Vendor)</SelectItem>
+                            <SelectItem value="no">No (New Vendor)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+                <DialogFooter>
+                    <Button variant="ghost" onClick={onClose}>Cancel</Button>
+                    <Button onClick={() => onConfirm(selection === 'no')} disabled={!selection}>Continue</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
 export default function PendingPOPage() {
   const [data, setData] = React.useState<PendingPoItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [itemForPo, setItemForPo] = React.useState<PendingPoItem | null>(null);
+  const [isVerificationOpen, setIsVerificationOpen] = React.useState(false);
+  const [isCreatePoOpen, setIsCreatePoOpen] = React.useState(false);
   const [globalFilter, setGlobalFilter] = React.useState('');
   const { toast } = useToast();
   const { user } = useAuth();
@@ -210,7 +251,13 @@ export default function PendingPOPage() {
 
   const handleCreatePoClick = (item: PendingPoItem) => {
     setItemForPo(item);
+    setIsVerificationOpen(true);
   };
+
+  const handleVerificationConfirm = () => {
+      setIsVerificationOpen(false);
+      setIsCreatePoOpen(true);
+  }
 
   const columns: ColumnDef<PendingPoItem>[] = [
     { accessorKey: "orderId", header: "Order ID" },
@@ -322,9 +369,14 @@ export default function PendingPOPage() {
             </CardContent>
         </Card>
     </div>
+    <VendorVerificationDialog
+        isOpen={isVerificationOpen}
+        onClose={() => setIsVerificationOpen(false)}
+        onConfirm={handleVerificationConfirm}
+    />
     <CreatePoDialog 
-        isOpen={!!itemForPo}
-        onClose={() => setItemForPo(null)}
+        isOpen={isCreatePoOpen}
+        onClose={() => setIsCreatePoOpen(false)}
         item={itemForPo}
         creator={user ? { id: user.id, name: user.name } : null}
         onSuccess={fetchData}
