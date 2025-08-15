@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from 'react';
@@ -7,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from "@/hooks/use-toast";
 import { doc, getDoc, updateDoc, writeBatch, arrayUnion, collection, query, where, getDocs, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Customer, Deal, DealVisit, Order, VasDetail, FabricDetail, O2DStatus } from '@/lib/types';
+import { Customer, Deal, DealVisit, Order, VasDetail, FabricDetail, O2DStatus, DeliveryInstallationItem } from '@/lib/types';
 import { getCustomerById } from '@/app/dashboard/customers/actions';
 import { getDealById } from '@/app/dashboard/customers/[customerId]/[dealId]/actions';
 
@@ -18,14 +17,21 @@ import { Loader2, ArrowLeft, Package, User, Phone, MapPin, Truck, Check, Circle,
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { deliveryInstallationItems as allDeliveryItems, subDeliveryInstallationItems as allSubDeliveryItems } from '@/app/dashboard/customers/[customerId]/[dealId]/page';
 
-type DeliveryItem = (FabricDetail | VasDetail) & { type: 'fabric' | 'vas', gathered: boolean };
+type CheckListItem = {
+    id: string;
+    name: string;
+    quantity: string;
+    gathered: boolean;
+};
 
-const DeliveryChecklist = ({ items, onCheckChange, allChecked }: { items: DeliveryItem[], onCheckChange: (index: number, checked: boolean) => void, allChecked: boolean }) => {
+
+const DeliveryChecklist = ({ items, onCheckChange }: { items: CheckListItem[], onCheckChange: (index: number, checked: boolean) => void }) => {
     return (
         <div className="space-y-3">
             {items.map((item, index) => (
-                <div key={`${item.type}-${index}`} className="flex items-center p-3 border rounded-lg bg-background">
+                <div key={item.id} className="flex items-center p-3 border rounded-lg bg-background">
                     <Checkbox
                         id={`item-${index}`}
                         checked={item.gathered}
@@ -33,7 +39,7 @@ const DeliveryChecklist = ({ items, onCheckChange, allChecked }: { items: Delive
                         className="h-5 w-5 mr-4"
                     />
                     <Label htmlFor={`item-${index}`} className="flex-grow">
-                        <p className="font-semibold">{'fabricName' in item ? item.fabricName : item.vasName}</p>
+                        <p className="font-semibold">{item.name}</p>
                         <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
                     </Label>
                 </div>
@@ -62,7 +68,7 @@ export default function DeliveryVisitPage() {
     const [visit, setVisit] = React.useState<DealVisit | null>(null);
     const [order, setOrder] = React.useState<Order | null>(null);
 
-    const [deliveryItems, setDeliveryItems] = React.useState<DeliveryItem[]>([]);
+    const [deliveryItems, setDeliveryItems] = React.useState<CheckListItem[]>([]);
     const allItemsGathered = deliveryItems.every(item => item.gathered);
 
     React.useEffect(() => {
@@ -86,16 +92,30 @@ export default function DeliveryVisitPage() {
                     throw new Error("Could not find all required documents.");
                 }
 
+                const currentVisit = { id: visitData.id, ...visitData.data() } as DealVisit;
+
                 setCustomer(customerData);
                 setDeal(dealData);
                 setOrder({ id: orderData.id, ...orderData.data() } as Order);
-                setVisit({ id: visitData.id, ...visitData.data() } as DealVisit);
+                setVisit(currentVisit);
 
-                const order = { id: orderData.id, ...orderData.data() } as Order;
-                const items: DeliveryItem[] = [
-                    ...(order.fabricDetails || []).map(f => ({ ...f, type: 'fabric' as const, gathered: false })),
-                    ...(order.vasDetails || []).map(v => ({ ...v, type: 'vas' as const, gathered: false }))
-                ];
+                // Build the checklist from the visit document itself
+                const items: CheckListItem[] = [];
+                currentVisit.deliveryInstallations?.forEach(item => {
+                    if (!item) return;
+                    const deliveryItemConfig = allDeliveryItems.find(config => config.id === item.id);
+                    if (deliveryItemConfig) {
+                        items.push({ id: item.id, name: deliveryItemConfig.label, quantity: item.noOfPcs || '1', gathered: false });
+                    }
+                });
+                 currentVisit.subDeliveryInstallations?.forEach(item => {
+                    if (!item) return;
+                    const subDeliveryItemConfig = allSubDeliveryItems.find(config => config.id === item.id);
+                     if (subDeliveryItemConfig) {
+                        items.push({ id: item.id, name: subDeliveryItemConfig.label, quantity: item.noOfPcs || '1', gathered: false });
+                    }
+                });
+                
                 setDeliveryItems(items);
                 
             } catch (error) {
@@ -198,7 +218,7 @@ export default function DeliveryVisitPage() {
                     <CardDescription>Please gather and verify all items before proceeding.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <DeliveryChecklist items={deliveryItems} onCheckChange={handleCheckChange} allChecked={allItemsGathered} />
+                    <DeliveryChecklist items={deliveryItems} onCheckChange={handleCheckChange} />
                 </CardContent>
             </Card>
 
@@ -237,4 +257,3 @@ export default function DeliveryVisitPage() {
         </div>
     );
 }
-
