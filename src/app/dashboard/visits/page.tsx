@@ -46,6 +46,8 @@ interface EnrichedDealVisit extends DealVisit {
     dealName: string;
     dealDocId: string;
     customerId: string;
+    customerAddress?: string;
+    customer?: Customer | null;
 }
 
 const renderMeasurementDetails = (visit: DealVisit) => (
@@ -178,6 +180,9 @@ function VisitsTable({
                 if (visit.visitStatus === 'Out for Delivery') {
                     status = 'out for delivery';
                 }
+                 if (visit.status === 'completed') {
+                    status = 'completed'
+                }
                 
                 let badgeVariant: "default" | "secondary" | "destructive" | "outline" = "secondary";
                 if (status === 'approved') badgeVariant = 'default';
@@ -230,6 +235,23 @@ function VisitsTable({
             </Button>
           ),
         },
+        {
+            id: "measurement",
+            header: "Measurement",
+            cell: ({ row }) => {
+                const visit = row.original;
+                if (visit.typeOfVisit === 'measurement' && visit.measurementPdfUrl) {
+                    return (
+                        <Button asChild variant="ghost" size="icon">
+                            <Link href={visit.measurementPdfUrl} target="_blank" rel="noopener noreferrer">
+                                <Eye className="h-4 w-4" />
+                            </Link>
+                        </Button>
+                    );
+                }
+                return null;
+            },
+        }
     ];
 
     const columns = showAddress ? [...baseColumns.slice(0, 1), addressColumn, ...baseColumns.slice(1), ...visitSpecificColumns] : [...baseColumns, ...visitSpecificColumns];
