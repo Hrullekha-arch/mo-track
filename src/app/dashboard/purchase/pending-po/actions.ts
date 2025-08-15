@@ -124,7 +124,7 @@ export async function createPurchaseRequestAction(
             remarks: isNewVendor ? "New Vendor" : "Existing Vendor"
         };
         const placeOrderMilestone: PurchaseStatus = {
-            stepId: 6,
+            stepId: 4, // Corrected Step ID for "Place Order"
             status: 'completed',
             completedAt: new Date().toISOString(),
             completedBy: creator.name,
