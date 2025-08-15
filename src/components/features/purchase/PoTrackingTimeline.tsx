@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { PurchaseRequest, PurchaseStatus } from "@/lib/types";
@@ -106,11 +105,11 @@ export function PoTrackingTimeline({
                                     <div className="flex justify-between items-center flex-wrap gap-4">
                                         <div className="text-xs text-muted-foreground space-y-2 flex-grow">
                                             {expectedDate && (
-                                                <p className="flex items-center gap-2">
+                                                <div className="flex items-center gap-2">
                                                     <Clock className="h-4 w-4" />
                                                     <span>Expected by: {formatTimestamp(expectedDate)}</span>
                                                     {isOverdue && <Badge variant="destructive">Overdue</Badge>}
-                                                </p>
+                                                </div>
                                             )}
                                             {stepStatus?.status === 'completed' && (
                                                 <div className="flex items-center gap-2 text-green-600 font-medium">
