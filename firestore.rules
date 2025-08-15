@@ -2,61 +2,137 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Allow public read access to a specific document for testing or public data
-    match /public/{docId} {
-      allow read: if true;
-      allow write: if false;
-    }
-
-    // Users collection rules
-    match /users/{userId} {
-      // Anyone can create a user document (on signup)
-      allow create: if request.auth != null;
-      // Only the user themselves or an admin can read/update their own data
-      allow read, update: if request.auth != null && (request.auth.uid == userId || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
-      // Only admins can delete users
-      allow delete: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+  
+    // Helper function to check for Admin or specific Employee roles
+    function isStaff() {
+      return isSignedIn() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'employee' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Accounts'
+      );
     }
     
-    // Customers and subcollections
+    function isAdmin() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isInstaller() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'installer';
+    }
+
+    // Users can read their own data. Admins can manage all users.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    
+    // Customers and their subcollections can be managed by staff.
     match /customers/{customerId} {
-      allow read, write: if request.auth != null;
-      
+      allow read, create, update: if isStaff();
+      allow delete: if isAdmin();
+
+      // Deals can be managed by staff.
       match /deals/{dealId} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isStaff();
         
-        match /visits/{visitId} {
-          allow read: if request.auth != null;
-          allow create, update: if request.auth != null;
+        // Quotations can be managed by staff.
+        match /quotations/{quotationId} {
+           allow read, write: if isStaff();
+        }
+        
+        // Orders within a deal can be managed by staff.
+        match /orders/{dealOrderId} {
+            allow read, write: if isStaff();
         }
 
-        match /{subcollection}/{docId} {
-           allow read, write: if request.auth != null;
+        // Visits can be created/read by staff. Installers can update their assigned visits.
+        match /visits/{visitId} {
+            allow read, create: if isStaff();
+            allow update: if isStaff() || (isInstaller() && resource.data.assignedTo == request.auth.uid);
+        }
+
+        // Measurements and CPDs managed by staff.
+        match /measurements/{measurementId} {
+            allow read, write: if isStaff();
+        }
+        match /cpds/{cpdId} {
+            allow read, write: if isStaff();
         }
       }
     }
-
-    // Orders collection: Allow read/write for authenticated users.
-    // Restrict updates to only the assigned installer or an admin/employee.
-    match /orders/{orderId} {
-       allow read, create: if request.auth != null;
-       allow update: if request.auth != null && 
-                      (request.auth.uid == resource.data.assignedTo || 
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'employee']);
-       allow delete: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    
+    // O2D process can be read by staff, and updated by staff or an assigned installer.
+    match /o2d/{o2dId} {
+        allow read: if isStaff();
+        // Broader update access is needed for installers to complete the final step.
+        allow update: if isStaff() || isInstaller();
     }
 
-    // O2D collection: Allow read/write for authenticated users.
-    match /o2d/{docId} {
-      allow read: if request.auth != null;
-      allow create, update: if request.auth != null;
+    // Orders can be managed by staff. Installers can update their assigned orders.
+    match /orders/{orderId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isStaff();
+      allow update: if isStaff() || (isInstaller() && resource.data.assignedTo == request.auth.uid);
+
+      // Allocations are managed by staff.
+      match /allocations/{allocationId} {
+        allow read, write: if isStaff();
+      }
     }
     
-    // All other collections can be read/written by any authenticated user.
-    // This is a broad rule and should be refined for production.
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+    // Purchase requests can be managed by staff.
+    match /purchaseRequests/{requestId} {
+      allow read, write: if isStaff();
     }
+    
+    // Inbound requests can be managed by staff.
+    match /inbounds/{inboundId} {
+        allow read, write: if isStaff();
+    }
+    
+    // Invoices can be created and read by staff.
+    match /invoices/{invoiceId} {
+        allow read, create: if isStaff();
+        // No updates or deletes to maintain invoice integrity
+    }
+    
+    // Cutting tasks can be read by staff, and updated to 'cut' status.
+    match /Cutting/{cuttingId} {
+        allow read: if isStaff();
+        allow create: if isStaff();
+        // Allow updates for changing item status from pending to cut
+        allow update: if isStaff();
+    }
+
+    // Stock can be read by staff. Updates happen via transactions (server-side actions).
+    match /stocks/{stockId} {
+        allow read: if isSignedIn();
+        // Stock updates should primarily be handled by server-side logic for accuracy.
+        // Granting broad client-side update is risky.
+        allow create, update, delete: if isStaff();
+
+        match /stockAdded/{transactionId} {
+            allow read, write: if isStaff();
+            
+            match /stockSold/{soldTxId} {
+                 allow read, write: if isStaff();
+            }
+        }
+    }
+    
+    // Salesman assignments can only be managed by admins.
+    match /salesmanCrmAssignments/{salesmanId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Invoice batches can be managed by staff.
+    match /invoiceBatches/{batchId} {
+        allow read, write: if isStaff();
+    }
+
   }
 }
