@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, use } from 'react';
@@ -151,14 +152,15 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
             const newMilestones = [...(itemToUpdate.inboundMilestones || []), newMilestone];
             items[itemIndex] = {...itemToUpdate, inboundMilestones: newMilestones};
             
-            await updateDoc(requestRef, { items: items });
+            const wasLastStep = stepId === INBOUND_PROCESS_CONFIG[INBOUND_PROCESS_CONFIG.length - 1].id;
+            const batch = writeBatch(db);
+
+            batch.update(requestRef, { items: items });
 
             toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete for ${itemToUpdate.itemName}.`});
             
             const itemIsNowComplete = newMilestones.length === INBOUND_PROCESS_CONFIG.length;
             
-            const batch = writeBatch(db);
-
             if (itemIsNowComplete) {
                 const stockId = itemToUpdate.itemName.replace(/\//g, '-');
                 const quantity = parseFloat(itemToUpdate.quantity);
@@ -196,6 +198,20 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     });
                     batch.update(orderRef, { fabricDetails });
                 }
+            }
+
+             if (wasLastStep) {
+                const purchaseRequestRef = doc(db, 'purchaseRequests', request.purchaseRequestId);
+                 const receivingMilestone: PurchaseStatus = {
+                    stepId: 3, // Receiving And Sent To Location
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: user.name,
+                    itemName: itemToUpdate.itemName
+                };
+                batch.update(purchaseRequestRef, {
+                    poMilestones: arrayUnion(receivingMilestone)
+                });
             }
             
             // Check if all items in this PO are now fully processed

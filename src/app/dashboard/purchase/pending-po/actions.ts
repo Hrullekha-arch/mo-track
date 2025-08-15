@@ -131,6 +131,15 @@ export async function createPurchaseRequestAction(
             remarks: `PO ${poNumber} generated.`
         };
 
+        // --- AUTOMATION: Automatically complete PO Confirmation ---
+        const poConfirmationMilestone: PurchaseStatus = {
+            stepId: 1, // Step ID for "PO Confirmation" from PO_PROCESS_CONFIG
+            status: 'completed',
+            completedAt: new Date().toISOString(),
+            completedBy: 'System (Auto)',
+            remarks: `Automatically confirmed upon PO generation for item ${item.collectionBrand}.`
+        };
+
         batch.update(requestRef, {
             status: allItemsNowHavePo ? 'PO Generated' : 'Approved',
             vendor: vendor, 
@@ -138,6 +147,7 @@ export async function createPurchaseRequestAction(
             mode: mode,
             fabricDetails: newFabricDetails,
             milestones: FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
+            poMilestones: FieldValue.arrayUnion(poConfirmationMilestone) // Add the auto-completed step
         });
 
         const inboundRef = adminDb.collection('inbounds').doc(poNumber);

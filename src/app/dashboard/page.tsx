@@ -3,7 +3,7 @@
 "use client";
 
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
-import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle } from "lucide-react";
+import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle, PhoneCall } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where, collectionGroup, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -51,6 +51,7 @@ export default function DashboardPage() {
         pendingInvoice: null,
         pendingCutting: null,
         paymentConfirmation: null,
+        deliveryFollowUp: null, // New count
     });
     const [loading, setLoading] = useState(true);
 
@@ -82,7 +83,12 @@ export default function DashboardPage() {
                     setCounts(prev => ({ ...prev, pendingQuotationApproval: docsData.filter(q => (q as Quotation).status === 'Pending Approval').length }));
                 }
                 if (key === 'purchaseRequests') {
-                    setCounts(prev => ({ ...prev, pendingPurchase: docsData.filter(pr => (pr as PurchaseRequest).status === 'Approved').length }));
+                    const poGeneratedRequests = (docsData as PurchaseRequest[]).filter(pr => pr.status === 'PO Generated');
+                     setCounts(prev => ({
+                        ...prev,
+                        pendingPurchase: docsData.filter(pr => pr.status === 'Approved').length,
+                        deliveryFollowUp: poGeneratedRequests.length,
+                    }));
                 }
                 if (key === 'inbounds') {
                     setCounts(prev => ({ ...prev, pendingInbound: snapshot.size }));
@@ -111,6 +117,7 @@ export default function DashboardPage() {
         { title: "Payment Confirmation", count: counts.paymentConfirmation, href: "/dashboard/approvals?tab=payment-confirmation", icon: CheckCircle },
         { title: "Ready for Delivery", count: counts.readyForDelivery, href: "/dashboard/orders", icon: Truck },
         { title: "Pending Purchase", count: counts.pendingPurchase, href: "/dashboard/purchase/pending-po", icon: ShoppingCart },
+        { title: "Delivery Follow Up", count: counts.deliveryFollowUp, href: "/dashboard/po-tracking", icon: PhoneCall },
         { title: "Pending Inbound", count: counts.pendingInbound, href: "/dashboard/inbound", icon: Archive },
         { title: "All Visits", count: counts.pendingVisits, href: "/dashboard/visits", icon: CalendarCheck },
         { title: "Pending Invoice", count: counts.pendingInvoice, href: "/dashboard/invoice", icon: FileText },

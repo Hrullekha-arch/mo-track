@@ -50,7 +50,6 @@ export const O2D_PROCESS_CONFIG: O2DStep[] = [
     { id: 13, step: "Installation Done", details: "Final step in O2D, order moves to main board", time: "Variable", role: "Installer / System", icon: ThumbsUp, expectedDuration: { days: 2 } }
 ];
 
-
 export const PURCHASE_PROCESS_CONFIG: PurchaseStep[] = [
     { id: 1, step: "Verify Authorization", details: "Authorization for purchase is confirmed", time: "10 min", role: "System", icon: ThumbsUp, expectedDuration: { minutes: 10 } },
     { id: 2, step: "Mark Payment Verification", details: "Payment status verified by accounts", time: "30 min", role: "Accounts", icon: CheckCircle, expectedDuration: { minutes: 30 } },
