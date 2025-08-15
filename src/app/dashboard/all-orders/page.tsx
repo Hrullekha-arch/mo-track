@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { AllOrdersTable } from "@/components/features/order-management/AllOrdersTable";
@@ -55,9 +54,6 @@ export default function AllOrdersPage() {
                         <TabsTrigger value="all-orders">All Orders</TabsTrigger>
                         <TabsTrigger value="o2d">O2D</TabsTrigger>
                         <TabsTrigger value="purchase">Purchase</TabsTrigger>
-                        <TabsTrigger value="po-tracking">PO Tracking</TabsTrigger>
-                        <TabsTrigger value="inbound">Inbound</TabsTrigger>
-                        <TabsTrigger value="tally-log">Tally Log</TabsTrigger>
                         <TabsTrigger value="users">Users</TabsTrigger>
                     </TabsList>
                     <ScrollBar orientation="horizontal" />
@@ -75,21 +71,6 @@ export default function AllOrdersPage() {
                  <TabsContent value="purchase" className="mt-4">
                     <Suspense fallback={<AllOrdersSkeleton />}>
                         <PurchaseRequestTable tableData={purchaseRequests} view="default" />
-                    </Suspense>
-                </TabsContent>
-                 <TabsContent value="po-tracking" className="mt-4">
-                     <Suspense fallback={<AllOrdersSkeleton />}>
-                        <PurchaseRequestTable tableData={purchaseRequests} view="po-tracking" />
-                    </Suspense>
-                </TabsContent>
-                 <TabsContent value="inbound" className="mt-4">
-                     <Suspense fallback={<AllOrdersSkeleton />}>
-                        <PurchaseRequestTable tableData={purchaseRequests} view="all" />
-                    </Suspense>
-                </TabsContent>
-                <TabsContent value="tally-log" className="mt-4">
-                    <Suspense fallback={<AllOrdersSkeleton />}>
-                        <InvoiceLogTable />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="users" className="mt-4">
