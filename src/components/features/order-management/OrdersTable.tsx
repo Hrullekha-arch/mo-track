@@ -52,26 +52,253 @@ import { Calendar } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { CreateQuotationDialog } from "./CreateQuotationDialog";
+import { NewOrderDialog } from "./NewOrderDialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
+
+function OrderTableComponent({ data, columns, loading }: { data: Order[], columns: ColumnDef<Order>[], loading: boolean }) {
+    const [sorting, setSorting] = React.useState<SortingState>([
+        { id: "createdAt", desc: true }
+    ]);
+    const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
+    const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
+    const [rowSelection, setRowSelection] = React.useState({});
+    const [orderNoFilter, setOrderNoFilter] = React.useState("");
+    const [dateRangeFilter, setDateRangeFilter] = React.useState<DateRange | undefined>();
+    const [storeFilter, setStoreFilter] = React.useState("all");
+
+    const filteredData = React.useMemo(() => {
+        return data.filter(order => {
+          const orderNoMatch = orderNoFilter ? order.crmOrderNo.includes(orderNoFilter) : true;
+          const dateMatch = dateRangeFilter?.from ? isWithinInterval(new Date(order.createdAt), { start: dateRangeFilter.from, end: dateRangeFilter.to || dateRangeFilter.from }) : true;
+          const storeMatch = storeFilter === 'all' ? true : order.storeName === storeFilter;
+
+          return orderNoMatch && dateMatch && storeMatch;
+        });
+    }, [data, orderNoFilter, dateRangeFilter, storeFilter]);
+
+    const table = useReactTable({
+        data: filteredData,
+        columns,
+        onSortingChange: setSorting,
+        onColumnFiltersChange: setColumnFilters,
+        getCoreRowModel: getCoreRowModel(),
+        getPaginationRowModel: getPaginationRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+        getFilteredRowModel: getFilteredRowModel(),
+        onColumnVisibilityChange: setColumnVisibility,
+        onRowSelectionChange: setRowSelection,
+        state: {
+          sorting,
+          columnFilters,
+          columnVisibility,
+          rowSelection,
+        },
+    });
+
+    const uniqueStores = ["MO GCR BRANCH", "MO MG ROAD", "MO SULTANPUR"];
+
+    const clearFilters = () => {
+        setOrderNoFilter("");
+        setDateRangeFilter(undefined);
+        setStoreFilter("all");
+    }
+
+    return (
+         <Card>
+            <CardContent className="p-4">
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <Input
+                      placeholder="Order No"
+                      value={orderNoFilter}
+                      onChange={(e) => setOrderNoFilter(e.target.value)}
+                    />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="date"
+                          variant={"outline"}
+                          className={cn(
+                            "justify-start text-left font-normal",
+                            !dateRangeFilter && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {dateRangeFilter?.from ? (
+                            dateRangeFilter.to ? (
+                              <>
+                                {format(dateRangeFilter.from, "LLL dd, y")} -{" "}
+                                {format(dateRangeFilter.to, "LLL dd, y")}
+                              </>
+                            ) : (
+                              format(dateRangeFilter.from, "LLL dd, y")
+                            )
+                          ) : (
+                            <span>From Date</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          initialFocus
+                          mode="range"
+                          defaultMonth={dateRangeFilter?.from}
+                          selected={dateRangeFilter}
+                          onSelect={setDateRangeFilter}
+                          numberOfMonths={1}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="date-to"
+                          variant={"outline"}
+                          className={cn(
+                            "justify-start text-left font-normal",
+                            !dateRangeFilter?.to && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {dateRangeFilter?.to ? (
+                              format(dateRangeFilter.to, "LLL dd, y")
+                          ) : (
+                            <span>To Date</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          initialFocus
+                          mode="range"
+                          defaultMonth={dateRangeFilter?.from}
+                          selected={dateRangeFilter}
+                          onSelect={setDateRangeFilter}
+                          numberOfMonths={1}
+                        />
+                      </PopoverContent>
+                    </Popover>
+
+                    <Select value={storeFilter} onValueChange={setStoreFilter}>
+                        <SelectTrigger><SelectValue placeholder="Store*" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Stores</SelectItem>
+                            {uniqueStores.map(store => <SelectItem key={store} value={store!}>{store}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                    <Select>
+                        <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
+                        <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
+                    </Select>
+                    <Select>
+                        <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
+                        <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button><Search className="mr-2 h-4 w-4"/>Search</Button>
+                    <Button variant="outline" onClick={clearFilters}><X className="mr-2 h-4 w-4"/>Clear</Button>
+                  </div>
+                </div>
+                <div className="flex items-center py-4 gap-4">
+                     <div className="ml-auto relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                         <Input
+                            placeholder="Search in results..."
+                            value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
+                            onChange={(event) =>
+                                table.getColumn("customerName")?.setFilterValue(event.target.value)
+                            }
+                            className="max-w-sm pl-9"
+                        />
+                     </div>
+                </div>
+                <div className="rounded-md border">
+                    <Table>
+                        <TableHeader>
+                            {table.getHeaderGroups().map((headerGroup) => (
+                            <TableRow key={headerGroup.id}>
+                                {headerGroup.headers.map((header) => (
+                                <TableHead key={header.id}>
+                                    {header.isPlaceholder
+                                        ? null
+                                        : flexRender(header.column.columnDef.header, header.getContext())}
+                                </TableHead>
+                                ))}
+                            </TableRow>
+                            ))}
+                        </TableHeader>
+                        <TableBody>
+                            {loading ? (
+                                 <TableRow>
+                                    <TableCell colSpan={columns.length} className="h-24 text-center">
+                                        <Skeleton className="h-full w-full" />
+                                    </TableCell>
+                                </TableRow>
+                            ) : table.getRowModel().rows?.length ? (
+                            table.getRowModel().rows.map((row) => (
+                                <TableRow
+                                key={row.id}
+                                data-state={row.getIsSelected() && "selected"}
+                                >
+                                {row.getVisibleCells().map((cell) => (
+                                    <TableCell key={cell.id}>
+                                    {flexRender(
+                                        cell.column.columnDef.cell,
+                                        cell.getContext()
+                                    )}
+                                    </TableCell>
+                                ))}
+                                </TableRow>
+                            ))
+                            ) : (
+                            <TableRow>
+                                <TableCell
+                                colSpan={columns.length}
+                                className="h-24 text-center"
+                                >
+                                No results.
+                                </TableCell>
+                            </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </div>
+                 <div className="flex items-center justify-end space-x-2 py-4">
+                    <div className="flex-1 text-sm text-muted-foreground">
+                    {table.getFilteredSelectedRowModel().rows.length} of{" "}
+                    {table.getFilteredRowModel().rows.length} row(s) selected.
+                    </div>
+                    <div className="space-x-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => table.previousPage()}
+                        disabled={!table.getCanPreviousPage()}
+                    >
+                        Previous
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => table.nextPage()}
+                        disabled={!table.getCanNextPage()}
+                    >
+                        Next
+                    </Button>
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
 
 export function OrdersTable() {
   const [orders, setOrders] = React.useState<Order[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [sorting, setSorting] = React.useState<SortingState>([
-    { id: "createdAt", desc: true }
-  ]);
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
-  const [rowSelection, setRowSelection] = React.useState({});
   const [deletingOrder, setDeletingOrder] = React.useState<Order | null>(null);
   const [isQuotationDialogOpen, setIsQuotationDialogOpen] = React.useState(false);
-
-
-  // New states for advanced filters
-  const [orderNoFilter, setOrderNoFilter] = React.useState("");
-  const [dateRangeFilter, setDateRangeFilter] = React.useState<DateRange | undefined>();
-  const [storeFilter, setStoreFilter] = React.useState("all");
 
   const { toast } = useToast();
   const { user, role } = useAuth();
@@ -121,12 +348,9 @@ export function OrdersTable() {
       id: "index",
       header: "#",
       cell: ({ row, table }) => {
-        const sortedRowModel = table.getSortedRowModel();
-        const rowModel = sortedRowModel ? sortedRowModel : table.getRowModel();
-        const sortedRowIndex = rowModel.rows.findIndex(sortedRow => sortedRow.id === row.id);
         const pageIndex = table.getState().pagination.pageIndex;
         const pageSize = table.getState().pagination.pageSize;
-        return <span>{pageIndex * pageSize + sortedRowIndex + 1}</span>;
+        return <span>{pageIndex * pageSize + row.index + 1}</span>;
       }
     },
     {
@@ -286,48 +510,10 @@ export function OrdersTable() {
       },
     },
   ];
-
-  const filteredData = React.useMemo(() => {
-    return orders.filter(order => {
-      const orderNoMatch = orderNoFilter ? order.crmOrderNo.includes(orderNoFilter) : true;
-      const dateMatch = dateRangeFilter?.from ? isWithinInterval(new Date(order.createdAt), { start: dateRangeFilter.from, end: dateRangeFilter.to || dateRangeFilter.from }) : true;
-      const storeMatch = storeFilter === 'all' ? true : order.storeName === storeFilter;
-
-      return orderNoMatch && dateMatch && storeMatch;
-    });
-  }, [orders, orderNoFilter, dateRangeFilter, storeFilter]);
-
-  const table = useReactTable({
-    data: filteredData,
-    columns,
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    onColumnVisibilityChange: setColumnVisibility,
-    onRowSelectionChange: setRowSelection,
-    state: {
-      sorting,
-      columnFilters,
-      columnVisibility,
-      rowSelection,
-    },
-  });
-
-  const handleExport = () => {
-    // Export logic here
-  }
   
-  const clearFilters = () => {
-    setOrderNoFilter("");
-    setDateRangeFilter(undefined);
-    setStoreFilter("all");
-    setColumnFilters([]);
-  }
+  const isFullyCompleted = (order: Order) => Array.isArray(order.milestones) && order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
 
-  const uniqueStores = ["MO GCR BRANCH", "MO MG ROAD", "MO SULTANPUR"];
+  const activeOrders = React.useMemo(() => orders.filter(o => !isFullyCompleted(o)), [orders]);
 
   if (loading) {
     return (
@@ -367,193 +553,19 @@ export function OrdersTable() {
               Create Quotation
           </Button>
         </header>
-        <Card>
-            <CardContent className="p-4">
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <Input
-                      placeholder="Order No"
-                      value={orderNoFilter}
-                      onChange={(e) => setOrderNoFilter(e.target.value)}
-                    />
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          id="date"
-                          variant={"outline"}
-                          className={cn(
-                            "justify-start text-left font-normal",
-                            !dateRangeFilter && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {dateRangeFilter?.from ? (
-                            dateRangeFilter.to ? (
-                              <>
-                                {format(dateRangeFilter.from, "LLL dd, y")} -{" "}
-                                {format(dateRangeFilter.to, "LLL dd, y")}
-                              </>
-                            ) : (
-                              format(dateRangeFilter.from, "LLL dd, y")
-                            )
-                          ) : (
-                            <span>From Date</span>
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          initialFocus
-                          mode="range"
-                          defaultMonth={dateRangeFilter?.from}
-                          selected={dateRangeFilter}
-                          onSelect={setDateRangeFilter}
-                          numberOfMonths={1}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          id="date-to"
-                          variant={"outline"}
-                          className={cn(
-                            "justify-start text-left font-normal",
-                            !dateRangeFilter?.to && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {dateRangeFilter?.to ? (
-                              format(dateRangeFilter.to, "LLL dd, y")
-                          ) : (
-                            <span>To Date</span>
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          initialFocus
-                          mode="range"
-                          defaultMonth={dateRangeFilter?.from}
-                          selected={dateRangeFilter}
-                          onSelect={setDateRangeFilter}
-                          numberOfMonths={1}
-                        />
-                      </PopoverContent>
-                    </Popover>
 
-                    <Select value={storeFilter} onValueChange={setStoreFilter}>
-                        <SelectTrigger><SelectValue placeholder="Store*" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Stores</SelectItem>
-                            {uniqueStores.map(store => <SelectItem key={store} value={store!}>{store}</SelectItem>)}
-                        </SelectContent>
-                    </Select>
-                    <Select>
-                        <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
-                        <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
-                    </Select>
-                    <Select>
-                        <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
-                        <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button><Search className="mr-2 h-4 w-4"/>Search</Button>
-                    <Button variant="outline" onClick={clearFilters}><X className="mr-2 h-4 w-4"/>Clear</Button>
-                  </div>
-                </div>
-
-                <div className="flex items-center py-4 gap-4">
-                     <div className="ml-auto relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                         <Input
-                            placeholder="Search..."
-                            value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
-                            onChange={(event) =>
-                                table.getColumn("customerName")?.setFilterValue(event.target.value)
-                            }
-                            className="max-w-sm pl-9"
-                        />
-                     </div>
-                </div>
-
-                <div className="rounded-md border">
-                    <Table>
-                    <TableHeader>
-                        {table.getHeaderGroups().map((headerGroup) => (
-                        <TableRow key={headerGroup.id}>
-                            {headerGroup.headers.map((header) => {
-                            return (
-                                <TableHead key={header.id}>
-                                {header.isPlaceholder
-                                    ? null
-                                    : flexRender(
-                                        header.column.columnDef.header,
-                                        header.getContext()
-                                    )}
-                                </TableHead>
-                            );
-                            })}
-                        </TableRow>
-                        ))}
-                    </TableHeader>
-                    <TableBody>
-                        {table.getRowModel().rows?.length ? (
-                        table.getRowModel().rows.map((row) => (
-                            <TableRow
-                            key={row.id}
-                            data-state={row.getIsSelected() && "selected"}
-                            >
-                            {row.getVisibleCells().map((cell) => (
-                                <TableCell key={cell.id}>
-                                {flexRender(
-                                    cell.column.columnDef.cell,
-                                    cell.getContext()
-                                )}
-                                </TableCell>
-                            ))}
-                            </TableRow>
-                        ))
-                        ) : (
-                        <TableRow>
-                            <TableCell
-                            colSpan={columns.length}
-                            className="h-24 text-center"
-                            >
-                            No results.
-                            </TableCell>
-                        </TableRow>
-                        )}
-                    </TableBody>
-                    </Table>
-                </div>
-                <div className="flex items-center justify-end space-x-2 py-4">
-                    <div className="flex-1 text-sm text-muted-foreground">
-                    {table.getFilteredSelectedRowModel().rows.length} of{" "}
-                    {table.getFilteredRowModel().rows.length} row(s) selected.
-                    </div>
-                    <div className="space-x-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => table.previousPage()}
-                        disabled={!table.getCanPreviousPage()}
-                    >
-                        Previous
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => table.nextPage()}
-                        disabled={!table.getCanNextPage()}
-                    >
-                        Next
-                    </Button>
-                    </div>
-                </div>
-            </CardContent>
-        </Card>
+        <Tabs defaultValue="active">
+            <TabsList>
+                <TabsTrigger value="active">Active Order</TabsTrigger>
+                <TabsTrigger value="all">All Order</TabsTrigger>
+            </TabsList>
+            <TabsContent value="active" className="mt-4">
+                 <OrderTableComponent data={activeOrders} columns={columns} loading={loading} />
+            </TabsContent>
+            <TabsContent value="all" className="mt-4">
+                <OrderTableComponent data={orders} columns={columns} loading={loading} />
+            </TabsContent>
+        </Tabs>
     </div>
      <AlertDialog open={!!deletingOrder} onOpenChange={() => setDeletingOrder(null)}>
         <AlertDialogContent>
@@ -570,6 +582,11 @@ export function OrdersTable() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* NewOrderDialog is not used here anymore, quotations are used instead. But keeping it in case it's needed elsewhere */}
+      {/* <NewOrderDialog isOpen={isNewOrderDialogOpen} onClose={() => setIsNewOrderDialogOpen(false)} /> */}
     </>
   );
 }
+
+    
