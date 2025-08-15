@@ -2,118 +2,20 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isRole(role) {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
-    }
     
-    function isRoleIn(roles) {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in roles;
+    // Helper function to check if the user is an admin.
+    function isAdmin() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    function isOwner(userId) {
-      return request.auth.uid == userId;
-    }
-    
-    function isAssigned(resource) {
-      return resource.data.assignedTo == request.auth.uid;
-    }
-
-    // Users Collection
-    // Admins can read/write all users.
-    // All signed-in users can read their own data.
-    match /users/{userId} {
-      allow read, write: if isRole('admin');
-      allow read: if isSignedIn() && isOwner(userId);
-    }
-    
-    // Customers Collection and Subcollections
-    // Admins and Employees can perform all actions.
-    match /customers/{customerId}/{document=**} {
-        allow read, write, delete: if isRoleIn(['admin', 'employee', 'Accounts']);
-    }
-    
-    // O2D Collection
-    // Admins and Employees can read all documents.
-    // Specific updates are handled by server-side functions.
-    match /o2d/{o2dId} {
-      allow read: if isRoleIn(['admin', 'employee', 'Accounts']);
-      allow write: if isSignedIn(); // Allow updates from authenticated users (e.g., installers)
-    }
-
-    // Orders Collection
-    // Admins/Employees can read/write all.
-    // Installers can read/update orders they are assigned to.
-    match /orders/{orderId} {
-      allow read: if isRoleIn(['admin', 'employee', 'Accounts']) || (isRole('installer') && isAssigned(resource));
-      allow write: if isRoleIn(['admin', 'employee', 'Accounts']) || (isRole('installer') && isAssigned(resource));
-      allow delete: if isRole('admin');
+    // Match all documents in the database
+    match /{document=**} {
+      // Admins can do anything.
+      allow read, write, delete: if isAdmin();
       
-      // Allocations subcollection
-      match /allocations/{allocationId} {
-        allow read, write: if isRoleIn(['admin', 'employee']);
-      }
-    }
-    
-    // Purchase Requests Collection
-    // Admins and Employees can read/write.
-    match /purchaseRequests/{requestId} {
-      allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
-    }
-    
-    // Inbounds Collection
-    // Admins and Employees can read/write.
-    match /inbounds/{inboundId} {
-      allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
-    }
-    
-    // Invoices and Cutting Collections
-    // Admins and Employees can read/write.
-    match /invoices/{invoiceId} {
-      allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
-    }
-    match /Cutting/{cuttingId} {
-      allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
-    }
-
-    // Stocks and Stock Transactions
-    // Admins and Employees can read/write.
-    match /stocks/{stockId}/{document=**} {
-       allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
-    }
-    
-    // Salesman CRM Assignments
-    // Admins can read/write.
-    match /salesmanCrmAssignments/{assignmentId} {
-        allow read, write: if isRole('admin');
-    }
-    
-    // Approved Quotations log
-    match /approvedQuotations/{quotationId} {
-        allow read, write: if isRoleIn(['admin', 'Accounts']);
-    }
-
-    // Invoice Batches
-    match /invoiceBatches/{batchId} {
-        allow read, write: if isRoleIn(['admin', 'employee', 'Accounts']);
-    }
-    
-    // Rules for Collection Group queries
-    match /{path=**}/visits/{visitId} {
-      // Admins and employees can read all visits.
-      // Installers can read visits assigned to them.
-      allow read: if isRoleIn(['admin', 'employee', 'Accounts']) || (isRole('installer') && isAssigned(get(/databases/$(database)/documents/$(path)/$(visitId))));
-      allow write: if isRoleIn(['admin', 'employee', 'Accounts']) || (isRole('installer') && isAssigned(get(/databases/$(database)/documents/$(path)/$(visitId))));
-    }
-    
-    match /{path=**}/quotations/{quotationId} {
-       // Admins and employees can read all quotations.
-       allow read: if isRoleIn(['admin', 'employee', 'Accounts']);
+      // Any other authenticated user can read and write, but not delete.
+      // This rule is evaluated only if the isAdmin() rule above is false.
+      allow read, write: if request.auth != null;
     }
   }
 }
