@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -103,117 +104,133 @@ function VisitsTable({
     users, 
     onAssign, 
     onRowClick,
-    onShare
+    onShare,
+    showAddress = false
 }: { 
     visits: EnrichedDealVisit[], 
     users: User[], 
     onAssign: (visit: EnrichedDealVisit) => void, 
     onRowClick: (visit: EnrichedDealVisit) => void,
-    onShare: (visit: EnrichedDealVisit) => void 
+    onShare: (visit: EnrichedDealVisit) => void,
+    showAddress?: boolean
 }) {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
 
     const getRepresentativeName = (id: string) => users.find(u => u.id === id)?.name || id;
 
-    const columns: ColumnDef<EnrichedDealVisit>[] = [
-    {
-      accessorKey: "dealId",
-      header: "Deal ID",
-      cell: ({ row }) => (
-          <Button variant="link" className="p-0 h-auto font-medium cursor-pointer">
-            <Link href={`/dashboard/customers/${row.original.customerId}/${row.original.dealDocId}`}>
-                {row.original.dealId}
-            </Link>
-          </Button>
-      )
-    },
-    {
-      accessorKey: "customerName",
-      header: "Customer",
-    },
-    {
-      accessorKey: "typeOfVisit",
-      header: "Visit Type",
-      cell: ({ row }) => <Badge variant="outline" className="capitalize">{row.getValue("typeOfVisit")}</Badge>,
-    },
-     {
-      accessorKey: "dueDate",
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          Due Date
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-      cell: ({ row }) => {
-        const dueDate = row.getValue("dueDate") as string;
-        return dueDate ? format(new Date(dueDate), "PPP p") : <Badge variant="destructive">Not Set</Badge>;
-      }
-    },
-    {
-        accessorKey: "status",
-        header: "Status",
+    const baseColumns: ColumnDef<EnrichedDealVisit>[] = [
+        {
+          accessorKey: "dealId",
+          header: "Deal ID",
+          cell: ({ row }) => (
+              <Button variant="link" className="p-0 h-auto font-medium cursor-pointer">
+                <Link href={`/dashboard/customers/${row.original.customerId}/${row.original.dealDocId}`}>
+                    {row.original.dealId}
+                </Link>
+              </Button>
+          )
+        },
+        {
+          accessorKey: "customerName",
+          header: "Customer",
+        },
+    ];
+
+    const addressColumn: ColumnDef<EnrichedDealVisit> = {
+        accessorKey: "customerAddress",
+        header: "Address",
         cell: ({ row }) => {
-            const visit = row.original;
-            let status = visit.status || 'requested';
-            
-            if (visit.visitStatus === 'Out for Delivery') {
-                status = 'out for delivery';
-            }
-            
-            let badgeVariant: "default" | "secondary" | "destructive" | "outline" = "secondary";
-            if (status === 'approved') badgeVariant = 'default';
-            if (status === 'completed') badgeVariant = 'default';
-            if (status === 'requested') badgeVariant = 'destructive';
-
-            let badgeClass = '';
-            if (status === 'completed') badgeClass = 'bg-green-600 hover:bg-green-700';
-            if (status === 'out for delivery') badgeClass = 'bg-blue-600 hover:bg-blue-700';
-
-
-            return <Badge variant={badgeVariant} className={cn(badgeClass, "capitalize")}>{status}</Badge>;
+            const address = row.original.customerAddress || row.original.customer?.addressPinCode || "Not Set";
+            return <div className="text-xs max-w-xs truncate">{address}</div>
         }
-    },
-    {
-      accessorKey: "representative",
-      header: "Representative",
-      cell: ({ row }) => getRepresentativeName(row.getValue("representative")),
-    },
-    {
-        id: 'assignedTo',
-        header: "Assigned To",
-        cell: ({ row }) => {
-            const assignedToId = row.original.assignedTo;
-            const isApproved = row.original.status === 'approved';
-            if (isApproved) {
-                 if (!assignedToId) {
-                    return <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onAssign(row.original); }}>Assign</Button>;
+    };
+    
+    const visitSpecificColumns: ColumnDef<EnrichedDealVisit>[] = [
+        {
+          accessorKey: "typeOfVisit",
+          header: "Visit Type",
+          cell: ({ row }) => <Badge variant="outline" className="capitalize">{row.getValue("typeOfVisit")}</Badge>,
+        },
+         {
+          accessorKey: "dueDate",
+          header: ({ column }) => (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            >
+              Due Date
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </Button>
+          ),
+          cell: ({ row }) => {
+            const dueDate = row.getValue("dueDate") as string;
+            return dueDate ? format(new Date(dueDate), "PPP p") : <Badge variant="destructive">Not Set</Badge>;
+          }
+        },
+        {
+            accessorKey: "status",
+            header: "Status",
+            cell: ({ row }) => {
+                const visit = row.original;
+                let status = visit.status || 'requested';
+                
+                if (visit.visitStatus === 'Out for Delivery') {
+                    status = 'out for delivery';
                 }
-                const installer = users.find(u => u.id === assignedToId);
-                return <Button variant="ghost" onClick={(e) => { e.stopPropagation(); onAssign(row.original); }}>{installer?.name || 'Unknown'}</Button>;
+                
+                let badgeVariant: "default" | "secondary" | "destructive" | "outline" = "secondary";
+                if (status === 'approved') badgeVariant = 'default';
+                if (status === 'completed') badgeVariant = 'default';
+                if (status === 'requested') badgeVariant = 'destructive';
+    
+                let badgeClass = '';
+                if (status === 'completed') badgeClass = 'bg-green-600 hover:bg-green-700';
+                if (status === 'out for delivery') badgeClass = 'bg-blue-600 hover:bg-blue-700';
+    
+    
+                return <Badge variant={badgeVariant} className={cn(badgeClass, "capitalize")}>{status}</Badge>;
             }
-            return (
-                <div className="flex items-center gap-2">
-                    <Badge variant="outline">Pending Customer</Badge>
-                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onShare(row.original);}}>
-                        <Share2 className="h-4 w-4" />
-                    </Button>
-                </div>
-            )
-        }
-    },
-    {
-      id: "actions",
-      cell: ({ row }) => (
-        <Button variant="ghost" size="icon" onClick={() => onRowClick(row.original)}>
-          <Eye className="h-4 w-4" />
-        </Button>
-      ),
-    },
-  ];
+        },
+        {
+          accessorKey: "representative",
+          header: "Representative",
+          cell: ({ row }) => getRepresentativeName(row.getValue("representative")),
+        },
+        {
+            id: 'assignedTo',
+            header: "Assigned To",
+            cell: ({ row }) => {
+                const assignedToId = row.original.assignedTo;
+                const isApproved = row.original.status === 'approved';
+                if (isApproved) {
+                     if (!assignedToId) {
+                        return <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onAssign(row.original); }}>Assign</Button>;
+                    }
+                    const installer = users.find(u => u.id === assignedToId);
+                    return <Button variant="ghost" onClick={(e) => { e.stopPropagation(); onAssign(row.original); }}>{installer?.name || 'Unknown'}</Button>;
+                }
+                return (
+                    <div className="flex items-center gap-2">
+                        <Badge variant="outline">Pending Customer</Badge>
+                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onShare(row.original);}}>
+                            <Share2 className="h-4 w-4" />
+                        </Button>
+                    </div>
+                )
+            }
+        },
+        {
+          id: "actions",
+          cell: ({ row }) => (
+            <Button variant="ghost" size="icon" onClick={() => onRowClick(row.original)}>
+              <Eye className="h-4 w-4" />
+            </Button>
+          ),
+        },
+    ];
+
+    const columns = showAddress ? [...baseColumns.slice(0, 1), addressColumn, ...baseColumns.slice(1), ...visitSpecificColumns] : [...baseColumns, ...visitSpecificColumns];
 
     const table = useReactTable({
         data: visits,
@@ -338,7 +355,7 @@ export default function AllVisitsPage() {
             dealName = dealData?.dealName || 'Unknown';
             dealId = dealData?.dealId || 'N/A';
 
-            return { ...visit, id: docSnap.id, customerId, dealDocId, customerName, dealName, dealId };
+            return { ...visit, id: docSnap.id, customerId, dealDocId, customerName, dealName, dealId, customer: customerCache.get(customerId) || null };
         });
         
         const visitsData = await Promise.all(visitsDataPromises);
@@ -422,7 +439,7 @@ export default function AllVisitsPage() {
                         <CardDescription>Visits confirmed by the customer, ready for installer assignment.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <VisitsTable visits={approvedVisits} users={users} onAssign={(v) => { setSelectedVisit(v); setIsAssigning(true); }} onRowClick={setSelectedVisit} onShare={handleShareClick} />
+                        <VisitsTable visits={approvedVisits} users={users} onAssign={(v) => { setSelectedVisit(v); setIsAssigning(true); }} onRowClick={setSelectedVisit} onShare={handleShareClick} showAddress={true} />
                     </CardContent>
                 </Card>
             </TabsContent>
