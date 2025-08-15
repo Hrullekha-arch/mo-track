@@ -14,13 +14,72 @@ import { getDealById } from '@/app/dashboard/customers/[customerId]/[dealId]/act
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Loader2, Calendar, Clock, Home, User, CheckCircle } from 'lucide-react';
+import { Loader2, Calendar, Clock, Home, User, CheckCircle, StepBack } from 'lucide-react';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { format } from 'date-fns';
 import Image from 'next/image';
+
+const VisitConfirmationPreview = ({
+    customerName,
+    date,
+    time,
+    address,
+    landmark,
+    onBack,
+    onSubmit,
+    loading
+}: {
+    customerName: string;
+    date: Date;
+    time: string;
+    address: string;
+    landmark: string;
+    onBack: () => void;
+    onSubmit: () => void;
+    loading: boolean;
+}) => {
+    const combinedDateTime = new Date(date);
+    const [hours, minutes] = time.split(':').map(Number);
+    combinedDateTime.setHours(hours, minutes);
+
+    return (
+        <Card className="w-full max-w-md">
+            <CardHeader>
+                <CardTitle>Review Your Details</CardTitle>
+                <CardDescription>Please confirm the information below is correct before submitting.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+                <div className="space-y-1">
+                    <p className="font-semibold">Date & Time</p>
+                    <p className="text-muted-foreground">{format(combinedDateTime, "eeee, MMMM do, yyyy 'at' h:mm a")}</p>
+                </div>
+                <div className="space-y-1">
+                    <p className="font-semibold">Address</p>
+                    <p className="text-muted-foreground">{address}</p>
+                </div>
+                 {landmark && (
+                    <div className="space-y-1">
+                        <p className="font-semibold">Landmark</p>
+                        <p className="text-muted-foreground">{landmark}</p>
+                    </div>
+                )}
+            </CardContent>
+            <CardFooter className="flex justify-between">
+                <Button variant="ghost" onClick={onBack} disabled={loading}>
+                    <StepBack className="mr-2 h-4 w-4" /> Edit
+                </Button>
+                <Button onClick={onSubmit} disabled={loading}>
+                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Confirm & Submit
+                </Button>
+            </CardFooter>
+        </Card>
+    );
+};
+
 
 export default function ConfirmVisitPage() {
     const params = useParams();
@@ -37,9 +96,10 @@ export default function ConfirmVisitPage() {
     
     const [customer, setCustomer] = React.useState<Customer | null>(null);
     const [visit, setVisit] = React.useState<DealVisit | null>(null);
-    const [isConfirmed, setIsConfirmed] = React.useState(false);
+    
+    const [view, setView] = React.useState<'form' | 'preview' | 'confirmed'>('form');
 
-    const [selectedDate, setSelectedDate] = React.useState<Date | undefined>();
+    const [selectedDate, setSelectedDate] = React.useState<Date | undefined>(new Date());
     const [selectedTime, setSelectedTime] = React.useState<string>('10:00');
     const [address, setAddress] = React.useState('');
     const [landmark, setLandmark] = React.useState('');
@@ -70,8 +130,7 @@ export default function ConfirmVisitPage() {
                 const visitDoc = { id: visitData.id, ...visitData.data() } as DealVisit;
                 setVisit(visitDoc);
                 if (visitDoc.status === 'approved' && visitDoc.dueDate) {
-                    setIsConfirmed(true);
-                    setSelectedDate(new Date(visitDoc.dueDate));
+                    setView('confirmed');
                 }
 
             } catch (error) {
@@ -83,6 +142,14 @@ export default function ConfirmVisitPage() {
         };
         fetchData();
     }, [customerId, dealId, visitId, toast]);
+
+     const handlePreview = () => {
+        if (!selectedDate || !selectedTime || !address) {
+            toast({ variant: 'destructive', title: 'Missing Information', description: 'Please select a date, time, and provide your address.' });
+            return;
+        }
+        setView('preview');
+    };
 
     const handleSubmit = async () => {
         if (!selectedDate || !selectedTime || !address || !customerId || !dealId || !visitId) {
@@ -113,9 +180,14 @@ export default function ConfirmVisitPage() {
             });
             
             await batch.commit();
-
-            setIsConfirmed(true);
+            
+            setView('confirmed');
             toast({ title: 'Visit Confirmed!', description: 'Thank you! Our team will contact you shortly.' });
+
+            // Close the window after a short delay
+            setTimeout(() => {
+                window.close();
+            }, 2000);
 
         } catch (error) {
             console.error('Error confirming visit:', error);
@@ -133,7 +205,7 @@ export default function ConfirmVisitPage() {
         )
     }
 
-    if (isConfirmed && visit?.dueDate) {
+    if (view === 'confirmed') {
         return (
             <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4 text-center">
                  <Card className="w-full max-w-md">
@@ -143,22 +215,41 @@ export default function ConfirmVisitPage() {
                         </div>
                         <CardTitle className="text-2xl">Thank You!</CardTitle>
                         <CardDescription>
-                            Your visit has been confirmed. Our team will be in touch soon.
+                            Your visit has been confirmed. This window will close automatically.
                         </CardDescription>
                     </CardHeader>
-                    <CardContent>
-                        <p className="font-semibold text-lg">{format(new Date(visit!.dueDate), 'eeee, MMMM do, yyyy')} at {format(new Date(visit!.dueDate), 'h:mm a')}</p>
-                    </CardContent>
+                    {visit?.dueDate && (
+                        <CardContent>
+                            <p className="font-semibold text-lg">{format(new Date(visit!.dueDate), "eeee, MMMM do, yyyy 'at' h:mm a")}</p>
+                        </CardContent>
+                    )}
                  </Card>
             </div>
         )
+    }
+    
+    if (view === 'preview') {
+        return (
+            <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
+                <VisitConfirmationPreview
+                    customerName={customer?.name || ''}
+                    date={selectedDate!}
+                    time={selectedTime}
+                    address={address}
+                    landmark={landmark}
+                    onBack={() => setView('form')}
+                    onSubmit={handleSubmit}
+                    loading={isSubmitting}
+                />
+            </div>
+        );
     }
 
     return (
         <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
             <Card className="w-full max-w-md">
                 <CardHeader className="text-center">
-                    <Image src="/logo.png" alt="MoTrack Logo" width={150} height={75} className="mx-auto mb-4" />
+                    <Image src="/logo.png" alt="MoTrack Logo" width={150} height={75} className="mx-auto mb-4" data-ai-hint="logo" />
                     <CardTitle className="text-2xl">Confirm Your Visit</CardTitle>
                     <CardDescription>Hello, {customer?.name}. Please select your preferred date, time and confirm your address for the visit.</CardDescription>
                 </CardHeader>
@@ -191,12 +282,13 @@ export default function ConfirmVisitPage() {
                     </div>
                 </CardContent>
                 <CardFooter>
-                    <Button className="w-full" onClick={handleSubmit} disabled={isSubmitting}>
+                    <Button className="w-full" onClick={handlePreview} disabled={isSubmitting}>
                         {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Confirm Visit
+                        Preview & Confirm
                     </Button>
                 </CardFooter>
             </Card>
         </div>
     );
 }
+
