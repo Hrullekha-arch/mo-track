@@ -20,7 +20,7 @@ import { Calendar as CalendarIcon } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PO_PROCESS_CONFIG, PURCHASE_PROCESS_CONFIG } from '@/lib/constants';
+import { PO_PROCESS_CONFIG } from '@/lib/constants';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useForm, useFieldArray, FormProvider } from "react-hook-form";

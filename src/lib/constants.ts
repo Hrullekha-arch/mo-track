@@ -2,7 +2,7 @@
 
 import { type Milestone, type OrderType, type PurchaseStep, O2DStep, type ComboboxOption } from './types';
 import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart, PhoneCall, Factory, Layers, CheckCircle } from 'lucide-react';
-import { addDays, addHours, addMinutes } from 'date-fns';
+import { addDays, addHours, addMinutes, subDays } from 'date-fns';
 
 
 export const MILESTONES_CONFIG: Record<number, { name: string }> = {
@@ -60,9 +60,9 @@ export const PURCHASE_PROCESS_CONFIG: PurchaseStep[] = [
 
 
 export const PO_PROCESS_CONFIG: PurchaseStep[] = [
-    { id: 1, step: "PO Confirmation", details: "Confirm the Purchase Order with the vendor", time: "30 min", role: "PC", icon: ThumbsUp, expectedDuration: { minutes: 30 } },
+    { id: 1, step: "PO Confirmation", details: "Confirm the Purchase Order with the vendor", time: "30 min", role: "PC", icon: FileCheck, expectedDuration: { minutes: 30 } },
     { id: 2, step: "Delivery Follow Up", details: "Follow up on the delivery status", time: "T-2 Days", role: "PC", icon: Truck, expectedDuration: { days: -2 } }, // Special handling
-    { id: 3, step: "Receiving And Sent To Location", details: "Receive materials and dispatch", time: "Delivery Time", role: "PC/Accounts", icon: FileCheck, expectedDuration: {} }, // Special handling
+    { id: 3, step: "Receiving And Sent To Location", details: "Receive materials and dispatch", time: "Delivery Time", role: "PC/Accounts", icon: Archive, expectedDuration: {} }, // Special handling
 ];
 
 

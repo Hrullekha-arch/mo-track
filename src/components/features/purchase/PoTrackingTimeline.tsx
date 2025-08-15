@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { PurchaseRequest, PurchaseStatus } from "@/lib/types";
@@ -7,7 +8,7 @@ import { AlertDialog, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { PO_PROCESS_CONFIG, PURCHASE_PROCESS_CONFIG } from "@/lib/constants";
+import { PO_PROCESS_CONFIG } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { Clock, Check, Undo2 } from "lucide-react";
 
@@ -17,11 +18,10 @@ export const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
         let startDate: Date;
         if (currentStep.id === 1) {
              // PO process starts when the 'Place Order' step in the previous phase is completed.
-            const placeOrderStep = request.milestones.find(m => m.stepId === 6 || m.stepId === 11);
+            const placeOrderStep = request.milestones.find(m => m.stepId === 4);
             startDate = placeOrderStep ? new Date(placeOrderStep.completedAt) : new Date();
         } else {
             const previousStepConfig = PO_PROCESS_CONFIG.find(s => s.id === currentStep.id - 1)!;
-            const previousStepStatus = (request.poMilestones || []).find(m => m.stepId === previousStepConfig.id);
             
             // Check for actual completed milestones to base the next step on
             const allPreviousMilestones = (request.poMilestones || []).filter(m => m.stepId < currentStep.id);
@@ -29,8 +29,6 @@ export const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
 
             if (latestPreviousMilestone) {
                 startDate = new Date(latestPreviousMilestone.completedAt);
-            } else if (previousStepStatus?.status === 'completed' || previousStepStatus?.status === 'skipped') {
-                startDate = new Date(previousStepStatus.completedAt);
             } else {
                 startDate = acc[previousStepConfig.id];
             }
@@ -80,19 +78,22 @@ export function PoTrackingTimeline({
         <div className="relative pl-6 pr-4 py-4">
             <div className="absolute left-9 top-0 h-full w-0.5 bg-border -translate-x-1/2" aria-hidden="true"></div>
             <div className="space-y-4">
-                {PURCHASE_PROCESS_CONFIG.map((stepConfig) => {
-                    const stepStatus = request.milestones?.find(s => s.stepId === stepConfig.id);
-                    
+                {PO_PROCESS_CONFIG.map((stepConfig) => {
+                    const stepStatus = request.poMilestones?.find(s => s.stepId === stepConfig.id);
+                    const isCompleted = !!stepStatus;
+                    const isPending = !stepStatus;
+                    const expectedDate = expectedDates[stepConfig.id];
+                    const isOverdue = expectedDate && isPast(expectedDate) && isPending;
                     const Icon = stepConfig.icon;
 
                     return (
                         <div key={stepConfig.id} className="relative flex items-start gap-4">
                             <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-border shadow-sm shrink-0 bg-card">
                                 <Icon className={cn("h-6 w-6", 
-                                   stepStatus?.status === 'completed' ? "text-green-500" : "text-muted-foreground"
+                                   isCompleted ? "text-green-500" : (isOverdue ? "text-red-500" : "text-muted-foreground")
                                 )} />
                             </div>
-                            <Card className={cn("w-full group hover:shadow-md", stepStatus?.status === 'completed' ? "bg-green-50" : "")}>
+                            <Card className={cn("w-full group hover:shadow-md", isCompleted ? "bg-green-50" : (isOverdue ? "border-red-500 bg-red-50" : ""))}>
                                 <CardHeader>
                                     <div className="flex justify-between items-start">
                                         <div>
@@ -104,6 +105,13 @@ export function PoTrackingTimeline({
                                 <CardContent>
                                     <div className="flex justify-between items-center flex-wrap gap-4">
                                         <div className="text-xs text-muted-foreground space-y-2 flex-grow">
+                                            {expectedDate && (
+                                                <p className="flex items-center gap-2">
+                                                    <Clock className="h-4 w-4" />
+                                                    <span>Expected by: {formatTimestamp(expectedDate)}</span>
+                                                    {isOverdue && <Badge variant="destructive">Overdue</Badge>}
+                                                </p>
+                                            )}
                                             {stepStatus?.status === 'completed' && (
                                                 <div className="flex items-center gap-2 text-green-600 font-medium">
                                                     <Check className="h-4 w-4" />
@@ -112,7 +120,16 @@ export function PoTrackingTimeline({
                                             )}
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            {stepStatus && <Badge variant="default">Done</Badge>}
+                                            {isCompleted && userRole === 'admin' && (
+                                                 <AlertDialogTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => onRevertStep(request.id, stepStatus)}>
+                                                        <Undo2 className="h-4 w-4" />
+                                                    </Button>
+                                                </AlertDialogTrigger>
+                                            )}
+                                            {!isCompleted && (
+                                                <Button size="sm" onClick={() => onStepUpdate(request.id, stepConfig.id)}>Mark as Done</Button>
+                                            )}
                                         </div>
                                     </div>
                                 </CardContent>
