@@ -40,13 +40,15 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { doc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest } from "@/lib/types";
+import { PurchaseRequest, PurchaseStatus } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from 'next/link';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PoTrackingTimeline } from "@/app/dashboard/po-tracking/page";
 
 
 interface FlattenedPurchaseItem {
@@ -72,6 +74,8 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
   const [deletingRequest, setDeletingRequest] = React.useState<PurchaseRequest | null>(null);
+  const [timelineRequest, setTimelineRequest] = React.useState<PurchaseRequest | null>(null);
+
 
   const { toast } = useToast();
   const { role } = useAuth();
@@ -147,10 +151,8 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
         cell: ({ row }) => {
           const poNumber = row.original.poNumber;
           return poNumber ? (
-            <Button variant="link" asChild className="p-0 h-auto font-medium">
-                <Link href={`/dashboard/inbound/${poNumber}`}>
-                    {poNumber}
-                </Link>
+            <Button variant="link" onClick={() => setTimelineRequest(row.original.originalRequest)} className="p-0 h-auto font-medium">
+                {poNumber}
             </Button>
           ) : '-';
         }
@@ -406,10 +408,7 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
                                 <TableHead key={header.id}>
                                 {header.isPlaceholder
                                     ? null
-                                    : flexRender(
-                                        header.column.columnDef.header,
-                                        header.getContext()
-                                    )}
+                                    : flexRender(header.column.columnDef.header, header.getContext())}
                                 </TableHead>
                             );
                             })}
@@ -487,6 +486,26 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+        <Dialog open={!!timelineRequest} onOpenChange={() => setTimelineRequest(null)}>
+            <DialogContent className="max-w-2xl">
+                 <DialogHeader>
+                    <DialogTitle>PO Tracking for {timelineRequest?.dealId}</DialogTitle>
+                    <DialogDescription>
+                        This timeline shows the progress of the Purchase Order after it has been placed.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                    {timelineRequest && (
+                        <PoTrackingTimeline 
+                            request={timelineRequest}
+                            onStepUpdate={() => {}} // Read-only view
+                            onRevertStep={() => {}} // Read-only view
+                            userRole={role}
+                        />
+                    )}
+                </div>
+            </DialogContent>
+        </Dialog>
     </>
   );
 }
