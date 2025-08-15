@@ -42,6 +42,7 @@ import {
   FileDown,
   Eye,
   Contact2,
+  Share2
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -81,8 +82,6 @@ export const deliveryInstallationItemSchema = z.object({
 
 const visitSchema = z.object({
     representative: z.string().min(1, "Representative is required."),
-    date: z.date({ required_error: "A date is required." }),
-    time: z.string({ required_error: "A time is required." }),
     // Measurement fields
     measurements: z.array(z.string()).optional(),
     blinds: z.array(z.string()).optional(),
@@ -864,6 +863,8 @@ function DimensionFields({ roomIndex, itemIndex, dimensionIndex, onRemoveDimensi
 function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void, visits: DealVisit[], orders: DealOrder[] }) {
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('measurement');
+    const [showShareDialog, setShowShareDialog] = useState(false);
+    const [whatsAppUrl, setWhatsAppUrl] = useState('');
     const { toast } = useToast();
     const { user } = useAuth();
     
@@ -873,8 +874,6 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders 
         resolver: zodResolver(visitSchema),
         defaultValues: {
             representative: "",
-            date: new Date(),
-            time: format(new Date(), "HH:mm"),
             measurements: [],
             blinds: [],
             curtain: [],
@@ -896,20 +895,19 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders 
         }
         setLoading(true);
         try {
-            const [hours, minutes] = data.time.split(':').map(Number);
-            const combinedDateTime = new Date(data.date);
-            combinedDateTime.setHours(hours, minutes);
-
             const visitDataForDb = {
                 ...data,
                 typeOfVisit: activeTab,
-                dueDate: combinedDateTime,
             };
 
             const result = await addVisitAction(customerId, dealId, visitDataForDb, user.name);
             if (result.success && result.visit) {
-                toast({ title: "Activity Updated", description: "The new visit has been added to the activity log." });
+                toast({ title: "Visit Request Created", description: "Share the link with the customer to confirm." });
                 onVisitAdded(result.visit);
+                if (result.whatsAppUrl) {
+                    setWhatsAppUrl(result.whatsAppUrl);
+                    setShowShareDialog(true);
+                }
                 form.reset();
             } else {
                  toast({ variant: "destructive", title: "Error", description: result.message });
@@ -1068,6 +1066,7 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders 
     );
 
     return (
+        <>
          <Card className="mt-6">
             <CardHeader className="flex flex-row justify-between items-center">
                 <CardTitle>Add Visit</CardTitle>
@@ -1080,25 +1079,13 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders 
                              <div className="flex">
                                 <button type="button" onClick={() => setActiveTab('measurement')} className={`flex-1 p-3 font-semibold text-center ${activeTab === 'measurement' ? 'bg-primary text-primary-foreground rounded-tl-md' : 'bg-muted/50'}`}>Measurement Visit</button>
                                 <Separator orientation="vertical" />
-                                <TooltipProvider>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <button 
-                                                type="button" 
-                                                onClick={() => hasMeasurementVisit && setActiveTab('delivery')} 
-                                                className={`flex-1 p-3 font-semibold text-center ${activeTab === 'delivery' ? 'bg-primary text-primary-foreground rounded-tr-md' : 'bg-muted/50'} disabled:cursor-not-allowed disabled:opacity-50`}
-                                                disabled={!hasMeasurementVisit}
-                                            >
-                                                Delivery Visit
-                                            </button>
-                                        </TooltipTrigger>
-                                        {!hasMeasurementVisit && (
-                                            <TooltipContent>
-                                                <p>A measurement visit must be completed before creating a delivery visit.</p>
-                                            </TooltipContent>
-                                        )}
-                                    </Tooltip>
-                                </TooltipProvider>
+                                <button 
+                                    type="button" 
+                                    onClick={() => setActiveTab('delivery')} 
+                                    className={`flex-1 p-3 font-semibold text-center ${activeTab === 'delivery' ? 'bg-primary text-primary-foreground rounded-tr-md' : 'bg-muted/50'}`}
+                                >
+                                    Delivery Visit
+                                </button>
                             </div>
 
                             <div className="p-6 space-y-6">
@@ -1117,42 +1104,6 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders 
                                                         {salesmen.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                                                     </SelectContent>
                                                 </Select>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <FormField
-                                        control={form.control}
-                                        name="date"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Date</FormLabel>
-                                                <Popover>
-                                                    <PopoverTrigger asChild>
-                                                        <FormControl>
-                                                            <Button variant={"outline"} className="w-full justify-start text-left font-normal">
-                                                                <Calendar className="mr-2 h-4 w-4" />
-                                                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                                            </Button>
-                                                        </FormControl>
-                                                    </PopoverTrigger>
-                                                    <PopoverContent className="w-auto p-0">
-                                                        <CalendarPicker mode="single" selected={field.value} onSelect={field.onChange} />
-                                                    </PopoverContent>
-                                                </Popover>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                        <FormField
-                                        control={form.control}
-                                        name="time"
-                                        render={({ field }) => (
-                                            <FormItem>
-                                                <FormLabel>Time</FormLabel>
-                                                <FormControl>
-                                                    <Input type="time" {...field} />
-                                                </FormControl>
                                                 <FormMessage />
                                             </FormItem>
                                         )}
@@ -1255,6 +1206,28 @@ function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders 
                  </Form>
             </CardContent>
         </Card>
+        <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Share Visit Confirmation Link</DialogTitle>
+                    <DialogDescription>
+                        Copy the link below and share it with the customer via WhatsApp so they can confirm their visit details.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                    <Input value={whatsAppUrl} readOnly />
+                </div>
+                <DialogFooter>
+                    <Button variant="secondary" onClick={() => { navigator.clipboard.writeText(whatsAppUrl); toast({title: "Link Copied!"})}}>Copy Link</Button>
+                    <Button asChild>
+                        <a href={whatsAppUrl} target="_blank" rel="noopener noreferrer">
+                            <Share2 className="mr-2 h-4 w-4" /> Open WhatsApp
+                        </a>
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        </>
     )
 }
 

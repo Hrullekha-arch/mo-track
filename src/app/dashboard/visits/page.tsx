@@ -38,6 +38,7 @@ import { AssignInstallerDialog } from "@/components/features/order-management/As
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { measurementItems, subMeasurementBlinds, subMeasurementCurtain, deliveryInstallationItems, subDeliveryInstallationItems } from "@/app/dashboard/customers/[customerId]/[dealId]/page";
 import { cn } from "@/lib/utils";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 
 interface EnrichedDealVisit extends DealVisit {
@@ -47,117 +48,13 @@ interface EnrichedDealVisit extends DealVisit {
     customerId: string;
 }
 
-export default function AllVisitsPage() {
-  const [visits, setVisits] = React.useState<EnrichedDealVisit[]>([]);
-  const [users, setUsers] = React.useState<User[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
-  const [selectedVisit, setSelectedVisit] = React.useState<EnrichedDealVisit | null>(null);
-  const [isAssigning, setIsAssigning] = React.useState(false);
-  
-  const { toast } = useToast();
+function VisitsTable({ visits, users, onAssign, onRowClick }: { visits: EnrichedDealVisit[], users: User[], onAssign: (visit: EnrichedDealVisit) => void, onRowClick: (visit: EnrichedDealVisit) => void }) {
+    const [sorting, setSorting] = React.useState<SortingState>([]);
+    const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
 
-  React.useEffect(() => {
-    setLoading(true);
+    const getRepresentativeName = (id: string) => users.find(u => u.id === id)?.name || id;
 
-    const usersQuery = query(collection(db, "users"));
-    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-        const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-        setUsers(usersData);
-    });
-    
-    const visitsQuery = collectionGroup(db, 'visits');
-    const unsubscribeVisits = onSnapshot(visitsQuery, async (snapshot) => {
-        const visitsData: EnrichedDealVisit[] = [];
-        const customerCache = new Map<string, Customer>();
-        const dealCache = new Map<string, Deal>();
-
-        for (const docSnap of snapshot.docs) {
-            const visit = docSnap.data() as DealVisit;
-            const pathParts = docSnap.ref.path.split('/');
-            const customerId = pathParts[1];
-            const dealDocId = pathParts[3];
-
-            let customerName = 'Unknown';
-            let dealName = 'Unknown';
-            let dealId = 'N/A';
-
-            if (!customerCache.has(customerId)) {
-                const customerRef = doc(db, 'customers', customerId);
-                const customerSnap = await getDoc(customerRef);
-                if (customerSnap.exists()) {
-                    customerCache.set(customerId, { id: customerSnap.id, ...customerSnap.data() } as Customer);
-                }
-            }
-            customerName = customerCache.get(customerId)?.name || 'Unknown';
-            
-            const dealCacheKey = `${customerId}-${dealDocId}`;
-            if (!dealCache.has(dealCacheKey)) {
-                const dealRef = doc(db, 'customers', customerId, 'deals', dealDocId);
-                 const dealSnap = await getDoc(dealRef);
-                 if (dealSnap.exists()) {
-                    dealCache.set(dealCacheKey, { id: dealSnap.id, ...dealSnap.data() } as Deal);
-                }
-            }
-            const dealData = dealCache.get(dealCacheKey);
-            dealName = dealData?.dealName || 'Unknown';
-            dealId = dealData?.dealId || 'N/A';
-
-            visitsData.push({
-                ...visit,
-                id: docSnap.id,
-                customerId,
-                dealDocId,
-                customerName,
-                dealName,
-                dealId
-            });
-        }
-        setVisits(visitsData.sort((a,b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime()));
-        setLoading(false);
-    }, (error) => {
-        console.error("Error fetching visits:", error);
-        toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Could not load visit data. Please check your Firestore permissions."
-        });
-        setLoading(false);
-    });
-
-    return () => {
-        unsubscribeUsers();
-        unsubscribeVisits();
-    };
-  }, [toast]);
-  
-  const getRepresentativeName = (id: string) => users.find(u => u.id === id)?.name || id;
-
-  const handleAssignInstaller = async (installerId: string) => {
-      if (!selectedVisit) return;
-      
-      const visitRef = doc(db, 'customers', selectedVisit.customerId, 'deals', selectedVisit.dealDocId, 'visits', selectedVisit.id);
-      
-      try {
-          await updateDoc(visitRef, { assignedTo: installerId });
-          toast({
-              title: "Installer Assigned",
-              description: `Visit has been assigned successfully.`
-          });
-          // Optimistically update UI
-          setVisits(prevVisits => prevVisits.map(v => 
-              v.id === selectedVisit.id ? { ...v, assignedTo: installerId } : v
-          ));
-          setIsAssigning(false);
-          setSelectedVisit(null);
-      } catch (error) {
-          console.error("Failed to assign installer:", error);
-          toast({ variant: 'destructive', title: 'Assignment Failed' });
-      }
-  };
-
-  const columns: ColumnDef<EnrichedDealVisit>[] = [
+    const columns: ColumnDef<EnrichedDealVisit>[] = [
     {
       accessorKey: "dealId",
       header: "Deal ID",
@@ -189,47 +86,33 @@ export default function AllVisitsPage() {
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
-      cell: ({ row }) => format(new Date(row.getValue("dueDate")), "PPP p"),
+      cell: ({ row }) => {
+        const dueDate = row.getValue("dueDate") as string;
+        return dueDate ? format(new Date(dueDate), "PPP p") : <Badge variant="destructive">Not Set</Badge>;
+      }
     },
     {
         accessorKey: "status",
         header: "Status",
         cell: ({ row }) => {
             const visit = row.original;
-            const status = visit.status;
-            const visitStatus = visit.visitStatus;
-            const isCompletedMeasurement = status === 'completed' && visit.typeOfVisit === 'measurement' && visit.measurementPdfUrl;
+            let status = visit.status || 'requested';
             
-            let badgeText = 'Pending';
+            if (visit.visitStatus === 'Out for Delivery') {
+                status = 'out for delivery';
+            }
+            
             let badgeVariant: "default" | "secondary" | "destructive" | "outline" = "secondary";
+            if (status === 'approved') badgeVariant = 'default';
+            if (status === 'completed') badgeVariant = 'default';
+            if (status === 'requested') badgeVariant = 'destructive';
+
             let badgeClass = '';
-
-            if (status === 'completed') {
-                badgeText = 'Done';
-                badgeVariant = 'default';
-                badgeClass = 'bg-green-600';
-            } else if (visitStatus === 'Out for Delivery') {
-                badgeText = 'Out for Delivery';
-                badgeVariant = 'default';
-                badgeClass = 'bg-blue-600';
-            }
+            if (status === 'completed') badgeClass = 'bg-green-600 hover:bg-green-700';
+            if (status === 'out for delivery') badgeClass = 'bg-blue-600 hover:bg-blue-700';
 
 
-            const badge = (
-                <Badge variant={badgeVariant} className={cn(badgeClass, isCompletedMeasurement && 'cursor-pointer hover:bg-green-700')}>
-                    {badgeText}
-                </Badge>
-            );
-
-            if (isCompletedMeasurement) {
-                return (
-                    <Link href={visit.measurementPdfUrl!} target="_blank" rel="noopener noreferrer">
-                        {badge}
-                    </Link>
-                );
-            }
-
-            return badge;
+            return <Badge variant={badgeVariant} className={cn(badgeClass, "capitalize")}>{status}</Badge>;
         }
     },
     {
@@ -242,96 +125,189 @@ export default function AllVisitsPage() {
         header: "Assigned To",
         cell: ({ row }) => {
             const assignedToId = row.original.assignedTo;
-            if (!assignedToId) {
-                return <Badge variant="destructive">Unassigned</Badge>;
+            const isApproved = row.original.status === 'approved';
+            if (isApproved) {
+                 if (!assignedToId) {
+                    return <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onAssign(row.original); }}>Assign</Button>;
+                }
+                const installer = users.find(u => u.id === assignedToId);
+                return <Button variant="ghost" onClick={(e) => { e.stopPropagation(); onAssign(row.original); }}>{installer?.name || 'Unknown'}</Button>;
             }
-            const installer = users.find(u => u.id === assignedToId);
-            return installer ? installer.name : "Unknown";
+            return <Badge variant="outline">Pending Customer</Badge>;
         }
-    },
-    {
-      accessorKey: "createdBy",
-      header: "Created By",
-    },
-    {
-      accessorKey: "createdAt",
-      header: "Created On",
-      cell: ({ row }) => format(new Date(row.getValue("createdAt")), "dd/MM/yyyy"),
     },
     {
       id: "actions",
       cell: ({ row }) => (
-        <Button variant="ghost" size="icon" onClick={() => setSelectedVisit(row.original)}>
+        <Button variant="ghost" size="icon" onClick={() => onRowClick(row.original)}>
           <Eye className="h-4 w-4" />
         </Button>
       ),
     },
   ];
 
-  const table = useReactTable({
-    data: visits,
-    columns,
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    state: {
-      sorting,
-      columnFilters,
-    },
-  });
+    const table = useReactTable({
+        data: visits,
+        columns,
+        onSortingChange: setSorting,
+        onColumnFiltersChange: setColumnFilters,
+        getCoreRowModel: getCoreRowModel(),
+        getPaginationRowModel: getPaginationRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+        getFilteredRowModel: getFilteredRowModel(),
+        state: { sorting, columnFilters },
+    });
+    
+    return (
+        <div className="space-y-4">
+             <div className="flex items-center">
+                <Input
+                    placeholder="Filter by customer..."
+                    value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
+                    onChange={(event) =>
+                        table.getColumn("customerName")?.setFilterValue(event.target.value)
+                    }
+                    className="max-w-sm"
+                />
+            </div>
+            <div className="rounded-md border">
+                <Table>
+                    <TableHeader>
+                        {table.getHeaderGroups().map((headerGroup) => (
+                        <TableRow key={headerGroup.id}>
+                            {headerGroup.headers.map((header) => (
+                                <TableHead key={header.id}>
+                                {header.isPlaceholder
+                                    ? null
+                                    : flexRender(header.column.columnDef.header, header.getContext())}
+                                </TableHead>
+                            ))}
+                        </TableRow>
+                        ))}
+                    </TableHeader>
+                    <TableBody>
+                        {table.getRowModel().rows?.length ? (
+                        table.getRowModel().rows.map((row) => (
+                            <TableRow key={row.id} onClick={() => onRowClick(row.original)} className="cursor-pointer">
+                                {row.getVisibleCells().map((cell) => (
+                                    <TableCell key={cell.id}>
+                                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        ))
+                        ) : (
+                        <TableRow>
+                            <TableCell colSpan={columns.length} className="h-24 text-center">
+                                No visits in this category.
+                            </TableCell>
+                        </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
+            </div>
+            <div className="flex items-center justify-end space-x-2 py-4">
+                <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>Previous</Button>
+                <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next</Button>
+            </div>
+        </div>
+    );
+}
 
-  const renderMeasurementDetails = (visit: DealVisit) => (
-      <div className="space-y-4">
-          <div>
-              <h4 className="font-semibold text-sm">Measurements Selected:</h4>
-              <ul className="list-disc list-inside text-muted-foreground text-sm">
-                  {(visit.measurements && visit.measurements.length > 0) ? visit.measurements.map(m => <li key={m}>{measurementItems.find(mi => mi.id === m)?.label || m}</li>) : <li>None</li>}
-              </ul>
-          </div>
-          {visit.blinds && visit.blinds.length > 0 && (
-              <div>
-                  <h4 className="font-semibold text-sm">Blind Types:</h4>
-                  <ul className="list-disc list-inside text-muted-foreground text-sm">
-                      {visit.blinds.map(b => <li key={b}>{subMeasurementBlinds.find(s => s.id === b)?.label || b}</li>)}
-                  </ul>
-              </div>
-          )}
-          {visit.curtain && visit.curtain.length > 0 && (
-              <div>
-                  <h4 className="font-semibold text-sm">Curtain Types:</h4>
-                  <ul className="list-disc list-inside text-muted-foreground text-sm">
-                      {visit.curtain.map(c => <li key={c}>{subMeasurementCurtain.find(s => s.id === c)?.label || c}</li>)}
-                      {visit.otherCurtain && <li>Other: {visit.otherCurtain}</li>}
-                  </ul>
-              </div>
-          )}
-      </div>
-  );
+export default function AllVisitsPage() {
+  const [allVisits, setAllVisits] = React.useState<EnrichedDealVisit[]>([]);
+  const [users, setUsers] = React.useState<User[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [selectedVisit, setSelectedVisit] = React.useState<EnrichedDealVisit | null>(null);
+  const [isAssigning, setIsAssigning] = React.useState(false);
+  
+  const { toast } = useToast();
 
-  const renderDeliveryDetails = (visit: DealVisit) => (
-      <div className="space-y-4">
-          <div>
-              <h4 className="font-semibold text-sm">Delivery/Installation Selected:</h4>
-              <ul className="list-disc list-inside text-muted-foreground text-sm">
-                  {(visit.deliveryInstallations && visit.deliveryInstallations.length > 0) ? 
-                      visit.deliveryInstallations.map(d => d && <li key={d.id}>{deliveryInstallationItems.find(di => di.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>) 
-                      : <li>None</li>}
-                  {visit.otherDelivery && <li>Other: {visit.otherDelivery}</li>}
-              </ul>
-          </div>
-          {visit.subDeliveryInstallations && visit.subDeliveryInstallations.length > 0 && (
-              <div>
-                  <h4 className="font-semibold text-sm">Sub-Delivery/Installation:</h4>
-                  <ul className="list-disc list-inside text-muted-foreground text-sm">
-                      {visit.subDeliveryInstallations.map(d => d && <li key={d.id}>{subDeliveryInstallationItems.find(sdi => sdi.id === d.id)?.label || d.id} ({d.noOfPcs || 1} Pcs)</li>)}
-                  </ul>
-              </div>
-          )}
-      </div>
-  );
+  React.useEffect(() => {
+    setLoading(true);
+
+    const usersQuery = query(collection(db, "users"));
+    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+        const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+        setUsers(usersData);
+    });
+    
+    const visitsQuery = collectionGroup(db, 'visits');
+    const unsubscribeVisits = onSnapshot(visitsQuery, async (snapshot) => {
+        const customerCache = new Map<string, Customer>();
+        const dealCache = new Map<string, Deal>();
+
+        const visitsDataPromises = snapshot.docs.map(async (docSnap) => {
+            const visit = docSnap.data() as DealVisit;
+            const pathParts = docSnap.ref.path.split('/');
+            const customerId = pathParts[1];
+            const dealDocId = pathParts[3];
+
+            let customerName = 'Unknown';
+            let dealName = 'Unknown';
+            let dealId = 'N/A';
+
+            if (!customerCache.has(customerId)) {
+                const customerRef = doc(db, 'customers', customerId);
+                const customerSnap = await getDoc(customerRef);
+                if (customerSnap.exists()) {
+                    customerCache.set(customerId, { id: customerSnap.id, ...customerSnap.data() } as Customer);
+                }
+            }
+            customerName = customerCache.get(customerId)?.name || 'Unknown';
+            
+            const dealCacheKey = `${customerId}-${dealDocId}`;
+            if (!dealCache.has(dealCacheKey)) {
+                const dealRef = doc(db, 'customers', customerId, 'deals', dealDocId);
+                 const dealSnap = await getDoc(dealRef);
+                 if (dealSnap.exists()) {
+                    dealCache.set(dealCacheKey, { id: dealSnap.id, ...dealSnap.data() } as Deal);
+                }
+            }
+            const dealData = dealCache.get(dealCacheKey);
+            dealName = dealData?.dealName || 'Unknown';
+            dealId = dealData?.dealId || 'N/A';
+
+            return { ...visit, id: docSnap.id, customerId, dealDocId, customerName, dealName, dealId };
+        });
+        
+        const visitsData = await Promise.all(visitsDataPromises);
+
+        setAllVisits(visitsData);
+        setLoading(false);
+    }, (error) => {
+        console.error("Error fetching visits:", error);
+        toast({ variant: "destructive", title: "Error", description: "Could not load visit data." });
+        setLoading(false);
+    });
+
+    return () => {
+        unsubscribeUsers();
+        unsubscribeVisits();
+    };
+  }, [toast]);
+  
+  const handleAssignInstaller = async (installerId: string) => {
+      if (!selectedVisit) return;
+      
+      const visitRef = doc(db, 'customers', selectedVisit.customerId, 'deals', selectedVisit.dealDocId, 'visits', selectedVisit.id);
+      
+      try {
+          await updateDoc(visitRef, { assignedTo: installerId });
+          toast({ title: "Installer Assigned", description: `Visit has been assigned successfully.` });
+          setIsAssigning(false);
+          setSelectedVisit(null);
+      } catch (error) {
+          console.error("Failed to assign installer:", error);
+          toast({ variant: 'destructive', title: 'Assignment Failed' });
+      }
+  };
+
+  const renderMeasurementDetails = (visit: DealVisit) => ( <div/> );
+  const renderDeliveryDetails = (visit: DealVisit) => ( <div/> );
+  
+  const requestedVisits = allVisits.filter(v => v.status === 'requested');
+  const approvedVisits = allVisits.filter(v => v.status !== 'requested');
 
   if (loading) {
     return (
@@ -350,91 +326,35 @@ export default function AllVisitsPage() {
             <h1 className="text-3xl font-bold tracking-tight">All Visits</h1>
             <p className="text-muted-foreground">A centralized log of all customer visits and appointments.</p>
         </header>
-        <Card>
-            <CardContent className="p-4">
-                 <div className="flex items-center py-4">
-                    <div className="relative">
-                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Filter by customer..."
-                            value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
-                            onChange={(event) =>
-                                table.getColumn("customerName")?.setFilterValue(event.target.value)
-                            }
-                            className="max-w-sm pl-9"
-                        />
-                    </div>
-                </div>
-                <div className="rounded-md border">
-                    <Table>
-                        <TableHeader>
-                            {table.getHeaderGroups().map((headerGroup) => (
-                            <TableRow key={headerGroup.id}>
-                                {headerGroup.headers.map((header) => {
-                                return (
-                                    <TableHead key={header.id}>
-                                    {header.isPlaceholder
-                                        ? null
-                                        : flexRender(
-                                            header.column.columnDef.header,
-                                            header.getContext()
-                                        )}
-                                    </TableHead>
-                                );
-                                })}
-                            </TableRow>
-                            ))}
-                        </TableHeader>
-                        <TableBody>
-                            {table.getRowModel().rows?.length ? (
-                            table.getRowModel().rows.map((row) => (
-                                <TableRow
-                                key={row.id}
-                                data-state={row.getIsSelected() && "selected"}
-                                >
-                                {row.getVisibleCells().map((cell) => (
-                                    <TableCell key={cell.id}>
-                                    {flexRender(
-                                        cell.column.columnDef.cell,
-                                        cell.getContext()
-                                    )}
-                                    </TableCell>
-                                ))}
-                                </TableRow>
-                            ))
-                            ) : (
-                            <TableRow>
-                                <TableCell
-                                colSpan={columns.length}
-                                className="h-24 text-center"
-                                >
-                                No results.
-                                </TableCell>
-                            </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
-                </div>
-                 <div className="flex items-center justify-end space-x-2 py-4">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => table.previousPage()}
-                        disabled={!table.getCanPreviousPage()}
-                    >
-                        Previous
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => table.nextPage()}
-                        disabled={!table.getCanNextPage()}
-                    >
-                        Next
-                    </Button>
-                </div>
-            </CardContent>
-        </Card>
+        <Tabs defaultValue="requested">
+            <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="requested">Requested Visits ({requestedVisits.length})</TabsTrigger>
+                <TabsTrigger value="approved">Approved Visits ({approvedVisits.length})</TabsTrigger>
+            </TabsList>
+            <TabsContent value="requested" className="mt-4">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Requested Visits</CardTitle>
+                        <CardDescription>These visits have been created and are awaiting customer confirmation.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <VisitsTable visits={requestedVisits} users={users} onAssign={setSelectedVisit} onRowClick={setSelectedVisit} />
+                    </CardContent>
+                </Card>
+            </TabsContent>
+             <TabsContent value="approved" className="mt-4">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Approved Visits</CardTitle>
+                        <CardDescription>Visits confirmed by the customer, ready for installer assignment.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <VisitsTable visits={approvedVisits} users={users} onAssign={setSelectedVisit} onRowClick={setSelectedVisit} />
+                    </CardContent>
+                </Card>
+            </TabsContent>
+        </Tabs>
+        
         {selectedVisit && (
             <Dialog open={!!selectedVisit} onOpenChange={() => setSelectedVisit(null)}>
                 <DialogContent>
@@ -451,7 +371,6 @@ export default function AllVisitsPage() {
                     </div>
                      <DialogFooter>
                         <Button variant="ghost" onClick={() => setSelectedVisit(null)}>Close</Button>
-                        <Button variant="secondary" onClick={() => setIsAssigning(true)}>Assign to Installer</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

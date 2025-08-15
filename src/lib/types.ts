@@ -330,7 +330,7 @@ export interface DealVisit {
     dealId: string; // The 4-digit numeric deal ID
     representative: string;
     typeOfVisit: string;
-    dueDate: string; // ISO string
+    dueDate?: string; // ISO string, now optional on creation
     createdAt: string; // ISO string
     createdBy: string;
     assignedTo?: string; // Installer User ID
@@ -343,10 +343,12 @@ export interface DealVisit {
     deliveryInstallations?: DeliveryInstallationItem[];
     subDeliveryInstallations?: DeliveryInstallationItem[];
     otherDelivery?: string;
-    status?: 'pending' | 'completed';
+    status?: 'requested' | 'approved' | 'completed'; // New status flow
     visitStatus?: 'Out for Delivery';
     measurementPdfUrl?: string;
     orderId?: string;
+    customerAddress?: string; // Added for customer confirmation
+    customerLandmark?: string; // Added for customer confirmation
 }
 
 export interface MeasurementEntry {

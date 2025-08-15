@@ -14,33 +14,11 @@ import { Readable } from 'stream';
 
 // This function sends an SMS using the Fast2SMS API.
 async function sendVisitSms(customerPhone: string, message: string) {
-    const apiKey = process.env.FAST2SMS_API_KEY;
-    if (!apiKey) {
-        console.error('Fast2SMS API key is not configured.');
-        throw new Error('SMS service is not configured.');
-    }
-
-    const url = 'https://www.fast2sms.com/dev/bulkV2';
-    const params = new URLSearchParams({
-        authorization: apiKey,
-        route: 'p', // Use 't' for transactional if your account supports it
-        message: message,
-        numbers: customerPhone,
-        flash: '0'
-    });
-
-    const response = await fetch(`${url}?${params.toString()}`, {
-        method: 'GET', // Fast2SMS uses GET for this endpoint
-    });
-    
-    const responseData = await response.json();
-
-    if (!response.ok || responseData.return === false) {
-        console.error('Fast2SMS API Error:', responseData);
-        throw new Error(`Failed to send SMS: ${responseData.message}`);
-    }
-
-    return { success: true, ...responseData };
+    // This is a placeholder. For a real app, you'd use a WhatsApp API provider.
+    const whatsappLink = `https://wa.me/${customerPhone}?text=${encodeURIComponent(message)}`;
+    console.log(`Generated WhatsApp link: ${whatsappLink}`);
+    // In a real implementation, you would return this link or use a service to send it.
+    return { success: true, message: "WhatsApp link generated." , link: whatsappLink};
 }
 
 export async function uploadFileToDriveAction(
@@ -365,12 +343,10 @@ export async function getOrdersForDeal(customerId: string, dealId: string): Prom
 export async function addVisitAction(
   customerId: string,
   dealId: string,
-  visitData: Omit<VisitFormValues, 'date'> & { dueDate: Date, typeOfVisit: string, orderId?: string },
+  visitData: Omit<VisitFormValues, 'date'> & { typeOfVisit: string, orderId?: string },
   creatorName: string
-): Promise<{ success: boolean; message: string; visit?: DealVisit }> {
+): Promise<{ success: boolean; message: string; visit?: DealVisit, whatsAppUrl?: string }> {
     try {
-        const batch = adminDb.batch();
-
         const customerRef = adminDb.collection('customers').doc(customerId);
         const customerSnap = await customerRef.get();
         if (!customerSnap.exists) {
@@ -386,10 +362,9 @@ export async function addVisitAction(
         const dealData = dealSnap.data() as Deal;
 
 
-        const newVisit: Omit<DealVisit, 'id'> = {
+        const newVisit: Omit<DealVisit, 'id' | 'dueDate'> = {
             representative: visitData.representative,
             typeOfVisit: visitData.typeOfVisit,
-            dueDate: visitData.dueDate.toISOString(),
             createdAt: new Date().toISOString(),
             createdBy: creatorName,
             measurements: visitData.measurements,
@@ -400,61 +375,22 @@ export async function addVisitAction(
             subDeliveryInstallations: visitData.subDeliveryInstallations,
             otherDelivery: visitData.otherDelivery,
             dealId: dealData.dealId,
-            status: 'pending',
+            status: 'requested', // New status for requested visits
             orderId: visitData.orderId
         };
 
-        batch.set(newVisitRef, newVisit);
+        await newVisitRef.set(newVisit);
         
-        const savedVisit: DealVisit = { id: newVisitRef.id, ...newVisit };
-
-        // If it's a delivery visit with an order ID, update the O2D process
-        if (visitData.typeOfVisit === 'delivery' && visitData.orderId) {
-             const o2dQuery = adminDb.collection('o2d').where('dealId', '==', dealData.dealId).limit(1);
-             const o2dSnapshot = await o2dQuery.get();
-
-             if (!o2dSnapshot.empty) {
-                 const o2dDocRef = o2dSnapshot.docs[0].ref;
-                 const o2dDoc = await o2dDocRef.get();
-                 const o2dData = o2dDoc.data() as O2DProcess;
-                 const scheduleStepId = 12; // Installation/Delivery Schedule
-                 
-                 const milestoneExists = o2dData.milestones.some(m => m.stepId === scheduleStepId);
-
-                 if (!milestoneExists) {
-                     const scheduleMilestone: O2DStatus = {
-                        stepId: scheduleStepId,
-                        status: 'completed',
-                        completedAt: new Date().toISOString(),
-                        completedBy: creatorName,
-                        remarks: `Delivery visit created for order ${visitData.orderId}`,
-                        selection: 'Done'
-                    };
-                    batch.update(o2dDocRef, {
-                        milestones: FieldValue.arrayUnion(scheduleMilestone)
-                    });
-                 }
-             }
-        }
-
-
-        // Automatically send SMS
-        const visitDate = new Date(savedVisit.dueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-        const visitTime = new Date(savedVisit.dueDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        const savedVisit: DealVisit = { id: newVisitRef.id, ...newVisit, dueDate: '' };
         
-        const smsMessage = `Dear ${customerData.name},\n\nThank you for choosing Mo Design Pvt. Ltd..\nOur team will be visiting your location for the measurement on ${visitDate} at ${visitTime}. Please ensure the area is accessible so we can take accurate measurements without delay.\n\nIf you need to reschedule or have any special requirements, feel free to contact us at ${customerData.mobileNo || '0124-4777888'} or info@modesigns.in.\n\nWe look forward to serving you!\n\nWarm regards,\nTeam Mo Design Pvt. Ltd.\n0124-4777888 | info@modesigns.in | https://modesigns.in/`;
+        // Generate a link for the customer to confirm the visit
+        const confirmationLink = `${process.env.NEXT_PUBLIC_BASE_URL}/visit/confirm/${newVisitRef.id}?customerId=${customerId}&dealId=${dealId}`;
 
-        try {
-            await sendVisitSms(customerData.mobileNo, smsMessage);
-        } catch (smsError) {
-            console.error("Failed to send SMS, but visit was created:", smsError);
-            await batch.commit(); // Commit the DB changes even if SMS fails
-            return { success: true, message: "Visit added, but failed to send SMS notification.", visit: JSON.parse(JSON.stringify(savedVisit)) };
-        }
+        const smsMessage = `Dear ${customerData.name},\n\nPlease confirm your measurement visit from Mo Design Pvt. Ltd. by clicking the link below. You can select your preferred date and time.\n\nLink: ${confirmationLink}\n\nWe look forward to serving you!\n\nWarm regards,\nTeam Mo Design Pvt. Ltd.`;
+
+        const smsResult = await sendVisitSms(customerData.mobileNo, smsMessage);
         
-        await batch.commit();
-
-        return { success: true, message: "Visit added and SMS sent successfully.", visit: JSON.parse(JSON.stringify(savedVisit)) };
+        return { success: true, message: "Visit request created. Share the link with the customer.", visit: JSON.parse(JSON.stringify(savedVisit)), whatsAppUrl: smsResult.link };
     } catch (error: any) {
         console.error("Error adding visit:", error);
         return { success: false, message: `Server error: ${error.message}` };
@@ -470,7 +406,7 @@ export async function getVisitsForDeal(customerId: string, dealId: string): Prom
             .collection('deals')
             .doc(dealId)
             .collection('visits')
-            .orderBy('dueDate', 'desc')
+            .orderBy('createdAt', 'desc')
             .get();
 
         if (snapshot.empty) {
