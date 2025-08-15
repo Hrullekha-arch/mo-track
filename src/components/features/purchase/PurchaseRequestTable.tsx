@@ -84,7 +84,7 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
   const isAuthorized = role === 'admin' || role === 'Accounts';
 
   React.useEffect(() => {
-    const flattenedData: FlattenedPurchaseItem[] = tableData.flatMap(req => {
+    let flattenedData: FlattenedPurchaseItem[] = tableData.flatMap(req => {
         const fabricItems = (req.fabricDetails || []).map(item => ({
             id: `${req.id}-${item.fabricName}`,
             dealId: req.dealId,
@@ -102,8 +102,12 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
 
         return [...fabricItems];
     });
+
+    if (view === 'po-tracking') {
+        flattenedData = flattenedData.filter(item => !!item.poNumber);
+    }
     setRequests(flattenedData);
-  }, [tableData]);
+  }, [tableData, view]);
   
   const handleDeleteRequest = async () => {
     if (!deletingRequest) return;
@@ -155,7 +159,11 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
         header: 'PO Number',
         cell: ({ row }) => {
           const poNumber = row.original.poNumber;
-          return poNumber ? poNumber : '-';
+           return poNumber ? (
+              <Button variant="link" onClick={() => setTimelineRequest(row.original.originalRequest)} className="p-0 h-auto font-medium">
+                  {poNumber}
+              </Button>
+            ) : '-';
         }
     },
     {

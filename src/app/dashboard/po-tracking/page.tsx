@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
@@ -19,7 +20,7 @@ import { Calendar as CalendarIcon } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PO_PROCESS_CONFIG } from '@/lib/constants';
+import { PO_PROCESS_CONFIG, PURCHASE_PROCESS_CONFIG } from '@/lib/constants';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useForm, useFieldArray, FormProvider } from "react-hook-form";
@@ -75,7 +76,7 @@ function PoConfirmationDialog({
     const fabricFields = useFieldArray({ control: form.control, name: "fabricDetails" });
     const furnitureFields = useFieldArray({ control: form.control, name: "furnitureDetails" });
 
-    useEffect(() => {
+    React.useEffect(() => {
         if (request) {
             form.reset({
                 fabricDetails: request.fabricDetails?.map(d => ({ 
@@ -258,20 +259,16 @@ export default function PoTrackingPage() {
     useEffect(() => {
         // We only want to track POs for which an order has been placed.
         const q = query(
-            collection(db, "purchaseRequests"),
-            where("milestones", "array-contains-any", [
-                { stepId: 6, status: 'completed', completedAt: '', completedBy: '', remarks: ''}, // This structure won't work directly, need to filter client side
-                { stepId: 11, status: 'completed', completedAt: '', completedBy: '', remarks: ''}
-            ])
+            collection(db, "purchaseRequests")
         );
 
-        const unsubscribe = onSnapshot(query(collection(db, "purchaseRequests")), (snapshot) => {
+        const unsubscribe = onSnapshot(q, (snapshot) => {
             const allRequests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
             
             // Filter client-side to find requests where an order has been placed.
             const poReadyRequests = allRequests.filter(req => {
-                const isOrderPlaced = req.milestones.some(m => (m.stepId === 6 || m.stepId === 11) && m.status === 'completed');
-                const isCompleted = req.poMilestones?.some(m => m.stepId === 5 && m.status === 'completed');
+                const isOrderPlaced = req.milestones.some(m => (m.stepId === 4) && m.status === 'completed');
+                const isCompleted = req.poMilestones?.some(m => m.stepId === 3 && m.status === 'completed');
                 return isOrderPlaced && !isCompleted;
             });
 
