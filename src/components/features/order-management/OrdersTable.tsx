@@ -511,9 +511,16 @@ export function OrdersTable() {
     },
   ];
   
-  const isFullyCompleted = (order: Order) => Array.isArray(order.milestones) && order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
+  const isInstallationDone = (order: Order) => {
+    if (!Array.isArray(order.milestones)) return false;
+    // Find the highest milestone ID for the given order type
+    const milestoneIds = order.milestones.map(m => m.id);
+    const lastMilestoneId = Math.max(...milestoneIds);
+    const lastMilestone = order.milestones.find(m => m.id === lastMilestoneId);
+    return !!lastMilestone?.completed;
+  };
 
-  const activeOrders = React.useMemo(() => orders.filter(o => !isFullyCompleted(o)), [orders]);
+  const activeOrders = React.useMemo(() => orders.filter(o => !isInstallationDone(o)), [orders]);
 
   if (loading) {
     return (
@@ -588,5 +595,3 @@ export function OrdersTable() {
     </>
   );
 }
-
-    
