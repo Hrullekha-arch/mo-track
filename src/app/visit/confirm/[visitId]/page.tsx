@@ -5,7 +5,7 @@
 import * as React from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Customer, Deal, DealVisit } from '@/lib/types';
 import { getCustomerById } from '@/app/dashboard/customers/actions';
@@ -69,8 +69,9 @@ export default function ConfirmVisitPage() {
 
                 const visitDoc = { id: visitData.id, ...visitData.data() } as DealVisit;
                 setVisit(visitDoc);
-                if (visitDoc.status === 'approved') {
+                if (visitDoc.status === 'approved' && visitDoc.dueDate) {
                     setIsConfirmed(true);
+                    setSelectedDate(new Date(visitDoc.dueDate));
                 }
 
             } catch (error) {
@@ -95,9 +96,9 @@ export default function ConfirmVisitPage() {
 
             const [hours, minutes] = selectedTime.split(':').map(Number);
             const combinedDateTime = new Date(selectedDate);
-            combinedDateTime.setHours(hours, minutes);
+            combinedDateTime.setHours(hours, minutes, 0, 0);
             
-            const batch = db.batch();
+            const batch = writeBatch(db);
 
             batch.update(visitRef, {
                 status: 'approved',
@@ -132,7 +133,7 @@ export default function ConfirmVisitPage() {
         )
     }
 
-    if (isConfirmed) {
+    if (isConfirmed && visit?.dueDate) {
         return (
             <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4 text-center">
                  <Card className="w-full max-w-md">
@@ -162,29 +163,31 @@ export default function ConfirmVisitPage() {
                     <CardDescription>Hello, {customer?.name}. Please select your preferred date, time and confirm your address for the visit.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                    <div className="space-y-4">
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <Label>Select Date</Label>
-                                <CalendarPicker
-                                    mode="single"
-                                    selected={selectedDate}
-                                    onSelect={setSelectedDate}
-                                    className="rounded-md border p-0"
-                                    disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() - 1))}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="time">Select Time</Label>
-                                <Input id="time" type="time" value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} />
-                                <div className="space-y-2 pt-4">
-                                     <Label htmlFor="address">Confirm Address</Label>
-                                     <Textarea id="address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Full Address"/>
-                                     <Label htmlFor="landmark">Landmark</Label>
-                                     <Input id="landmark" value={landmark} onChange={(e) => setLandmark(e.target.value)} placeholder="Nearby Landmark"/>
-                                </div>
-                            </div>
-                         </div>
+                    <div className="flex flex-col sm:flex-row gap-4">
+                        <div className="flex-1 space-y-2">
+                             <Label>Select Date</Label>
+                            <CalendarPicker
+                                mode="single"
+                                selected={selectedDate}
+                                onSelect={setSelectedDate}
+                                className="rounded-md border p-0"
+                                disabled={(date) => date < new Date(new Date().setDate(new Date().getDate() -1))}
+                            />
+                        </div>
+                        <div className="flex-1 space-y-2">
+                             <Label htmlFor="time">Select Time</Label>
+                            <Input id="time" type="time" value={selectedTime} onChange={(e) => setSelectedTime(e.target.value)} />
+                        </div>
+                    </div>
+                     <div className="space-y-4">
+                        <div className="space-y-2">
+                             <Label htmlFor="address">Confirm Address</Label>
+                             <Textarea id="address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Full Address"/>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="landmark">Landmark</Label>
+                            <Input id="landmark" value={landmark} onChange={(e) => setLandmark(e.target.value)} placeholder="Nearby Landmark"/>
+                        </div>
                     </div>
                 </CardContent>
                 <CardFooter>
