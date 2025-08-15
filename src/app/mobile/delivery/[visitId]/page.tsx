@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from 'react';
@@ -139,14 +138,12 @@ export default function DeliveryVisitPage() {
     };
 
     const handleUpdateStatus = async (status: 'out for delivery' | 'completed') => {
-        if (!user || !order || !visit) return;
+        if (!user || !order || !visit || !customer || !deal) return;
         setIsSubmitting(true);
         try {
             const batch = writeBatch(db);
             const orderRef = doc(db, "orders", order.id);
-            const visitRef = doc(db, 'customers', customer!.id, 'deals', deal!.id, 'visits', visit.id);
-            const o2dDocRefQuery = query(collection(db, 'o2d'), where('dealId', '==', deal!.dealId), limit(1));
-            const o2dSnapshot = await getDocs(o2dDocRefQuery);
+            const visitRef = doc(db, 'customers', customer.id, 'deals', deal.id, 'visits', visit.id);
             
             if (status === 'out for delivery') {
                 const milestoneToUpdate = order.milestones.find(m => m.id === 7);
@@ -162,10 +159,19 @@ export default function DeliveryVisitPage() {
                     batch.update(orderRef, { milestones: updatedMilestones });
                 }
                 batch.update(visitRef, { status: 'completed' });
+                
+                // Update O2D as well
+                const o2dDocRefQuery = query(collection(db, 'o2d'), where('dealId', '==', deal.dealId), limit(1));
+                const o2dSnapshot = await getDocs(o2dDocRefQuery);
                 if (!o2dSnapshot.empty) {
                     const o2dDocRef = o2dSnapshot.docs[0].ref;
                     const o2dDoneMilestone: O2DStatus = {
-                        stepId: 13, status: 'completed', completedAt: new Date().toISOString(), completedBy: user.name, selection: "Done", remarks: "Completed via mobile app"
+                        stepId: 13, // Installation Done
+                        status: 'completed', 
+                        completedAt: new Date().toISOString(), 
+                        completedBy: user.name, 
+                        selection: "Done", 
+                        remarks: "Completed via mobile app"
                     };
                     batch.update(o2dDocRef, { milestones: arrayUnion(o2dDoneMilestone) });
                 }
@@ -198,7 +204,6 @@ export default function DeliveryVisitPage() {
         return <p>Error loading data.</p>
     }
     
-    const outForDelivery = !!order.milestones.find(m => m.id === 7)?.completed;
     const installationDone = !!order.milestones.find(m => m.id === 8)?.completed;
 
     return (
