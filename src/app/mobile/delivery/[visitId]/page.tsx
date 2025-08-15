@@ -231,30 +231,16 @@ export default function DeliveryVisitPage() {
                     <CardTitle>Update Status</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div>
-                        <Button 
-                            className="w-full" 
-                            disabled={!allItemsGathered || isSubmitting || outForDelivery}
-                            onClick={() => handleUpdateStatus('out for delivery')}
-                        >
-                            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Truck className="mr-2 h-4 w-4" />}
-                            {outForDelivery ? 'Out for Delivery' : 'Mark as Out for Delivery'}
-                        </Button>
-                        {!allItemsGathered && <p className="text-xs text-muted-foreground text-center mt-2">All items must be checked first.</p>}
-                    </div>
-
-                    <Separator />
-
                      <div>
                         <Button 
                             className="w-full" 
-                            disabled={!outForDelivery || isSubmitting || installationDone}
+                            disabled={!allItemsGathered || isSubmitting || installationDone}
                             onClick={() => handleUpdateStatus('completed')}
                         >
                              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CheckCheck className="mr-2 h-4 w-4" />}
                             {installationDone ? 'Installation Done' : 'Mark as Installation Done'}
                         </Button>
-                        {!outForDelivery && <p className="text-xs text-muted-foreground text-center mt-2">Must be "Out for Delivery" first.</p>}
+                        {!allItemsGathered && <p className="text-xs text-muted-foreground text-center mt-2">All items must be checked first.</p>}
                     </div>
                 </CardContent>
             </Card>
