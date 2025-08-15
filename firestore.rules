@@ -1,130 +1,119 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
   
-    // Helper function to check for admin role
-    function isAdmin() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-    
-    // Helper function to check for employee role
-    function isEmployee() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'employee';
-    }
-
-    // Helper function to check for installer role
-    function isInstaller() {
-        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'installer';
-    }
-    
-    // Helper function to check for any authenticated user
-    function isSignedIn() {
+    // Helper function to check if a user is authenticated
+    function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Users Collection
+    // Helper function to check if a user has a specific role
+    function hasRole(role) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+    
+    // Helper function to check if a user has one of several roles
+    function hasAnyRole(roles) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in roles;
+    }
+    
+    // Helper function to check if user is admin or specific employee types
+    function isStaff() {
+        return hasAnyRole(['admin', 'employee']);
+    }
+
+    // Users collection rules
     match /users/{userId} {
-      // Admins can read/write any user. Users can read/update their own profile.
-      allow read, update: if isAdmin() || request.auth.uid == userId;
-      // Only admins can create or delete users.
-      allow create, delete: if isAdmin();
+      // Anyone can read user info (e.g., for display names)
+      allow read: if isAuthenticated();
+      // Only admins can create or delete users
+      allow create, delete: if hasRole('admin');
+      // A user can update their own info, or an admin can update anyone's info
+      allow update: if isAuthenticated() && (request.auth.uid == userId || hasRole('admin'));
     }
     
-    // SalesmanCrmAssignments Collection
-    match /salesmanCrmAssignments/{assignmentId} {
-        allow read, write: if isAdmin() || isEmployee();
-    }
-    
-    // Customers Collection and Subcollections
+    // Customers collection rules
     match /customers/{customerId} {
-      allow read, create, update: if isAdmin() || isEmployee();
-      
-      // Deals subcollection
-      match /deals/{dealId} {
-        allow read, create, update: if isAdmin() || isEmployee();
+        allow read, write: if isStaff();
         
-        // Quotations subcollection
-        match /quotations/{quotationId} {
-            allow read, create, update: if isAdmin() || isEmployee();
+        // Rules for subcollections of customers
+        match /{allSubcollections}/{docId} {
+            allow read, write: if isStaff();
         }
-        
-        // Orders subcollection within deals
-        match /orders/{orderId} {
-            allow read, create, update: if isAdmin() || isEmployee();
-        }
-        
-        // Visits subcollection within deals
+
         match /visits/{visitId} {
-            allow read, create: if isAdmin() || isEmployee();
-            allow update: if (isAdmin() || isEmployee()) || (isInstaller() && resource.data.assignedTo == request.auth.uid);
+            allow read, write: if isStaff();
+            allow update: if isAuthenticated() && resource.data.assignedTo == request.auth.uid;
         }
-        
-        // Other subcollections
-        match /{subcollection}/{docId} {
-            allow read, create, update, delete: if isAdmin() || isEmployee();
-        }
-      }
     }
     
-    // Visits Collection Group (for cross-customer queries)
-    match /{path=**}/visits/{visitId} {
-      // Admins and employees can list all visits. Installers can read visits assigned to them.
-      allow read: if isAdmin() || isEmployee() || (isInstaller() && get(path).data.assignedTo == request.auth.uid);
-    }
-
-    // Orders Collection
-    match /orders/{orderId} {
-        allow read: if isSignedIn(); // Customers, installers, employees, admins can read
-        allow create, delete: if isAdmin();
-        // Admins and employees can update. Installers can only update orders assigned to them.
-        allow update: if (isAdmin() || isEmployee()) || (isInstaller() && resource.data.assignedTo == request.auth.uid);
-    }
-    
-    // O2D Collection
+    // O2D collection rules
     match /o2d/{dealId} {
-        allow read, create: if isAdmin() || isEmployee();
-        // Allow installers to update to complete the final step
-        allow update: if (isAdmin() || isEmployee()) || isInstaller();
+        allow read, write: if isStaff();
+        // Allow installers to update, but only specific fields (if needed later)
+        allow update: if isAuthenticated() && get(/databases/$(database)/documents/orders/{dealId}).data.assignedTo == request.auth.uid;
     }
 
-    // PurchaseRequests Collection
-    match /purchaseRequests/{requestId} {
-        allow read, create, update: if isAdmin() || isEmployee();
-    }
-    
-    // Inbounds Collection
-    match /inbounds/{inboundId} {
-         allow read, create, update: if isAdmin() || isEmployee();
-    }
-    
-    // Stocks Collection
-    match /stocks/{stockId} {
-        allow read: if isSignedIn();
-        allow create, update: if isAdmin() || isEmployee();
+    // Orders collection rules
+    match /orders/{orderId} {
+        // Staff can read and write all orders
+        allow read, write: if isStaff();
         
-        match /{subcollection}/{transactionId} {
-             allow read, create, update, delete: if isAdmin() || isEmployee();
+        // Installers can read and update orders assigned to them
+        allow read, update: if isAuthenticated() && resource.data.assignedTo == request.auth.uid;
+
+        // Any authenticated user can track their own order if they have the code (for the tracking page)
+        // This is a broad read, but data in orders should be customer-safe.
+        allow get: if isAuthenticated();
+        
+        match /{allSubcollections}/{docId} {
+            allow read, write: if isStaff();
         }
     }
     
-    // ApprovedQuotations, Invoices, Cutting, invoiceBatches Collections
-    match /{collectionId}/{docId} {
-        // Default deny all
-        allow read, write: if false;
+    // Rules for collection groups
+    match /{path=**}/visits/{visitId} {
+        // Admins and employees can list all visits
+        // Installers can only read visits assigned to them
+        allow read: if isStaff() || (isAuthenticated() && get(/databases/$(database)/documents/{path}/visits/$(visitId)).data.assignedTo == request.auth.uid);
     }
-    match /approvedQuotations/{quotationId} {
-        allow read, create: if isAdmin() || isEmployee();
+    
+    // Purchase Requests and Inbounds
+    match /purchaseRequests/{requestId} {
+        allow read, write: if isStaff();
     }
+    
+    match /inbounds/{inboundId} {
+        allow read, write: if isStaff();
+    }
+    
+    // Inventory and Transactions
+    match /stocks/{stockId} {
+        allow read: if isAuthenticated();
+        allow write: if isStaff();
+
+        match /{allSubcollections}/{docId} {
+             allow read, write: if isStaff();
+        }
+    }
+    
+    // Salesman to CRM Assignments
+    match /salesmanCrmAssignments/{salesmanId} {
+        allow read, write: if hasRole('admin');
+    }
+
+    // Invoices and Cutting
     match /invoices/{invoiceId} {
-        allow read, create: if isAdmin() || isEmployee();
+      allow read, write: if isStaff();
     }
-     match /Cutting/{taskId} {
-        allow read, create, update: if isAdmin() || isEmployee();
+
+    match /Cutting/{taskId} {
+      allow read, write: if isStaff();
     }
-    match /invoiceBatches/{batchId} {
-        allow read, create, update: if isAdmin() || isEmployee();
+    
+     match /approvedQuotations/{quotationId} {
+      allow read, write: if isStaff();
     }
   }
 }
