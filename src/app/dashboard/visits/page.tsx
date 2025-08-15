@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -14,7 +13,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, Search, Eye } from "lucide-react";
+import { ArrowUpDown, Search, Eye, Share2, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -48,7 +47,19 @@ interface EnrichedDealVisit extends DealVisit {
     customerId: string;
 }
 
-function VisitsTable({ visits, users, onAssign, onRowClick }: { visits: EnrichedDealVisit[], users: User[], onAssign: (visit: EnrichedDealVisit) => void, onRowClick: (visit: EnrichedDealVisit) => void }) {
+function VisitsTable({ 
+    visits, 
+    users, 
+    onAssign, 
+    onRowClick,
+    onShare
+}: { 
+    visits: EnrichedDealVisit[], 
+    users: User[], 
+    onAssign: (visit: EnrichedDealVisit) => void, 
+    onRowClick: (visit: EnrichedDealVisit) => void,
+    onShare: (visit: EnrichedDealVisit) => void 
+}) {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
 
@@ -133,7 +144,14 @@ function VisitsTable({ visits, users, onAssign, onRowClick }: { visits: Enriched
                 const installer = users.find(u => u.id === assignedToId);
                 return <Button variant="ghost" onClick={(e) => { e.stopPropagation(); onAssign(row.original); }}>{installer?.name || 'Unknown'}</Button>;
             }
-            return <Badge variant="outline">Pending Customer</Badge>;
+            return (
+                <div className="flex items-center gap-2">
+                    <Badge variant="outline">Pending Customer</Badge>
+                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onShare(row.original);}}>
+                        <Share2 className="h-4 w-4" />
+                    </Button>
+                </div>
+            )
         }
     },
     {
@@ -220,6 +238,7 @@ export default function AllVisitsPage() {
   const [loading, setLoading] = React.useState(true);
   const [selectedVisit, setSelectedVisit] = React.useState<EnrichedDealVisit | null>(null);
   const [isAssigning, setIsAssigning] = React.useState(false);
+  const [shareableLink, setShareableLink] = React.useState<string | null>(null);
   
   const { toast } = useToast();
 
@@ -303,6 +322,12 @@ export default function AllVisitsPage() {
       }
   };
 
+  const handleShareClick = (visit: EnrichedDealVisit) => {
+    const baseURL = process.env.NEXT_PUBLIC_BASE_URL || window.location.origin;
+    const link = `${baseURL}/visit/confirm/${visit.id}?customerId=${visit.customerId}&dealId=${visit.dealDocId}`;
+    setShareableLink(link);
+  };
+
   const renderMeasurementDetails = (visit: DealVisit) => ( <div/> );
   const renderDeliveryDetails = (visit: DealVisit) => ( <div/> );
   
@@ -338,7 +363,7 @@ export default function AllVisitsPage() {
                         <CardDescription>These visits have been created and are awaiting customer confirmation.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <VisitsTable visits={requestedVisits} users={users} onAssign={setSelectedVisit} onRowClick={setSelectedVisit} />
+                        <VisitsTable visits={requestedVisits} users={users} onAssign={setSelectedVisit} onRowClick={setSelectedVisit} onShare={handleShareClick} />
                     </CardContent>
                 </Card>
             </TabsContent>
@@ -349,14 +374,14 @@ export default function AllVisitsPage() {
                         <CardDescription>Visits confirmed by the customer, ready for installer assignment.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <VisitsTable visits={approvedVisits} users={users} onAssign={setSelectedVisit} onRowClick={setSelectedVisit} />
+                        <VisitsTable visits={approvedVisits} users={users} onAssign={(v) => { setSelectedVisit(v); setIsAssigning(true); }} onRowClick={setSelectedVisit} onShare={handleShareClick} />
                     </CardContent>
                 </Card>
             </TabsContent>
         </Tabs>
         
         {selectedVisit && (
-            <Dialog open={!!selectedVisit} onOpenChange={() => setSelectedVisit(null)}>
+            <Dialog open={!!selectedVisit && !isAssigning} onOpenChange={() => setSelectedVisit(null)}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Visit Details for Deal #{selectedVisit.dealId}</DialogTitle>
@@ -382,6 +407,27 @@ export default function AllVisitsPage() {
             installers={users.filter(u => u.role === 'installer')}
             currentInstallerId={selectedVisit?.assignedTo}
         />
+        <Dialog open={!!shareableLink} onOpenChange={() => setShareableLink(null)}>
+             <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Share Confirmation Link</DialogTitle>
+                    <DialogDescription>
+                        Copy and send this link to the customer via WhatsApp or SMS.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                    <Input value={shareableLink || ""} readOnly />
+                </div>
+                <DialogFooter>
+                    <Button onClick={() => {
+                        navigator.clipboard.writeText(shareableLink || "");
+                        toast({title: "Link Copied!"});
+                    }}>
+                        <Copy className="mr-2 h-4 w-4"/> Copy Link
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     </div>
   );
 }
