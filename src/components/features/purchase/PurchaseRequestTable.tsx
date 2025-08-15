@@ -48,7 +48,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from 'next/link';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PoTrackingTimeline } from "@/app/dashboard/po-tracking/page";
+import { PoTrackingTimeline } from "@/components/features/purchase/PoTrackingTimeline";
 
 
 interface FlattenedPurchaseItem {
@@ -445,7 +445,7 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
                     </TableBody>
                     </Table>
                 </div>
-                <div className="flex items-center justify-end space-x-2 py-4">
+                 <div className="flex items-center justify-end space-x-2 py-4">
                     <div className="flex-1 text-sm text-muted-foreground">
                     {table.getFilteredSelectedRowModel().rows.length} of{" "}
                     {table.getFilteredRowModel().rows.length} row(s) selected.

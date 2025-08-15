@@ -1,5 +1,8 @@
 
 {
     "name": "purchase",
-    "main": "./PurchaseRequestTable.tsx"
+    "main": "./PurchaseRequestTable.tsx",
+    "components": [
+        "./PoTrackingTimeline.tsx"
+    ]
 }
