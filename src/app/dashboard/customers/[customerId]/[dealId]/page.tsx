@@ -2062,7 +2062,13 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders 
                                     <TableRow key={visit.id}>
                                         <TableCell>{i + 1}</TableCell>
                                         <TableCell className="capitalize">{visit.typeOfVisit}</TableCell>
-                                        <TableCell>{format(new Date(visit.dueDate), 'PPP p')}</TableCell>
+                                        <TableCell>
+                                            {visit.dueDate ? (
+                                                format(new Date(visit.dueDate), 'PPP p')
+                                            ) : (
+                                                <Badge variant="destructive">Not Set</Badge>
+                                            )}
+                                        </TableCell>
                                         <TableCell>
                                             {(() => {
                                                 if (visit.visitStatus === 'Out for Delivery') {
@@ -2099,7 +2105,7 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders 
                         <DialogHeader>
                             <DialogTitle>Visit Details</DialogTitle>
                             <DialogDescription>
-                                Details for visit on {format(new Date(selectedVisit.dueDate), 'PPP p')}
+                                Details for visit on {selectedVisit.dueDate ? format(new Date(selectedVisit.dueDate), 'PPP p') : 'N/A'}
                             </DialogDescription>
                         </DialogHeader>
                         <div className="py-4 space-y-4">
