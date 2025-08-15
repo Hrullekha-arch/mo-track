@@ -44,7 +44,7 @@ import { PurchaseRequest, PurchaseStatus } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from 'next/link';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -496,12 +496,14 @@ export function PurchaseRequestTable({ tableData, view = "default" }: { tableDat
                 </DialogHeader>
                 <div className="py-4">
                     {timelineRequest && (
-                        <PoTrackingTimeline 
-                            request={timelineRequest}
-                            onStepUpdate={() => {}} // Read-only view
-                            onRevertStep={() => {}} // Read-only view
-                            userRole={role}
-                        />
+                       <AlertDialog>
+                            <PoTrackingTimeline 
+                                request={timelineRequest}
+                                onStepUpdate={() => {}} // Read-only view
+                                onRevertStep={() => {}} // Read-only view
+                                userRole={role}
+                            />
+                       </AlertDialog>
                     )}
                 </div>
             </DialogContent>
