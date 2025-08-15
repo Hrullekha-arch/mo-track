@@ -141,7 +141,7 @@ function VisitsTable({
         accessorKey: "customerAddress",
         header: "Address",
         cell: ({ row }) => {
-            const address = row.original.customerAddress || row.original.customer?.addressPinCode || "Not Set";
+            const address = row.original.customerAddress || (row.original.customer as any)?.addressPinCode || "Not Set";
             return <div className="text-xs max-w-xs truncate">{address}</div>
         }
     };
@@ -202,14 +202,16 @@ function VisitsTable({
             header: "Assigned To",
             cell: ({ row }) => {
                 const assignedToId = row.original.assignedTo;
-                const isApproved = row.original.status === 'approved';
-                if (isApproved) {
-                     if (!assignedToId) {
+                const canBeAssigned = row.original.status === 'approved' || row.original.status === 'completed';
+
+                if (canBeAssigned) {
+                    if (!assignedToId) {
                         return <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onAssign(row.original); }}>Assign</Button>;
                     }
                     const installer = users.find(u => u.id === assignedToId);
                     return <Button variant="ghost" onClick={(e) => { e.stopPropagation(); onAssign(row.original); }}>{installer?.name || 'Unknown'}</Button>;
                 }
+
                 return (
                     <div className="flex items-center gap-2">
                         <Badge variant="outline">Pending Customer</Badge>
@@ -333,15 +335,24 @@ export default function AllVisitsPage() {
             let customerName = 'Unknown';
             let dealName = 'Unknown';
             let dealId = 'N/A';
+            let customerAddress = visit.customerAddress || '';
 
             if (!customerCache.has(customerId)) {
                 const customerRef = doc(db, 'customers', customerId);
                 const customerSnap = await getDoc(customerRef);
                 if (customerSnap.exists()) {
-                    customerCache.set(customerId, { id: customerSnap.id, ...customerSnap.data() } as Customer);
+                    const customerData = { id: customerSnap.id, ...customerSnap.data() } as Customer;
+                    customerCache.set(customerId, customerData);
+                    if (!customerAddress) {
+                        customerAddress = customerData.addressPinCode || '';
+                    }
                 }
             }
             customerName = customerCache.get(customerId)?.name || 'Unknown';
+            if (!customerAddress) {
+                customerAddress = customerCache.get(customerId)?.addressPinCode || '';
+            }
+
             
             const dealCacheKey = `${customerId}-${dealDocId}`;
             if (!dealCache.has(dealCacheKey)) {
@@ -355,7 +366,7 @@ export default function AllVisitsPage() {
             dealName = dealData?.dealName || 'Unknown';
             dealId = dealData?.dealId || 'N/A';
 
-            return { ...visit, id: docSnap.id, customerId, dealDocId, customerName, dealName, dealId, customer: customerCache.get(customerId) || null };
+            return { ...visit, id: docSnap.id, customerId, dealDocId, customerName, dealName, dealId, customerAddress, customer: customerCache.get(customerId) || null };
         });
         
         const visitsData = await Promise.all(visitsDataPromises);
