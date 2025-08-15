@@ -61,10 +61,8 @@ export const PURCHASE_PROCESS_CONFIG: PurchaseStep[] = [
 
 export const PO_PROCESS_CONFIG: PurchaseStep[] = [
     { id: 1, step: "PO Confirmation", details: "Confirm the Purchase Order with the vendor", time: "30 min", role: "PC", icon: ThumbsUp, expectedDuration: { minutes: 30 } },
-    { id: 2, step: "Material Delivery Follow up", details: "Follow up on the delivery status", time: "T-2 Days", role: "PC", icon: Truck, expectedDuration: { days: -2 } }, // Special handling
-    { id: 3, step: "Receiving and Handover", details: "Receive materials and hand over to Accounts", time: "Delivery Time", role: "PC/Accounts", icon: FileCheck, expectedDuration: {} }, // Special handling
-    { id: 4, step: "Data Entry", details: "Enter received materials into the system", time: "1 hr", role: "Accounts", icon: FileCheck, expectedDuration: { hours: 1 } },
-    { id: 5, step: "Sent to Location", details: "Dispatch materials to the required location", time: "Milestone based", role: "PC", icon: Send, expectedDuration: { hours: 2 } }, // Assuming 2 hours
+    { id: 2, step: "Delivery Follow Up", details: "Follow up on the delivery status", time: "T-2 Days", role: "PC", icon: Truck, expectedDuration: { days: -2 } }, // Special handling
+    { id: 3, step: "Receiving And Sent To Location", details: "Receive materials and dispatch", time: "Delivery Time", role: "PC/Accounts", icon: FileCheck, expectedDuration: {} }, // Special handling
 ];
 
 
