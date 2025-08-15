@@ -344,7 +344,9 @@ export interface DealVisit {
     subDeliveryInstallations?: DeliveryInstallationItem[];
     otherDelivery?: string;
     status?: 'pending' | 'completed';
+    visitStatus?: 'Out for Delivery';
     measurementPdfUrl?: string;
+    orderId?: string;
 }
 
 export interface MeasurementEntry {
@@ -372,6 +374,7 @@ export interface DealMeasurement {
     entries: MeasurementEntry[];
     createdAt: string; // ISO string
     createdBy: string;
+    pdfUrl: string;
 }
 
 export interface AdvanceDetail {

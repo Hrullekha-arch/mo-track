@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from 'react';
@@ -151,6 +152,7 @@ export default function DeliveryVisitPage() {
                     const updatedMilestones = order.milestones.map(m => m.id === 7 ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: user.name } : m);
                     batch.update(orderRef, { milestones: updatedMilestones });
                 }
+                batch.update(visitRef, { visitStatus: 'Out for Delivery' });
             } else if (status === 'completed') {
                 const milestoneToUpdate = order.milestones.find(m => m.id === 8);
                 if (milestoneToUpdate) {
@@ -166,7 +168,9 @@ export default function DeliveryVisitPage() {
             
             await batch.commit();
             toast({ title: 'Status Updated!', description: `Visit is now marked as ${status}.`});
-            router.push('/mobile');
+            if (status === 'completed') {
+                router.push('/mobile');
+            }
         } catch (error) {
             console.error("Error updating status:", error);
             toast({ variant: 'destructive', title: 'Error', description: 'Failed to update status.' });

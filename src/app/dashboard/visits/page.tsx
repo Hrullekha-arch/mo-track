@@ -197,11 +197,23 @@ export default function AllVisitsPage() {
         cell: ({ row }) => {
             const visit = row.original;
             const status = visit.status;
+            const visitStatus = visit.visitStatus;
             const isCompletedMeasurement = status === 'completed' && visit.typeOfVisit === 'measurement' && visit.measurementPdfUrl;
+            
+            let badgeText = status === 'completed' ? 'Done' : 'Pending';
+            let badgeVariant: "default" | "secondary" | "destructive" | "outline" = status === 'completed' ? 'default' : 'secondary';
+            let badgeClass = status === 'completed' ? 'bg-green-600' : '';
+            
+            if (visitStatus === 'Out for Delivery' && status !== 'completed') {
+                badgeText = 'Out for Delivery';
+                badgeVariant = 'default';
+                badgeClass = 'bg-blue-600';
+            }
+
 
             const badge = (
-                <Badge variant={status === 'completed' ? 'default' : 'secondary'} className={cn(status === 'completed' && 'bg-green-600', isCompletedMeasurement && 'cursor-pointer hover:bg-green-700')}>
-                    {status === 'completed' ? 'Done' : 'Pending'}
+                <Badge variant={badgeVariant} className={cn(badgeClass, isCompletedMeasurement && 'cursor-pointer hover:bg-green-700')}>
+                    {badgeText}
                 </Badge>
             );
 
