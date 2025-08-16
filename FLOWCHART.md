@@ -1,6 +1,6 @@
 # MoTrack Application Flowchart
 
-This document outlines the main user and data workflows within the MoTrack application using a Mermaid.js flowchart.
+This document outlines the main user and data workflows within the MoTrack application using a Mermaid.js flowchart. This diagram provides a detailed, step-by-step representation of the entire operational process, from initial customer interaction to final order completion.
 
 ```mermaid
 graph TD
@@ -8,70 +8,101 @@ graph TD
         direction LR
         L1[Process Step]
         L2{Decision / Condition}
-        L3[/External Source/]
-        L4[(Database)]
-        L5[[User Interface]]
+        L3[/External Data/]
+        L4[(Database / Firestore)]
+        L5[[User Interface / Page]]
+        L_ACTION[Action Button]
+        style L_ACTION fill:#e9d5ff,stroke:#8b5cf6
     end
 
     A[Start] --> B{Login};
     B --> C{Role?};
     C -->|Admin / Employee| D[[Dashboard /dashboard]];
     C -->|Installer| E[[Mobile View /mobile]];
-    C -->|Customer| F[[Tracking Page /track]];
+    C -->|Public| F[[Tracking Page /track]];
 
-    subgraph "Admin/Employee Journey"
-        D --> D1[Select Module];
-        D1 --> G[New Order]
-        D1 --> H[New Purchase Request]
-        D1 --> I[View Orders Dashboard]
-        D1 --> J[View Purchase Dashboard]
-        D1 --> K[View PO Tracking]
-        D1 --> L[View Inbound]
-        D1 --> M[View Details/Reports]
-        D1 --> N[Manage Users]
+    subgraph "Customer & Deal Creation"
+        D --> D1[User Navigates to Customers];
+        D1 --> D2[[Customers Page /dashboard/customers]];
+        D2 --> D3{Existing Customer?};
+        D3 -->|No| D4[Create New Customer];
+        D4 --> D_CUST_DB[(Customer Saved)];
+        D_CUST_DB --> D5;
+        D3 -->|Yes| D5[Select Customer];
+        D5 --> D6[[Customer Detail Page /dashboard/customers/{id}]];
+        D6 --> D7[Create New Deal];
+        D7 --> D_DEAL_DB[(Deal Saved)];
+        D_DEAL_DB --> O2D_START;
+        D_DEAL_DB --> D8[[CRM Activity Page /dashboard/customers/{id}/{dealId}]];
+    end
+
+    subgraph "CRM Activity & Quoting"
+      D8 --> CRM1[Add Products to Deal];
+      CRM1 --> CRM_DEC{Create CPD First?};
+      
+      CRM_DEC -->|Yes| CRM_CPD[Create CPD - Customer Product Details];
+      CRM_CPD --> CRM_CPD_DB[(CPD Saved in Deal)];
+      CRM_CPD_DB --> CRM_CPD_ACTION[Convert CPD to Quotation];
+      CRM_CPD_ACTION --> CRM_QUOTE[Create Quotation];
+
+      CRM_DEC -->|No| CRM_PROD_ACTION[Convert Products to Quotation];
+      CRM_PROD_ACTION --> CRM_QUOTE;
+      
+      CRM_QUOTE --> CRM_QUOTE_DB[(Quotation 'Pending Approval' Saved)];
+      CRM_QUOTE_DB --> O2D_QUOTE[O2D: Quotation Making (Step 4) Marked Complete];
+      D8 --> CRM_VISIT[Log Customer Visit];
+      CRM_VISIT --> CRM_VISIT_DB[(Visit 'Requested' Saved)];
     end
 
     subgraph "O2D (Pre-Production) Workflow"
-        G --> O2D1[[O2D Page /dashboard/o2d]];
-        O2D1 --> O2D2[Process Steps 1-8];
-        O2D2 --> O2D3[Step 9: Purchase Material Receiving];
-        O2D3 --> O2D4{Confirm Final Order Type};
-        style O2D3 fill:#fff3cd,stroke:#ffeeba
-        O2D4 --> O2D_DB[(Order in Firestore - isAcknowledged: true)];
-        O2D_DB --> I;
+        O2D_START[New Deal Triggers O2D Process] --> O2D1[[O2D Page /dashboard/o2d]];
+        O2D1 --> O2D2[Process Steps 1-6];
+        O2D_QUOTE --> O2D2;
+        O2D2 --> O2D_PR_CHECK{Purchase Required?};
+        O2D_PR_CHECK -->|No| O2D3[O2D: Material Receiving (Step 7) Marked Complete];
+        O2D_PR_CHECK -->|Yes| P_START[Triggers Purchase Workflow];
+        P_COMPLETE[All Materials Received in Inbound] --> O2D3;
+        O2D3 --> O2D_PROD[O2D: Production (Step 8) Marked Complete];
+        O2D_PROD --> O2D_KITTING[O2D: Full Kiting (Step 9) Marked Complete];
+        O2D_KITTING --> O2D_PAY[O2D: Balance Payment (Steps 10-11) Marked Complete];
+        O2D_PAY --> O2D_SCHED[O2D: Schedule (Step 12) Marked Complete];
+        O2D_SCHED --> O2D_FINAL[O2D: Installation Done (Step 13) Marked Complete];
+        O2D_FINAL --> O2D_ACK{Acknowledge & Finalize Order};
+        O2D_ACK --> O_DB[(Order 'Approved' in Firestore)];
+        O_DB --> I[[Orders Dashboard /dashboard/orders]];
     end
 
     subgraph "Purchase & Inbound Workflow"
-        H --> P1[[New Purchase Page /dashboard/purchase/new]];
-        P1 --> P_DB[(Purchase Request in Firestore)];
-        P_DB --> J;
-        J --> P2[Verify & Select Vendor];
-        P2 --> P5[Place Order];
-        P5 --> K;
-        K --> K1[PO Confirmation - Set Dates];
-        K1 --> K2[Material Follow-up];
-        K2 --> L[[Inbound Page /dashboard/inbound]];
-        L --> L1[Process All Item Receipts];
-        L1 --> L_DB[(All Items Received in Inbound)];
-        L_DB -->|AUTOMATIC| O2D3;
+        P_START --> P1[[Purchase Page /dashboard/purchase]];
+        P1 --> P2[Verify Request];
+        P2 --> P3[Generate PO];
+        P3 --> P_DB[(Purchase Order Saved)];
+        P_DB --> P4[[PO Tracking Page /dashboard/po-tracking]];
+        P4 --> P5[Follow-up with Vendor];
+        P5 --> P6[[Inbound Page /dashboard/inbound]];
+        P6 --> P7[Process All Item Receipts];
+        P7 --> P_COMPLETE;
     end
     
-    subgraph "Order Fulfillment (Main Dashboard)"
-        I --> T1[[Orders Dashboard /dashboard/orders]];
-        T1 --> T2[Update Production Milestones];
-        T2 --> T3{Ready for Delivery?};
-        T3 -->|Yes| T4[Assign Installer];
-        T3 -->|No| T2;
-        T4 --> T_DB[(Order Assigned in Firestore)];
+    subgraph "Order Fulfillment (Production)"
+        I --> T1[Update Production Milestones (e.g., Fabric Allocated)];
+        T1 --> T2{Ready for Delivery?};
+        T2 -->|Yes| T3[Assign Installer];
+        T2 -->|No| T1;
+        T3 --> T_DB[(Order Assigned in Firestore)];
     end
 
     subgraph "Installer Journey"
         T_DB --> E;
         E --> E1[View Assigned Tasks];
-        E1 --> E2[Update Delivery/Installation Milestones];
-        E2 --> E3{Job Complete?};
-        E3 -->|Yes| E4[Collect Customer Feedback & OTP];
-        E4 --> E_DB[(Feedback stored in Firestore)];
+        E1 --> E2{Task Type?};
+        E2 -->|Delivery/Installation| E3[[Delivery Page /mobile/delivery/{id}]];
+        E3 --> E4[Update Delivery/Installation Milestones];
+        E2 -->|Measurement| E5[[Measurement Page /mobile/measurement/{id}]];
+        E5 --> E6[Submit Measurements];
+        E4 --> E7{Job Complete?};
+        E7 -->|Yes| E8[Collect Customer Feedback & OTP];
+        E8 --> E_DB[(Feedback stored in Firestore)];
         E_DB --> E_Complete[Task marked as Complete];
     end
     

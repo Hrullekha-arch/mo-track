@@ -12,7 +12,8 @@
           "fieldPath": "paymentConfirmed",
           "order": "ASCENDING"
         }
-      ]
+      ],
+      "density": "SPARSE_ALL"
     }
   ],
   "fieldOverrides": []
