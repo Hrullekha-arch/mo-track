@@ -27,15 +27,15 @@ export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
         const twoDaysFromNow = new Date();
         twoDaysFromNow.setHours(0, 0, 0, 0); // Start of today
 
-        // We can't query based on a calculated date (today vs expectedDate-2).
-        // So we fetch all requests that have a PO generated and are not yet completed.
-        const poGeneratedRequestsSnapshot = await adminDb.collection('purchaseRequests')
-            .where('status', '==', 'PO Generated')
+        // Fetch all requests that have a PO generated and are not yet completed, OR are completed.
+        // This ensures we catch items that need follow-up even if the parent PR is marked "Completed".
+        const poRequestsSnapshot = await adminDb.collection('purchaseRequests')
+            .where('status', 'in', ['PO Generated', 'Completed'])
             .get();
 
         const followUpItems: PoFollowUpItem[] = [];
 
-        poGeneratedRequestsSnapshot.forEach(doc => {
+        poRequestsSnapshot.forEach(doc => {
             const request = doc.data() as PurchaseRequest;
             const itemsWithPo = (request.fabricDetails || []).filter(item => item.poNumber && item.expectedDeliveryDate);
             
@@ -125,3 +125,4 @@ export async function updateFollowUpStatus(
         return { success: false, message: error.message };
     }
 }
+
