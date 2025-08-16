@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, Suspense } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info } from "lucide-react";
@@ -13,7 +13,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Order, Stock } from "@/lib/types";
 import { getStockById } from "../dashboard/inventory/actions";
 import { Separator } from "@/components/ui/separator";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 type ScanAction = 'pmsComplete' | 'stockDetail' | 'verifyCut' | 'verifyInbound';
@@ -157,35 +157,36 @@ function UniversalScanner() {
 
     useEffect(() => {
         if (!html5QrCodeRef.current) {
-            html5QrCodeRef.current = new Html5Qrcode(scannerContainerId);
+            html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, {
+              verbose: false
+            });
         }
-        
         const qrCodeScanner = html5QrCodeRef.current;
-
+    
         if (hasPermission === null) {
-            Html5Qrcode.getCameras()
-                .then(devices => {
-                    if (devices && devices.length) {
-                        setHasPermission(true);
-                    } else {
-                        setHasPermission(false);
-                    }
-                })
-                .catch(() => {
-                    setHasPermission(false);
-                });
+          Html5Qrcode.getCameras()
+            .then(devices => {
+              if (devices && devices.length) {
+                setHasPermission(true);
+              } else {
+                setHasPermission(false);
+              }
+            })
+            .catch(() => setHasPermission(false));
         }
     
-        if (hasPermission && qrCodeScanner.getState() !== Html5QrcodeScannerState.SCANNING) {
-            startScanner();
+        if (hasPermission && qrCodeScanner && qrCodeScanner.getState() !== Html5QrcodeScannerState.SCANNING) {
+          startScanner();
         }
-
+    
         return () => {
-            if (qrCodeScanner?.isScanning) {
-                qrCodeScanner.stop().catch(err => console.error("Error stopping scanner on unmount:", err));
-            }
+          if (qrCodeScanner?.isScanning) {
+            qrCodeScanner.stop().catch(err => {
+              console.error("Error stopping scanner on unmount. This can happen if the scanner is already stopped.", err)
+            });
+          }
         };
-    }, [hasPermission, startScanner]);
+      }, [hasPermission, startScanner]);
 
     const closeResultDialog = () => {
         setScanResult(null);
