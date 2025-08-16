@@ -74,14 +74,14 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
       const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
 
       return itemsWithPo.map(item => {
+        // Correctly filter milestones for the specific item
         const itemMilestones = (req.poMilestones || []).filter(m => m.itemName === item.fabricName);
         const completedStepIds = itemMilestones.map(m => m.stepId);
         
+        const firstPendingStep = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
         const lastCompletedStepId = completedStepIds.length > 0 ? Math.max(...completedStepIds) : 0;
         const lastCompletedStep = PO_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
         const lastMilestoneData = itemMilestones.find(m => m.stepId === lastCompletedStepId);
-        
-        const firstPendingStep = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
         
         const expectedDates = calculateExpectedDatesForPO(req);
 
