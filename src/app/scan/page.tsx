@@ -9,12 +9,14 @@ import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info } from "
 import { useToast } from "@/hooks/use-toast";
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { completePmsProcess } from "./actions";
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Order, Stock } from "@/lib/types";
 import { getStockById } from "../dashboard/inventory/actions";
 import { Separator } from "@/components/ui/separator";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
-type ScanAction = 'pmsComplete' | 'stockDetail' | 'verifyCut';
+type ScanAction = 'pmsComplete' | 'stockDetail' | 'verifyCut' | 'verifyInbound';
 
 type ScanResult = {
   status: 'success' | 'warning' | 'error';
@@ -68,6 +70,7 @@ const ScanResultDialog = ({ result, onClose }: { result: ScanResult, onClose: ()
 
 function UniversalScanner() {
     const searchParams = useSearchParams();
+    const router = useRouter();
     const { toast } = useToast();
     const scannerContainerId = "scanner-container";
     const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
@@ -84,7 +87,11 @@ function UniversalScanner() {
         if (isProcessing) return;
         setIsProcessing(true);
         if (html5QrCodeRef.current?.getState() === Html5QrcodeScannerState.SCANNING) {
-            html5QrCodeRef.current.stop();
+            try {
+                await html5QrCodeRef.current.stop();
+            } catch (err) {
+                console.warn("Scanner could not be stopped, it might have been already stopped.", err);
+            }
         }
 
         try {
@@ -104,10 +111,20 @@ function UniversalScanner() {
                     }
                     break;
                 case 'verifyCut':
-                    // This logic would need to be moved to a server action.
-                    // For now, this is a placeholder.
                     if (decodedText === targetBcn) {
-                         result = { status: 'success', message: `Verified cut for ${targetBcn} on task ${taskId}.` };
+                         const taskRef = doc(db, 'Cutting', taskId!);
+                         const taskDoc = await getDoc(taskRef);
+                         if (taskDoc.exists()) {
+                            const taskData = taskDoc.data();
+                            const updatedItems = taskData.items.map((item: any) => 
+                                item.bcn === targetBcn ? { ...item, status: 'cut' } : item
+                            );
+                             const allCut = updatedItems.every((item:any) => item.status === 'cut');
+                             await updateDoc(taskRef, { items: updatedItems, status: allCut ? 'Completed' : 'In Progress' });
+                             result = { status: 'success', message: `Verified cut for ${targetBcn} on task ${taskId}.` };
+                         } else {
+                            result = { status: 'error', message: "Task not found." };
+                         }
                     } else {
                         result = { status: 'error', message: `Incorrect BCN. Expected ${targetBcn}, scanned ${decodedText}.` };
                     }
@@ -139,44 +156,72 @@ function UniversalScanner() {
     }, [handleScanSuccess, toast]);
 
     useEffect(() => {
-        html5QrCodeRef.current = new Html5Qrcode(scannerContainerId);
+        if (!html5QrCodeRef.current) {
+            html5QrCodeRef.current = new Html5Qrcode(scannerContainerId);
+        }
+        
+        const qrCodeScanner = html5QrCodeRef.current;
 
-        Html5Qrcode.getCameras()
-            .then(devices => {
-                if (devices && devices.length) {
-                    setHasPermission(true);
-                    startScanner();
-                } else {
+        if (hasPermission === null) {
+            Html5Qrcode.getCameras()
+                .then(devices => {
+                    if (devices && devices.length) {
+                        setHasPermission(true);
+                    } else {
+                        setHasPermission(false);
+                    }
+                })
+                .catch(() => {
                     setHasPermission(false);
-                }
-            })
-            .catch(() => {
-                setHasPermission(false);
-            });
+                });
+        }
+    
+        if (hasPermission && qrCodeScanner.getState() !== Html5QrcodeScannerState.SCANNING) {
+            startScanner();
+        }
 
         return () => {
-            if (html5QrCodeRef.current?.isScanning) {
-                html5QrCodeRef.current.stop().catch(err => console.error("Cleanup failed", err));
+            if (qrCodeScanner?.isScanning) {
+                qrCodeScanner.stop().catch(err => console.error("Error stopping scanner on unmount:", err));
             }
         };
-    }, [startScanner]);
+    }, [hasPermission, startScanner]);
 
     const closeResultDialog = () => {
         setScanResult(null);
         setIsProcessing(false);
-        // Restart the scanner after closing the result
-        if (hasPermission) {
+        if (action === 'verifyCut') {
+            router.back();
+        } else if (hasPermission) {
             startScanner();
         }
     };
+    
+    let pageTitle = "Universal Scanner";
+    let pageDescription = "Point the camera at a barcode to process.";
+    switch (action) {
+        case 'pmsComplete':
+            pageTitle = "PMS Completion Scanner";
+            pageDescription = "Scan the order barcode to mark the entire PMS process as complete."
+            break;
+        case 'stockDetail':
+            pageTitle = "Stock Detail Scanner";
+            pageDescription = "Scan a stock item barcode to view its details.";
+            break;
+        case 'verifyCut':
+            pageTitle = "Verify Cut Scanner";
+            pageDescription = `Scan the barcode for item BCN: ${targetBcn} to verify it has been cut.`;
+            break;
+    }
+
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-background p-4">
             {scanResult && <ScanResultDialog result={scanResult} onClose={closeResultDialog} />}
             <Card className="w-full max-w-md">
                 <CardHeader>
-                    <CardTitle>Universal Scanner</CardTitle>
-                    <CardDescription>Point the camera at a barcode to process.</CardDescription>
+                    <CardTitle>{pageTitle}</CardTitle>
+                    <CardDescription>{pageDescription}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
                     <div id={scannerContainerId} className="aspect-square bg-muted rounded-md overflow-hidden relative flex items-center justify-center text-sm">
@@ -202,7 +247,7 @@ function UniversalScanner() {
 
 export default function UniversalScannerPage() {
     return (
-        <Suspense fallback={<p>Loading scanner...</p>}>
+        <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>}>
             <UniversalScanner />
         </Suspense>
     )
