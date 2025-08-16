@@ -1,7 +1,7 @@
 
 
 import { type Milestone, type OrderType, type PurchaseStep, O2DStep, type ComboboxOption } from './types';
-import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart, PhoneCall, Factory, Layers, CheckCircle, Archive } from 'lucide-react';
+import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart, PhoneCall, Factory, Layers, CheckCircle, Archive, Ruler, Weight, Barcode, Warehouse } from 'lucide-react';
 import { addDays, addHours, addMinutes, subDays } from 'date-fns';
 import { PurchaseRequest } from './types';
 
@@ -63,6 +63,14 @@ export const PO_PROCESS_CONFIG: PurchaseStep[] = [
     { id: 1, step: "PO Confirmation", details: "Confirm the Purchase Order with the vendor", time: "30 min", role: "PC", icon: FileCheck, expectedDuration: { minutes: 30 } },
     { id: 2, step: "Delivery Follow Up", details: "Follow up on the delivery status", time: "T-2 Days", role: "PC", icon: Truck, expectedDuration: { days: -2 } }, // Special handling
     { id: 3, step: "Receiving And Sent To Location", details: "Receive materials and dispatch", time: "Delivery Time", role: "PC/Accounts", icon: Archive, expectedDuration: {} }, // Special handling
+];
+
+export const INBOUND_PROCESS_CONFIG = [
+    { id: 1, name: 'QNQ as per PO', time: "30 min", icon: Ruler },
+    { id: 2, name: 'Weight', time: "1hr", icon: Weight },
+    { id: 3, name: 'Barcode', time: "1hr", icon: Barcode },
+    { id: 4, name: 'Stock Update in Tally/CRM/Excel', time: "1hr", icon: CheckCircle },
+    { id: 5, name: 'Assign Rack/Location', time: "Variable", icon: Warehouse },
 ];
 
 
@@ -419,5 +427,6 @@ export const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
     
 
     
+
 
 

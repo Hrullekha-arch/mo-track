@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -23,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
-import { PurchaseRequest } from "@/lib/types";
+import { InboundRequest, PurchaseRequest } from "@/lib/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +33,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { InboundProcessTimeline } from "./InboundProcessTimeline";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 interface FlattenedInboundItem {
   id: string; // Unique ID for the row
@@ -51,6 +56,7 @@ interface FlattenedInboundItem {
 export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
   const [requests, setRequests] = React.useState<FlattenedInboundItem[]>([]);
   const [globalFilter, setGlobalFilter] = React.useState('');
+  const [timelineRequest, setTimelineRequest] = React.useState<InboundRequest | null>(null);
 
   React.useEffect(() => {
     const flattenedData = tableData.flatMap(req => {
@@ -74,19 +80,44 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
     setRequests(flattenedData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
   }, [tableData]);
 
+  const handlePoClick = async (poNumber: string) => {
+    const inboundRef = doc(db, 'inbounds', poNumber);
+    const inboundSnap = await getDoc(inboundRef);
+    if (inboundSnap.exists()) {
+        const data = { id: inboundSnap.id, ...inboundSnap.data() } as InboundRequest;
+        if (data.items) {
+            data.items = data.items.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
+        }
+        setTimelineRequest(data);
+    }
+  };
+
   const columns: ColumnDef<FlattenedInboundItem>[] = [
     {
       accessorKey: "dealId",
       header: "Order ID",
-      cell: ({ row }) => (
-        <Button asChild variant="link" className="p-0 h-auto font-medium">
-          <Link href={`/dashboard/inbound/${row.original.poNumber}`}>
-            {row.getValue("dealId")}
-          </Link>
-        </Button>
-      ),
+      cell: ({ row }) => {
+        const poNumber = row.original.poNumber;
+        const link = poNumber ? `/dashboard/inbound/${poNumber}` : '#';
+        return (
+          <Button asChild variant="link" className="p-0 h-auto font-medium">
+            <Link href={link}>
+              {row.getValue("dealId")}
+            </Link>
+          </Button>
+        )
+      },
     },
-    { accessorKey: "poNumber", header: "PO Number" },
+    { 
+        accessorKey: "poNumber", 
+        header: "PO Number",
+        cell: ({ row }) => {
+            const poNumber = row.original.poNumber;
+            return poNumber ? (
+                <Button variant="link" className="p-0 h-auto" onClick={() => handlePoClick(poNumber)}>{poNumber}</Button>
+            ) : null;
+        }
+    },
     { accessorKey: "customerName", header: "Customer Name" },
     { accessorKey: "itemName", header: "Item Name" },
     { accessorKey: "quantity", header: "Qty" },
@@ -135,6 +166,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
   });
 
   return (
+    <>
     <Card>
       <CardContent className="p-4">
         <div className="flex items-center py-4">
@@ -185,5 +217,19 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
         </div>
       </CardContent>
     </Card>
+    <Dialog open={!!timelineRequest} onOpenChange={() => setTimelineRequest(null)}>
+        <DialogContent className="max-w-4xl">
+            <DialogHeader>
+                <DialogTitle>Inbound Process for PO #{timelineRequest?.id}</DialogTitle>
+                <DialogDescription>
+                    This timeline shows the receiving process for each item in the Purchase Order.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="py-4 max-h-[70vh] overflow-y-auto">
+                {timelineRequest && <InboundProcessTimeline request={timelineRequest} />}
+            </div>
+        </DialogContent>
+    </Dialog>
+    </>
   );
 }

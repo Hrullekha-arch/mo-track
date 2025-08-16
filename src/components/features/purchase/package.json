@@ -6,6 +6,7 @@
         "./PoTrackingTimeline.tsx",
         "./PurchaseProcessTimeline.tsx",
         "./InboundTable.tsx",
-        "./PoGenTable.tsx"
+        "./PoGenTable.tsx",
+        "./InboundProcessTimeline.tsx"
     ]
 }

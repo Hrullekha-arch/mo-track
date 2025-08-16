@@ -19,19 +19,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { PO_PROCESS_CONFIG } from '@/lib/constants';
+import { PO_PROCESS_CONFIG, INBOUND_PROCESS_CONFIG } from '@/lib/constants';
 import { updateStockQuantityAction, revertStockAdditionAction } from '@/app/dashboard/inventory/actions';
 
 
-const INBOUND_PROCESS_CONFIG = [
-    { id: 1, name: 'QNQ as per PO', time: "30 min", icon: Ruler },
-    { id: 2, name: 'Weight', time: "1hr", icon: Weight },
-    { id: 3, name: 'Barcode', time: "1hr", icon: Barcode },
-    { id: 4, name: 'Stock Update in Tally/CRM/Excel', time: "1hr", icon: CheckCircle },
-    { id: 5, name: 'Assign Rack/Location', time: "Variable", icon: Warehouse },
-];
-
-function ItemProcessTimeline({ 
+const ItemProcessTimeline = ({ 
     item, 
     itemIndex,
     request,
@@ -45,7 +37,7 @@ function ItemProcessTimeline({
     onUpdate: (itemIndex: number, stepId: number) => void,
     onRevert: (itemIndex: number, milestone: InboundMilestone) => void,
     userRole: string | null
-}) {
+}) => {
     return (
         <div className="pl-4 py-2">
             <div className="grid grid-cols-5 gap-4 text-center text-xs text-muted-foreground">
