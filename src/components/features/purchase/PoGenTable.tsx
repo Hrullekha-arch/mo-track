@@ -55,12 +55,12 @@ interface FlattenedPoItem {
       timestamp: string;
       user: string;
       isCompleted: boolean;
-      isOverdue: boolean;
   };
   nextStatus: {
       text: string;
       role: string;
       expectedDate: Date;
+      isOverdue: boolean;
   } | null;
 }
 
@@ -77,27 +77,23 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
         const itemMilestones = (req.poMilestones || []).filter(m => m.itemName === item.fabricName);
         const completedStepIds = itemMilestones.map(m => m.stepId);
         
-        // Find the highest ID among completed steps
         const lastCompletedStepId = completedStepIds.length > 0 ? Math.max(...completedStepIds) : 0;
         const lastCompletedStep = PO_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
-
-        // Find the milestone data for the last completed step
         const lastMilestoneData = itemMilestones.find(m => m.stepId === lastCompletedStepId);
         
-        // Find the next step to be completed
         const firstPendingStep = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
         
         const expectedDates = calculateExpectedDatesForPO(req);
 
         let nextStatusInfo = null;
-        let isNextStepOverdue = false;
         if (firstPendingStep) {
             const expectedDate = expectedDates[firstPendingStep.id] || new Date();
-            isNextStepOverdue = isPast(expectedDate);
+            const isOverdue = isPast(expectedDate);
             nextStatusInfo = {
                 text: firstPendingStep.step,
                 role: firstPendingStep.role,
-                expectedDate: expectedDate
+                expectedDate: expectedDate,
+                isOverdue: isOverdue,
             };
         }
         
@@ -106,7 +102,6 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
             timestamp: lastMilestoneData?.completedAt || req.createdAt,
             user: lastMilestoneData?.completedBy || "System",
             isCompleted: !firstPendingStep,
-            isOverdue: isNextStepOverdue,
         };
         
         return {
@@ -143,14 +138,14 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
         id: 'status', 
         header: 'Current Status', 
         cell: ({ row }) => {
-            const isCompleted = !row.original.nextStatus;
+            const status = row.original.status;
             return (
-                <div className={cn("flex items-center gap-2", !isCompleted ? "text-green-600" : "")}>
+                 <div className="flex items-center gap-2 text-green-600">
                     <CheckCircle className="h-4 w-4"/>
                     <div>
-                        <p className="font-semibold">{row.original.status.text}</p>
+                        <p className="font-semibold">{status.text}</p>
                         <p className="text-xs text-muted-foreground">
-                            {format(new Date(row.original.status.timestamp), 'dd/MM/yy hh:mm a')} by {row.original.status.user}
+                            {format(new Date(status.timestamp), 'dd/MM/yy hh:mm a')} by {status.user}
                         </p>
                     </div>
                 </div>
@@ -164,11 +159,9 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
             const nextStatus = row.original.nextStatus;
             if (!nextStatus) return <Badge>Completed</Badge>;
 
-            const isOverdue = isPast(nextStatus.expectedDate);
-
             return (
-                <div className={cn("flex items-center gap-2", isOverdue && "text-red-600")}>
-                    {isOverdue && <Clock className="h-4 w-4" />}
+                <div className={cn("flex items-center gap-2", nextStatus.isOverdue && "text-red-600")}>
+                    {nextStatus.isOverdue && <Clock className="h-4 w-4" />}
                     <div>
                         <p className="font-semibold">{nextStatus.text}</p>
                         <p className="text-xs text-muted-foreground">by {nextStatus.role} on {format(nextStatus.expectedDate, 'dd/MM/yy')}</p>
