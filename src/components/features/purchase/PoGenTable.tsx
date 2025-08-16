@@ -54,7 +54,6 @@ interface FlattenedPoItem {
       text: string;
       timestamp: string;
       user: string;
-      isCompleted: boolean;
   };
   nextStatus: {
       text: string;
@@ -75,7 +74,7 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
             const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
 
             return itemsWithPo.map(async item => {
-                // 1. Consolidate all milestones for this specific item
+                // 1. Consolidate all milestones for this specific item from all sources.
                 const allItemMilestones: PurchaseStatus[] = (req.poMilestones || []).filter(m => m.itemName === item.fabricName);
 
                 if (item.poNumber) {
@@ -85,10 +84,11 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
                         const inboundData = inboundSnap.data() as InboundRequest;
                         const inboundItem = inboundData.items.find(i => i.itemName === item.fabricName);
                         if (inboundItem && inboundItem.inboundMilestones) {
-                            const receivingMilestone = inboundItem.inboundMilestones.find(im => im.stepId === 3); // Receiving is step 3
+                            // Find the 'Receiving' step which is stepId 3 in INBOUND_PROCESS_CONFIG
+                            const receivingMilestone = inboundItem.inboundMilestones.find(im => im.stepId === 3);
                             if (receivingMilestone) {
                                 allItemMilestones.push({
-                                    stepId: 3, // Receiving And Sent To Location
+                                    stepId: 3, // Step ID for "Receiving And Sent To Location" from PO_PROCESS_CONFIG
                                     status: 'completed',
                                     completedAt: receivingMilestone.completedAt,
                                     completedBy: receivingMilestone.completedBy,
@@ -102,8 +102,10 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
                 // Sort by completion date to find the most recent one
                 allItemMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
 
-                const lastCompletedMilestone = allItemMilestones[0];
-                const lastCompletedStepConfig = lastCompletedMilestone ? PO_PROCESS_CONFIG.find(s => s.id === lastCompletedMilestone.stepId) : null;
+                const lastCompletedStep = allItemMilestones[0];
+                const lastCompletedStepConfig = lastCompletedStep
+                    ? PO_PROCESS_CONFIG.find(s => s.id === lastCompletedStep.stepId)
+                    : null;
                 
                 const completedStepIds = allItemMilestones.map(m => m.stepId);
                 const firstPendingStepConfig = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
@@ -124,9 +126,8 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
                 
                 const statusInfo = {
                     text: lastCompletedStepConfig?.step || "PO Generated",
-                    timestamp: lastCompletedMilestone?.completedAt || req.createdAt,
-                    user: lastCompletedMilestone?.completedBy || "System",
-                    isCompleted: !firstPendingStepConfig,
+                    timestamp: lastCompletedStep?.completedAt || req.createdAt,
+                    user: lastCompletedStep?.completedBy || "System",
                 };
                 
                 return {
@@ -229,7 +230,7 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
     onGlobalFilterChange: setGlobalFilter,
     state: {
       globalFilter,
