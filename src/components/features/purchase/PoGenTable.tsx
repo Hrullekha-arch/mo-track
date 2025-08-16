@@ -23,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
-import { PurchaseRequest, PurchaseStatus } from "@/lib/types";
+import { InboundRequest, PurchaseRequest, PurchaseStatus } from "@/lib/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +37,8 @@ import { PO_PROCESS_CONFIG, calculateExpectedDatesForPO } from "@/lib/constants"
 import { format, isPast } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { collection, doc, getDoc, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 
 interface FlattenedPoItem {
@@ -69,56 +71,86 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
   const [timelineRequest, setTimelineRequest] = React.useState<PurchaseRequest | null>(null);
 
   React.useEffect(() => {
-    const flattenedData = tableData.flatMap(req => {
-      const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
+    const processData = async () => {
+        const flattenedDataPromises = tableData.flatMap(req => {
+            const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
 
-      return itemsWithPo.map(item => {
-        const itemMilestones = (req.poMilestones || []).filter(m => m.itemName === item.fabricName);
-        const completedStepIds = itemMilestones.map(m => m.stepId);
-        
-        const firstPendingStep = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
-        
-        const lastCompletedStepId = completedStepIds.length > 0 ? Math.max(...completedStepIds) : 0;
-        const lastCompletedStep = PO_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
-        const lastMilestoneData = itemMilestones.find(m => m.stepId === lastCompletedStepId);
-        
-        const expectedDates = calculateExpectedDatesForPO(req);
+            return itemsWithPo.map(async item => {
+                let itemMilestones: PurchaseStatus[] = (req.poMilestones || []).filter(m => m.itemName === item.fabricName);
+                
+                // Fetch inbound data to get the latest status
+                if (item.poNumber) {
+                    const inboundRef = doc(db, 'inbounds', item.poNumber);
+                    const inboundSnap = await getDoc(inboundRef);
+                    if (inboundSnap.exists()) {
+                        const inboundData = inboundSnap.data() as InboundRequest;
+                        const inboundItem = inboundData.items.find(i => i.itemName === item.itemName);
+                        if (inboundItem && inboundItem.inboundMilestones) {
+                            // This logic assumes step IDs in inbound map to a later stage than PO confirmation
+                            // For simplicity, we'll map inbound step 3 ('Barcode') to PO step 3 ('Receiving')
+                             inboundItem.inboundMilestones.forEach(im => {
+                                if(im.stepId === 3) { // 'Barcode' which means item is received
+                                    itemMilestones.push({
+                                        stepId: 3, // 'Receiving And Sent To Location'
+                                        status: 'completed',
+                                        completedAt: im.completedAt,
+                                        completedBy: im.completedBy,
+                                        itemName: item.fabricName,
+                                    });
+                                }
+                             });
+                        }
+                    }
+                }
+                
+                const completedStepIds = itemMilestones.map(m => m.stepId);
+                const lastCompletedStepId = completedStepIds.length > 0 ? Math.max(...completedStepIds) : 0;
+                const lastCompletedStep = PO_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
+                const firstPendingStep = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
+                const lastMilestoneData = itemMilestones.find(m => m.stepId === lastCompletedStepId);
+                
+                const expectedDates = calculateExpectedDatesForPO(req);
 
-        let nextStatusInfo = null;
-        if (firstPendingStep) {
-            const expectedDate = expectedDates[firstPendingStep.id] || new Date();
-            const isOverdue = isPast(expectedDate);
-            nextStatusInfo = {
-                text: firstPendingStep.step,
-                role: firstPendingStep.role,
-                expectedDate: expectedDate,
-                isOverdue: isOverdue,
-            };
-        }
-        
-        const statusInfo = {
-            text: lastCompletedStep?.step || "PO Generated",
-            timestamp: lastMilestoneData?.completedAt || req.createdAt,
-            user: lastMilestoneData?.completedBy || "System",
-            isCompleted: !firstPendingStep,
-        };
-        
-        return {
-          id: `${req.id}-${item.fabricName}`,
-          orderId: req.dealId,
-          poNumber: item.poNumber,
-          customerName: req.customerName,
-          salesman: req.salesman,
-          createdAt: req.createdAt,
-          itemName: item.fabricName,
-          quantity: item.quantity,
-          originalRequest: req,
-          status: statusInfo,
-          nextStatus: nextStatusInfo
-        };
-      });
-    });
-    setRequests(flattenedData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+                let nextStatusInfo = null;
+                if (firstPendingStep) {
+                    const expectedDate = expectedDates[firstPendingStep.id] || new Date();
+                    const isOverdue = isPast(expectedDate);
+                    nextStatusInfo = {
+                        text: firstPendingStep.step,
+                        role: firstPendingStep.role,
+                        expectedDate: expectedDate,
+                        isOverdue: isOverdue,
+                    };
+                }
+                
+                const statusInfo = {
+                    text: lastCompletedStep?.step || "PO Generated",
+                    timestamp: lastMilestoneData?.completedAt || req.createdAt,
+                    user: lastMilestoneData?.completedBy || "System",
+                    isCompleted: !firstPendingStep,
+                };
+                
+                return {
+                    id: `${req.id}-${item.fabricName}`,
+                    orderId: req.dealId,
+                    poNumber: item.poNumber,
+                    customerName: req.customerName,
+                    salesman: req.salesman,
+                    createdAt: req.createdAt,
+                    itemName: item.fabricName,
+                    quantity: item.quantity,
+                    originalRequest: req,
+                    status: statusInfo,
+                    nextStatus: nextStatusInfo
+                };
+            });
+        });
+
+        const flattenedData = await Promise.all(flattenedDataPromises);
+        setRequests(flattenedData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    };
+    
+    processData();
   }, [tableData]);
 
   const columns: ColumnDef<FlattenedPoItem>[] = [
