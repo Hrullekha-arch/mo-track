@@ -55,8 +55,8 @@ export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
 
                     if (!isFollowedUp) {
                         followUpItems.push({
-                            id: `${request.id}-${item.fabricName}`,
-                            requestId: request.id,
+                            id: `${request.id}-${item.fabricName}`, // Use the correct document ID for the unique ID
+                            requestId: request.id, // Pass the correct document ID
                             orderId: request.dealId,
                             poNumber: item.poNumber,
                             customerName: request.customerName,
