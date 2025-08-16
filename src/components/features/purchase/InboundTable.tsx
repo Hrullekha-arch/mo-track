@@ -23,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
-import { InboundRequest, PurchaseRequest, PurchaseStatus } from "@/lib/types";
+import { InboundRequest, PurchaseRequest } from "@/lib/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,9 +34,10 @@ import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InboundProcessTimeline } from "./InboundProcessTimeline";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { INBOUND_PROCESS_CONFIG } from "@/lib/constants";
+import { format } from 'date-fns';
 
 interface FlattenedInboundItem {
   id: string; // Unique ID for the row
@@ -68,22 +69,27 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
 
                 if (item.poNumber) {
                     const inboundRef = doc(db, 'inbounds', item.poNumber);
-                    const inboundSnap = await getDoc(inboundRef);
-                    if (inboundSnap.exists()) {
-                        const inboundData = inboundSnap.data() as InboundRequest;
-                        const inboundItem = inboundData.items.find(i => i.itemName === item.itemName);
-                        const completedMilestones = (inboundItem?.inboundMilestones || []);
-                        const completedStepsCount = completedMilestones.length;
+                    try {
+                        const inboundSnap = await getDoc(inboundRef);
+                        if (inboundSnap.exists()) {
+                            const inboundData = inboundSnap.data() as InboundRequest;
+                            const inboundItem = inboundData.items.find(i => i.itemName === item.itemName);
+                            const completedMilestones = (inboundItem?.inboundMilestones || []);
+                            const completedStepsCount = completedMilestones.length;
 
-                        if (completedStepsCount === INBOUND_PROCESS_CONFIG.length) {
-                            statusText = 'Received';
-                        } else if (completedStepsCount > 0) {
-                            const lastCompletedStep = completedMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())[0];
-                            const lastStepConfig = INBOUND_PROCESS_CONFIG.find(step => step.id === lastCompletedStep.stepId);
-                            statusText = lastStepConfig?.name || "In Progress";
-                        } else {
-                            statusText = INBOUND_PROCESS_CONFIG[0]?.name || "Pending Receiving";
+                            if (completedStepsCount === INBOUND_PROCESS_CONFIG.length) {
+                                statusText = 'Received';
+                            } else if (completedStepsCount > 0) {
+                                const lastCompletedStepId = completedMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())[0].stepId;
+                                const lastStepConfig = INBOUND_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
+                                statusText = lastStepConfig?.name || "In Progress";
+                            } else {
+                                statusText = INBOUND_PROCESS_CONFIG[0]?.name || "Pending Receiving";
+                            }
                         }
+                    } catch (e) {
+                        console.error(`Could not fetch inbound doc for PO ${item.poNumber}`, e);
+                        statusText = "Error fetching status";
                     }
                 }
                 
@@ -160,7 +166,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
             return <Badge variant={isCompleted ? 'default' : 'secondary'} className={isCompleted ? 'bg-green-600' : ''}>{status}</Badge>;
         }
     },
-    { accessorKey: "createdAt", header: "Created Date", cell: ({ row }) => new Date(row.original.createdAt).toLocaleDateString() },
+    { accessorKey: "createdAt", header: "Created Date", cell: ({ row }) => format(new Date(row.original.createdAt), 'dd/MM/yyyy') },
     {
       id: "actions",
       cell: ({ row }) => (
