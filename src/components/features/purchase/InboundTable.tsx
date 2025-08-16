@@ -64,7 +64,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
             const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
 
             return itemsWithPo.map(async item => {
-                let statusText = 'Pending Receiving'; // Default status
+                let statusText = 'Pending'; // Default status
 
                 // Fetch the corresponding inbound document to get detailed status
                 if (item.poNumber) {
@@ -80,7 +80,12 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                             if (lastStepConfig) {
                                 statusText = lastStepConfig.name;
                             }
+                        } else {
+                            // If no milestones are complete, show the first step's name.
+                            statusText = INBOUND_PROCESS_CONFIG[0]?.name || 'Pending Receiving';
                         }
+                    } else {
+                         statusText = INBOUND_PROCESS_CONFIG[0]?.name || 'Pending Receiving';
                     }
                 }
                 
