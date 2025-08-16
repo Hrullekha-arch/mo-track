@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -9,9 +10,9 @@ import {
   VisibilityState,
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  getFilteredRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, Trash2, Edit, ShieldAlert, CheckCircle } from "lucide-react";
@@ -147,11 +148,17 @@ export function PurchaseRequestTable({ tableData, view = "default", timelineType
     {
       accessorKey: "dealId",
       header: "Order ID",
-      cell: ({ row }) => (
-          <Button variant="link" onClick={() => setTimelineRequest(row.original.originalRequest)} className="p-0 h-auto font-medium">
+      cell: ({ row }) => {
+        const poNumber = row.original.poNumber;
+        const link = poNumber ? `/dashboard/inbound/${poNumber}` : '#';
+        return (
+          <Button asChild variant="link" className="p-0 h-auto font-medium" disabled={!poNumber}>
+            <Link href={link}>
               {row.getValue("dealId")}
+            </Link>
           </Button>
-      )
+        )
+      },
     },
     {
         accessorKey: 'poNumber',
