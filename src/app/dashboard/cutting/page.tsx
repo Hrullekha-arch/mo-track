@@ -146,7 +146,7 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
                                                     </>
                                                 ) : (
                                                     <Button asChild size="sm">
-                                                        <Link href={`/dashboard/cutting/scan?taskId=${task.id}&bcn=${item.bcn}`}>
+                                                        <Link href={`/scan?action=verifyCut&taskId=${task.id}&bcn=${item.bcn}`}>
                                                             <ScanLine className="mr-2 h-4 w-4" />
                                                             Scan to Verify Cut
                                                         </Link>
@@ -264,7 +264,7 @@ export default function CuttingPage() {
                             Refresh
                         </Button>
                         <Button asChild>
-                            <Link href="/dashboard/cutting/details-scan">
+                            <Link href="/scan?action=stockDetail">
                                 <Info className="mr-2 h-4 w-4" />
                                 Details
                             </Link>
