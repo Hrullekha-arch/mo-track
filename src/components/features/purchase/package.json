@@ -4,6 +4,8 @@
     "main": "./PurchaseRequestTable.tsx",
     "components": [
         "./PoTrackingTimeline.tsx",
-        "./PurchaseProcessTimeline.tsx"
+        "./PurchaseProcessTimeline.tsx",
+        "./InboundTable.tsx",
+        "./PoGenTable.tsx"
     ]
 }

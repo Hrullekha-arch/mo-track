@@ -10,7 +10,7 @@ import { UserManagement } from "@/components/features/user-management/UserManage
 import { O2DTable } from "@/components/features/order-management/O2DTable";
 import { PurchaseRequestTable } from "@/components/features/purchase/PurchaseRequestTable";
 import { PoGenTable } from "@/components/features/purchase/PoGenTable";
-import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
+import { InboundTable } from "@/components/features/purchase/InboundTable"; // New import
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -56,6 +56,7 @@ export default function AllOrdersPage() {
                         <TabsTrigger value="o2d">O2D</TabsTrigger>
                         <TabsTrigger value="purchase">Purchase</TabsTrigger>
                         <TabsTrigger value="po-gen">Po Gen</TabsTrigger>
+                        <TabsTrigger value="inbound">Inbound</TabsTrigger>
                         <TabsTrigger value="users">Users</TabsTrigger>
                     </TabsList>
                     <ScrollBar orientation="horizontal" />
@@ -78,6 +79,11 @@ export default function AllOrdersPage() {
                 <TabsContent value="po-gen" className="mt-4">
                     <Suspense fallback={<AllOrdersSkeleton />}>
                         <PoGenTable tableData={purchaseRequests} />
+                    </Suspense>
+                </TabsContent>
+                <TabsContent value="inbound" className="mt-4">
+                    <Suspense fallback={<AllOrdersSkeleton />}>
+                        <InboundTable tableData={purchaseRequests} />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="users" className="mt-4">
