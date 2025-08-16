@@ -1,4 +1,5 @@
 
+
 # MoTrack Firestore Schema
 
 This document outlines the main Firestore collections, their document structures, and the operations performed on them within the MoTrack application.
@@ -165,7 +166,7 @@ This is the main collection for tracking all customer orders from creation to co
 
 ## `purchaseRequests`
 
-Tracks requests for materials needed for orders.
+Tracks requests for materials needed for orders. This collection also holds the generated PO data.
 
 -   **Path**: `/purchaseRequests/{dealId}`
 -   **Operations**: Read, Create, Update
@@ -176,7 +177,8 @@ Tracks requests for materials needed for orders.
       dealId: string;
       customerName: string;
       status: 'Pending Approval' | 'Approved' | 'PO Generated' | 'Completed' | 'Cancelled';
-      fabricDetails?: FabricDetail[];
+      fabricDetails?: FabricDetail[]; // PO numbers are added to items within this array
+      poMilestones?: PurchaseStatus[]; // Tracks the progress after a PO is generated
       // ... and other fields
     }
     ```
@@ -314,3 +316,5 @@ The main inventory collection.
       createdBy: string; // User name
     }
     ```
+
+```
