@@ -43,6 +43,9 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
   SheetTrigger,
 } from "@/components/ui/sheet";
 
@@ -172,11 +175,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </Button>
                 </SheetTrigger>
                 <SheetContent side="left" className="w-64 p-0 bg-card/80 backdrop-blur-lg dark text-primary-foreground">
+                     <SheetHeader className="p-4 border-b">
+                        <SheetTitle className="flex items-center gap-2">
+                             <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>
+                             <span>MoTrack</span>
+                        </SheetTitle>
+                        <SheetDescription>
+                            Your operations management partner.
+                        </SheetDescription>
+                    </SheetHeader>
                     <div className="flex flex-col h-full">
-                        <div className="p-4 flex items-center gap-2 h-[65px] border-b">
-                            <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>
-                            <span className="font-bold text-lg">MoTrack</span>
-                        </div>
                         <div className="flex-1 overflow-y-auto">
                              <nav className={cn("space-y-1 p-2")}>
                                 {navItems.map((item) => {
