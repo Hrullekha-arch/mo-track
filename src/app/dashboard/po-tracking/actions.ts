@@ -24,8 +24,8 @@ export interface PoFollowUpItem {
 // Function to get items that need follow-up
 export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
     try {
-        const twoDaysFromNow = new Date();
-        twoDaysFromNow.setHours(0, 0, 0, 0); // Start of today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Start of today
 
         // Fetch all requests that have a PO generated and are not yet completed, OR are completed.
         // This ensures we catch items that need follow-up even if the parent PR is marked "Completed".
@@ -37,34 +37,39 @@ export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
 
         poRequestsSnapshot.forEach(doc => {
             const request = doc.data() as PurchaseRequest;
-            const itemsWithPo = (request.fabricDetails || []).filter(item => item.poNumber && item.expectedDeliveryDate);
-            
-            itemsWithPo.forEach(item => {
-                if (!item.expectedDeliveryDate) return;
+            // Use the promiseDeliveryDate from the root of the request.
+            if (!request.promiseDeliveryDate) return;
 
-                const expectedDate = new Date(item.expectedDeliveryDate);
-                const followUpDate = subDays(expectedDate, 2);
-                
-                // If today is on or after the follow-up date, and the 'Delivery Follow Up' step is not done yet
-                if (
-                    (isSameDay(twoDaysFromNow, followUpDate) || twoDaysFromNow > followUpDate) && 
-                    !(request.poMilestones || []).some(m => m.stepId === 2 && m.itemName === item.fabricName)
-                ) {
-                    followUpItems.push({
-                        id: `${request.id}-${item.fabricName}`,
-                        requestId: request.id,
-                        orderId: request.dealId,
-                        poNumber: item.poNumber,
-                        customerName: request.customerName,
-                        itemName: item.fabricName,
-                        quantity: item.quantity,
-                        salesman: request.salesman,
-                        expectedDeliveryDate: item.expectedDeliveryDate!,
-                        vendorName: item.vendorName,
-                        originalRequest: request,
-                    });
-                }
-            });
+            const promiseDate = new Date(request.promiseDeliveryDate);
+            const followUpDate = subDays(promiseDate, 2);
+            
+            // If today is on or after the follow-up date, check items inside.
+            if (isSameDay(today, followUpDate) || today > followUpDate) {
+                 const itemsWithPo = (request.fabricDetails || []).filter(item => item.poNumber);
+
+                 itemsWithPo.forEach(item => {
+                    // Check if this specific item has already been followed up on.
+                    const isFollowedUp = (request.poMilestones || []).some(
+                        m => m.stepId === 2 && m.itemName === item.fabricName
+                    );
+
+                    if (!isFollowedUp) {
+                        followUpItems.push({
+                            id: `${request.id}-${item.fabricName}`,
+                            requestId: request.id,
+                            orderId: request.dealId,
+                            poNumber: item.poNumber,
+                            customerName: request.customerName,
+                            itemName: item.fabricName,
+                            quantity: item.quantity,
+                            salesman: request.salesman,
+                            expectedDeliveryDate: item.expectedDeliveryDate || request.promiseDeliveryDate, // Use item-specific date if available
+                            vendorName: item.vendorName,
+                            originalRequest: request,
+                        });
+                    }
+                 });
+            }
         });
 
         return JSON.parse(JSON.stringify(followUpItems));
@@ -125,4 +130,3 @@ export async function updateFollowUpStatus(
         return { success: false, message: error.message };
     }
 }
-
