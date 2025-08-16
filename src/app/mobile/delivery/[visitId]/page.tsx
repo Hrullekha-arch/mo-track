@@ -152,6 +152,8 @@ export default function DeliveryVisitPage() {
                     batch.update(orderRef, { milestones: updatedMilestones });
                 }
                 batch.update(visitRef, { visitStatus: 'Out for Delivery' });
+                // Update local state to re-render buttons
+                setVisit(prev => prev ? { ...prev, visitStatus: 'Out for Delivery' } : null);
             } else if (status === 'completed') {
                 const milestoneToUpdate = order.milestones.find(m => m.id === 8);
                 if (milestoneToUpdate) {
@@ -205,6 +207,7 @@ export default function DeliveryVisitPage() {
     }
     
     const installationDone = !!order.milestones.find(m => m.id === 8)?.completed;
+    const isOutForDelivery = visit.visitStatus === 'Out for Delivery';
 
     return (
         <div className="min-h-screen bg-gray-50 p-4">
@@ -241,16 +244,28 @@ export default function DeliveryVisitPage() {
                     <CardTitle>Update Status</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                    <div>
+                        <Button 
+                            className="w-full" 
+                            variant="outline"
+                            disabled={!allItemsGathered || isSubmitting || isOutForDelivery || installationDone}
+                            onClick={() => handleUpdateStatus('out for delivery')}
+                        >
+                             {isSubmitting && !isOutForDelivery ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Truck className="mr-2 h-4 w-4" />}
+                             {isOutForDelivery ? 'Out for Delivery' : 'Mark as Out for Delivery'}
+                        </Button>
+                        {!allItemsGathered && <p className="text-xs text-muted-foreground text-center mt-2">All items must be checked first.</p>}
+                    </div>
                      <div>
                         <Button 
                             className="w-full" 
-                            disabled={!allItemsGathered || isSubmitting || installationDone}
+                            disabled={!isOutForDelivery || isSubmitting || installationDone}
                             onClick={() => handleUpdateStatus('completed')}
                         >
-                             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CheckCheck className="mr-2 h-4 w-4" />}
+                             {isSubmitting && isOutForDelivery ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CheckCheck className="mr-2 h-4 w-4" />}
                             {installationDone ? 'Installation Done' : 'Mark as Installation Done'}
                         </Button>
-                        {!allItemsGathered && <p className="text-xs text-muted-foreground text-center mt-2">All items must be checked first.</p>}
+                        {!isOutForDelivery && !installationDone && <p className="text-xs text-muted-foreground text-center mt-2">Must be marked "Out for Delivery" first.</p>}
                     </div>
                 </CardContent>
             </Card>

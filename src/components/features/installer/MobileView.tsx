@@ -249,11 +249,14 @@ const InstallerVisitCard = ({ visit }: { visit: EnrichedInstallerVisit }) => {
     const router = useRouter();
 
     const handleStartVisit = () => {
+        let path = '';
         if (visit.typeOfVisit === 'measurement') {
-            router.push(`/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}`);
-        } else if (visit.typeOfVisit === 'delivery') {
-            router.push(`/mobile/delivery/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}&orderId=${visit.orderId}`);
+            path = `/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}`;
+        } else {
+             // For any other type of visit like 'delivery', 'fittings', etc.
+            path = `/mobile/delivery/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}&orderId=${visit.orderId}`;
         }
+        router.push(path);
     };
 
     const getButtonContent = () => {
@@ -261,7 +264,12 @@ const InstallerVisitCard = ({ visit }: { visit: EnrichedInstallerVisit }) => {
             case 'measurement':
                 return { text: 'Start Measurement', icon: <ArrowRight className="ml-2 h-4 w-4" /> };
             case 'delivery':
-                return { text: 'Start Delivery', icon: <Truck className="ml-2 h-4 w-4" /> };
+            case 'fittings':
+            case 'complaint':
+            case 'tempo':
+            case 'selection':
+            case 'other':
+                return { text: 'Start Visit', icon: <Truck className="ml-2 h-4 w-4" /> };
             default:
                 return { text: 'Start Visit', icon: <ArrowRight className="ml-2 h-4 w-4" /> };
         }
