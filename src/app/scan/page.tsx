@@ -102,12 +102,13 @@ function UniversalScanner() {
                     result = { status: pmsResult.success ? 'success' : 'error', message: pmsResult.message, data: { order: pmsResult.order } };
                     break;
                 case 'stockDetail':
-                    const stockId = decodedText.replace(/\//g, '-');
+                    const bcn = decodedText.split('|')[0]; // Extract BCN from "bcn|length"
+                    const stockId = bcn.replace(/\//g, '-');
                     const stock = await getStockById(stockId);
                     if (stock) {
-                        result = { status: 'success', message: "Stock found.", data: { stock } };
+                        result = { status: 'success', message: `Stock found for BCN: ${bcn}`, data: { stock } };
                     } else {
-                        result = { status: 'error', message: "Stock not found." };
+                        result = { status: 'error', message: `Stock not found for BCN: ${bcn}` };
                     }
                     break;
                 case 'verifyCut':
@@ -139,7 +140,9 @@ function UniversalScanner() {
     }, [action, isProcessing, targetBcn, taskId]);
 
     const startScanner = useCallback(() => {
-        if (!html5QrCodeRef.current) return;
+        if (!html5QrCodeRef.current || html5QrCodeRef.current.isScanning) {
+            return;
+        }
         
         const config = { fps: 10, qrbox: { width: 250, height: 250 } };
         
@@ -156,37 +159,34 @@ function UniversalScanner() {
     }, [handleScanSuccess, toast]);
 
     useEffect(() => {
-        if (!html5QrCodeRef.current) {
-            html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, {
-              verbose: false
-            });
-        }
-        const qrCodeScanner = html5QrCodeRef.current;
-    
-        if (hasPermission === null) {
-          Html5Qrcode.getCameras()
+        html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, {
+            verbose: false
+        });
+
+        Html5Qrcode.getCameras()
             .then(devices => {
-              if (devices && devices.length) {
-                setHasPermission(true);
-              } else {
-                setHasPermission(false);
-              }
+                if (devices && devices.length) {
+                    setHasPermission(true);
+                } else {
+                    setHasPermission(false);
+                }
             })
             .catch(() => setHasPermission(false));
-        }
-    
-        if (hasPermission && qrCodeScanner && qrCodeScanner.getState() !== Html5QrcodeScannerState.SCANNING) {
-          startScanner();
-        }
-    
+
         return () => {
-          if (qrCodeScanner?.isScanning) {
-            qrCodeScanner.stop().catch(err => {
-              console.error("Error stopping scanner on unmount. This can happen if the scanner is already stopped.", err)
-            });
-          }
+            if (html5QrCodeRef.current?.isScanning) {
+                html5QrCodeRef.current.stop().catch(err => {
+                    console.error("Error stopping scanner on unmount:", err)
+                });
+            }
         };
-      }, [hasPermission, startScanner]);
+    }, []);
+
+    useEffect(() => {
+        if (hasPermission) {
+            startScanner();
+        }
+    }, [hasPermission, startScanner]);
 
     const closeResultDialog = () => {
         setScanResult(null);
@@ -253,3 +253,5 @@ export default function UniversalScannerPage() {
         </Suspense>
     )
 }
+
+    
