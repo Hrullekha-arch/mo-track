@@ -11,6 +11,7 @@ import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Order, Quotation, PurchaseRequest, InboundRequest, DealVisit, CuttingTask, InvoiceBatch } from "@/lib/types";
 import Image from "next/image";
+import { getFollowUpItems } from "./po-tracking/actions";
 
 interface SummaryCardProps {
     title: string;
@@ -51,7 +52,7 @@ export default function DashboardPage() {
         pendingInvoice: null,
         pendingCutting: null,
         paymentConfirmation: null,
-        deliveryFollowUp: null, // New count
+        deliveryFollowUp: null,
     });
     const [loading, setLoading] = useState(true);
 
@@ -83,11 +84,9 @@ export default function DashboardPage() {
                     setCounts(prev => ({ ...prev, pendingQuotationApproval: docsData.filter(q => (q as Quotation).status === 'Pending Approval').length }));
                 }
                 if (key === 'purchaseRequests') {
-                    const poGeneratedRequests = (docsData as PurchaseRequest[]).filter(pr => pr.status === 'PO Generated');
                      setCounts(prev => ({
                         ...prev,
-                        pendingPurchase: docsData.filter(pr => pr.status === 'Approved').length,
-                        deliveryFollowUp: poGeneratedRequests.length,
+                        pendingPurchase: docsData.filter(pr => (pr as PurchaseRequest).status === 'Approved').length,
                     }));
                 }
                 if (key === 'inbounds') {
@@ -104,6 +103,19 @@ export default function DashboardPage() {
                 }
             })
         );
+        
+        // Fetch follow-up items separately using the correct server action
+        const fetchFollowUpCount = async () => {
+            try {
+                const followUpItems = await getFollowUpItems();
+                setCounts(prev => ({...prev, deliveryFollowUp: followUpItems.length}));
+            } catch (e) {
+                console.error("Failed to fetch follow-up count:", e);
+                setCounts(prev => ({...prev, deliveryFollowUp: 0}));
+            }
+        };
+
+        fetchFollowUpCount();
         
         // Wait for all initial fetches to complete
         Promise.all(Object.values(queries).map(q => getDocs(q))).finally(() => setLoading(false));

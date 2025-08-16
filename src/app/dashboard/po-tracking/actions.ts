@@ -40,7 +40,9 @@ export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
             const itemsWithPo = (request.fabricDetails || []).filter(item => item.poNumber && item.expectedDeliveryDate);
             
             itemsWithPo.forEach(item => {
-                const expectedDate = new Date(item.expectedDeliveryDate!);
+                if (!item.expectedDeliveryDate) return;
+
+                const expectedDate = new Date(item.expectedDeliveryDate);
                 const followUpDate = subDays(expectedDate, 2);
                 
                 // If today is on or after the follow-up date, and the 'Delivery Follow Up' step is not done yet
