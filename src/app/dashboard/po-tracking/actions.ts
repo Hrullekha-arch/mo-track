@@ -36,7 +36,7 @@ export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
         const followUpItems: PoFollowUpItem[] = [];
 
         poRequestsSnapshot.forEach(doc => {
-            const request = doc.data() as PurchaseRequest;
+            const request = { id: doc.id, ...doc.data() } as PurchaseRequest;
             // Use the promiseDeliveryDate from the root of the request.
             if (!request.promiseDeliveryDate) return;
 
