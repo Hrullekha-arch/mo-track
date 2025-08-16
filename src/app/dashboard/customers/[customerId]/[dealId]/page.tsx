@@ -2401,7 +2401,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
 
           <TabsContent value="cpd">
-            <CpdTab customer={customer} salesmen={salesmen} deal={deal} onRefresh={handleRefresh}/>
+            <CpdTab customer={customer} salesmen={salesmen} deal={deal} onRefresh={handleRefresh} quotations={quotations} />
           </TabsContent>
           
           <TabsContent value="products">
@@ -2444,7 +2444,7 @@ interface ItemDetailValues extends DealProduct {
 }
 
 // CPD Tab Component
-function CpdTab({ customer, salesmen, deal, onRefresh }: { customer: Customer, salesmen: User[], deal: Deal, onRefresh: () => void }) {
+function CpdTab({ customer, salesmen, deal, onRefresh, quotations }: { customer: Customer, salesmen: User[], deal: Deal, onRefresh: () => void, quotations: Quotation[] }) {
     const [cpds, setCpds] = useState<Cpd[]>([]);
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -2525,23 +2525,30 @@ function CpdTab({ customer, salesmen, deal, onRefresh }: { customer: Customer, s
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {cpds.length > 0 ? cpds.map(cpd => (
-                                    <TableRow key={cpd.id}>
-                                        <TableCell>
-                                            <Button variant="link" className="p-0" onClick={() => setSelectedCpd(cpd)}>
-                                                {cpd.cpdId}
-                                            </Button>
-                                        </TableCell>
-                                        <TableCell>{cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</TableCell>
-                                        <TableCell>{cpd.createdBy}</TableCell>
-                                        <TableCell>{salesmen.find(s => s.id === cpd.representative)?.name || 'N/A'}</TableCell>
-                                         <TableCell>
-                                            <Button size="sm" onClick={() => handleConvertToQuotation(cpd)}>
-                                                Convert to Quotation
-                                            </Button>
-                                        </TableCell>
-                                    </TableRow>
-                                )) : (
+                                {cpds.length > 0 ? cpds.map(cpd => {
+                                    const isQuotationCreated = quotations.some(q => q.cpdId === cpd.id);
+                                    return (
+                                        <TableRow key={cpd.id}>
+                                            <TableCell>
+                                                <Button variant="link" className="p-0" onClick={() => setSelectedCpd(cpd)}>
+                                                    {cpd.cpdId}
+                                                </Button>
+                                            </TableCell>
+                                            <TableCell>{cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</TableCell>
+                                            <TableCell>{cpd.createdBy}</TableCell>
+                                            <TableCell>{salesmen.find(s => s.id === cpd.representative)?.name || 'N/A'}</TableCell>
+                                             <TableCell>
+                                                {isQuotationCreated ? (
+                                                    <Badge variant="default" className="bg-green-500">Quotation Created</Badge>
+                                                ) : (
+                                                    <Button size="sm" onClick={() => handleConvertToQuotation(cpd)}>
+                                                        Convert to Quotation
+                                                    </Button>
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    )
+                                }) : (
                                     <TableRow>
                                         <TableCell colSpan={5} className="h-24 text-center">No CPDs saved for this deal yet.</TableCell>
                                     </TableRow>
