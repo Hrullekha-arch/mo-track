@@ -455,6 +455,7 @@ const formSchema = z.object({
   sendEmail: z.boolean().default(false),
   sendSms: z.boolean().default(false),
   representativeId: z.string().optional(), // Added field
+  cpdId: z.string().optional(), // To link quotation with CPD
 });
 
 export type FormValues = z.infer<typeof formSchema>;
@@ -968,7 +969,9 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
             </form>
             </FormProvider>
         ) : (
-            <QuotationPreview form={form} onBack={() => setView('edit')} onSubmit={handleCreateQuotation} loading={loading} />
+             <FormProvider {...form}>
+                 <QuotationPreview form={form} onBack={() => setView('edit')} onSubmit={handleCreateQuotation} loading={loading} />
+             </FormProvider>
         )}
         </div>
         

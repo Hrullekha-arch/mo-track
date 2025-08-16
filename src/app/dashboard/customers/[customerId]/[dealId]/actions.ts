@@ -134,6 +134,7 @@ export async function createQuotationAction(customerId: string, dealId: string, 
         createdAt: new Date().toISOString(),
         status: 'Pending Approval', // Initially pending
         totalAmount: totalAmount,
+        cpdId: values.selectedCpdId || undefined,
     };
     
     // Automation: Mark Quotation Making (4) as complete in O2D
