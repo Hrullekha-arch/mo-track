@@ -11,7 +11,7 @@ import {
   getFilteredRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Clock, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -23,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
-import { InboundRequest, PurchaseRequest } from "@/lib/types";
+import { InboundRequest, PurchaseRequest, PurchaseStatus } from "@/lib/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,27 +64,29 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
             const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
 
             return itemsWithPo.map(async item => {
-                let statusText = 'Pending'; // Default status
+                let statusText = 'Pending Receiving'; // Default status
 
-                // Fetch the corresponding inbound document to get detailed status
                 if (item.poNumber) {
                     const inboundRef = doc(db, 'inbounds', item.poNumber);
                     const inboundSnap = await getDoc(inboundRef);
                     if (inboundSnap.exists()) {
                         const inboundData = inboundSnap.data() as InboundRequest;
                         const inboundItem = inboundData.items.find(i => i.itemName === item.itemName);
-                        if (inboundItem && inboundItem.inboundMilestones && inboundItem.inboundMilestones.length > 0) {
-                            // Find the last completed milestone
-                            const lastMilestone = [...inboundItem.inboundMilestones].sort((a, b) => b.stepId - a.stepId)[0];
-                            const lastStepConfig = INBOUND_PROCESS_CONFIG.find(s => s.id === lastMilestone.stepId);
-                            if (lastStepConfig) {
-                                statusText = lastStepConfig.name;
-                            }
+                        const completedStepIds = (inboundItem?.inboundMilestones || []).map(m => m.stepId);
+
+                        const nextStep = INBOUND_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
+                        
+                        if (nextStep) {
+                            statusText = nextStep.name;
+                        } else if (completedStepIds.length === INBOUND_PROCESS_CONFIG.length) {
+                             // All steps are completed, show the last step name
+                            statusText = INBOUND_PROCESS_CONFIG[INBOUND_PROCESS_CONFIG.length - 1].name;
                         } else {
-                            // If no milestones are complete, show the first step's name.
+                            // Default if something is unexpected
                             statusText = INBOUND_PROCESS_CONFIG[0]?.name || 'Pending Receiving';
                         }
                     } else {
+                         // No inbound doc yet, so the first step is the status
                          statusText = INBOUND_PROCESS_CONFIG[0]?.name || 'Pending Receiving';
                     }
                 }
@@ -95,7 +97,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                     poNumber: item.poNumber,
                     customerName: req.customerName,
                     salesman: req.salesman,
-                    status: statusText, // Use the new detailed status
+                    status: statusText,
                     createdAt: req.createdAt,
                     itemName: item.itemName,
                     quantity: item.quantity,
