@@ -72,21 +72,18 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                     if (inboundSnap.exists()) {
                         const inboundData = inboundSnap.data() as InboundRequest;
                         const inboundItem = inboundData.items.find(i => i.itemName === item.itemName);
-                        const completedStepIds = (inboundItem?.inboundMilestones || []).map(m => m.stepId);
+                        const completedMilestones = (inboundItem?.inboundMilestones || []);
 
-                        const nextStep = INBOUND_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
-                        
-                        if (nextStep) {
-                            statusText = nextStep.name;
-                        } else if (completedStepIds.length === INBOUND_PROCESS_CONFIG.length) {
-                             // All steps are completed, show the last step name
-                            statusText = INBOUND_PROCESS_CONFIG[INBOUND_PROCESS_CONFIG.length - 1].name;
+                        if (completedMilestones.length === INBOUND_PROCESS_CONFIG.length) {
+                            statusText = 'Received';
+                        } else if (completedMilestones.length > 0) {
+                            const lastCompletedStepId = completedMilestones.reduce((maxId, m) => Math.max(maxId, m.stepId), 0);
+                            const lastStepConfig = INBOUND_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
+                            statusText = lastStepConfig?.name || "In Progress";
                         } else {
-                            // Default if something is unexpected
-                            statusText = INBOUND_PROCESS_CONFIG[0]?.name || 'Pending Receiving';
+                            statusText = INBOUND_PROCESS_CONFIG[0]?.name || "Pending Receiving";
                         }
                     } else {
-                         // No inbound doc yet, so the first step is the status
                          statusText = INBOUND_PROCESS_CONFIG[0]?.name || 'Pending Receiving';
                     }
                 }
@@ -160,7 +157,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
         header: "Status",
         cell: ({ row }) => {
             const status = row.original.status;
-            const isCompleted = status === INBOUND_PROCESS_CONFIG[INBOUND_PROCESS_CONFIG.length - 1].name;
+            const isCompleted = status === 'Received';
             return <Badge variant={isCompleted ? 'default' : 'secondary'} className={isCompleted ? 'bg-green-600' : ''}>{status}</Badge>;
         }
     },
