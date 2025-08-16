@@ -76,58 +76,58 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
             const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
 
             return itemsWithPo.map(async item => {
-                let itemMilestones: PurchaseStatus[] = (req.poMilestones || []).filter(m => m.itemName === item.fabricName);
-                
-                // Fetch inbound data to get the latest status
+                // 1. Consolidate all milestones for this specific item
+                const allItemMilestones: PurchaseStatus[] = (req.poMilestones || []).filter(m => m.itemName === item.fabricName);
+
                 if (item.poNumber) {
                     const inboundRef = doc(db, 'inbounds', item.poNumber);
                     const inboundSnap = await getDoc(inboundRef);
                     if (inboundSnap.exists()) {
                         const inboundData = inboundSnap.data() as InboundRequest;
-                        const inboundItem = inboundData.items.find(i => i.itemName === item.itemName);
+                        const inboundItem = inboundData.items.find(i => i.itemName === item.fabricName);
                         if (inboundItem && inboundItem.inboundMilestones) {
-                            // This logic assumes step IDs in inbound map to a later stage than PO confirmation
-                            // For simplicity, we'll map inbound step 3 ('Barcode') to PO step 3 ('Receiving')
-                             inboundItem.inboundMilestones.forEach(im => {
-                                if(im.stepId === 3) { // 'Barcode' which means item is received
-                                    itemMilestones.push({
-                                        stepId: 3, // 'Receiving And Sent To Location'
+                            inboundItem.inboundMilestones.forEach(im => {
+                                // Map inbound step 3 (Barcode) to PO step 3 (Receiving)
+                                if (im.stepId === 3) {
+                                    allItemMilestones.push({
+                                        stepId: 3, // Receiving And Sent To Location
                                         status: 'completed',
                                         completedAt: im.completedAt,
                                         completedBy: im.completedBy,
                                         itemName: item.fabricName,
                                     });
                                 }
-                             });
+                            });
                         }
                     }
                 }
-                
-                const completedStepIds = itemMilestones.map(m => m.stepId);
+
+                // 2. Determine Current and Next status from the consolidated list
+                const completedStepIds = allItemMilestones.map(m => m.stepId);
                 const lastCompletedStepId = completedStepIds.length > 0 ? Math.max(...completedStepIds) : 0;
-                const lastCompletedStep = PO_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
-                const firstPendingStep = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
-                const lastMilestoneData = itemMilestones.find(m => m.stepId === lastCompletedStepId);
+                const lastCompletedStepConfig = PO_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
+                const firstPendingStepConfig = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
+                const lastMilestoneData = allItemMilestones.find(m => m.stepId === lastCompletedStepId);
                 
                 const expectedDates = calculateExpectedDatesForPO(req);
 
                 let nextStatusInfo = null;
-                if (firstPendingStep) {
-                    const expectedDate = expectedDates[firstPendingStep.id] || new Date();
+                if (firstPendingStepConfig) {
+                    const expectedDate = expectedDates[firstPendingStepConfig.id] || new Date();
                     const isOverdue = isPast(expectedDate);
                     nextStatusInfo = {
-                        text: firstPendingStep.step,
-                        role: firstPendingStep.role,
+                        text: firstPendingStepConfig.step,
+                        role: firstPendingStepConfig.role,
                         expectedDate: expectedDate,
                         isOverdue: isOverdue,
                     };
                 }
                 
                 const statusInfo = {
-                    text: lastCompletedStep?.step || "PO Generated",
+                    text: lastCompletedStepConfig?.step || "PO Generated",
                     timestamp: lastMilestoneData?.completedAt || req.createdAt,
                     user: lastMilestoneData?.completedBy || "System",
-                    isCompleted: !firstPendingStep,
+                    isCompleted: !firstPendingStepConfig,
                 };
                 
                 return {
