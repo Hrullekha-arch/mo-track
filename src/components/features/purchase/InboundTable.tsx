@@ -73,18 +73,17 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                         const inboundData = inboundSnap.data() as InboundRequest;
                         const inboundItem = inboundData.items.find(i => i.itemName === item.itemName);
                         const completedMilestones = (inboundItem?.inboundMilestones || []);
+                        const completedStepsCount = completedMilestones.length;
 
-                        if (completedMilestones.length === INBOUND_PROCESS_CONFIG.length) {
+                        if (completedStepsCount === INBOUND_PROCESS_CONFIG.length) {
                             statusText = 'Received';
-                        } else if (completedMilestones.length > 0) {
-                            const lastCompletedStepId = completedMilestones.reduce((maxId, m) => Math.max(maxId, m.stepId), 0);
-                            const lastStepConfig = INBOUND_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
+                        } else if (completedStepsCount > 0) {
+                            const lastCompletedStep = completedMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())[0];
+                            const lastStepConfig = INBOUND_PROCESS_CONFIG.find(step => step.id === lastCompletedStep.stepId);
                             statusText = lastStepConfig?.name || "In Progress";
                         } else {
                             statusText = INBOUND_PROCESS_CONFIG[0]?.name || "Pending Receiving";
                         }
-                    } else {
-                         statusText = INBOUND_PROCESS_CONFIG[0]?.name || 'Pending Receiving';
                     }
                 }
                 
