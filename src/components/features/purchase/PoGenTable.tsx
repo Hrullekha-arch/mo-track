@@ -85,7 +85,7 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
                         const inboundData = inboundSnap.data() as InboundRequest;
                         const inboundItem = inboundData.items.find(i => i.itemName === item.fabricName);
                         if (inboundItem && inboundItem.inboundMilestones) {
-                            const receivingMilestone = inboundItem.inboundMilestones.find(im => im.stepId === 3);
+                            const receivingMilestone = inboundItem.inboundMilestones.find(im => im.stepId === 3); // Receiving is step 3
                             if (receivingMilestone) {
                                 allItemMilestones.push({
                                     stepId: 3, // Receiving And Sent To Location
@@ -98,14 +98,14 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
                         }
                     }
                 }
+                
+                // Sort by completion date to find the most recent one
+                allItemMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
 
-                // 2. Determine Current and Next status from the consolidated list
+                const lastCompletedMilestone = allItemMilestones[0];
+                const lastCompletedStepConfig = lastCompletedMilestone ? PO_PROCESS_CONFIG.find(s => s.id === lastCompletedMilestone.stepId) : null;
+                
                 const completedStepIds = allItemMilestones.map(m => m.stepId);
-                const lastCompletedStepId = completedStepIds.length > 0 ? Math.max(...completedStepIds) : 0;
-                
-                const lastCompletedStepConfig = PO_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
-                const lastMilestoneData = allItemMilestones.find(m => m.stepId === lastCompletedStepId);
-                
                 const firstPendingStepConfig = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
                 
                 const expectedDates = calculateExpectedDatesForPO(req);
@@ -124,8 +124,8 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
                 
                 const statusInfo = {
                     text: lastCompletedStepConfig?.step || "PO Generated",
-                    timestamp: lastMilestoneData?.completedAt || req.createdAt,
-                    user: lastMilestoneData?.completedBy || "System",
+                    timestamp: lastCompletedMilestone?.completedAt || req.createdAt,
+                    user: lastCompletedMilestone?.completedBy || "System",
                     isCompleted: !firstPendingStepConfig,
                 };
                 
