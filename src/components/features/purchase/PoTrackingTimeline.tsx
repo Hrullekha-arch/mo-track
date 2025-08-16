@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { PurchaseRequest, PurchaseStatus } from "@/lib/types";
@@ -7,53 +8,10 @@ import { AlertDialog, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { PO_PROCESS_CONFIG } from "@/lib/constants";
+import { PO_PROCESS_CONFIG, calculateExpectedDatesForPO } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { Clock, Check, Undo2 } from "lucide-react";
 
-
-export const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
-    return PO_PROCESS_CONFIG.reduce((acc, currentStep) => {
-        let startDate: Date;
-        if (currentStep.id === 1) {
-             // PO process starts when the 'Place Order' step in the previous phase is completed.
-            const placeOrderStep = request.milestones.find(m => m.stepId === 4);
-            startDate = placeOrderStep ? new Date(placeOrderStep.completedAt) : new Date();
-        } else {
-            const previousStepConfig = PO_PROCESS_CONFIG.find(s => s.id === currentStep.id - 1)!;
-            
-            // Check for actual completed milestones to base the next step on
-            const allPreviousMilestones = (request.poMilestones || []).filter(m => m.stepId < currentStep.id);
-            const latestPreviousMilestone = allPreviousMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.createdAt).getTime())[0];
-
-            if (latestPreviousMilestone) {
-                startDate = new Date(latestPreviousMilestone.completedAt);
-            } else {
-                startDate = acc[previousStepConfig.id];
-            }
-        }
-        
-        // Dynamic date calculation based on vendor's promised date
-        if (request.poDeliveryDate) {
-            if (currentStep.id === 2) { // Material Delivery Follow up is 2 days before promised date
-                acc[currentStep.id] = subDays(new Date(request.poDeliveryDate), 2);
-                return acc;
-            } else if (currentStep.id === 3) { // Receiving and Handover is on the promised date
-                acc[currentStep.id] = new Date(request.poDeliveryDate);
-                return acc;
-            }
-        }
-        
-        // Fallback to standard duration calculation
-        const { days = 0, hours = 0, minutes = 0 } = currentStep.expectedDuration;
-        let completionDate = addDays(startDate, days);
-        completionDate = addHours(completionDate, hours);
-        completionDate = addMinutes(completionDate, minutes);
-        acc[currentStep.id] = completionDate;
-
-        return acc;
-    }, {} as Record<number, Date>);
-}
 
 const formatTimestamp = (date: Date) => {
     return format(date, 'dd/yyyy - HH:mm');
