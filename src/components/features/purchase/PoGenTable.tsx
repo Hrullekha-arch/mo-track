@@ -77,20 +77,23 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
         const itemMilestones = (req.poMilestones || []).filter(m => m.itemName === item.fabricName);
         const completedStepIds = itemMilestones.map(m => m.stepId);
         
-        const lastCompletedStep = PO_PROCESS_CONFIG
-          .filter(step => completedStepIds.includes(step.id))
-          .sort((a,b) => b.id - a.id)[0];
-        
-        const lastMilestoneData = itemMilestones.find(m => m.stepId === lastCompletedStep?.id);
+        // Find the highest ID among completed steps
+        const lastCompletedStepId = completedStepIds.length > 0 ? Math.max(...completedStepIds) : 0;
+        const lastCompletedStep = PO_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
 
-        const lastCompletedStepIndex = lastCompletedStep ? PO_PROCESS_CONFIG.findIndex(s => s.id === lastCompletedStep.id) : -1;
-        const firstPendingStep = PO_PROCESS_CONFIG[lastCompletedStepIndex + 1];
+        // Find the milestone data for the last completed step
+        const lastMilestoneData = itemMilestones.find(m => m.stepId === lastCompletedStepId);
         
-        const expectedDates = calculateExpectedDatesForPO(req); 
+        // Find the next step to be completed
+        const firstPendingStep = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
+        
+        const expectedDates = calculateExpectedDatesForPO(req);
 
         let nextStatusInfo = null;
+        let isNextStepOverdue = false;
         if (firstPendingStep) {
             const expectedDate = expectedDates[firstPendingStep.id] || new Date();
+            isNextStepOverdue = isPast(expectedDate);
             nextStatusInfo = {
                 text: firstPendingStep.step,
                 role: firstPendingStep.role,
@@ -98,14 +101,12 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
             };
         }
         
-        const isOverdue = nextStatusInfo ? isPast(nextStatusInfo.expectedDate) : false;
-
         const statusInfo = {
             text: lastCompletedStep?.step || "PO Generated",
             timestamp: lastMilestoneData?.completedAt || req.createdAt,
             user: lastMilestoneData?.completedBy || "System",
             isCompleted: !firstPendingStep,
-            isOverdue
+            isOverdue: isNextStepOverdue,
         };
         
         return {
@@ -141,17 +142,20 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
     { 
         id: 'status', 
         header: 'Current Status', 
-        cell: ({ row }) => (
-            <div className={cn("flex items-center gap-2", row.original.status.isOverdue && "text-red-600")}>
-                {row.original.status.isOverdue ? <Clock className="h-4 w-4"/> : <CheckCircle className="h-4 w-4 text-green-500"/>}
-                <div>
-                    <p className="font-semibold">{row.original.status.text}</p>
-                    <p className="text-xs text-muted-foreground">
-                        {format(new Date(row.original.status.timestamp), 'dd/MM/yy hh:mm a')} by {row.original.status.user}
-                    </p>
+        cell: ({ row }) => {
+            const isCompleted = !row.original.nextStatus;
+            return (
+                <div className={cn("flex items-center gap-2", !isCompleted ? "text-green-600" : "")}>
+                    <CheckCircle className="h-4 w-4"/>
+                    <div>
+                        <p className="font-semibold">{row.original.status.text}</p>
+                        <p className="text-xs text-muted-foreground">
+                            {format(new Date(row.original.status.timestamp), 'dd/MM/yy hh:mm a')} by {row.original.status.user}
+                        </p>
+                    </div>
                 </div>
-            </div>
-        )
+            )
+        }
     },
     { 
         id: 'nextStatus', 
@@ -159,8 +163,12 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
         cell: ({ row }) => {
             const nextStatus = row.original.nextStatus;
             if (!nextStatus) return <Badge>Completed</Badge>;
+
+            const isOverdue = isPast(nextStatus.expectedDate);
+
             return (
-                <div className={cn("flex items-center gap-2", isPast(nextStatus.expectedDate) && "text-red-600")}>
+                <div className={cn("flex items-center gap-2", isOverdue && "text-red-600")}>
+                    {isOverdue && <Clock className="h-4 w-4" />}
                     <div>
                         <p className="font-semibold">{nextStatus.text}</p>
                         <p className="text-xs text-muted-foreground">by {nextStatus.role} on {format(nextStatus.expectedDate, 'dd/MM/yy')}</p>
