@@ -6,7 +6,6 @@ import {
   ColumnDef,
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
@@ -86,18 +85,16 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
                         const inboundData = inboundSnap.data() as InboundRequest;
                         const inboundItem = inboundData.items.find(i => i.itemName === item.fabricName);
                         if (inboundItem && inboundItem.inboundMilestones) {
-                            inboundItem.inboundMilestones.forEach(im => {
-                                // Map inbound step 3 (Barcode) to PO step 3 (Receiving)
-                                if (im.stepId === 3) {
-                                    allItemMilestones.push({
-                                        stepId: 3, // Receiving And Sent To Location
-                                        status: 'completed',
-                                        completedAt: im.completedAt,
-                                        completedBy: im.completedBy,
-                                        itemName: item.fabricName,
-                                    });
-                                }
-                            });
+                            const receivingMilestone = inboundItem.inboundMilestones.find(im => im.stepId === 3);
+                            if (receivingMilestone) {
+                                allItemMilestones.push({
+                                    stepId: 3, // Receiving And Sent To Location
+                                    status: 'completed',
+                                    completedAt: receivingMilestone.completedAt,
+                                    completedBy: receivingMilestone.completedBy,
+                                    itemName: item.fabricName,
+                                });
+                            }
                         }
                     }
                 }
@@ -105,9 +102,11 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
                 // 2. Determine Current and Next status from the consolidated list
                 const completedStepIds = allItemMilestones.map(m => m.stepId);
                 const lastCompletedStepId = completedStepIds.length > 0 ? Math.max(...completedStepIds) : 0;
+                
                 const lastCompletedStepConfig = PO_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
-                const firstPendingStepConfig = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
                 const lastMilestoneData = allItemMilestones.find(m => m.stepId === lastCompletedStepId);
+                
+                const firstPendingStepConfig = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
                 
                 const expectedDates = calculateExpectedDatesForPO(req);
 
@@ -230,7 +229,7 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
+    getFilteredRowModel: getCoreRowModel(),
     onGlobalFilterChange: setGlobalFilter,
     state: {
       globalFilter,
