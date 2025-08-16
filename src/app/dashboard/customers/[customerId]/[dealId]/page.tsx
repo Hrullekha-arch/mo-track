@@ -8,7 +8,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, CpdItem } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -2401,7 +2401,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
 
           <TabsContent value="cpd">
-            <CpdTab customer={customer} salesmen={salesmen} deal={deal} />
+            <CpdTab customer={customer} salesmen={salesmen} deal={deal} onRefresh={handleRefresh}/>
           </TabsContent>
           
           <TabsContent value="products">
@@ -2439,12 +2439,20 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   );
 }
 
+interface ItemDetailValues extends DealProduct {
+    rate?: number;
+}
+
 // CPD Tab Component
-function CpdTab({ customer, salesmen, deal }: { customer: Customer, salesmen: User[], deal: Deal }) {
+function CpdTab({ customer, salesmen, deal, onRefresh }: { customer: Customer, salesmen: User[], deal: Deal, onRefresh: () => void }) {
     const [cpds, setCpds] = useState<Cpd[]>([]);
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [selectedCpd, setSelectedCpd] = useState<Cpd | null>(null);
+
+    const [isQuotationDialogOpen, setIsQuotationDialogOpen] = useState(false);
+    const [selectedProductsForQuotation, setSelectedProductsForQuotation] = useState<ItemDetailValues[]>([]);
+
 
     const fetchCpds = useCallback(async () => {
         setLoading(true);
@@ -2461,9 +2469,29 @@ function CpdTab({ customer, salesmen, deal }: { customer: Customer, salesmen: Us
     const handleRefresh = async () => {
         setIsRefreshing(true);
         await fetchCpds();
-        // Add a small delay for user to perceive the refresh action
         await new Promise(resolve => setTimeout(resolve, 500));
         setIsRefreshing(false);
+    };
+
+    const handleConvertToQuotation = async (cpd: Cpd) => {
+        const itemsToConvert: ItemDetailValues[] = [];
+        for (const room of cpd.rooms) {
+            for (const item of room.items) {
+                const stockResults = await searchStockByBcn(item.itemName);
+                const stockItem = stockResults.find(s => s.bcn === item.itemName);
+                itemsToConvert.push({
+                    id: `${cpd.id}-${item.itemName}`,
+                    collectionBrand: item.itemName,
+                    quantity: item.qty,
+                    rate: parseFloat(item.rate || (stockItem?.mrp || '0').toString()),
+                    salesDescription: `${item.itemName} - ${item.type}`,
+                    room: room.room,
+                    productCategory: item.type,
+                });
+            }
+        }
+        setSelectedProductsForQuotation(itemsToConvert);
+        setIsQuotationDialogOpen(true);
     };
 
     useEffect(() => {
@@ -2493,6 +2521,7 @@ function CpdTab({ customer, salesmen, deal }: { customer: Customer, salesmen: Us
                                     <TableHead>Date</TableHead>
                                     <TableHead>Created By</TableHead>
                                     <TableHead>Representative</TableHead>
+                                    <TableHead>Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -2506,10 +2535,15 @@ function CpdTab({ customer, salesmen, deal }: { customer: Customer, salesmen: Us
                                         <TableCell>{cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</TableCell>
                                         <TableCell>{cpd.createdBy}</TableCell>
                                         <TableCell>{salesmen.find(s => s.id === cpd.representative)?.name || 'N/A'}</TableCell>
+                                         <TableCell>
+                                            <Button size="sm" onClick={() => handleConvertToQuotation(cpd)}>
+                                                Convert to Quotation
+                                            </Button>
+                                        </TableCell>
                                     </TableRow>
                                 )) : (
                                     <TableRow>
-                                        <TableCell colSpan={4} className="h-24 text-center">No CPDs saved for this deal yet.</TableCell>
+                                        <TableCell colSpan={5} className="h-24 text-center">No CPDs saved for this deal yet.</TableCell>
                                     </TableRow>
                                 )}
                             </TableBody>
@@ -2526,6 +2560,18 @@ function CpdTab({ customer, salesmen, deal }: { customer: Customer, salesmen: Us
                     {selectedCpd && <PrintableCpd cpd={selectedCpd} customer={customer} deal={deal} salesmen={salesmen} />}
                 </DialogContent>
             </Dialog>
+            <CreateQuotationDialog 
+                isOpen={isQuotationDialogOpen}
+                onClose={() => setIsQuotationDialogOpen(false)}
+                onSuccess={() => {
+                    setIsQuotationDialogOpen(false);
+                    onRefresh();
+                }}
+                deal={deal}
+                customer={customer}
+                initialItems={selectedProductsForQuotation}
+                cpds={cpds}
+            />
         </div>
     )
 }
