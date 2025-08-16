@@ -83,7 +83,7 @@ graph TD
       CRM_DEC -->|No| CRM_PROD_ACTION[Convert Products to Quotation];
       CRM_PROD_ACTION --> CRM_QUOTE;
       
-      CRM_QUOTE --> CRM_QUOTE_DB[(Quotation 'Pending Approval' Saved)];
+      CRM_QUOTE --> CRM_QUOTE_DB[(Quotation Pending Approval Saved)];
       CRM_QUOTE_DB --> O2D_QUOTE[O2D: Quotation Making (Step 4) Marked Complete];
       D8 --> CRM_VISIT[Log Customer Visit];
       CRM_VISIT --> CRM_VISIT_DB[(Visit 'Requested' Saved)];
