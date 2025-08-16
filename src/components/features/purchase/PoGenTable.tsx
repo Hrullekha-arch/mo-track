@@ -5,8 +5,6 @@
 import * as React from "react";
 import {
   ColumnDef,
-  ColumnFiltersState,
-  SortingState,
   flexRender,
   getCoreRowModel,
   getPaginationRowModel,
@@ -36,7 +34,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PoTrackingTimeline } from "./PoTrackingTimeline";
 import { AlertDialog } from "@/components/ui/alert-dialog";
-import { PO_PROCESS_CONFIG } from "@/lib/constants";
+import { PO_PROCESS_CONFIG, calculateExpectedDatesForPO } from "@/lib/constants";
 import { format, isPast } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -87,8 +85,7 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
 
         const firstPendingStep = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
         
-        // This is a placeholder as the function was moved. A proper fix would be to import it.
-        const expectedDates: Record<number, Date> = {}; 
+        const expectedDates = calculateExpectedDatesForPO(req); 
 
         let nextStatusInfo = null;
         if (firstPendingStep) {
@@ -200,7 +197,7 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel,
+    getFilteredRowModel: getFilteredRowModel(),
     onGlobalFilterChange: setGlobalFilter,
     state: {
       globalFilter,
