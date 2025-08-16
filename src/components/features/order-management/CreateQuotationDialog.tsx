@@ -630,169 +630,171 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
     }, [calculatedItems, vasWithCalculations]);
 
     return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold">Confirm & Create Quotation</h2>
-                <Button variant="ghost" onClick={onBack}><ArrowLeft className="mr-2 h-4 w-4"/> Back</Button>
-            </div>
-
-            <div className="grid grid-cols-4 gap-x-8 gap-y-4 text-sm">
-                <div className="space-y-1"><p className="text-muted-foreground">Company</p><p className="font-semibold">{values.company || 'MO DESIGNS PRIVATE LIMITED'}</p></div>
-                <div className="space-y-1"><p className="text-muted-foreground">Store</p><p className="font-semibold">{values.store}</p></div>
-                <div className="space-y-1"><p className="text-muted-foreground">Quotation Date</p><p className="font-semibold">{format(values.date, 'dd/MM/yyyy')}</p></div>
-                <div className="space-y-1"><p className="text-muted-foreground">Valid Till Date</p><p className="font-semibold">{values.validTillDate ? format(values.validTillDate, 'dd/MM/yyyy') : '-'}</p></div>
-                <div className="space-y-1"><p className="text-muted-foreground">Customer Name</p><p className="font-semibold">{values.customerName}</p></div>
-                <div className="space-y-1"><p className="text-muted-foreground">Billing Name</p><p className="font-semibold">{values.billingName || values.customerName}</p></div>
-                <div className="space-y-1 col-span-2"><p className="text-muted-foreground">Billing Address</p><p className="font-semibold">{values.billingAddress || '-'}</p></div>
-            </div>
-            
-            {/* Item Details */}
-            <div className="space-y-2">
-                <h3 className="text-lg font-semibold">Item Details</h3>
-                <div className="border rounded-md overflow-x-auto">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>#</TableHead>
-                                <TableHead>Collection / Brand</TableHead>
-                                <TableHead>Serial No</TableHead>
-                                <TableHead>Quantity</TableHead>
-                                <TableHead>Rate</TableHead>
-                                <TableHead>Subtotal</TableHead>
-                                <TableHead>Discount</TableHead>
-                                <TableHead>Room</TableHead>
-                                <TableHead>No of Pcs</TableHead>
-                                <TableHead>Taxable Amt</TableHead>
-                                <TableHead>CGST</TableHead>
-                                <TableHead>SGST</TableHead>
-                                <TableHead>IGST</TableHead>
-                                <TableHead>Description</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {calculatedItems.map((item, index) => (
-                                <TableRow key={item.id}>
-                                    <TableCell>{index + 1}</TableCell>
-                                    <TableCell>{item.collectionBrand}</TableCell>
-                                    <TableCell>{item.serialNo}</TableCell>
-                                    <TableCell>{item.quantity.toFixed(2)}</TableCell>
-                                    <TableCell>{item.rate.toFixed(2)}</TableCell>
-                                    <TableCell>{item.subtotal.toFixed(2)}</TableCell>
-                                    <TableCell>{item.discount.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@{item.discountPercent.toFixed(2)}%</span></TableCell>
-                                    <TableCell>{item.room}</TableCell>
-                                    <TableCell>{item.noOfPcs}</TableCell>
-                                    <TableCell>{item.taxableAmt.toFixed(2)}</TableCell>
-                                    <TableCell>{item.cgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.50%</span></TableCell>
-                                    <TableCell>{item.sgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.50%</span></TableCell>
-                                    <TableCell>{item.igst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@0.00%</span></TableCell>
-                                    <TableCell>{item.salesDescription}</TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                        <TableFooter>
-                            <TableRow>
-                                <TableCell colSpan={3} className="font-bold text-right">Total</TableCell>
-                                <TableCell className="font-bold">{totals.itemTotals.quantity.toFixed(2)}</TableCell>
-                                <TableCell></TableCell>
-                                <TableCell className="font-bold">{totals.itemTotals.subtotal.toFixed(2)}</TableCell>
-                                <TableCell className="font-bold">{totals.itemTotals.discount.toFixed(2)}</TableCell>
-                                <TableCell colSpan={2}></TableCell>
-                                <TableCell className="font-bold">{totals.itemTotals.taxableAmt.toFixed(2)}</TableCell>
-                                <TableCell className="font-bold">{totals.itemTotals.cgst.toFixed(2)}</TableCell>
-                                <TableCell className="font-bold">{totals.itemTotals.sgst.toFixed(2)}</TableCell>
-                                <TableCell className="font-bold">{totals.itemTotals.igst.toFixed(2)}</TableCell>
-                                <TableCell></TableCell>
-                            </TableRow>
-                        </TableFooter>
-                    </Table>
+        <FormProvider {...form}>
+            <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-bold">Confirm & Create Quotation</h2>
+                    <Button variant="ghost" onClick={onBack}><ArrowLeft className="mr-2 h-4 w-4"/> Back</Button>
                 </div>
-            </div>
 
-            {/* VAS Details */}
-            {vasWithCalculations.length > 0 && (
-                 <div className="space-y-2">
-                    <h3 className="text-lg font-semibold">VAS Details (Value Added Services)</h3>
+                <div className="grid grid-cols-4 gap-x-8 gap-y-4 text-sm">
+                    <div className="space-y-1"><p className="text-muted-foreground">Company</p><p className="font-semibold">{values.company || 'MO DESIGNS PRIVATE LIMITED'}</p></div>
+                    <div className="space-y-1"><p className="text-muted-foreground">Store</p><p className="font-semibold">{values.store}</p></div>
+                    <div className="space-y-1"><p className="text-muted-foreground">Quotation Date</p><p className="font-semibold">{format(values.date, 'dd/MM/yyyy')}</p></div>
+                    <div className="space-y-1"><p className="text-muted-foreground">Valid Till Date</p><p className="font-semibold">{values.validTillDate ? format(values.validTillDate, 'dd/MM/yyyy') : '-'}</p></div>
+                    <div className="space-y-1"><p className="text-muted-foreground">Customer Name</p><p className="font-semibold">{values.customerName}</p></div>
+                    <div className="space-y-1"><p className="text-muted-foreground">Billing Name</p><p className="font-semibold">{values.billingName || values.customerName}</p></div>
+                    <div className="space-y-1 col-span-2"><p className="text-muted-foreground">Billing Address</p><p className="font-semibold">{values.billingAddress || '-'}</p></div>
+                </div>
+                
+                {/* Item Details */}
+                <div className="space-y-2">
+                    <h3 className="text-lg font-semibold">Item Details</h3>
                     <div className="border rounded-md overflow-x-auto">
                         <Table>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>#</TableHead>
-                                    <TableHead>Vas Name</TableHead>
+                                    <TableHead>Collection / Brand</TableHead>
+                                    <TableHead>Serial No</TableHead>
                                     <TableHead>Quantity</TableHead>
                                     <TableHead>Rate</TableHead>
+                                    <TableHead>Subtotal</TableHead>
+                                    <TableHead>Discount</TableHead>
                                     <TableHead>Room</TableHead>
+                                    <TableHead>No of Pcs</TableHead>
                                     <TableHead>Taxable Amt</TableHead>
                                     <TableHead>CGST</TableHead>
                                     <TableHead>SGST</TableHead>
                                     <TableHead>IGST</TableHead>
+                                    <TableHead>Description</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {vasWithCalculations.map((vas, index) => {
-                                     const amount = (Number(vas.rate) || 0) * (Number(vas.quantity) || 0);
-                                     const taxAmount = amount * 0.05; // Assuming 5% tax
-                                     return (
-                                        <TableRow key={`vas-${index}`}>
-                                            <TableCell>{index + 1}</TableCell>
-                                            <TableCell>{vas.vasName}</TableCell>
-                                            <TableCell>{vas.quantity}</TableCell>
-                                            <TableCell>{vas.rate}</TableCell>
-                                            <TableCell>{vas.room || '-'}</TableCell>
-                                            <TableCell>{vas.taxableAmt.toFixed(2)}</TableCell>
-                                            <TableCell>{vas.cgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
-                                            <TableCell>{vas.sgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
-                                            <TableCell>{vas.igst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@0.00%</span></TableCell>
-                                        </TableRow>
-                                     );
-                                })}
+                                {calculatedItems.map((item, index) => (
+                                    <TableRow key={item.id}>
+                                        <TableCell>{index + 1}</TableCell>
+                                        <TableCell>{item.collectionBrand}</TableCell>
+                                        <TableCell>{item.serialNo}</TableCell>
+                                        <TableCell>{item.quantity.toFixed(2)}</TableCell>
+                                        <TableCell>{item.rate.toFixed(2)}</TableCell>
+                                        <TableCell>{item.subtotal.toFixed(2)}</TableCell>
+                                        <TableCell>{item.discount.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@{item.discountPercent.toFixed(2)}%</span></TableCell>
+                                        <TableCell>{item.room}</TableCell>
+                                        <TableCell>{item.noOfPcs}</TableCell>
+                                        <TableCell>{item.taxableAmt.toFixed(2)}</TableCell>
+                                        <TableCell>{item.cgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.50%</span></TableCell>
+                                        <TableCell>{item.sgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.50%</span></TableCell>
+                                        <TableCell>{item.igst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@0.00%</span></TableCell>
+                                        <TableCell>{item.salesDescription}</TableCell>
+                                    </TableRow>
+                                ))}
                             </TableBody>
                             <TableFooter>
                                 <TableRow>
-                                    <TableCell colSpan={2} className="font-bold text-right">Total</TableCell>
-                                    <TableCell className="font-bold">{totals.vasTotals.quantity.toFixed(2)}</TableCell>
+                                    <TableCell colSpan={3} className="font-bold text-right">Total</TableCell>
+                                    <TableCell className="font-bold">{totals.itemTotals.quantity.toFixed(2)}</TableCell>
+                                    <TableCell></TableCell>
+                                    <TableCell className="font-bold">{totals.itemTotals.subtotal.toFixed(2)}</TableCell>
+                                    <TableCell className="font-bold">{totals.itemTotals.discount.toFixed(2)}</TableCell>
                                     <TableCell colSpan={2}></TableCell>
-                                    <TableCell className="font-bold">{totals.vasTotals.taxableAmt.toFixed(2)}</TableCell>
-                                    <TableCell className="font-bold">{totals.vasTotals.cgst.toFixed(2)}</TableCell>
-                                    <TableCell className="font-bold">{totals.vasTotals.sgst.toFixed(2)}</TableCell>
-                                    <TableCell className="font-bold">{totals.vasTotals.igst.toFixed(2)}</TableCell>
+                                    <TableCell className="font-bold">{totals.itemTotals.taxableAmt.toFixed(2)}</TableCell>
+                                    <TableCell className="font-bold">{totals.itemTotals.cgst.toFixed(2)}</TableCell>
+                                    <TableCell className="font-bold">{totals.itemTotals.sgst.toFixed(2)}</TableCell>
+                                    <TableCell className="font-bold">{totals.itemTotals.igst.toFixed(2)}</TableCell>
+                                    <TableCell></TableCell>
                                 </TableRow>
                             </TableFooter>
                         </Table>
                     </div>
                 </div>
-            )}
-            
-            <div className="flex justify-between items-center pt-4">
-                <div className="flex items-center gap-8">
-                    <p className="font-bold text-lg">Quotation Amount: {totals.quotationAmount.toFixed(2)}</p>
-                    <FormField control={form.control} name="sendEmail" render={({ field }) => (<FormItem className="flex items-center gap-2"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel>Send Email</FormLabel></FormItem>)} />
-                    <FormField control={form.control} name="sendSms" render={({ field }) => (<FormItem className="flex items-center gap-2"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel>Send SMS</FormLabel></FormItem>)} />
+
+                {/* VAS Details */}
+                {vasWithCalculations.length > 0 && (
+                    <div className="space-y-2">
+                        <h3 className="text-lg font-semibold">VAS Details (Value Added Services)</h3>
+                        <div className="border rounded-md overflow-x-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>#</TableHead>
+                                        <TableHead>Vas Name</TableHead>
+                                        <TableHead>Quantity</TableHead>
+                                        <TableHead>Rate</TableHead>
+                                        <TableHead>Room</TableHead>
+                                        <TableHead>Taxable Amt</TableHead>
+                                        <TableHead>CGST</TableHead>
+                                        <TableHead>SGST</TableHead>
+                                        <TableHead>IGST</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {vasWithCalculations.map((vas, index) => {
+                                        const amount = (Number(vas.rate) || 0) * (Number(vas.quantity) || 0);
+                                        const taxAmount = amount * 0.05; // Assuming 5% tax
+                                        return (
+                                            <TableRow key={`vas-${index}`}>
+                                                <TableCell>{index + 1}</TableCell>
+                                                <TableCell>{vas.vasName}</TableCell>
+                                                <TableCell>{vas.quantity}</TableCell>
+                                                <TableCell>{vas.rate}</TableCell>
+                                                <TableCell>{vas.room || '-'}</TableCell>
+                                                <TableCell>{vas.taxableAmt.toFixed(2)}</TableCell>
+                                                <TableCell>{vas.cgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
+                                                <TableCell>{vas.sgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
+                                                <TableCell>{vas.igst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@0.00%</span></TableCell>
+                                            </TableRow>
+                                        );
+                                    })}
+                                </TableBody>
+                                <TableFooter>
+                                    <TableRow>
+                                        <TableCell colSpan={2} className="font-bold text-right">Total</TableCell>
+                                        <TableCell className="font-bold">{totals.vasTotals.quantity.toFixed(2)}</TableCell>
+                                        <TableCell colSpan={2}></TableCell>
+                                        <TableCell className="font-bold">{totals.vasTotals.taxableAmt.toFixed(2)}</TableCell>
+                                        <TableCell className="font-bold">{totals.vasTotals.cgst.toFixed(2)}</TableCell>
+                                        <TableCell className="font-bold">{totals.vasTotals.sgst.toFixed(2)}</TableCell>
+                                        <TableCell className="font-bold">{totals.vasTotals.igst.toFixed(2)}</TableCell>
+                                    </TableRow>
+                                </TableFooter>
+                            </Table>
+                        </div>
+                    </div>
+                )}
+                
+                <div className="flex justify-between items-center pt-4">
+                    <div className="flex items-center gap-8">
+                        <p className="font-bold text-lg">Quotation Amount: {totals.quotationAmount.toFixed(2)}</p>
+                        <FormField control={form.control} name="sendEmail" render={({ field }) => (<FormItem className="flex items-center gap-2"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel>Send Email</FormLabel></FormItem>)} />
+                        <FormField control={form.control} name="sendSms" render={({ field }) => (<FormItem className="flex items-center gap-2"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormLabel>Send SMS</FormLabel></FormItem>)} />
+                    </div>
+                    <div className="flex gap-2">
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button type="button" disabled={loading} className="bg-cyan-600 hover:bg-cyan-700">
+                                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    Create Quotation
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Confirm Quotation</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This will create a quotation with status 'Pending Approval'. Are you sure you want to continue?
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={onSubmit}>Continue & Create</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                        <Button type="button" variant="outline" onClick={onBack}>Cancel</Button>
+                    </div>
                 </div>
-                 <div className="flex gap-2">
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <Button type="button" disabled={loading} className="bg-cyan-600 hover:bg-cyan-700">
-                                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Create Quotation
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Confirm Quotation</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    This will create a quotation with status 'Pending Approval'. Are you sure you want to continue?
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={onSubmit}>Continue & Create</AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                    <Button type="button" variant="outline" onClick={onBack}>Cancel</Button>
-                 </div>
             </div>
-        </div>
+        </FormProvider>
     )
 }
 
