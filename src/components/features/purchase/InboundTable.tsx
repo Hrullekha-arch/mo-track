@@ -23,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
-import { InboundRequest, PurchaseRequest } from "@/lib/types";
+import { InboundRequest, PurchaseRequest, PurchaseStatus } from "@/lib/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -73,7 +73,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                         const inboundSnap = await getDoc(inboundRef);
                         if (inboundSnap.exists()) {
                             const inboundData = inboundSnap.data() as InboundRequest;
-                            const inboundItem = inboundData.items.find(i => i.itemName === item.itemName);
+                            const inboundItem = inboundData.items.find(i => i.itemName === item.fabricName);
                             const completedMilestones = (inboundItem?.inboundMilestones || []);
                             const completedStepsCount = completedMilestones.length;
 
@@ -94,14 +94,14 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                 }
                 
                 return {
-                    id: `${req.id}-${item.itemName}`,
+                    id: `${req.id}-${item.fabricName}`,
                     dealId: req.dealId,
                     poNumber: item.poNumber,
                     customerName: req.customerName,
                     salesman: req.salesman,
                     status: statusText,
                     createdAt: req.createdAt,
-                    itemName: item.itemName,
+                    itemName: item.fabricName,
                     quantity: item.quantity,
                     vendorName: item.vendorName,
                     type: 'fabric' as const,
