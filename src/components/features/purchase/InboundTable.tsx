@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -37,6 +36,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { InboundProcessTimeline } from "./InboundProcessTimeline";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { INBOUND_PROCESS_CONFIG } from "@/lib/constants";
 
 interface FlattenedInboundItem {
   id: string; // Unique ID for the row
@@ -59,25 +59,52 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
   const [timelineRequest, setTimelineRequest] = React.useState<InboundRequest | null>(null);
 
   React.useEffect(() => {
-    const flattenedData = tableData.flatMap(req => {
-      const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
+    const processData = async () => {
+        const flattenedDataPromises = tableData.flatMap(req => {
+            const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
 
-      return itemsWithPo.map(item => ({
-        id: `${req.id}-${item.fabricName}`,
-        dealId: req.dealId,
-        poNumber: item.poNumber,
-        customerName: req.customerName,
-        salesman: req.salesman,
-        status: req.status || 'Pending',
-        createdAt: req.createdAt,
-        itemName: item.fabricName,
-        quantity: item.quantity,
-        vendorName: item.vendorName,
-        type: 'fabric' as const,
-        originalRequest: req,
-      }));
-    });
-    setRequests(flattenedData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+            return itemsWithPo.map(async item => {
+                let statusText = 'Pending Receiving'; // Default status
+
+                // Fetch the corresponding inbound document to get detailed status
+                if (item.poNumber) {
+                    const inboundRef = doc(db, 'inbounds', item.poNumber);
+                    const inboundSnap = await getDoc(inboundRef);
+                    if (inboundSnap.exists()) {
+                        const inboundData = inboundSnap.data() as InboundRequest;
+                        const inboundItem = inboundData.items.find(i => i.itemName === item.itemName);
+                        if (inboundItem && inboundItem.inboundMilestones && inboundItem.inboundMilestones.length > 0) {
+                            // Find the last completed milestone
+                            const lastMilestone = [...inboundItem.inboundMilestones].sort((a, b) => b.stepId - a.stepId)[0];
+                            const lastStepConfig = INBOUND_PROCESS_CONFIG.find(s => s.id === lastMilestone.stepId);
+                            if (lastStepConfig) {
+                                statusText = lastStepConfig.name;
+                            }
+                        }
+                    }
+                }
+                
+                return {
+                    id: `${req.id}-${item.itemName}`,
+                    dealId: req.dealId,
+                    poNumber: item.poNumber,
+                    customerName: req.customerName,
+                    salesman: req.salesman,
+                    status: statusText, // Use the new detailed status
+                    createdAt: req.createdAt,
+                    itemName: item.itemName,
+                    quantity: item.quantity,
+                    vendorName: item.vendorName,
+                    type: 'fabric' as const,
+                    originalRequest: req,
+                };
+            });
+        });
+        const flattenedData = await Promise.all(flattenedDataPromises);
+        setRequests(flattenedData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    };
+    
+    processData();
   }, [tableData]);
 
   const handlePoClick = async (poNumber: string) => {
@@ -125,8 +152,9 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
         accessorKey: "status",
         header: "Status",
         cell: ({ row }) => {
-            const status = row.original.status || 'Pending Approval';
-            return <Badge variant={status === 'Completed' ? 'default' : 'secondary'}>{status}</Badge>;
+            const status = row.original.status;
+            const isCompleted = status === INBOUND_PROCESS_CONFIG[INBOUND_PROCESS_CONFIG.length - 1].name;
+            return <Badge variant={isCompleted ? 'default' : 'secondary'} className={isCompleted ? 'bg-green-600' : ''}>{status}</Badge>;
         }
     },
     { accessorKey: "createdAt", header: "Created Date", cell: ({ row }) => new Date(row.original.createdAt).toLocaleDateString() },
