@@ -83,7 +83,8 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
         
         const lastMilestoneData = itemMilestones.find(m => m.stepId === lastCompletedStep?.id);
 
-        const firstPendingStep = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
+        const lastCompletedStepIndex = lastCompletedStep ? PO_PROCESS_CONFIG.findIndex(s => s.id === lastCompletedStep.id) : -1;
+        const firstPendingStep = PO_PROCESS_CONFIG[lastCompletedStepIndex + 1];
         
         const expectedDates = calculateExpectedDatesForPO(req); 
 
