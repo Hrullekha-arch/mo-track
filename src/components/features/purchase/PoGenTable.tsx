@@ -8,12 +8,11 @@ import {
   SortingState,
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Clock, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
-import { PurchaseRequest } from "@/lib/types";
+import { PurchaseRequest, PurchaseStatus } from "@/lib/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,10 +34,14 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PoTrackingTimeline } from "./PoTrackingTimeline";
 import { AlertDialog } from "@/components/ui/alert-dialog";
+import { PO_PROCESS_CONFIG, calculateExpectedDatesForPO } from "@/lib/constants";
+import { format, isPast } from "date-fns";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 
 interface FlattenedPoItem {
-  id: string;
+  id: string; // Unique ID for the row, e.g., `${requestId}-${itemName}`
   orderId: string;
   poNumber?: string;
   customerName: string;
@@ -47,6 +50,18 @@ interface FlattenedPoItem {
   salesman: string;
   createdAt: string;
   originalRequest: PurchaseRequest;
+  status: {
+      text: string;
+      timestamp: string;
+      user: string;
+      isCompleted: boolean;
+      isOverdue: boolean;
+  };
+  nextStatus: {
+      text: string;
+      role: string;
+      expectedDate: Date;
+  } | null;
 }
 
 export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
@@ -55,10 +70,43 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
   const [timelineRequest, setTimelineRequest] = React.useState<PurchaseRequest | null>(null);
 
   React.useEffect(() => {
-    const flattenedData: FlattenedPoItem[] = tableData.flatMap(req => {
-      const fabricItems = (req.fabricDetails || [])
-        .filter(item => !!item.poNumber) // Filter for items that have a PO number
-        .map(item => ({
+    const flattenedData = tableData.flatMap(req => {
+      const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
+
+      return itemsWithPo.map(item => {
+        const itemMilestones = (req.poMilestones || []).filter(m => m.itemName === item.fabricName);
+        const completedStepIds = itemMilestones.map(m => m.stepId);
+        
+        const lastCompletedStep = PO_PROCESS_CONFIG
+          .filter(step => completedStepIds.includes(step.id))
+          .sort((a,b) => b.id - a.id)[0];
+        
+        const lastMilestoneData = itemMilestones.find(m => m.stepId === lastCompletedStep?.id);
+
+        const firstPendingStep = PO_PROCESS_CONFIG.find(step => !completedStepIds.includes(step.id));
+        const expectedDates = calculateExpectedDatesForPO(req);
+
+        let nextStatusInfo = null;
+        if (firstPendingStep) {
+            const expectedDate = expectedDates[firstPendingStep.id] || new Date();
+            nextStatusInfo = {
+                text: firstPendingStep.step,
+                role: firstPendingStep.role,
+                expectedDate: expectedDate
+            };
+        }
+        
+        const isOverdue = nextStatusInfo ? isPast(nextStatusInfo.expectedDate) : false;
+
+        const statusInfo = {
+            text: lastCompletedStep?.step || "PO Generated",
+            timestamp: lastMilestoneData?.completedAt || req.createdAt,
+            user: lastMilestoneData?.completedBy || "System",
+            isCompleted: !firstPendingStep,
+            isOverdue
+        };
+        
+        return {
           id: `${req.id}-${item.fabricName}`,
           orderId: req.dealId,
           poNumber: item.poNumber,
@@ -68,10 +116,12 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
           itemName: item.fabricName,
           quantity: item.quantity,
           originalRequest: req,
-        }));
-      return [...fabricItems];
+          status: statusInfo,
+          nextStatus: nextStatusInfo
+        };
+      });
     });
-    setRequests(flattenedData);
+    setRequests(flattenedData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
   }, [tableData]);
 
   const columns: ColumnDef<FlattenedPoItem>[] = [
@@ -86,7 +136,37 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
     { accessorKey: "customerName", header: "Customer Name" },
     { accessorKey: "itemName", header: "Item Name" },
     { accessorKey: "quantity", header: "Qty" },
-    { accessorKey: "salesman", header: "Salesman" },
+    { 
+        id: 'status', 
+        header: 'Current Status', 
+        cell: ({ row }) => (
+            <div className={cn("flex items-center gap-2", row.original.status.isOverdue && "text-red-600")}>
+                {row.original.status.isOverdue ? <Clock className="h-4 w-4"/> : <CheckCircle className="h-4 w-4 text-green-500"/>}
+                <div>
+                    <p className="font-semibold">{row.original.status.text}</p>
+                    <p className="text-xs text-muted-foreground">
+                        {format(new Date(row.original.status.timestamp), 'dd/MM/yy hh:mm a')} by {row.original.status.user}
+                    </p>
+                </div>
+            </div>
+        )
+    },
+    { 
+        id: 'nextStatus', 
+        header: 'Next Status', 
+        cell: ({ row }) => {
+            const nextStatus = row.original.nextStatus;
+            if (!nextStatus) return <Badge>Completed</Badge>;
+            return (
+                <div className={cn("flex items-center gap-2", isPast(nextStatus.expectedDate) && "text-red-600")}>
+                    <div>
+                        <p className="font-semibold">{nextStatus.text}</p>
+                        <p className="text-xs text-muted-foreground">by {nextStatus.role} on {format(nextStatus.expectedDate, 'dd/MM/yy')}</p>
+                    </div>
+                </div>
+            )
+        }
+    },
     {
       accessorKey: "createdAt",
       header: "Created Date",
