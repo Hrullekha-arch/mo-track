@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { completePmsProcess } from "./actions";
 import { useSearchParams } from 'next/navigation';
 import { Order, Stock } from "@/lib/types";
@@ -69,7 +69,7 @@ const ScanResultDialog = ({ result, onClose }: { result: ScanResult, onClose: ()
 function UniversalScanner() {
     const searchParams = useSearchParams();
     const { toast } = useToast();
-    const videoRef = useRef<HTMLDivElement>(null);
+    const scannerContainerId = "scanner-container";
     const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
@@ -83,73 +83,91 @@ function UniversalScanner() {
     const handleScanSuccess = useCallback(async (decodedText: string) => {
         if (isProcessing) return;
         setIsProcessing(true);
-        html5QrCodeRef.current?.stop();
+        if (html5QrCodeRef.current?.getState() === Html5QrcodeScannerState.SCANNING) {
+            html5QrCodeRef.current.stop();
+        }
 
         try {
             let result: ScanResult;
             switch (action) {
                 case 'pmsComplete':
                     const pmsResult = await completePmsProcess({ orderId: decodedText });
-                    result = { ...pmsResult, data: { order: pmsResult.order } };
+                    result = { status: pmsResult.success ? 'success' : 'error', message: pmsResult.message, data: { order: pmsResult.order } };
                     break;
                 case 'stockDetail':
                     const stockId = decodedText.replace(/\//g, '-');
                     const stock = await getStockById(stockId);
                     if (stock) {
-                        result = { success: true, message: "Stock found.", data: { stock } };
+                        result = { status: 'success', message: "Stock found.", data: { stock } };
                     } else {
-                        result = { success: false, message: "Stock not found." };
+                        result = { status: 'error', message: "Stock not found." };
                     }
                     break;
                 case 'verifyCut':
                     // This logic would need to be moved to a server action.
                     // For now, this is a placeholder.
                     if (decodedText === targetBcn) {
-                         result = { success: true, message: `Verified cut for ${targetBcn} on task ${taskId}.` };
+                         result = { status: 'success', message: `Verified cut for ${targetBcn} on task ${taskId}.` };
                     } else {
-                        result = { success: false, message: `Incorrect BCN. Expected ${targetBcn}, scanned ${decodedText}.` };
+                        result = { status: 'error', message: `Incorrect BCN. Expected ${targetBcn}, scanned ${decodedText}.` };
                     }
                     break;
                 default:
-                    result = { success: false, message: "Unknown scan action." };
+                    result = { status: 'error', message: "Unknown scan action." };
             }
             setScanResult(result);
         } catch (e: any) {
-            setScanResult({ success: false, message: `An error occurred: ${e.message}` });
+            setScanResult({ status: 'error', message: `An error occurred: ${e.message}` });
         }
     }, [action, isProcessing, targetBcn, taskId]);
 
-
     const startScanner = useCallback(() => {
-        if (!videoRef.current || !html5QrCodeRef.current) return;
-
+        if (!html5QrCodeRef.current) return;
+        
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        
         html5QrCodeRef.current.start(
             { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
+            config,
             handleScanSuccess,
             (errorMessage) => { /* ignore errors */ }
         ).catch((err) => {
-            toast({ variant: 'destructive', title: "Scanner Error", description: err.message });
+            console.error("Scanner start error:", err);
+            setHasPermission(false);
+            toast({ variant: 'destructive', title: "Scanner Error", description: "Could not start the camera. Please grant permissions." });
         });
     }, [handleScanSuccess, toast]);
 
     useEffect(() => {
-        if (!videoRef.current) return;
-        html5QrCodeRef.current = new Html5Qrcode(videoRef.current.id);
+        html5QrCodeRef.current = new Html5Qrcode(scannerContainerId);
 
         Html5Qrcode.getCameras()
-            .then(() => setHasPermission(true))
-            .catch(() => setHasPermission(false));
+            .then(devices => {
+                if (devices && devices.length) {
+                    setHasPermission(true);
+                    startScanner();
+                } else {
+                    setHasPermission(false);
+                }
+            })
+            .catch(() => {
+                setHasPermission(false);
+            });
 
         return () => {
-            html5QrCodeRef.current?.stop().catch(err => console.error("Cleanup failed", err));
+            if (html5QrCodeRef.current?.isScanning) {
+                html5QrCodeRef.current.stop().catch(err => console.error("Cleanup failed", err));
+            }
         };
-    }, []);
+    }, [startScanner]);
 
     const closeResultDialog = () => {
         setScanResult(null);
         setIsProcessing(false);
-        startScanner();
+        // Restart the scanner after closing the result
+        if (hasPermission) {
+            startScanner();
+        }
     };
 
     return (
@@ -161,28 +179,21 @@ function UniversalScanner() {
                     <CardDescription>Point the camera at a barcode to process.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
-                    <div id="scanner-container" ref={videoRef} className="aspect-square bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
-                       {!isProcessing && (
-                            <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
-                                {hasPermission === false ? (
-                                    <Alert variant="destructive">
-                                        <CameraOff className="h-4 w-4" />
-                                        <AlertTitle>Camera Access Required</AlertTitle>
-                                    </Alert>
-                                ) : (
-                                    <>
-                                        <ScanLine className="h-12 w-12 text-muted-foreground mb-4" />
-                                        <p className="font-semibold">Ready to Scan</p>
-                                    </>
-                                )}
-                            </div>
-                        )}
+                    <div id={scannerContainerId} className="aspect-square bg-muted rounded-md overflow-hidden relative flex items-center justify-center text-sm">
+                       {hasPermission === false && (
+                         <Alert variant="destructive">
+                            <CameraOff className="h-4 w-4" />
+                            <AlertTitle>Camera Access Required</AlertTitle>
+                            <AlertDescription>Please grant camera permissions to use the scanner.</AlertDescription>
+                        </Alert>
+                       )}
+                       {hasPermission === null && (
+                           <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                               <Loader2 className="h-6 w-6 animate-spin" />
+                               <p>Initializing Camera...</p>
+                           </div>
+                       )}
                     </div>
-
-                     <Button onClick={startScanner} disabled={hasPermission !== true || isProcessing}>
-                        {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ScanLine className="mr-2 h-4 w-4"/>}
-                        Start Scanning
-                    </Button>
                 </CardContent>
             </Card>
         </div>
