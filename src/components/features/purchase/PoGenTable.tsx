@@ -8,6 +8,7 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  getFilteredRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { MoreHorizontal, Clock, CheckCircle } from "lucide-react";
@@ -100,7 +101,7 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
                 }
                 
                 // Sort by completion date to find the most recent one
-                allItemMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+                allItemMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.createdAt).getTime());
 
                 const lastCompletedStep = allItemMilestones[0];
                 const lastCompletedStepConfig = lastCompletedStep
@@ -124,11 +125,19 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
                     };
                 }
                 
-                const statusInfo = {
-                    text: lastCompletedStepConfig?.step || "PO Generated",
-                    timestamp: lastCompletedStep?.completedAt || req.createdAt,
-                    user: lastCompletedStep?.completedBy || "System",
+                let statusInfo = {
+                    text: "PO Generated",
+                    timestamp: req.createdAt,
+                    user: req.createdBy?.name || "System"
                 };
+
+                if (lastCompletedStep && lastCompletedStepConfig) {
+                    statusInfo = {
+                        text: lastCompletedStepConfig.step,
+                        timestamp: lastCompletedStep.completedAt,
+                        user: lastCompletedStep.completedBy,
+                    }
+                }
                 
                 return {
                     id: `${req.id}-${item.fabricName}`,
