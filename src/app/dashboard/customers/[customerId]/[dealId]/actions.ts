@@ -384,7 +384,7 @@ export async function addVisitAction(
         const savedVisit: DealVisit = { id: newVisitRef.id, ...newVisit, dueDate: '' };
         
         // Generate a link for the customer to confirm the visit
-        const confirmationLink = `${process.env.NEXT_PUBLIC_BASE_URL}/visit/confirm/${newVisitRef.id}?customerId=${customerId}&dealId=${dealId}`;
+        const confirmationLink = `https://9000-firebase-studio-1752633993844.cluster-ubrd2huk7jh6otbgyei4h62ope.cloudworkstations.dev}/visit/confirm/${newVisitRef.id}?customerId=${customerId}&dealId=${dealId}`;
 
         const smsMessage = `Dear ${customerData.name},\n\nPlease confirm your measurement visit from Mo Design Pvt. Ltd. by clicking the link below. You can select your preferred date and time.\n\nLink: ${confirmationLink}\n\nWe look forward to serving you!\n\nWarm regards,\nTeam Mo Design Pvt. Ltd.`;
 

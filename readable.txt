@@ -1,0 +1,34 @@
+# Understanding the File Change Process
+
+The XML structure is the **only** way to apply changes to your application's code. When you request a file modification, you must provide a complete and correctly formatted `<changes>` block.
+
+## Core Rule
+
+- The `<changes>` block must always be fully present.
+- It must be correctly formatted as shown below.
+
+## XML Structure Breakdown
+
+```xml
+<changes>
+  <!-- 
+    A brief, one-sentence summary of all the changes being made in this block.
+    Example: "Adds a new component and updates the main page to use it."
+  -->
+  <description>[Provide a concise summary of the overall changes being made]</description>
+
+  <!-- 
+    Each <change> block represents a modification to a single file. 
+    You can have multiple <change> blocks if you're editing multiple files.
+  -->
+  <change>
+    <!-- The ABSOLUTE, FULL path to the file you want to modify. -->
+    <file>[Provide the ABSOLUTE, FULL path to the file being modified]</file>
+    
+    <!-- 
+      This is the most critical part. 
+      You must provide the ENTIRE, FINAL content of the file here.
+      - DO NOT provide diffs or partial code snippets.
+      - Ensure all code is properly escaped within the CDATA section.
+    -->
+    <content><![CDATA[Provide the ENTIRE, FINAL, intended content of the file here.
