@@ -1,129 +1,171 @@
+
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { BrowserMultiFormatReader, NotFoundException } from "@zxing/library";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CameraOff, Loader2, CheckCircle, XCircle } from "lucide-react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import { completePmsProcess } from "./actions";
+import { useRouter } from 'next/navigation';
+import { Order } from "@/lib/types";
 
-export default function BarcodeScannerPage() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [scanning, setScanning] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const { toast } = useToast();
-  const router = useRouter();
+type ScanResult = {
+  status: 'success' | 'warning' | 'error';
+  message: string;
+  order?: Order | null;
+};
 
-  const startScan = useCallback(async () => {
-    try {
-      setError(null);
-      setResult(null);
-      setScanning(true);
-      setDialogOpen(true);
+const ScanResultDialog = ({ result, onClose }: { result: ScanResult, onClose: () => void }) => {
+    return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+            <Card className="w-full max-w-sm">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        {result.status === 'success' && <CheckCircle className="h-6 w-6 text-green-500" />}
+                        {result.status === 'warning' && <AlertTriangle className="h-6 w-6 text-yellow-500" />}
+                        {result.status === 'error' && <AlertTriangle className="h-6 w-6 text-red-500" />}
+                        Scan Result
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p>{result.message}</p>
+                    {result.order && (
+                        <div className="text-xs mt-2 p-2 border rounded-md bg-muted">
+                            <p><strong>Order:</strong> {result.order.id}</p>
+                            <p><strong>Customer:</strong> {result.order.customerName}</p>
+                        </div>
+                    )}
+                </CardContent>
+                <CardFooter>
+                    <Button onClick={onClose} className="w-full">Close</Button>
+                </CardFooter>
+            </Card>
+        </div>
+    )
+}
 
-      const codeReader = new BrowserMultiFormatReader();
-      const videoInputDevices = await codeReader.listVideoInputDevices();
+export default function UniversalScannerPage() {
+    const { toast } = useToast();
+    const router = useRouter();
+    const scannerRef = useRef<Html5Qrcode | null>(null);
+    const videoRef = useRef<HTMLDivElement>(null);
 
-      if (videoInputDevices.length === 0) {
-        throw new Error("No camera found");
-      }
+    const [isScanning, setIsScanning] = useState(false);
+    const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [devices, setDevices] = useState<{ id: string, label: string }[]>([]);
+    const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
-      const selectedDeviceId = videoInputDevices[0].deviceId;
 
-      codeReader.decodeFromVideoDevice(
-        selectedDeviceId,
-        videoRef.current!,
-        (result, err) => {
-          if (result) {
-            setResult(result.getText());
-            setScanning(false);
-            codeReader.reset();
-            toast({
-              title: "Barcode detected",
-              description: result.getText(),
-            });
-          }
-          if (err && !(err instanceof NotFoundException)) {
+    useEffect(() => {
+        Html5Qrcode.getCameras().then(devices => {
+            if (devices && devices.length) {
+                setDevices(devices);
+                // Prefer the back camera by default
+                const backCamera = devices.find(d => d.label.toLowerCase().includes('back'));
+                setSelectedDeviceId(backCamera?.id || devices[0].id);
+                setHasCameraPermission(true);
+            } else {
+                setHasCameraPermission(false);
+            }
+        }).catch(err => {
             console.error(err);
-            setError("Error reading barcode");
-            setScanning(false);
-            codeReader.reset();
-          }
+            setHasCameraPermission(false);
+            toast({ variant: 'destructive', title: "Camera Error", description: "Could not get camera permissions." });
+        });
+    }, [toast]);
+    
+    const startScanner = useCallback(() => {
+        if (videoRef.current && selectedDeviceId) {
+            scannerRef.current = new Html5Qrcode(videoRef.current.id);
+            setIsScanning(true);
+            scannerRef.current.start(
+                selectedDeviceId,
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                async (decodedText, decodedResult) => {
+                    if (isProcessing) return;
+                    setIsProcessing(true);
+                    
+                    try {
+                        const result = await completePmsProcess({ orderId: decodedText });
+                        setScanResult(result);
+                    } catch (e) {
+                         setScanResult({ success: false, message: "An error occurred while processing."});
+                    } finally {
+                        stopScanner();
+                    }
+                },
+                (errorMessage) => {
+                    // console.warn(`QR Code no longer in front of camera: ${errorMessage}`);
+                }
+            ).catch(err => {
+                console.error("Scanner Start Error:", err);
+                toast({ variant: 'destructive', title: "Scanner Error", description: err.message });
+                setIsScanning(false);
+            });
         }
-      );
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Unexpected error");
-      setScanning(false);
-    }
-  }, [toast]);
+    }, [selectedDeviceId, isProcessing, toast]);
 
-  useEffect(() => {
-    return () => {
-      setScanning(false);
+    const stopScanner = useCallback(() => {
+        if (scannerRef.current && scannerRef.current.isScanning) {
+            scannerRef.current.stop().then(() => {
+                setIsScanning(false);
+            }).catch(err => {
+                console.error("Scanner Stop Error:", err);
+            });
+        }
+    }, []);
+
+    const closeResultDialog = () => {
+        setScanResult(null);
+        setIsProcessing(false);
     };
-  }, []);
 
-  return (
-    <div className="p-6 flex flex-col gap-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Barcode Scanner</CardTitle>
-          <CardDescription>Scan barcodes using your device camera</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Button onClick={startScan} disabled={scanning}>
-            {scanning ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Scanning...
-              </>
-            ) : (
-              "Start Scan"
-            )}
-          </Button>
+    return (
+        <div className="flex min-h-screen items-center justify-center bg-background p-4">
+            {scanResult && <ScanResultDialog result={scanResult} onClose={closeResultDialog} />}
+            <Card className="w-full max-w-md">
+                <CardHeader>
+                    <CardTitle>Universal Scanner</CardTitle>
+                    <CardDescription>Point the camera at a barcode to process.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4">
+                    <div id="scanner-container" ref={videoRef} className="aspect-square bg-muted rounded-md overflow-hidden relative flex items-center justify-center">
+                        {!isScanning && (
+                            <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center text-center p-4">
+                                {hasCameraPermission === false ? (
+                                    <Alert variant="destructive">
+                                        <CameraOff className="h-4 w-4" />
+                                        <AlertTitle>Camera Access Required</AlertTitle>
+                                        <AlertDescription>
+                                            Please allow camera access to use this feature.
+                                        </AlertDescription>
+                                    </Alert>
+                                ) : (
+                                    <>
+                                        <ScanLine className="h-12 w-12 text-muted-foreground mb-4" />
+                                        <p className="font-semibold">Ready to Scan</p>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </div>
 
-          {result && (
-            <Alert>
-              <CheckCircle className="h-4 w-4" />
-              <AlertTitle>Scanned Successfully</AlertTitle>
-              <AlertDescription>{result}</AlertDescription>
-            </Alert>
-          )}
-
-          {error && (
-            <Alert variant="destructive">
-              <XCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Camera Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
-          <div className="flex flex-col gap-2 items-center">
-            <video
-              ref={videoRef}
-              className={cn(
-                "w-full h-auto rounded-lg",
-                !scanning && "opacity-50"
-              )}
-              autoPlay
-              muted
-              playsInline
-            />
-            {!scanning && <CameraOff className="text-gray-500 w-6 h-6" />}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
+                    {!isScanning ? (
+                        <Button onClick={startScanner} disabled={hasCameraPermission !== true}>
+                            Start Scanning
+                        </Button>
+                    ) : (
+                        <Button onClick={stopScanner} variant="destructive">
+                            Stop Scanning
+                        </Button>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    );
 }
