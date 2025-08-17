@@ -151,7 +151,17 @@ export async function updateStockQuantityAction(
   try {
     const stockRef = adminDb.collection('stocks').doc(stockId);
     const transactionCollectionName = transaction.type === 'addition' ? 'stockAdded' : 'stockSold';
-    const transactionRef = stockRef.collection(transactionCollectionName).doc();
+    
+    let transactionRef;
+    if (transaction.type === 'deduction' && transaction.parentTransactionId) {
+        // This is a deduction, so it's nested under a stockAdded document
+        const parentTxRef = stockRef.collection('stockAdded').doc(transaction.parentTransactionId);
+        transactionRef = parentTxRef.collection('stockSold').doc();
+    } else {
+        // This is an addition
+        transactionRef = stockRef.collection(transactionCollectionName).doc();
+    }
+
 
     const batch = adminDb.batch();
     

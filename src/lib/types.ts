@@ -260,6 +260,7 @@ export interface Stock {
   rlPrice?: number;
   clPrice?: number;
   mrp?: number;
+  tax?: number; // Tax percentage
   category?: string;
   vendorName?: string;
   quantity: number; // You may want a default or handle this from import
@@ -282,6 +283,7 @@ export interface StockTransaction {
   createdAt: string; // ISO string
   createdBy: string;
   status?: 'pending for cutting' | 'cut';
+  parentTransactionId?: string;
 }
 
 export interface Customer {
@@ -490,6 +492,8 @@ export interface InvoiceBatchItem {
     quantityAllocated: number;
     rate: number;
     originalLength?: number;
+    stockAddedId?: string;
+    stockSoldId?: string;
 }
 
 export interface InvoiceBatch {
@@ -537,6 +541,8 @@ export interface CuttingTaskItem {
     rate: number;
     status: 'pending' | 'cut';
     originalLength?: number;
+    stockAddedId?: string;
+    stockSoldId?: string;
 }
 
 export interface CuttingTask {

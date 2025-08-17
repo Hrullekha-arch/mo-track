@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useCallback, useRef } from "react";
@@ -24,7 +25,7 @@ const updateTaxSchema = z.object({
     itemName: z.string(),
     hsnCode: z.string().optional(),
     mrp: z.string().optional(),
-    tax: z.string().optional(), // This field is for display/entry, won't be saved directly
+    tax: z.string().optional(),
     vendorName: z.string().optional(),
   })).min(1, "Please add at least one item to update.")
 });
@@ -89,7 +90,7 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
       itemName: stockItem.itemName,
       hsnCode: stockItem.hsnCode,
       mrp: String(stockItem.mrp || ''),
-      tax: "", // Default empty tax
+      tax: String(stockItem.tax || ''), // Use existing tax value or empty
       vendorName: stockItem.vendorName,
     });
   };
@@ -152,8 +153,7 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
             hsnCode: item.hsnCode,
             vendorName: item.vendorName,
             mrp: item.mrp ? parseFloat(item.mrp) : undefined,
-            // 'tax' is not in the schema, so we don't include it.
-            // If it needs to be saved, the Stock type and Firestore structure must be updated.
+            tax: item.tax ? parseFloat(item.tax) : undefined,
         }));
         
         const result = await updateStockBatchAction(itemsToUpdate);
