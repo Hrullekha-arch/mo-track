@@ -101,45 +101,56 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as (string | number)[][];
+        const json = XLSX.utils.sheet_to_json(worksheet) as any[];
 
-        if (json.length < 1) {
+        if (json.length === 0) {
           toast({ variant: "destructive", title: "Empty File", description: "The selected Excel file is empty." });
           return;
         }
 
-        const taxMap = new Map<string, string>();
-        json.forEach(row => {
-          const hsn = String(row[0] || '').trim();
-          const tax = String(row[1] || '').trim();
-          if (hsn && tax) {
-            taxMap.set(hsn, tax.replace('%', ''));
-          }
-        });
-        
-        let updatedCount = 0;
-        // Correctly get the current values from the form state
+        toast({ title: "Importing...", description: "Fetching stock details for imported items." });
+        setIsSearching(true);
+
+        let itemsAdded = 0;
         const currentItems = getValues('items');
-        currentItems.forEach((field, index) => {
-            const hsnCode = field.hsnCode; // Use the current form value
-            if (hsnCode && taxMap.has(hsnCode)) {
-                setValue(`items.${index}.tax`, taxMap.get(hsnCode), { shouldDirty: true });
-                updatedCount++;
+
+        for (const row of json) {
+            const bcn = row.BCN || row.bcn;
+            if (!bcn) continue;
+            
+            // Avoid adding duplicates that are already in the list
+            if (currentItems.some(item => item.bcn === bcn)) continue;
+            
+            const results = await searchStockByBcn(bcn);
+            const stockItem = results[0];
+
+            if (stockItem) {
+                append({
+                    id: stockItem.id,
+                    bcn: stockItem.bcn || '',
+                    itemName: stockItem.itemName,
+                    hsnCode: row.HSN || row.hsnCode || stockItem.hsnCode,
+                    mrp: String(row.MRP || row.mrp || stockItem.mrp || ''),
+                    tax: String(row.Tax || row.tax || stockItem.tax || ''),
+                    vendorName: row['Vendor Name'] || row.vendorName || stockItem.vendorName,
+                });
+                itemsAdded++;
             }
-        });
+        }
         
-        toast({ title: "Import Complete", description: `${updatedCount} item(s) had their tax rate updated.` });
+        toast({ title: "Import Complete", description: `${itemsAdded} new items were added to the list for review.` });
 
       } catch (error) {
         console.error("Error processing Excel file:", error);
-        toast({ variant: "destructive", title: "Import Failed", description: "Could not process the selected file." });
+        toast({ variant: "destructive", title: "Import Failed", description: "Could not process the selected file. Ensure it has a 'BCN' column." });
       } finally {
+        setIsSearching(false);
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
         }
