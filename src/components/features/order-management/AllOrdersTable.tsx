@@ -91,7 +91,7 @@ export function AllOrdersTable() {
 
 
   const { toast } = useToast();
-  const { role } = useAuth();
+  const { user, role } = useAuth();
   
   const isAuthorized = role === 'admin';
 
@@ -132,9 +132,9 @@ export function AllOrdersTable() {
   };
   
   const handleFollowUp = async () => {
-    if (!followUpOrder) return;
+    if (!followUpOrder || !user) return;
     try {
-        const result = await setBalanceFollowUp(followUpOrder.id);
+        const result = await setBalanceFollowUp(followUpOrder.id, followUpOrder.dealDocId!, user.name);
         if (result.success) {
             toast({ title: "Follow-up Initiated", description: result.message });
         } else {
@@ -419,11 +419,11 @@ export function AllOrdersTable() {
     <>
     <TooltipProvider>
     <div className="w-full">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">All Orders</h1>
-          <p className="text-muted-foreground">A detailed, searchable view of every order in the system.</p>
-        </header>
         <Card>
+            <CardHeader>
+                <CardTitle>All Orders</CardTitle>
+                <CardDescription>A detailed, searchable view of every order in the system.</CardDescription>
+            </CardHeader>
             <CardContent className="p-4">
                 <div className="flex items-center py-4 gap-4">
                     <Input
