@@ -6,7 +6,7 @@ import { useEffect, useState, useRef, useCallback, Suspense } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info, Package, DollarSign, History, Pencil, Warehouse, Tag, Barcode, GitCommitHorizontal, GitBranchPlus } from "lucide-react";
+import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info, Package, DollarSign, History, Pencil, Warehouse, Tag, Barcode, GitCommitHorizontal, GitBranchPlus, ChevronsUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Html5Qrcode } from 'html5-qrcode';
 import { completePmsProcess } from "./actions";
@@ -24,6 +24,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 type ScanAction = 'pmsComplete' | 'stockDetail' | 'verifyCut' | 'verifyInbound';
 
@@ -55,6 +56,7 @@ const StockDetailDisplay = ({ stockDetails, onUpdate }: { stockDetails: StockDet
     const { role } = useAuth();
     const { toast } = useToast();
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isAdvanceOpen, setIsAdvanceOpen] = useState(false);
 
     const form = useForm<UpdateStockDetailsValues>({
         resolver: zodResolver(updateStockDetailsSchema),
@@ -109,35 +111,45 @@ const StockDetailDisplay = ({ stockDetails, onUpdate }: { stockDetails: StockDet
             </div>
 
             {role === 'admin' && (
-                <Card>
-                    <CardHeader className="p-3">
-                        <CardTitle className="text-base flex items-center gap-2"><Pencil className="h-4 w-4" /> Advance Options</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-3">
-                        <Form {...form}>
-                            <form onSubmit={form.handleSubmit(handleUpdate)} className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <FormField control={form.control} name="mrp" render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="text-xs">Update MRP</FormLabel>
-                                            <FormControl><Input type="number" {...field} /></FormControl>
-                                        </FormItem>
-                                    )}/>
-                                    <FormField control={form.control} name="hsnCode" render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="text-xs">Update HSN/Tax</FormLabel>
-                                            <FormControl><Input {...field} /></FormControl>
-                                        </FormItem>
-                                    )}/>
-                                </div>
-                                <Button type="submit" size="sm" className="w-full" disabled={isSubmitting}>
-                                    {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                                    Save Changes
+                <Collapsible open={isAdvanceOpen} onOpenChange={setIsAdvanceOpen}>
+                    <Card>
+                        <CollapsibleTrigger asChild>
+                             <div className="p-3 cursor-pointer flex justify-between items-center">
+                                <CardTitle className="text-base flex items-center gap-2"><Pencil className="h-4 w-4" /> Advance Options</CardTitle>
+                                <Button variant="ghost" size="sm" className="w-9 p-0">
+                                    <ChevronsUpDown className="h-4 w-4" />
+                                    <span className="sr-only">Toggle</span>
                                 </Button>
-                            </form>
-                        </Form>
-                    </CardContent>
-                </Card>
+                            </div>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                            <CardContent className="p-3 pt-0">
+                                <Form {...form}>
+                                    <form onSubmit={form.handleSubmit(handleUpdate)} className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <FormField control={form.control} name="mrp" render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel className="text-xs">Update MRP</FormLabel>
+                                                    <FormControl><Input type="number" {...field} /></FormControl>
+                                                </FormItem>
+                                            )}/>
+                                            <FormField control={form.control} name="hsnCode" render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel className="text-xs">Update HSN/Tax</FormLabel>
+                                                    <FormControl><Input {...field} /></FormControl>
+                                                </FormItem>
+                                            )}/>
+                                        </div>
+                                        <Button type="submit" size="sm" className="w-full" disabled={isSubmitting}>
+                                            {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                                            Save Changes
+                                        </Button>
+                                    </form>
+                                </Form>
+                            </CardContent>
+                        </CollapsibleContent>
+                    </Card>
+                </Collapsible>
             )}
 
             <div>
