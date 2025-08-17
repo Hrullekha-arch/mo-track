@@ -1,453 +1,181 @@
 
 "use client";
 
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar as CalendarIcon, Download, BarChart2, Loader2, DollarSign, ShoppingCart } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { useState, useEffect } from "react";
-import { format } from "date-fns";
-import { DateRange } from "react-day-picker";
-import { User, Order, PurchaseRequest, StockTransaction } from "@/lib/types";
-import { collection, onSnapshot, query } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { getReportData, ReportData, SalesPerformanceData, ProfitLossData } from "./actions";
-import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import * as XLSX from "xlsx";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { DollarSign, ShoppingCart, Users, TrendingUp, Package, Star, BarChart, AlertTriangle, ArrowRight, TrendingDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-type ReportType = 'order-summary' | 'sales-performance' | 'purchase-report' | 'stock-ledger' | 'profit-loss';
+const placeholderData = {
+    salesByPerson: [
+        { name: 'Sales Person 1', sales: 400000, transactions: 120 },
+        { name: 'Sales Person 2', sales: 300000, transactions: 95 },
+        { name: 'Sales Person 3', sales: 280000, transactions: 80 },
+    ],
+    topProducts: [
+        { name: 'BCN-FAB-001', volume: 150, revenue: 120000 },
+        { name: 'BCN-FAB-007', volume: 120, revenue: 95000 },
+        { name: 'BCN-ROD-003', volume: 200, revenue: 45000 },
+    ],
+    deadStock: [
+        { name: 'BCN-FAB-092', age: '180+ days' },
+        { name: 'BCN-ACC-011', age: '150 days' },
+    ]
+};
 
-const ReportTable = ({ data, type }: { data: ReportData, type: ReportType }) => {
-    if (type === 'order-summary' && data.orders) {
-        return (
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Order ID</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>Sales Person</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Date</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {data.orders.map(order => (
-                        <TableRow key={order.id}>
-                            <TableCell className="font-mono">{order.id}</TableCell>
-                            <TableCell>{order.customerName}</TableCell>
-                            <TableCell>{order.salesPerson}</TableCell>
-                            <TableCell>₹{order.totalAmount?.toFixed(2) ?? '0.00'}</TableCell>
-                            <TableCell>{order.milestones.slice().reverse().find(m => m.completed)?.name || "Order Received"}</TableCell>
-                            <TableCell>{format(new Date(order.createdAt), "PP")}</TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-        )
-    }
-
-    if (type === 'sales-performance' && data.salesPerformance) {
-        return (
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Salesman</TableHead>
-                        <TableHead>Total Orders</TableHead>
-                        <TableHead>Total Value</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {data.salesPerformance.map(item => (
-                        <TableRow key={item.salesman}>
-                            <TableCell>{item.salesman}</TableCell>
-                            <TableCell>{item.totalOrders}</TableCell>
-                            <TableCell>₹{item.totalValue.toFixed(2)}</TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-        )
-    }
-    
-    if (type === 'purchase-report' && data.purchaseReport) {
-        return (
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>PO Number</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>Vendor</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Date</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {data.purchaseReport.map(item => (
-                        <TableRow key={item.id}>
-                            <TableCell>{item.id}</TableCell>
-                            <TableCell>{item.customerName}</TableCell>
-                            <TableCell>{item.vendor || 'N/A'}</TableCell>
-                            <TableCell><Badge>{item.status}</Badge></TableCell>
-                            <TableCell>{format(new Date(item.createdAt), "PP")}</TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-        )
-    }
-
-    if (type === 'stock-ledger' && data.stockLedger) {
-        return (
-             <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>BCN</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Quantity Change</TableHead>
-                        <TableHead>Reference ID</TableHead>
-                        <TableHead>User</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {data.stockLedger.map(tx => (
-                        <TableRow key={tx.id}>
-                            <TableCell>{format(new Date(tx.createdAt), "PP p")}</TableCell>
-                            <TableCell className="font-mono">{tx.bcn}</TableCell>
-                            <TableCell><Badge variant={tx.type === 'addition' ? 'default' : 'destructive'} className="capitalize">{tx.type}</Badge></TableCell>
-                            <TableCell>{tx.quantityChange.toFixed(2)}</TableCell>
-                            <TableCell>{tx.poNumber || tx.orderId || 'N/A'}</TableCell>
-                            <TableCell>{tx.createdBy}</TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-        )
-    }
-    
-    if (type === 'profit-loss' && data.profitLoss) {
-        return (
-             <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Order ID</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead className="text-right">Total Amount</TableHead>
-                        <TableHead className="text-right">Cost of Goods</TableHead>
-                        <TableHead className="text-right">Profit</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {data.profitLoss.map(item => (
-                        <TableRow key={item.orderId}>
-                            <TableCell className="font-mono">{item.orderId}</TableCell>
-                            <TableCell>{item.customerName}</TableCell>
-                            <TableCell>{format(new Date(item.orderDate), "PP")}</TableCell>
-                            <TableCell className="text-right">₹{item.totalAmount.toFixed(2)}</TableCell>
-                            <TableCell className="text-right text-destructive">₹{item.costOfGoods.toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-bold text-green-600">₹{item.profit.toFixed(2)}</TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-        )
-    }
-
-    return null;
-}
-
-const AnalysisDashboard = ({ salesPerformanceData, orderData }: { salesPerformanceData: SalesPerformanceData[], orderData: Order[] }) => {
-    
-    const totalOrders = orderData.length;
-    const totalSalesValue = orderData.reduce((acc, order) => acc + (order.totalAmount || 0), 0);
-
+export default function ReportsPage() {
     return (
-        <div className="space-y-6 mt-6">
+        <div className="container mx-auto p-4 md:p-6 lg:p-8">
+            <div className="flex justify-between items-center mb-8">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Retail Business Report</h1>
+                    <p className="text-muted-foreground">A complete overview of your business performance.</p>
+                </div>
+                <div>
+                    <DateRangePicker />
+                </div>
+            </div>
+
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
-                         <DollarSign className="h-4 w-4 text-muted-foreground" />
+                {/* Sales Overview */}
+                <Card className="col-span-1 lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><DollarSign /> Sales Overview</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">₹{totalSalesValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    <CardContent className="grid grid-cols-2 gap-4">
+                         <div className="p-4 rounded-lg bg-muted">
+                            <p className="text-sm text-muted-foreground">Total Sales</p>
+                            <p className="text-2xl font-bold">₹7,80,000</p>
+                         </div>
+                          <div className="p-4 rounded-lg bg-muted">
+                            <p className="text-sm text-muted-foreground">Net Profit</p>
+                            <p className="text-2xl font-bold text-green-600">₹1,25,000</p>
+                         </div>
                     </CardContent>
                 </Card>
+                {/* Profitability */}
                 <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-                         <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><TrendingUp /> Profitability</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{totalOrders}</div>
+                        <p className="text-sm text-muted-foreground">Avg. Margin %</p>
+                        <p className="text-2xl font-bold">28.5%</p>
+                    </CardContent>
+                </Card>
+                {/* Customer Insights */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Users /> Customer Insights</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-sm text-muted-foreground">Avg. Basket Size</p>
+                        <p className="text-2xl font-bold">₹3,450</p>
                     </CardContent>
                 </Card>
             </div>
-            <Card>
+            
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mt-6">
+                {/* Salesman Performance */}
+                <Card className="lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Star/> Salesman Performance</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <ResponsiveContainer width="100%" height={300}>
+                            <RechartsBarChart data={placeholderData.salesByPerson}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
+                                <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${Number(value)/1000}k`}/>
+                                <Tooltip />
+                                <Legend />
+                                <Bar dataKey="sales" fill="#8884d8" name="Total Sales"/>
+                            </RechartsBarChart>
+                        </ResponsiveContainer>
+                    </CardContent>
+                </Card>
+
+                 {/* Stock & Inventory */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Package/> Stock & Inventory</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div>
+                            <h4 className="font-semibold mb-2">Top Selling Products</h4>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow><TableHead>Product</TableHead><TableHead className="text-right">Volume</TableHead></TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {placeholderData.topProducts.map(p => (
+                                        <TableRow key={p.name}><TableCell>{p.name}</TableCell><TableCell className="text-right">{p.volume}</TableCell></TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                         <div>
+                            <h4 className="font-semibold mb-2 flex items-center gap-2 text-destructive"><AlertTriangle/> Dead Stock</h4>
+                             <Table>
+                                <TableHeader>
+                                    <TableRow><TableHead>Product</TableHead><TableHead className="text-right">Age</TableHead></TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {placeholderData.deadStock.map(p => (
+                                        <TableRow key={p.name}><TableCell>{p.name}</TableCell><TableCell className="text-right">{p.age}</TableCell></TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+            
+             <Card className="mt-6">
                 <CardHeader>
-                    <CardTitle>Sales Performance</CardTitle>
-                    <CardDescription>Total sales value by salesperson.</CardDescription>
+                    <CardTitle className="flex items-center gap-2"><BarChart/> Comparative Trends</CardTitle>
+                </CardHeader>
+                <CardContent className="grid md:grid-cols-3 gap-6">
+                     <div className="flex items-center gap-4 p-4 rounded-lg bg-muted">
+                        <TrendingUp className="h-8 w-8 text-green-500"/>
+                        <div>
+                            <p className="text-sm text-muted-foreground">Month-over-Month Growth</p>
+                            <p className="text-xl font-bold">+12.5%</p>
+                        </div>
+                    </div>
+                     <div className="flex items-center gap-4 p-4 rounded-lg bg-muted">
+                        <TrendingUp className="h-8 w-8 text-green-500"/>
+                        <div>
+                            <p className="text-sm text-muted-foreground">Year-over-Year Growth</p>
+                            <p className="text-xl font-bold">+8.2%</p>
+                        </div>
+                    </div>
+                     <div className="flex items-center gap-4 p-4 rounded-lg bg-muted">
+                        <TrendingDown className="h-8 w-8 text-red-500"/>
+                        <div>
+                            <p className="text-sm text-muted-foreground">Return Rate</p>
+                            <p className="text-xl font-bold">1.8%</p>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Card className="mt-6 bg-blue-50 border-blue-200">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-blue-800">⚡ Actionable Insights</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <ResponsiveContainer width="100%" height={350}>
-                        <BarChart data={salesPerformanceData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="salesman" />
-                            <YAxis tickFormatter={(value) => `₹${Number(value).toLocaleString()}`} />
-                            <Tooltip formatter={(value) => `₹${Number(value).toLocaleString()}`} />
-                            <Bar dataKey="totalValue" fill="#8884d8" name="Total Sales" />
-                        </BarChart>
-                    </ResponsiveContainer>
+                    <ul className="list-disc list-inside space-y-2 text-blue-700">
+                        <li>Restock high-demand items like BCN-FAB-001 immediately.</li>
+                        <li>Offer a 20% discount on Dead Stock items to clear inventory.</li>
+                        <li>Reward Sales Person 1 with a bonus for top performance.</li>
+                        <li>Analyze pricing for BCN-ROD-003 to improve its low profit margin.</li>
+                    </ul>
                 </CardContent>
             </Card>
         </div>
-    )
+    );
 }
 
-
-export default function ReportsPage() {
-  const [reportType, setReportType] = useState<ReportType>('order-summary');
-  const [dateRange, setDateRange] = useState<DateRange | undefined>();
-  const [users, setUsers] = useState<User[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string>('all');
-  const [loading, setLoading] = useState(false);
-  const [reportData, setReportData] = useState<ReportData | null>(null);
-  const { toast } = useToast();
-
-  useEffect(() => {
-    const usersQuery = query(collection(db, "users"));
-    const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
-      const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-      setUsers(usersData);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const handleGenerateReport = async () => {
-    setLoading(true);
-    setReportData(null);
-    try {
-      const data = await getReportData({
-        reportType,
-        dateRange,
-        userId: selectedUserId
-      });
-      setReportData(data);
-       if (!data || Object.values(data).every(arr => (arr || []).length === 0)) {
-        toast({ title: "No Data", description: "No data found for the selected criteria." });
-      }
-    } catch (error) {
-        toast({ variant: 'destructive', title: "Error", description: "Failed to generate report."})
-    } finally {
-        setLoading(false);
-    }
-  };
-
-  const handleExport = () => {
-    if (!reportData) {
-      toast({ variant: 'destructive', title: 'No data to export' });
-      return;
-    }
-    
-    let dataToExport: any[] = [];
-    let sheetName = "Report";
-
-    if (reportType === 'order-summary' && reportData.orders) {
-        sheetName = "Order Summary";
-        dataToExport = reportData.orders.map(order => ({
-            'Order ID': order.id,
-            'Customer Name': order.customerName,
-            'Sales Person': order.salesPerson,
-            'Order Type': order.orderType,
-            'Status': order.milestones.slice().reverse().find(m => m.completed)?.name || "Order Received",
-            'Total Amount': order.totalAmount || 0,
-            'Created At': format(new Date(order.createdAt), "yyyy-MM-dd HH:mm"),
-        }));
-    } else if (reportType === 'sales-performance' && reportData.salesPerformance) {
-        sheetName = "Sales Performance";
-        dataToExport = reportData.salesPerformance;
-    } else if (reportType === 'purchase-report' && reportData.purchaseReport) {
-        sheetName = "Purchase Report";
-        dataToExport = reportData.purchaseReport.map(item => ({
-             'PO Number': item.id,
-             'Customer Name': item.customerName,
-             'Vendor': item.vendor || 'N/A',
-             'Status': item.status,
-             'Date': format(new Date(item.createdAt), "yyyy-MM-dd"),
-        }));
-    } else if (reportType === 'stock-ledger' && reportData.stockLedger) {
-        sheetName = "Stock Ledger";
-        dataToExport = reportData.stockLedger.map(tx => ({
-            'Date': format(new Date(tx.createdAt), "yyyy-MM-dd HH:mm"),
-            'BCN': tx.bcn,
-            'Type': tx.type,
-            'Quantity Change': tx.quantityChange,
-            'Reference ID': tx.poNumber || tx.orderId || 'N/A',
-            'User': tx.createdBy
-        }));
-    } else if (reportType === 'profit-loss' && reportData.profitLoss) {
-        sheetName = "Profit and Loss";
-        dataToExport = reportData.profitLoss.map(item => ({
-            'Order ID': item.orderId,
-            'Customer Name': item.customerName,
-            'Order Date': format(new Date(item.orderDate), "yyyy-MM-dd"),
-            'Sales Person': item.salesPerson,
-            'Total Amount': item.totalAmount,
-            'Cost of Goods': item.costOfGoods,
-            'Profit': item.profit,
-        }));
-    }
-
-    if (dataToExport.length === 0) {
-      toast({ variant: 'destructive', title: 'No data to export' });
-      return;
-    }
-
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-    XLSX.writeFile(workbook, `${sheetName.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
-    toast({ title: "Export Complete!" });
-  };
-
-
-  return (
-    <div className="container mx-auto p-4 md:p-6 lg:p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Report Generator</h1>
-        <p className="text-muted-foreground">Generate and export various reports for sales, stock, and performance.</p>
-      </div>
-
-      <Tabs defaultValue="generator">
-        <TabsList>
-          <TabsTrigger value="generator">Report Generator</TabsTrigger>
-          <TabsTrigger value="analysis">Analysis Dashboard</TabsTrigger>
-        </TabsList>
-        <TabsContent value="generator">
-            <Card>
-                <CardHeader>
-                <CardTitle>Generate a New Report</CardTitle>
-                <CardDescription>Select the report type and filters to generate a report.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div className="space-y-2">
-                    <label className="text-sm font-medium">Report Type</label>
-                    <Select value={reportType} onValueChange={(value) => setReportType(value as ReportType)}>
-                        <SelectTrigger>
-                        <SelectValue placeholder="Select a report type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                        <SelectItem value="order-summary">Order Summary</SelectItem>
-                        <SelectItem value="sales-performance">Salesman Performance</SelectItem>
-                        <SelectItem value="purchase-report">Purchase Report</SelectItem>
-                        <SelectItem value="stock-ledger">Stock Ledger</SelectItem>
-                        <SelectItem value="profit-loss">Profit & Loss</SelectItem>
-                        </SelectContent>
-                    </Select>
-                    </div>
-                    
-                    <div className="space-y-2">
-                    <label className="text-sm font-medium">Date Range</label>
-                    <Popover>
-                        <PopoverTrigger asChild>
-                        <Button
-                            variant={"outline"}
-                            className="w-full justify-start text-left font-normal"
-                        >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {dateRange?.from ? (
-                            dateRange.to ? (
-                                <>
-                                {format(dateRange.from, "LLL dd, y")} -{" "}
-                                {format(dateRange.to, "LLL dd, y")}
-                                </>
-                            ) : (
-                                format(dateRange.from, "LLL dd, y")
-                            )
-                            ) : (
-                            <span>Pick a date range</span>
-                            )}
-                        </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                            initialFocus
-                            mode="range"
-                            defaultMonth={dateRange?.from}
-                            selected={dateRange}
-                            onSelect={setDateRange}
-                            numberOfMonths={2}
-                        />
-                        </PopoverContent>
-                    </Popover>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Filter by User</label>
-                        <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select a user (optional)" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Users</SelectItem>
-                                {users.map(user => (
-                                    <SelectItem key={user.id} value={user.id}>{user.name} ({user.role})</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </div>
-                <div className="flex justify-end gap-2">
-                    <Button onClick={handleGenerateReport} disabled={loading}>
-                        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BarChart2 className="mr-2 h-4 w-4" />} 
-                        Generate Report
-                    </Button>
-                    <Button onClick={handleExport} disabled={!reportData}>
-                        <Download className="mr-2 h-4 w-4" /> Download CSV
-                    </Button>
-                </div>
-                </CardContent>
-            </Card>
-            
-            {loading && (
-                <div className="flex justify-center items-center py-10">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                </div>
-            )}
-
-            {reportData && (
-                <Card className="mt-8">
-                    <CardHeader>
-                        <CardTitle>{reportType.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} Report</CardTitle>
-                        <CardDescription>
-                            Showing results for the selected criteria.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <ReportTable data={reportData} type={reportType} />
-                    </CardContent>
-                </Card>
-            )}
-        </TabsContent>
-        <TabsContent value="analysis">
-           {(reportData && reportData.salesPerformance && reportData.orders) ? (
-                <AnalysisDashboard salesPerformanceData={reportData.salesPerformance} orderData={reportData.orders} />
-            ) : (
-                <div className="text-center py-10 text-muted-foreground border-dashed border-2 rounded-lg mt-6">
-                    <p>Please generate a "Sales Performance" or "Order Summary" report first to see analytics.</p>
-                </div>
-            )}
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
