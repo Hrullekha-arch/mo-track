@@ -12,13 +12,14 @@ import { Loader2, Search, User as UserIcon, Phone, MapPin, MessageSquare, Star }
 import { Order, User } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MilestoneProgress } from "../order-management/MilestoneProgress";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { getPublicOrderDetails } from "@/app/track/actions";
 
 const formSchema = z.object({
   trackingCode: z.string().min(1, { message: "Tracking code is required." }),
@@ -61,21 +62,15 @@ export function CustomerTracking() {
     setOrder(null);
     setInstaller(null);
     try {
-        const orderRef = doc(db, "orders", values.trackingCode.toUpperCase());
-        const docSnap = await getDoc(orderRef);
-        if (docSnap.exists()) {
-            const orderData = { id: docSnap.id, ...docSnap.data() } as Order;
-            setOrder(orderData);
-            if (orderData.assignedTo) {
-                const installerRef = doc(db, "users", orderData.assignedTo);
-                const installerSnap = await getDoc(installerRef);
-                if (installerSnap.exists()) {
-                    setInstaller({ id: installerSnap.id, ...installerSnap.data() } as User);
-                }
-            }
-        } else {
-            setOrder(null);
+        const result = await getPublicOrderDetails(values.trackingCode);
+        
+        if (result.error) {
+            throw new Error(result.error);
         }
+
+        setOrder(result.order);
+        setInstaller(result.installer);
+
     } catch (error) {
         console.error("Error fetching order:", error);
         toast({
@@ -231,5 +226,3 @@ export function CustomerTracking() {
     </div>
   );
 }
-
-    
