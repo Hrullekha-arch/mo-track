@@ -214,7 +214,7 @@ export default function ReportsPage() {
                                     <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${Number(value)/1000}k`}/>
                                     <Tooltip formatter={(value) => formatToINR(value as number)} />
                                     <Legend />
-                                    <Bar dataKey="totalValue" fill="hsl(var(--primary))" name="Total Sales" radius={[4, 4, 0, 0]} />
+                                    <Bar dataKey="totalValue" fill="hsl(var(--chart-1))" name="Total Sales" radius={[4, 4, 0, 0]} />
                                 </RechartsBarChart>
                             </ResponsiveContainer>
                         )}
