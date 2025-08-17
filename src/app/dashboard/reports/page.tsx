@@ -1,9 +1,8 @@
 
-
 "use client";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { DollarSign, ShoppingCart, Users, TrendingUp, Package, Star, BarChart, AlertTriangle, ArrowRight, TrendingDown, Sparkles, LineChart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
@@ -14,6 +13,7 @@ import { getReportData, SalesPerformanceData, ProfitLossData, StockAnalysisData,
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { ReportDetailDialog } from "@/components/features/reports/ReportDetailDialog";
 
 const formatToINR = (value: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 
@@ -25,6 +25,7 @@ export default function ReportsPage() {
     const [profitLoss, setProfitLoss] = useState<ProfitLossData[]>([]);
     const [stockAnalysis, setStockAnalysis] = useState<StockAnalysisData>({ topSellingProducts: [], deadStock: []});
     const [loading, setLoading] = useState(true);
+    const [detailView, setDetailView] = useState<string | null>(null);
     const { toast } = useToast();
 
     useEffect(() => {
@@ -65,34 +66,22 @@ export default function ReportsPage() {
     
     const actionableInsights = useMemo(() => {
         const insights = [];
-
-        // Insight 1: Top selling product
         if (stockAnalysis.topSellingProducts.length > 0) {
             const topProduct = stockAnalysis.topSellingProducts[0];
             insights.push(`Restock high-demand items like ${topProduct.name} immediately.`);
         }
-
-        // Insight 2: Dead stock
         if (stockAnalysis.deadStock.length > 0) {
             const deadItem = stockAnalysis.deadStock[0];
             insights.push(`Offer a promotion on Dead Stock items like ${deadItem.name} to clear inventory.`);
         }
-
-        // Insight 3: Top salesman
         if (salesPerformance.length > 0) {
             const topSalesman = salesPerformance[0];
             insights.push(`Reward or incentivize top-performing salesman: ${topSalesman.salesman}.`);
         }
-
-        // Insight 4: Low margin products
-        const lowMarginOrder = profitLoss
-            .filter(p => p.totalAmount > 0)
-            .sort((a,b) => (a.profit / a.totalAmount) - (b.profit / b.totalAmount))[0];
-        
+        const lowMarginOrder = profitLoss.filter(p => p.totalAmount > 0).sort((a,b) => (a.profit / a.totalAmount) - (b.profit / b.totalAmount))[0];
         if(lowMarginOrder) {
             insights.push(`Adjust pricing for products in Order #${lowMarginOrder.orderId} to improve low margins.`);
         }
-
         return insights;
     }, [stockAnalysis, salesPerformance, profitLoss]);
 
@@ -104,7 +93,6 @@ export default function ReportsPage() {
             const date = format(new Date(order.createdAt), 'yyyy-MM-dd');
             const salesman = order.salesPerson || 'Unknown';
             salesmen.add(salesman);
-
             if (!salesByDate[date]) {
                 salesByDate[date] = {};
             }
@@ -130,8 +118,59 @@ export default function ReportsPage() {
     const salesmenForChart = [...new Set(orders.map(o => o.salesPerson || 'Unknown'))];
     const chartColors = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#0088FE', '#00C49F'];
 
+    const getDetailDialogContent = () => {
+        switch (detailView) {
+            case 'totalSales':
+                return {
+                    title: 'Total Sales Details',
+                    description: `A list of all ${orders.length} orders contributing to the total sales amount.`,
+                    data: orders,
+                    columns: [
+                        { accessorKey: 'crmOrderNo', header: 'Order No' },
+                        { accessorKey: 'createdAt', header: 'Date', cell: (row: Order) => format(new Date(row.createdAt), 'PPP') },
+                        { accessorKey: 'customerName', header: 'Customer Name' },
+                        { accessorKey: 'customerPhone', header: 'Phone' },
+                        { accessorKey: 'salesPerson', header: 'Salesman' },
+                        { accessorKey: 'storeName', header: 'Store' },
+                        { accessorKey: 'totalAmount', header: 'Amount', cell: (row: Order) => formatToINR(row.totalAmount || 0) },
+                    ],
+                    footer: (
+                        <div className="flex justify-end gap-8 font-semibold">
+                            <span>Total Orders: {orders.length}</span>
+                            <span>Total Value: {formatToINR(totalSales)}</span>
+                        </div>
+                    )
+                };
+            case 'totalProfit':
+                 return {
+                    title: 'Profit & Loss Details',
+                    description: `A breakdown of profit for each of the ${profitLoss.length} orders.`,
+                    data: profitLoss,
+                    columns: [
+                        { accessorKey: 'orderId', header: 'Order No' },
+                        { accessorKey: 'orderDate', header: 'Date', cell: (row: ProfitLossData) => format(new Date(row.orderDate), 'PPP') },
+                        { accessorKey: 'customerName', header: 'Customer' },
+                        { accessorKey: 'salesPerson', header: 'Salesman' },
+                        { accessorKey: 'totalAmount', header: 'Sale Amount', cell: (row: ProfitLossData) => formatToINR(row.totalAmount) },
+                        { accessorKey: 'costOfGoods', header: 'COGS', cell: (row: ProfitLossData) => formatToINR(row.costOfGoods) },
+                        { accessorKey: 'profit', header: 'Profit', cell: (row: ProfitLossData) => formatToINR(row.profit) },
+                    ],
+                    footer: (
+                        <div className="flex justify-end gap-8 font-semibold">
+                            <span>Total Profit: {formatToINR(totalProfit)}</span>
+                        </div>
+                    )
+                };
+            default:
+                return null;
+        }
+    };
+    
+    const detailContent = getDetailDialogContent();
+
 
     return (
+        <>
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <div className="flex justify-between items-center mb-8">
                 <div>
@@ -144,32 +183,21 @@ export default function ReportsPage() {
             </div>
 
              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-                {/* Sales Overview */}
                 <Card className="col-span-1 lg:col-span-2">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2"><DollarSign /> Sales Overview</CardTitle>
                     </CardHeader>
                     <CardContent className="grid grid-cols-2 gap-4">
-                        {loading ? (
-                             <>
-                                <Skeleton className="h-20" />
-                                <Skeleton className="h-20" />
-                             </>
-                        ) : (
-                            <>
-                            <div className="p-4 rounded-lg bg-muted">
-                                <p className="text-sm text-muted-foreground">Total Sales</p>
-                                <p className="text-2xl font-bold">{formatToINR(totalSales)}</p>
-                            </div>
-                            <div className="p-4 rounded-lg bg-muted">
-                                <p className="text-sm text-muted-foreground">Net Profit</p>
-                                <p className="text-2xl font-bold text-green-600">{formatToINR(totalProfit)}</p>
-                            </div>
-                            </>
-                        )}
+                        <button onClick={() => setDetailView('totalSales')} className="p-4 rounded-lg bg-muted text-left hover:bg-muted/80 transition-colors">
+                            <p className="text-sm text-muted-foreground">Total Sales</p>
+                            {loading ? <Skeleton className="h-7 w-24 mt-1" /> : <p className="text-2xl font-bold">{formatToINR(totalSales)}</p>}
+                        </button>
+                         <button onClick={() => setDetailView('totalProfit')} className="p-4 rounded-lg bg-muted text-left hover:bg-muted/80 transition-colors">
+                            <p className="text-sm text-muted-foreground">Net Profit</p>
+                            {loading ? <Skeleton className="h-7 w-24 mt-1" /> : <p className="text-2xl font-bold text-green-600">{formatToINR(totalProfit)}</p>}
+                        </button>
                     </CardContent>
                 </Card>
-                {/* Profitability */}
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2"><TrendingUp /> Profitability</CardTitle>
@@ -183,7 +211,6 @@ export default function ReportsPage() {
                         )}
                     </CardContent>
                 </Card>
-                {/* Customer Insights */}
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2"><Users /> Customer Insights</CardTitle>
@@ -200,7 +227,6 @@ export default function ReportsPage() {
             </div>
             
              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mt-6">
-                {/* Salesman Performance */}
                 <Card className="lg:col-span-2">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2"><Star/> Salesman Performance</CardTitle>
@@ -220,8 +246,6 @@ export default function ReportsPage() {
                         )}
                     </CardContent>
                 </Card>
-
-                 {/* Stock & Inventory */}
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2"><Package/> Stock & Inventory</CardTitle>
@@ -338,5 +362,17 @@ export default function ReportsPage() {
                 </CardContent>
             </Card>
         </div>
+        {detailContent && (
+             <ReportDetailDialog
+                isOpen={!!detailView}
+                onClose={() => setDetailView(null)}
+                title={detailContent.title}
+                description={detailContent.description}
+                data={detailContent.data}
+                columns={detailContent.columns}
+                footer={detailContent.footer}
+            />
+        )}
+        </>
     );
 }

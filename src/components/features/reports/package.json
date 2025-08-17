@@ -1,0 +1,5 @@
+
+{
+    "name": "reports",
+    "main": "./ReportDetailDialog.tsx"
+}
