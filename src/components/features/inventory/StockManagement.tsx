@@ -227,15 +227,23 @@ export function StockManagement() {
   const stockSoldTransactions = transactions.filter(t => t.type === 'deduction');
 
   const calculatedAvailableLengths = React.useMemo(() => {
-    // This calculation is based on the on-the-fly updated quantityChange
-    // field in the stockAdded documents, which is handled by the allocation transaction.
-    return stockAddedTransactions
-      .map(tx => ({
-        length: tx.quantityChange,
-        transactionId: tx.id,
-      }))
-      .filter(l => l.length > 0.01); // Filter out tiny remnants
-  }, [stockAddedTransactions]);
+    return stockAddedTransactions.map(addedTx => {
+        // Find all 'cut' deductions for this specific roll (addedTx)
+        const cutsMade = stockSoldTransactions.filter(
+            soldTx => (soldTx as any).parentTransactionId === addedTx.id && soldTx.status === 'cut'
+        );
+        const totalCutQuantity = cutsMade.reduce((sum, cut) => sum + Math.abs(cut.quantityChange), 0);
+        
+        // Original length is the quantityChange on the 'addition' transaction
+        const originalLength = addedTx.quantityChange;
+        const availableLength = originalLength - totalCutQuantity;
+        
+        return {
+            length: availableLength,
+            transactionId: addedTx.id,
+        };
+    }).filter(l => l.length > 0.01); // Filter out tiny remnants
+  }, [stockAddedTransactions, stockSoldTransactions]);
 
 
   return (
