@@ -40,7 +40,7 @@ const createPoSchema = z.object({
   vendor: z.string().min(1, "Vendor name is required."),
   courier: z.string().min(1, "Courier is required."),
   mode: z.enum(['AIR', 'SURFACE'], { required_error: "Mode is required." }),
-  neededQty: z.number().min(0.01, "Quantity must be greater than 0."),
+  purchaseQty: z.number().min(0.01, "Quantity must be greater than 0."),
 });
 
 type CreatePoFormValues = z.infer<typeof createPoSchema>;
@@ -74,7 +74,7 @@ function CreatePoDialog({
                 vendor: item.vendorName || '',
                 courier: '',
                 mode: 'SURFACE',
-                neededQty: item.neededQty
+                purchaseQty: item.neededQty
             });
         }
     }, [item, form]);
@@ -92,7 +92,7 @@ function CreatePoDialog({
                 mode: values.mode,
                 item: {
                     ...item,
-                    neededQty: values.neededQty,
+                    neededQty: values.purchaseQty, // Use the editable purchaseQty
                 },
                 isNewVendor,
             };
@@ -162,24 +162,25 @@ function CreatePoDialog({
                         <Separator />
                         
                         <div>
-                            <div className="grid grid-cols-12 px-4 py-2 font-medium text-muted-foreground text-sm">
+                             <div className="grid grid-cols-12 px-4 py-2 font-medium text-muted-foreground text-sm">
                                 <div className="col-span-1">#</div>
                                 <div className="col-span-3">BCN/Item Name</div>
-                                <div className="col-span-2">Serial No</div>
                                 <div className="col-span-2 text-right">Stock Qty</div>
                                 <div className="col-span-2 text-right">Order Qty</div>
-                                <div className="col-span-2 text-right">Needed Qty</div>
+                                <div className="col-span-2 text-right">Purchase Qty</div>
                             </div>
                             <div className="border rounded-md px-4 py-3">
                                  <div className="grid grid-cols-12 items-center">
                                     <div className="col-span-1 font-semibold">1</div>
-                                    <div className="col-span-3 font-semibold text-primary">{item.collectionBrand}</div>
-                                    <div className="col-span-2 text-muted-foreground">{item.serialNo}</div>
+                                    <div className="col-span-3">
+                                        <p className="font-semibold text-primary">{item.collectionBrand}</p>
+                                        <p className="text-xs text-muted-foreground">SN: {item.serialNo}</p>
+                                    </div>
                                     <div className="col-span-2 text-right font-bold text-blue-600">{item.stock.toFixed(2)}</div>
                                     <div className="col-span-2 text-right font-bold text-orange-600">{item.neededQty.toFixed(2)}</div>
                                     <div className="col-span-2 text-right font-bold">
                                         <FormField 
-                                            name="neededQty"
+                                            name="purchaseQty"
                                             control={form.control}
                                             render={({ field }) => (
                                                 <FormItem>
@@ -300,7 +301,7 @@ export default function PendingPOPage() {
     { accessorKey: "salesman", header: "Salesman" },
     { accessorKey: "collectionBrand", header: "Collection/Brand" },
     { accessorKey: "serialNo", header: "Serial No" },
-    { accessorKey: "neededQty", header: "Needed Qty" },
+    { accessorKey: "neededQty", header: "Order Qty" },
     { accessorKey: "vendorName", header: "Vendor Name" },
     {
       id: "actions",
