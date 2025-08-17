@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,9 +12,10 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Stock } from "@/lib/types";
 import { searchStockByBcn, updateStockBatchAction } from "@/app/dashboard/inventory/actions";
-import { Loader2, PlusCircle, Trash2 } from "lucide-react";
+import { Loader2, PlusCircle, Trash2, Upload } from "lucide-react";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import * as XLSX from "xlsx";
 
 const updateTaxSchema = z.object({
   items: z.array(z.object({
@@ -40,6 +41,7 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
   const [isSearching, setIsSearching] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<UpdateTaxFormValues>({
     resolver: zodResolver(updateTaxSchema),
@@ -48,7 +50,7 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
     },
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, setValue } = useFieldArray({
     control: form.control,
     name: "items",
   });
@@ -90,6 +92,56 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
       tax: "", // Default empty tax
       vendorName: stockItem.vendorName,
     });
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as (string | number)[][];
+
+        if (json.length < 1) {
+          toast({ variant: "destructive", title: "Empty File", description: "The selected Excel file is empty." });
+          return;
+        }
+
+        const taxMap = new Map<string, string>();
+        json.forEach(row => {
+          const hsn = String(row[0] || '').trim();
+          const tax = String(row[1] || '').trim();
+          if (hsn && tax) {
+            taxMap.set(hsn, tax.replace('%', ''));
+          }
+        });
+        
+        let updatedCount = 0;
+        fields.forEach((field, index) => {
+            const hsnCode = form.getValues(`items.${index}.hsnCode`);
+            if (hsnCode && taxMap.has(hsnCode)) {
+                setValue(`items.${index}.tax`, taxMap.get(hsnCode), { shouldDirty: true });
+                updatedCount++;
+            }
+        });
+        
+        toast({ title: "Import Complete", description: `${updatedCount} item(s) had their tax rate updated.` });
+
+      } catch (error) {
+        console.error("Error processing Excel file:", error);
+        toast({ variant: "destructive", title: "Import Failed", description: "Could not process the selected file." });
+      } finally {
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   const onSubmit = async (data: UpdateTaxFormValues) => {
@@ -153,6 +205,16 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
                     onSearch={handleBcnSearch}
                   />
                 </div>
+                 <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="mr-2 h-4 w-4" /> Import Tax
+                </Button>
+                 <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    accept=".xlsx, .xls"
+                />
               </div>
               
               <div className="border rounded-md">
