@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -43,6 +42,7 @@ import { DateRange } from "react-day-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
+import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
 
 
 function GenerateInvoiceDialog({
@@ -591,7 +591,7 @@ export default function InvoicePage() {
     });
   }, [batches, orders, orderNoFilter, dateRangeFilter, storeFilter]);
 
-  const activeBatches = React.useMemo(() => batches.filter(b => b.status === 'pending'), [batches]);
+  const activeBatches = React.useMemo(() => filteredBatches.filter(b => b.status === 'pending'), [filteredBatches]);
   const uniqueStores = [...new Set(orders.map(o => o.storeName).filter(Boolean))];
 
   return (
@@ -606,69 +606,13 @@ export default function InvoicePage() {
        <Tabs defaultValue="active" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="active">Active Invoices</TabsTrigger>
-                <TabsTrigger value="all">All Invoices</TabsTrigger>
+                <TabsTrigger value="all">Tally Log / Invoice History</TabsTrigger>
             </TabsList>
             <TabsContent value="active" className="pt-4">
                 <InvoiceTable batches={activeBatches} orders={orders} loading={loading} view="active" />
             </TabsContent>
             <TabsContent value="all" className="pt-4">
-                <div className="mb-6 p-4 border rounded-lg bg-card space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <Input
-                            placeholder="Order No (e.g. MOTRACK-...)"
-                            value={orderNoFilter}
-                            onChange={(e) => setOrderNoFilter(e.target.value)}
-                        />
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <Button
-                                id="date"
-                                variant={"outline"}
-                                className={cn(
-                                    "justify-start text-left font-normal",
-                                    !dateRangeFilter && "text-muted-foreground"
-                                )}
-                                >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {dateRangeFilter?.from ? (
-                                    dateRangeFilter.to ? (
-                                    <>
-                                        {format(dateRangeFilter.from, "LLL dd, y")} -{" "}
-                                        {format(dateRangeFilter.to, "LLL dd, y")}
-                                    </>
-                                    ) : (
-                                    format(dateRangeFilter.from, "LLL dd, y")
-                                    )
-                                ) : (
-                                    <span>Pick a date range</span>
-                                )}
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                initialFocus
-                                mode="range"
-                                defaultMonth={dateRangeFilter?.from}
-                                selected={dateRangeFilter}
-                                onSelect={setDateRangeFilter}
-                                numberOfMonths={2}
-                                />
-                            </PopoverContent>
-                        </Popover>
-                         <Select value={storeFilter} onValueChange={setStoreFilter}>
-                            <SelectTrigger><SelectValue placeholder="Store" /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All Stores</SelectItem>
-                                {uniqueStores.map(store => <SelectItem key={store} value={store!}>{store}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                     <div className="flex gap-2">
-                        <Button onClick={() => { /* The filtering is now automatic */ }}><Search className="mr-2 h-4 w-4"/>Search</Button>
-                        <Button variant="outline" onClick={clearFilters}><X className="mr-2 h-4 w-4"/>Clear</Button>
-                    </div>
-                </div>
-                <InvoiceTable batches={filteredBatches} orders={orders} loading={loading} view="all" />
+                <InvoiceLogTable />
             </TabsContent>
         </Tabs>
     </div>
