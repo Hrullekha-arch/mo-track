@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useEffect, useState, useRef, useCallback, Suspense } from "react";
@@ -13,7 +14,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Order, Stock, StockTransaction } from "@/lib/types";
 import { getStockDetails, updateStockBatchAction } from "../dashboard/inventory/actions";
 import { Separator } from "@/components/ui/separator";
-import { doc, updateDoc, getDoc } from "firebase/firestore";
+import { doc, updateDoc, getDoc, collection, query, where, getDocs, writeBatch, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
@@ -221,6 +222,7 @@ function UniversalScanner() {
     const taskId = searchParams.get('taskId');
     const targetBcn = searchParams.get('bcn');
     const targetLength = searchParams.get('originalLength');
+    const orderId = searchParams.get('orderId'); // For verifyCut
 
      const handleScanSuccess = useCallback(async (decodedText: string, decodedResult: any) => {
         if (isProcessing) return;
@@ -245,21 +247,47 @@ function UniversalScanner() {
                     }
                     break;
                 case 'verifyCut':
-                    const [scannedBcn, scannedLength] = decodedText.split('|');
-                    if (scannedBcn === targetBcn && parseFloat(scannedLength) === parseFloat(targetLength!)) {
+                    const [scannedBcn, scannedLengthStr] = decodedText.split('|');
+                    const scannedLength = parseFloat(scannedLengthStr);
+                    const expectedLength = parseFloat(targetLength!);
+
+                    if (scannedBcn === targetBcn && Math.abs(scannedLength - expectedLength) < 0.01) {
+                         const batch = writeBatch(db);
                          const taskRef = doc(db, 'Cutting', taskId!);
                          const taskDoc = await getDoc(taskRef);
+                         
                          if (taskDoc.exists()) {
                             const taskData = taskDoc.data();
                             const updatedItems = taskData.items.map((item: any) => 
                                 item.bcn === targetBcn ? { ...item, status: 'cut' } : item
                             );
                              const allCut = updatedItems.every((item:any) => item.status === 'cut');
-                             await updateDoc(taskRef, { items: updatedItems, status: allCut ? 'Completed' : 'In Progress' });
-                             result = { status: 'success', message: `Verified cut for ${targetBcn} from roll of length ${targetLength}.` };
-                         } else {
-                            result = { status: 'error', message: "Task not found." };
+                             batch.update(taskRef, { items: updatedItems, status: allCut ? 'Completed' : 'In Progress' });
                          }
+
+                         // Find the corresponding stock transaction and update its status
+                         if (orderId) {
+                            const stockId = targetBcn.replace(/\//g, '-');
+                            const stockRef = doc(db, 'stocks', stockId);
+                            // Query for the specific stockAdded document (the roll)
+                            const stockAddedQuery = query(collection(stockRef, 'stockAdded'), where('lengths', 'array-contains', expectedLength), limit(1));
+                            const stockAddedSnapshot = await getDocs(stockAddedQuery);
+                            
+                            if (!stockAddedSnapshot.empty) {
+                                const stockAddedDoc = stockAddedSnapshot.docs[0];
+                                // Now query the stockSold subcollection for the pending cut
+                                const stockSoldQuery = query(collection(stockAddedDoc.ref, 'stockSold'), where('orderId', '==', orderId), where('status', '==', 'pending for cutting'), limit(1));
+                                const stockSoldSnapshot = await getDocs(stockSoldQuery);
+
+                                if (!stockSoldSnapshot.empty) {
+                                    const stockSoldDoc = stockSoldSnapshot.docs[0];
+                                    batch.update(stockSoldDoc.ref, { status: 'cut' });
+                                }
+                            }
+                         }
+
+                         await batch.commit();
+                         result = { status: 'success', message: `Verified cut for ${targetBcn} from roll of length ${targetLength}.` };
                     } else {
                         result = { status: 'error', message: `Incorrect Barcode. Expected ${targetBcn}|${targetLength}, scanned ${decodedText}.` };
                     }
@@ -271,7 +299,7 @@ function UniversalScanner() {
         } catch (e: any) {
             setScanResult({ status: 'error', message: `An error occurred: ${e.message}` });
         }
-    }, [action, isProcessing, targetBcn, taskId, targetLength]);
+    }, [action, isProcessing, targetBcn, taskId, targetLength, orderId]);
 
     const startScanner = useCallback(() => {
         if (!html5QrCodeRef.current) {
@@ -292,13 +320,23 @@ function UniversalScanner() {
             experimentalFeatures: {
                 useOffscreenCanvas: true,
             },
-            rememberLastUsedCamera: true
+            rememberLastUsedCamera: true,
+            // Add resume logic
+             qrCodeSuccessCallback: (decodedText: string, decodedResult: any) => {
+                handleScanSuccess(decodedText, decodedResult);
+                if (html5QrCodeRef.current?.isScanning) {
+                    html5QrCodeRef.current.pause();
+                    setTimeout(() => {
+                         if(html5QrCodeRef.current?.isScanning) html5QrCodeRef.current.resume();
+                    }, 1000); // Pause for 1 second after a successful scan
+                }
+            }
         };
         
         html5QrCodeRef.current.start(
             { facingMode: "environment" },
             config,
-            handleScanSuccess,
+            (decodedText, decodedResult) => { /* This will be handled by qrCodeSuccessCallback */ },
             (errorMessage) => { /* ignore errors */ }
         ).catch((err) => {
             console.error("Scanner start error:", err);
