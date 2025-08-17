@@ -310,7 +310,7 @@ export default function ReportsPage() {
                         <SelectItem value="sales-performance">Salesman Performance</SelectItem>
                         <SelectItem value="purchase-report">Purchase Report</SelectItem>
                         <SelectItem value="stock-ledger">Stock Ledger</SelectItem>
-                        <SelectItem value="profit-loss" disabled>Profit & Loss (soon)</SelectItem>
+                        <SelectItem value="profit-loss" disabled>Profit &amp; Loss (soon)</SelectItem>
                         </SelectContent>
                     </Select>
                     </div>
