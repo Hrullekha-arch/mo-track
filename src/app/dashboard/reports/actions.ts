@@ -55,7 +55,7 @@ export async function getReportData(params: ReportParams): Promise<ReportData> {
         case 'purchase-report':
             return { purchaseReport: await getPurchaseReport(params.dateRange) };
         case 'stock-ledger':
-            return { stockLedger: await getStockLedger(params.dateRange) };
+            return { stockLedger: await getStockLedger() }; // Removed dateRange from here
         case 'profit-loss':
             return { profitLoss: await getProfitLossReport(params.dateRange) };
         case 'stock-analysis':
@@ -134,30 +134,13 @@ async function getPurchaseReport(dateRange?: DateRange): Promise<PurchaseRequest
     }
 }
 
-async function getStockLedger(dateRange?: DateRange): Promise<StockTransaction[]> {
+async function getStockLedger(): Promise<StockTransaction[]> {
     try {
-        const stockAddedQuery = adminDb.collectionGroup('stockAdded');
-        const stockSoldQuery = adminDb.collectionGroup('stockSold');
+        const stockAddedSnapshot = await adminDb.collectionGroup('stockAdded').get();
+        const stockSoldSnapshot = await adminDb.collectionGroup('stockSold').get();
         
-        let addedQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = stockAddedQuery;
-        let soldQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = stockSoldQuery;
-
-        if (dateRange?.from) {
-            addedQuery = addedQuery.where('createdAt', '>=', dateRange.from.toISOString());
-            soldQuery = soldQuery.where('createdAt', '>=', dateRange.from.toISOString());
-        }
-        if (dateRange?.to) {
-            addedQuery = addedQuery.where('createdAt', '<=', dateRange.to.toISOString());
-            soldQuery = soldQuery.where('createdAt', '<=', dateRange.to.toISOString());
-        }
-        
-        const [addedSnapshot, soldSnapshot] = await Promise.all([
-            addedQuery.orderBy('createdAt', 'desc').get(),
-            soldQuery.orderBy('createdAt', 'desc').get()
-        ]);
-        
-        const addedTransactions = addedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
-        const soldTransactions = soldSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
+        const addedTransactions = stockAddedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
+        const soldTransactions = stockSoldSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockTransaction));
         
         const allTransactions = [...addedTransactions, ...soldTransactions];
         allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -250,12 +233,15 @@ async function getStockAnalysis(dateRange?: DateRange): Promise<StockAnalysisDat
         // Dead Stock
         const allStockSnapshot = await adminDb.collection('stocks').get();
         const allStock = allStockSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
+        
+        // We need all sold transactions for this logic, regardless of date range.
+        const allSoldTransactions = (await adminDb.collectionGroup('stockSold').get()).docs.map(doc => doc.data() as StockTransaction);
 
         const deadStockItems: { name: string; age: string; }[] = [];
         const ninetyDaysAgo = subDays(new Date(), 90);
 
         allStock.forEach(stock => {
-            const lastSale = soldTransactions
+            const lastSale = allSoldTransactions
                 .filter(tx => tx.bcn === stock.bcn)
                 .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
