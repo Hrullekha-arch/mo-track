@@ -356,7 +356,7 @@ export function getExpectedCompletionDate(step: O2DStep, startDate: Date): Date 
     return completionDate;
 }
 
-export const calculateExpectedDatesForOrder = (order: Order) => {
+export const calculateExpectedDatesForOrder = (order: Pick<Order, 'createdAt' | 'o2dMilestones'>) => {
     const expectedDates: Record<number, Date> = {};
 
     O2D_PROCESS_CONFIG.forEach((currentStep, index) => {
@@ -427,6 +427,5 @@ export const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
     
 
     
-
 
 

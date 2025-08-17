@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
@@ -13,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, isSameDay, differenceInHours } from 'date-fns';
+import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, isSameDay, differenceInMinutes } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,18 +58,6 @@ function O2DProcessTimeline({
 }) {
     
     const expectedDates = calculateExpectedDatesForOrder(order);
-
-    const stepsToShow = useMemo(() => {
-        if (showAllSteps) {
-            return O2D_PROCESS_CONFIG;
-        }
-        const lastCompletedIndex = O2D_PROCESS_CONFIG.findLastIndex(step => 
-            (order.o2dMilestones || []).some(m => m.stepId === step.id)
-        );
-        // Show from the step after the last completed one. If none are completed, show all.
-        return O2D_PROCESS_CONFIG.slice(lastCompletedIndex + 1);
-    }, [order.o2dMilestones, showAllSteps]);
-
 
     const handleAction = (status: 'completed' | 'skipped', selection: string, stepId: number, isOverdue: boolean) => {
       // The final step triggers the order type confirmation dialog
@@ -116,15 +105,13 @@ function O2DProcessTimeline({
         <div className="relative pl-6 pr-4 py-4">
             <div className="absolute left-9 top-0 h-full w-0.5 bg-border -translate-x-1/2" aria-hidden="true"></div>
             <div className="space-y-4">
-                {(showAllSteps ? O2D_PROCESS_CONFIG : stepsToShow).map((stepConfig, index) => {
+                {O2D_PROCESS_CONFIG.map((stepConfig) => {
                     const stepStatus = order.o2dMilestones?.find(s => s.stepId === stepConfig.id);
-                    const prevStepConfigIndex = O2D_PROCESS_CONFIG.findIndex(s => s.id === stepConfig.id) - 1;
-                    const prevStepStatus = prevStepConfigIndex < 0 ? { status: 'completed' } : order.o2dMilestones?.find(s => s.id === O2D_PROCESS_CONFIG[prevStepConfigIndex].id);
                     
                     const isPending = !stepStatus;
-                    
                     const expectedDate = expectedDates[stepConfig.id];
                     const isOverdue = isPast(expectedDate) && isPending;
+                    const isDueSoon = !isOverdue && !stepStatus && differenceInMinutes(expectedDate, new Date()) <= 10;
                     const wasCompletedLate = stepStatus?.status === 'completed' && new Date(stepStatus.completedAt) > expectedDate;
 
                     const Icon = stepConfig.icon;
@@ -135,12 +122,14 @@ function O2DProcessTimeline({
                                     "flex h-12 w-12 items-center justify-center rounded-full border-2 border-border shadow-sm",
                                     stepStatus?.status === 'completed' && !wasCompletedLate && "bg-green-50",
                                     stepStatus?.status === 'completed' && wasCompletedLate && "bg-orange-50",
+                                    isDueSoon && "bg-yellow-50",
                                     stepStatus?.status === 'skipped' && "bg-gray-100",
                                     !stepStatus && "bg-card"
                                 )}>
                                      <Icon className={cn("h-6 w-6", 
                                         stepStatus?.status === 'completed' && !wasCompletedLate && "text-green-500",
                                         stepStatus?.status === 'completed' && wasCompletedLate && "text-orange-500",
+                                        isDueSoon && "text-yellow-500",
                                         stepStatus?.status === 'skipped' && "text-gray-500",
                                         !stepStatus && "text-muted-foreground")} />
                                 </div>
@@ -149,6 +138,7 @@ function O2DProcessTimeline({
                                 "w-full group hover:shadow-md transition-shadow duration-300",
                                 isPending && isOverdue ? "border-red-500 bg-red-50" : "",
                                 stepStatus?.status === 'completed' && wasCompletedLate ? "border-orange-500 bg-orange-50" : "",
+                                isDueSoon ? "border-yellow-500 bg-yellow-50" : "",
                                 stepStatus?.status === 'skipped' ? "border-gray-400 bg-gray-50" : ""
                             )}>
                                 <CardHeader>
@@ -170,10 +160,12 @@ function O2DProcessTimeline({
                                     <div className="flex justify-between items-center flex-wrap gap-4">
                                          <div className="text-xs text-muted-foreground space-y-2 flex-grow">
                                             <p className={cn(
+                                                "flex items-center gap-2",
                                                 isPending && isOverdue ? "text-red-600 font-medium" : "",
                                                 stepStatus?.status === 'completed' && wasCompletedLate ? "text-orange-600" : ""
                                             )}>
-                                                Expected by: {formatTimestamp(expectedDate)}
+                                                <Clock className="h-4 w-4" />
+                                                <span>Expected by: {formatTimestamp(expectedDate)}</span>
                                             </p>
                                             
                                             {stepStatus?.status === 'completed' && (
@@ -219,17 +211,8 @@ function O2DProcessTimeline({
                                                     </Button>
                                                 </AlertDialogTrigger>
                                             )}
-                                            {!stepStatus && prevStepStatus?.status ? (
+                                            {!stepStatus && (
                                                 renderActionButtons(stepConfig, isOverdue)
-                                            ) : (
-                                                <div className="text-center">
-                                                    <Badge variant={stepStatus?.status === 'completed' ? 'default' : 'secondary'} className={cn(
-                                                        'capitalize',
-                                                        stepStatus?.status === 'completed' && wasCompletedLate && 'bg-orange-500'
-                                                    )}>
-                                                        {stepStatus?.selection || stepStatus?.status}
-                                                    </Badge>
-                                                </div>
                                             )}
                                         </div>
                                     </div>
@@ -318,7 +301,7 @@ export default function O2DPage() {
     const [confirmOrder, setConfirmOrder] = useState<Order | null>(null);
     const [followUpOrder, setFollowUpOrder] = useState<O2DViewItem | null>(null);
 
-    const { user, role } = useAuth();
+    const { user, role, designation } = useAuth();
     const { toast } = useToast();
 
     useEffect(() => {
@@ -374,29 +357,20 @@ export default function O2DPage() {
     };
 
     const handleFollowUp = async () => {
-        if (!followUpOrder || !user) return;
+        if (!followUpOrder || !user || !followUpOrder.orderId) return;
 
         const o2dDocId = followUpOrder.dealDocId;
-        const o2dDocRef = doc(db, 'o2d', o2dDocId);
-
+        
         try {
-            const newMilestone: O2DStatus = {
-                stepId: 6, // 'Balance Payment Follow Up'
-                status: 'completed',
-                completedAt: new Date().toISOString(),
-                completedBy: user.name,
-                remarks: "Follow-up for payment initiated.",
-                selection: "Done"
-            };
-
-            await updateDoc(o2dDocRef, {
-                milestones: arrayUnion(newMilestone)
-            });
-            
-            toast({ title: "Follow-up Step Completed", description: "The next step is now active." });
+            const result = await setBalanceFollowUp(followUpOrder.orderId, o2dDocId, user.name);
+            if (result.success) {
+                toast({ title: "Follow-up Step Completed", description: result.message });
+            } else {
+                 toast({ variant: "destructive", title: "Update Failed", description: result.message });
+            }
         } catch (error) {
-            console.error("Error updating O2D step:", error);
-            toast({ variant: "destructive", title: "Update Failed", description: "Could not complete the follow-up step." });
+            console.error("Error setting balance follow up:", error);
+            toast({ variant: "destructive", title: "Server Error", description: "Could not complete the follow-up step." });
         } finally {
             setFollowUpOrder(null);
         }
@@ -532,7 +506,7 @@ export default function O2DPage() {
 
         // Check if the order is ready for final acknowledgement
         const isReadyForAcknowledgement = currentStep?.id === O2D_PROCESS_CONFIG[O2D_PROCESS_CONFIG.length - 1].id;
-        const isFollowUpStep = currentStep?.id === 6; // 'Balance Payment Follow Up' is step 6
+        const isFollowUpStep = currentStep?.id === 10; // 'Balance Payment Follow Up' is step 10
 
         let cardBorderColor = "border-border";
         let statusTextColor = "text-primary";
@@ -544,9 +518,9 @@ export default function O2DPage() {
             if (isPast(expectedDate)) {
                 cardBorderColor = "border-red-500";
                 statusTextColor = "text-red-500";
-            } else if (differenceInHours(expectedDate, new Date()) <= 24) {
-                cardBorderColor = "border-orange-500";
-                statusTextColor = "text-orange-500";
+            } else if (differenceInMinutes(expectedDate, new Date()) <= 10) {
+                cardBorderColor = "border-yellow-500";
+                statusTextColor = "text-yellow-500";
             }
         }
 
@@ -578,18 +552,13 @@ export default function O2DPage() {
                                     Status: {currentStep.step}
                                 </p>
                             )}
-                            {order.remarks && (
-                                <p className='flex items-start justify-end gap-2 text-muted-foreground'>
-                                    <span className='italic text-right'>"{order.remarks}"</span>
-                                    <MessageCircle className='h-4 w-4 mt-0.5 shrink-0' /> 
-                                </p>
-                            )}
                              {isFollowUpStep && (
                                 <AlertDialogTrigger asChild>
                                 <Button size="sm" className="mt-2" onClick={() => {
-                                    // This is a temporary fix. The `followUpOrder` state expects an `O2DViewItem` which we don't have here.
-                                    // We'll create a minimal object that satisfies the dialog trigger.
-                                    setFollowUpOrder({ dealDocId: order.id } as any);
+                                    setFollowUpOrder({ 
+                                        dealDocId: order.id, 
+                                        orderId: order.id
+                                     } as any);
                                 }}>
                                     <PhoneCall className="mr-2 h-4 w-4"/>
                                     Follow Up
@@ -609,7 +578,7 @@ export default function O2DPage() {
                     <div className="px-4 pb-2 border-t">
                         <Button variant="link" onClick={() => setShowAllSteps(prev => !prev)} className="text-xs">
                            {showAllSteps ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
-                           {showAllSteps ? 'Show Pending Steps' : 'Show All Steps'}
+                           {showAllSteps ? 'Hide Completed Steps' : 'Show All Steps'}
                         </Button>
                     </div>
                     <O2DProcessTimeline 
@@ -619,7 +588,7 @@ export default function O2DPage() {
                         onRevertStep={handleOpenRevertDialog}
                         onConfirmOrderType={() => setConfirmOrder(order)}
                         userRole={role}
-                        userDesignation={user?.designation || null}
+                        userDesignation={designation || null}
                         showAllSteps={showAllSteps}
                     />
                 </CollapsibleContent>
@@ -718,7 +687,7 @@ export default function O2DPage() {
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirm Follow-up</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Have you followed up with {followUpOrder?.customerName} for the balance payment? This will complete the "Balance Payment Follow Up" step in the O2D process.
+                        Have you followed up with {followUpOrder?.customerName} for the balance payment? This will send it to the Accounts team for payment confirmation.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -731,4 +700,3 @@ export default function O2DPage() {
     );
 }
 
-    
