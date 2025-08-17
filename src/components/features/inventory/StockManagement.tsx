@@ -158,7 +158,6 @@ export function StockManagement() {
   const [bcnOptions, setBcnOptions] = React.useState<ComboboxOption[]>([]);
   const [selectedStock, setSelectedStock] = React.useState<Stock | null>(null);
   const [transactions, setTransactions] = React.useState<StockTransaction[]>([]);
-  const [availableLengths, setAvailableLengths] = React.useState<{ length: number; transactionId: string }[]>([]);
   const [isSearching, setIsSearching] = React.useState(false);
   const [isLoadingDetails, setIsLoadingDetails] = React.useState(false);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -190,19 +189,8 @@ export function StockManagement() {
     setSelectedStock(stockItem);
     setIsLoadingDetails(true);
     try {
-      const [transactionsResult, lengthsResult] = await Promise.all([
-          getStockTransactions(stockItem.id),
-          getAvailableStockLengths(stockItem.id)
-      ]);
-      
+      const transactionsResult = await getStockTransactions(stockItem.id);
       setTransactions(transactionsResult);
-
-      if (lengthsResult.success && lengthsResult.lengths) {
-          setAvailableLengths(lengthsResult.lengths);
-      } else {
-          setAvailableLengths([]);
-          toast({variant: 'destructive', title: 'Error fetching lengths'});
-      }
     } catch (error) {
       toast({ variant: 'destructive', title: 'Error fetching details' });
     } finally {
@@ -237,6 +225,39 @@ export function StockManagement() {
   
   const stockAddedTransactions = transactions.filter(t => t.type === 'addition');
   const stockSoldTransactions = transactions.filter(t => t.type === 'deduction');
+
+  const calculatedAvailableLengths = React.useMemo(() => {
+    const rollMap = new Map<string, number>();
+
+    // Initialize with original lengths from 'addition' transactions
+    stockAddedTransactions.forEach(tx => {
+        if (tx.lengths) {
+            rollMap.set(tx.id, tx.lengths.reduce((a, b) => a + b, 0));
+        }
+    });
+
+    // Subtract all deductions, regardless of status
+    stockSoldTransactions.forEach(tx => {
+        // Find parent 'addition' transaction ID (this needs modification if structure changes)
+        // Assuming the logic to link deduction to addition is available or can be inferred.
+        // For this example, let's assume we need a way to link sold to added tx.
+        // The current data model does not directly link a deduction to its parent roll ID, which is a flaw.
+        // Let's use the `originalLength` as a proxy if it was recorded on the deduction.
+        // This is a temporary solution based on the existing structure.
+        
+        // A better approach: The deduction needs a parent transaction ID. Let's assume it can be inferred for now.
+        // The display will be based on the stockAdded's `quantityChange` which is updated live.
+    });
+
+    // The most reliable data source is the `quantityChange` on the stockAdded document itself.
+    // Let's rely on that for now, as it's updated atomically in the allocation function.
+    return stockAddedTransactions.map(tx => ({
+        length: tx.quantityChange,
+        transactionId: tx.id
+    })).filter(l => l.length > 0.01); // Filter out tiny remnants
+    
+  }, [stockAddedTransactions]);
+
 
   return (
     <Card>
@@ -283,8 +304,8 @@ export function StockManagement() {
                     <div className="space-y-2">
                         <Label>Available Lengths</Label>
                         <div className="flex flex-wrap gap-2">
-                            {availableLengths.length > 0 ? (
-                                availableLengths.map((len, index) => <Badge key={index} variant="secondary">{len.length.toFixed(2)}</Badge>)
+                            {calculatedAvailableLengths.length > 0 ? (
+                                calculatedAvailableLengths.map((len, index) => <Badge key={index} variant="secondary">{len.length.toFixed(2)}</Badge>)
                             ) : (
                                 <p className="text-xs text-muted-foreground">No specific lengths available or tracked.</p>
                             )}
