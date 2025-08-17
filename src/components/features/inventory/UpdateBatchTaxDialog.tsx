@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useCallback, useRef } from "react";
@@ -51,7 +50,7 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
     },
   });
 
-  const { fields, append, remove, setValue } = useFieldArray({
+  const { fields, append, remove, setValue, getValues } = useFieldArray({
     control: form.control,
     name: "items",
   });
@@ -123,8 +122,10 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
         });
         
         let updatedCount = 0;
-        fields.forEach((field, index) => {
-            const hsnCode = form.getValues(`items.${index}.hsnCode`);
+        // Correctly get the current values from the form state
+        const currentItems = getValues('items');
+        currentItems.forEach((field, index) => {
+            const hsnCode = field.hsnCode; // Use the current form value
             if (hsnCode && taxMap.has(hsnCode)) {
                 setValue(`items.${index}.tax`, taxMap.get(hsnCode), { shouldDirty: true });
                 updatedCount++;
