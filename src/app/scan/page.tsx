@@ -83,16 +83,12 @@ function UniversalScanner() {
     const taskId = searchParams.get('taskId');
     const targetBcn = searchParams.get('bcn');
 
-    const handleScanSuccess = useCallback(async (decodedText: string) => {
+    const handleScanSuccess = useCallback(async (decodedText: string, decodedResult: any) => {
         if (isProcessing) return;
         setIsProcessing(true);
-        if (html5QrCodeRef.current?.getState() === Html5QrcodeScannerState.SCANNING) {
-            try {
-                await html5QrCodeRef.current.stop();
-            } catch (err) {
-                console.warn("Scanner could not be stopped, it might have been already stopped.", err);
-            }
-        }
+        
+        // Don't stop the scanner here, let it be handled by the dialog closing.
+        // This allows for continuous scanning after a result is shown.
 
         try {
             let result: ScanResult;
@@ -102,7 +98,7 @@ function UniversalScanner() {
                     result = { status: pmsResult.success ? 'success' : 'error', message: pmsResult.message, data: { order: pmsResult.order } };
                     break;
                 case 'stockDetail':
-                    const bcn = decodedText.split('|')[0]; // Extract BCN from "bcn|length"
+                    const bcn = decodedText.split('|')[0];
                     const stockId = bcn.replace(/\//g, '-');
                     const stock = await getStockById(stockId);
                     if (stock) {
@@ -174,27 +170,25 @@ function UniversalScanner() {
             .catch(() => setHasPermission(false));
 
         return () => {
-            if (html5QrCodeRef.current?.isScanning) {
+             if (html5QrCodeRef.current?.isScanning) {
                 html5QrCodeRef.current.stop().catch(err => {
                     console.error("Error stopping scanner on unmount:", err)
                 });
-            }
+             }
         };
     }, []);
 
     useEffect(() => {
-        if (hasPermission) {
+        if (hasPermission && !isProcessing) {
             startScanner();
         }
-    }, [hasPermission, startScanner]);
+    }, [hasPermission, isProcessing, startScanner]);
 
     const closeResultDialog = () => {
         setScanResult(null);
-        setIsProcessing(false);
-        if (action === 'verifyCut') {
+        setIsProcessing(false); // This will trigger the useEffect to restart the scanner
+        if (action === 'verifyCut' && scanResult?.status === 'success') {
             router.back();
-        } else if (hasPermission) {
-            startScanner();
         }
     };
     
