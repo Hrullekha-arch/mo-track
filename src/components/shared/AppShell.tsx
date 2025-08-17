@@ -27,6 +27,7 @@ import {
   Moon,
   Sun,
   PanelLeft,
+  Factory,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -53,6 +54,7 @@ import {
 
 export const navItems = [
     { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee', 'Accounts'] },
+    { href: "/dashboard/fms", icon: Factory, label: "FMS", roles: ['admin', 'employee'] },
     { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts'] },
     { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
     { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
