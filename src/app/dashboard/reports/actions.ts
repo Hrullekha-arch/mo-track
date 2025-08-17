@@ -1,8 +1,8 @@
 
-"use server";
+'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, PurchaseRequest, StockTransaction } from "@/lib/types";
+import { Order, PurchaseRequest, Stock, StockTransaction } from "@/lib/types";
 import { DateRange } from "react-day-picker";
 
 type ReportType = 'order-summary' | 'sales-performance' | 'purchase-report' | 'stock-ledger' | 'profit-loss';
@@ -19,11 +19,23 @@ export interface SalesPerformanceData {
     totalValue: number;
 }
 
+export interface ProfitLossData {
+    orderId: string;
+    customerName: string;
+    orderDate: string;
+    salesPerson: string;
+    totalAmount: number;
+    costOfGoods: number;
+    profit: number;
+}
+
+
 export interface ReportData {
     orders?: Order[];
     salesPerformance?: SalesPerformanceData[];
     purchaseReport?: PurchaseRequest[];
     stockLedger?: StockTransaction[];
+    profitLoss?: ProfitLossData[];
 }
 
 export async function getReportData(params: ReportParams): Promise<ReportData> {
@@ -36,6 +48,8 @@ export async function getReportData(params: ReportParams): Promise<ReportData> {
             return { purchaseReport: await getPurchaseReport(params.dateRange) };
         case 'stock-ledger':
             return { stockLedger: await getStockLedger(params.dateRange) };
+        case 'profit-loss':
+            return { profitLoss: await getProfitLossReport(params.dateRange) };
         default:
             throw new Error('Invalid report type');
     }
@@ -150,6 +164,68 @@ async function getStockLedger(dateRange?: DateRange): Promise<StockTransaction[]
         return JSON.parse(JSON.stringify(allTransactions));
     } catch (error) {
         console.error("Error fetching stock ledger:", error);
+        return [];
+    }
+}
+
+async function getProfitLossReport(dateRange?: DateRange): Promise<ProfitLossData[]> {
+    try {
+        let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = adminDb.collection('orders');
+
+        if (dateRange?.from) {
+            query = query.where('createdAt', '>=', dateRange.from.toISOString());
+        }
+        if (dateRange?.to) {
+            query = query.where('createdAt', '<=', dateRange.to.toISOString());
+        }
+
+        const ordersSnapshot = await query.get();
+        const orders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+
+        const stockCache = new Map<string, Stock>();
+
+        const profitLossData: ProfitLossData[] = [];
+
+        for (const order of orders) {
+            let costOfGoods = 0;
+            if (order.fabricDetails) {
+                for (const item of order.fabricDetails) {
+                    const stockId = item.fabricName.replace(/\//g, '-');
+                    let stockItem: Stock | undefined = stockCache.get(stockId);
+                    
+                    if (!stockItem) {
+                        const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
+                        if (stockDoc.exists) {
+                            stockItem = stockDoc.data() as Stock;
+                            stockCache.set(stockId, stockItem);
+                        }
+                    }
+
+                    if (stockItem) {
+                        const itemCost = (stockItem.rlPrice || 0) * parseFloat(item.quantity);
+                        costOfGoods += itemCost;
+                    }
+                }
+            }
+            
+            const totalAmount = order.totalAmount || 0;
+            const profit = totalAmount - costOfGoods;
+
+            profitLossData.push({
+                orderId: order.id,
+                customerName: order.customerName,
+                orderDate: order.createdAt,
+                salesPerson: order.salesPerson,
+                totalAmount: totalAmount,
+                costOfGoods: costOfGoods,
+                profit: profit,
+            });
+        }
+        
+        return JSON.parse(JSON.stringify(profitLossData.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())));
+
+    } catch (error) {
+        console.error("Error fetching profit and loss report:", error);
         return [];
     }
 }

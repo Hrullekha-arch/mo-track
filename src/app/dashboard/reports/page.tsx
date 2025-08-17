@@ -13,7 +13,7 @@ import { DateRange } from "react-day-picker";
 import { User, Order, PurchaseRequest, StockTransaction } from "@/lib/types";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { getReportData, ReportData, SalesPerformanceData } from "./actions";
+import { getReportData, ReportData, SalesPerformanceData, ProfitLossData } from "./actions";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import * as XLSX from "xlsx";
@@ -125,6 +125,35 @@ const ReportTable = ({ data, type }: { data: ReportData, type: ReportType }) => 
                             <TableCell>{tx.quantityChange.toFixed(2)}</TableCell>
                             <TableCell>{tx.poNumber || tx.orderId || 'N/A'}</TableCell>
                             <TableCell>{tx.createdBy}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        )
+    }
+    
+    if (type === 'profit-loss' && data.profitLoss) {
+        return (
+             <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Order ID</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Total Amount</TableHead>
+                        <TableHead className="text-right">Cost of Goods</TableHead>
+                        <TableHead className="text-right">Profit</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {data.profitLoss.map(item => (
+                        <TableRow key={item.orderId}>
+                            <TableCell className="font-mono">{item.orderId}</TableCell>
+                            <TableCell>{item.customerName}</TableCell>
+                            <TableCell>{format(new Date(item.orderDate), "PP")}</TableCell>
+                            <TableCell className="text-right">₹{item.totalAmount.toFixed(2)}</TableCell>
+                            <TableCell className="text-right text-destructive">₹{item.costOfGoods.toFixed(2)}</TableCell>
+                            <TableCell className="text-right font-bold text-green-600">₹{item.profit.toFixed(2)}</TableCell>
                         </TableRow>
                     ))}
                 </TableBody>
@@ -264,6 +293,17 @@ export default function ReportsPage() {
             'Reference ID': tx.poNumber || tx.orderId || 'N/A',
             'User': tx.createdBy
         }));
+    } else if (reportType === 'profit-loss' && reportData.profitLoss) {
+        sheetName = "Profit and Loss";
+        dataToExport = reportData.profitLoss.map(item => ({
+            'Order ID': item.orderId,
+            'Customer Name': item.customerName,
+            'Order Date': format(new Date(item.orderDate), "yyyy-MM-dd"),
+            'Sales Person': item.salesPerson,
+            'Total Amount': item.totalAmount,
+            'Cost of Goods': item.costOfGoods,
+            'Profit': item.profit,
+        }));
     }
 
     if (dataToExport.length === 0) {
@@ -310,7 +350,7 @@ export default function ReportsPage() {
                         <SelectItem value="sales-performance">Salesman Performance</SelectItem>
                         <SelectItem value="purchase-report">Purchase Report</SelectItem>
                         <SelectItem value="stock-ledger">Stock Ledger</SelectItem>
-                        <SelectItem value="profit-loss" disabled>Profit &amp; Loss (soon)</SelectItem>
+                        <SelectItem value="profit-loss">Profit & Loss</SelectItem>
                         </SelectContent>
                     </Select>
                     </div>
