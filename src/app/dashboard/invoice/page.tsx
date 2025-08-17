@@ -615,12 +615,19 @@ export default function InvoicePage() {
   return (
     <>
     <div className="container mx-auto p-4 md:p-6 lg:p-8">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Invoice</h1>
-        <p className="text-muted-foreground">
-          Items that have been allocated and are ready for invoicing.
-        </p>
-      </header>
+        <header className="flex items-center justify-between mb-8">
+            <div>
+                <h1 className="text-3xl font-bold tracking-tight">Invoice</h1>
+                <p className="text-muted-foreground">
+                    Items that have been allocated and are ready for invoicing.
+                </p>
+            </div>
+            <Button asChild>
+                <Link href="/dashboard/customers">
+                    <PlusCircle className="mr-2 h-4 w-4" /> Create Invoice
+                </Link>
+            </Button>
+        </header>
        <Tabs defaultValue="active" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="active">Active Invoices</TabsTrigger>
@@ -637,3 +644,5 @@ export default function InvoicePage() {
     </>
   );
 }
+
+    
