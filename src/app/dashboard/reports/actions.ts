@@ -93,24 +93,15 @@ async function getOrderSummary(dateRange?: DateRange, userId?: string): Promise<
 
 async function getSalesPerformance(dateRange?: DateRange): Promise<SalesPerformanceData[]> {
     try {
-        let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = adminDb.collection('orders');
-
-        if (dateRange?.from) {
-            query = query.where('createdAt', '>=', dateRange.from.toISOString());
-        }
-        if (dateRange?.to) {
-            query = query.where('createdAt', '<=', dateRange.to.toISOString());
-        }
-
-        const snapshot = await query.get();
-        const orders = snapshot.docs.map(doc => doc.data() as Order);
+        const orders = await getOrderSummary(dateRange);
 
         const performanceMap = orders.reduce((acc, order) => {
-            if (!acc[order.salesPerson]) {
-                acc[order.salesPerson] = { salesman: order.salesPerson, totalOrders: 0, totalValue: 0 };
+            const salesman = order.salesPerson || 'Unknown';
+            if (!acc[salesman]) {
+                acc[salesman] = { salesman: salesman, totalOrders: 0, totalValue: 0 };
             }
-            acc[order.salesPerson].totalOrders += 1;
-            acc[order.salesPerson].totalValue += order.totalAmount || 0;
+            acc[salesman].totalOrders += 1;
+            acc[salesman].totalValue += order.totalAmount || 0;
             return acc;
         }, {} as Record<string, SalesPerformanceData>);
 
@@ -180,18 +171,7 @@ async function getStockLedger(dateRange?: DateRange): Promise<StockTransaction[]
 
 async function getProfitLossReport(dateRange?: DateRange): Promise<ProfitLossData[]> {
     try {
-        let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = adminDb.collection('orders');
-
-        if (dateRange?.from) {
-            query = query.where('createdAt', '>=', dateRange.from.toISOString());
-        }
-        if (dateRange?.to) {
-            query = query.where('createdAt', '<=', dateRange.to.toISOString());
-        }
-
-        const ordersSnapshot = await query.get();
-        const orders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-
+        const orders = await getOrderSummary(dateRange);
         const stockCache = new Map<string, Stock>();
 
         const profitLossData: ProfitLossData[] = [];

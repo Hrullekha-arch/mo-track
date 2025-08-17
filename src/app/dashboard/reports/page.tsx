@@ -4,21 +4,23 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DollarSign, ShoppingCart, Users, TrendingUp, Package, Star, BarChart, AlertTriangle, ArrowRight, TrendingDown, Sparkles } from "lucide-react";
+import { DollarSign, ShoppingCart, Users, TrendingUp, Package, Star, BarChart, AlertTriangle, ArrowRight, TrendingDown, Sparkles, LineChart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart as RechartsBarChart, LineChart as RechartsLineChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useState, useEffect, useMemo } from "react";
 import { DateRange } from "react-day-picker";
-import { getReportData, SalesPerformanceData, ProfitLossData, StockAnalysisData } from "./actions";
+import { getReportData, SalesPerformanceData, ProfitLossData, StockAnalysisData, Order } from "./actions";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
 
 const formatToINR = (value: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 
 
 export default function ReportsPage() {
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
+    const [orders, setOrders] = useState<Order[]>([]);
     const [salesPerformance, setSalesPerformance] = useState<SalesPerformanceData[]>([]);
     const [profitLoss, setProfitLoss] = useState<ProfitLossData[]>([]);
     const [stockAnalysis, setStockAnalysis] = useState<StockAnalysisData>({ topSellingProducts: [], deadStock: []});
@@ -29,15 +31,17 @@ export default function ReportsPage() {
         const fetchAllReports = async () => {
             setLoading(true);
             try {
-                const [salesData, profitData, stockData] = await Promise.all([
+                const [salesData, profitData, stockData, orderData] = await Promise.all([
                     getReportData({ reportType: 'sales-performance', dateRange }),
                     getReportData({ reportType: 'profit-loss', dateRange }),
                     getReportData({ reportType: 'stock-analysis', dateRange }),
+                    getReportData({ reportType: 'order-summary', dateRange }),
                 ]);
                 
                 setSalesPerformance(salesData.salesPerformance || []);
                 setProfitLoss(profitData.profitLoss || []);
                 setStockAnalysis(stockData.stockAnalysis || { topSellingProducts: [], deadStock: [] });
+                setOrders(orderData.orders || []);
 
             } catch (error) {
                 toast({
@@ -91,6 +95,40 @@ export default function ReportsPage() {
 
         return insights;
     }, [stockAnalysis, salesPerformance, profitLoss]);
+
+     const salesTrendData = useMemo(() => {
+        const salesByDate: Record<string, Record<string, number>> = {};
+        const salesmen = new Set<string>();
+
+        orders.forEach(order => {
+            const date = format(new Date(order.createdAt), 'yyyy-MM-dd');
+            const salesman = order.salesPerson || 'Unknown';
+            salesmen.add(salesman);
+
+            if (!salesByDate[date]) {
+                salesByDate[date] = {};
+            }
+            salesByDate[date][salesman] = (salesByDate[date][salesman] || 0) + (order.totalAmount || 0);
+        });
+
+        const sortedDates = Object.keys(salesByDate).sort();
+        
+        return sortedDates.map(date => {
+            const entry: Record<string, any> = { date: format(new Date(date), 'dd MMM') };
+            let total = 0;
+            salesmen.forEach(s => {
+                const sale = salesByDate[date][s] || 0;
+                entry[s] = sale;
+                total += sale;
+            });
+            entry.total = total;
+            return entry;
+        });
+
+    }, [orders]);
+    
+    const salesmenForChart = [...new Set(orders.map(o => o.salesPerson || 'Unknown'))];
+    const chartColors = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#0088FE', '#00C49F'];
 
 
     return (
@@ -176,7 +214,7 @@ export default function ReportsPage() {
                                     <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${Number(value)/1000}k`}/>
                                     <Tooltip formatter={(value) => formatToINR(value as number)} />
                                     <Legend />
-                                    <Bar dataKey="totalValue" fill="hsl(var(--primary))" name="Total Sales"/>
+                                    <Bar dataKey="totalValue" fill="hsl(var(--primary))" name="Total Sales" radius={[4, 4, 0, 0]} />
                                 </RechartsBarChart>
                             </ResponsiveContainer>
                         )}
@@ -222,6 +260,29 @@ export default function ReportsPage() {
                     </CardContent>
                 </Card>
             </div>
+
+            <Card className="mt-6">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2"><LineChart /> Daily Sales Trend</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {loading ? <Skeleton className="h-[350px] w-full" /> : (
+                        <ResponsiveContainer width="100%" height={350}>
+                            <RechartsLineChart data={salesTrendData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="date" fontSize={12} tickLine={false} axisLine={false} />
+                                <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${Number(value)/1000}k`} />
+                                <Tooltip formatter={(value) => formatToINR(value as number)} />
+                                <Legend />
+                                <Line type="monotone" dataKey="total" strokeWidth={2} name="Total Sales" />
+                                {salesmenForChart.map((s, i) => (
+                                    <Line key={s} type="monotone" dataKey={s} stroke={chartColors[i % chartColors.length]} strokeWidth={2} name={s} />
+                                ))}
+                            </RechartsLineChart>
+                        </ResponsiveContainer>
+                    )}
+                </CardContent>
+            </Card>
             
              <Card className="mt-6">
                 <CardHeader>
