@@ -40,6 +40,7 @@ const createPoSchema = z.object({
   vendor: z.string().min(1, "Vendor name is required."),
   courier: z.string().min(1, "Courier is required."),
   mode: z.enum(['AIR', 'SURFACE'], { required_error: "Mode is required." }),
+  neededQty: z.number().min(0.01, "Quantity must be greater than 0."),
 });
 
 type CreatePoFormValues = z.infer<typeof createPoSchema>;
@@ -69,9 +70,12 @@ function CreatePoDialog({
 
     React.useEffect(() => {
         if (item) {
-            form.setValue('vendor', item.vendorName || '');
-        } else {
-            form.reset({ vendor: '', courier: '', mode: 'SURFACE' });
+            form.reset({
+                vendor: item.vendorName || '',
+                courier: '',
+                mode: 'SURFACE',
+                neededQty: item.neededQty
+            });
         }
     }, [item, form]);
 
@@ -83,8 +87,13 @@ function CreatePoDialog({
         setIsSubmitting(true);
         try {
             const poData: PoCreationData = {
-                ...values,
-                item: item,
+                vendor: values.vendor,
+                courier: values.courier,
+                mode: values.mode,
+                item: {
+                    ...item,
+                    neededQty: values.neededQty,
+                },
                 isNewVendor,
             };
             const result = await createPurchaseRequestAction(poData, creator);
@@ -164,7 +173,25 @@ function CreatePoDialog({
                                     <div className="col-span-1 font-semibold">1</div>
                                     <div className="col-span-6 font-semibold text-primary">{item.collectionBrand}</div>
                                     <div className="col-span-3 text-muted-foreground">{item.serialNo}</div>
-                                    <div className="col-span-2 text-right font-bold">{item.neededQty}</div>
+                                    <div className="col-span-2 text-right font-bold">
+                                        <FormField 
+                                            name="neededQty"
+                                            control={form.control}
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormControl>
+                                                        <Input 
+                                                            {...field}
+                                                            type="number"
+                                                            className="text-right"
+                                                            onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                                                        />
+                                                    </FormControl>
+                                                     <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>
