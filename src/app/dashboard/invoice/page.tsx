@@ -77,7 +77,7 @@ function GenerateInvoiceDialog({
         const batch = writeBatch(db);
         const primaryOrder = orders[0];
         
-        // Generate a new 4-digit unique numeric invoice number
+        // Generate a new 4-digit unique invoice number
         const invoicesRef = collection(db, "invoices");
         const q = query(invoicesRef, orderBy("invoiceNo", "desc"), limit(1));
         const lastInvoiceSnap = await getDocs(q);
@@ -118,11 +118,11 @@ function GenerateInvoiceDialog({
         const roundOff = roundedAmount - netAmount;
         
         // 1. Create the new Invoice document with the numeric ID
-        const newInvoiceRef = doc(collection(db, "invoices")); // Still generate a doc for a unique ID
+        const newInvoiceRef = doc(collection(db, "invoices"));
         const newInvoice: Omit<Invoice, 'id'> = {
             invoiceNo: newInvoiceNumberStr,
             orderId: primaryOrder.id,
-            tallyBillNo: tallyBillNo || undefined,
+            tallyBillNo: tallyBillNo || null,
             customer: {
                 name: primaryOrder.customerName,
                 phone: primaryOrder.customerPhone,
