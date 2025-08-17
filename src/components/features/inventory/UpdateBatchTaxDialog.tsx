@@ -50,8 +50,10 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
     },
   });
 
-  const { fields, append, remove, setValue, getValues } = useFieldArray({
-    control: form.control,
+  const { getValues, setValue, control } = form;
+
+  const { fields, append, remove } = useFieldArray({
+    control: control,
     name: "items",
   });
 
