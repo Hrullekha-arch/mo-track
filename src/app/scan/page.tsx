@@ -1,47 +1,177 @@
 
+
 "use client";
 
 import { useEffect, useState, useRef, useCallback, Suspense } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info } from "lucide-react";
+import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info, Package, DollarSign, History, Pencil, Warehouse, Tag, Barcode, GitCommitHorizontal, GitBranchPlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { completePmsProcess } from "./actions";
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Order, Stock } from "@/lib/types";
-import { getStockById } from "../dashboard/inventory/actions";
+import { Order, Stock, StockTransaction } from "@/lib/types";
+import { getStockDetails, updateStockBatchAction } from "../dashboard/inventory/actions";
 import { Separator } from "@/components/ui/separator";
 import { doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Input } from "@/components/ui/input";
+import { useAuth } from "@/context/AuthContext";
 
 type ScanAction = 'pmsComplete' | 'stockDetail' | 'verifyCut' | 'verifyInbound';
+
+interface StockDetailsData {
+    stock: Stock;
+    transactions: StockTransaction[];
+    availableLengths: { length: number; transactionId: string }[];
+}
 
 type ScanResult = {
   status: 'success' | 'warning' | 'error';
   message: string;
-  data?: any;
+  data?: {
+      order?: Order | null;
+      stockDetails?: StockDetailsData;
+  };
 };
 
-const StockDetailDisplay = ({ stock }: { stock: Stock }) => (
-    <div className="space-y-3">
-        <h3 className="font-bold">{stock.bcn}</h3>
-        <p className="text-sm text-muted-foreground">{stock.itemName}</p>
-        <Separator/>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-            <p><strong className="text-muted-foreground">Quantity:</strong> {stock.quantity}</p>
-            <p><strong className="text-muted-foreground">MRP:</strong> ₹{stock.mrp}</p>
-            <p><strong className="text-muted-foreground">Rack:</strong> {stock.rack || 'N/A'}</p>
-            <p><strong className="text-muted-foreground">Vendor:</strong> {stock.vendorName || 'N/A'}</p>
+const updateStockDetailsSchema = z.object({
+    mrp: z.string().optional(),
+    hsnCode: z.string().optional(),
+});
+
+type UpdateStockDetailsValues = z.infer<typeof updateStockDetailsSchema>;
+
+
+const StockDetailDisplay = ({ stockDetails, onUpdate }: { stockDetails: StockDetailsData, onUpdate: (newStock: Stock) => void }) => {
+    const { stock, transactions, availableLengths } = stockDetails;
+    const { role } = useAuth();
+    const { toast } = useToast();
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const form = useForm<UpdateStockDetailsValues>({
+        resolver: zodResolver(updateStockDetailsSchema),
+        defaultValues: {
+            mrp: stock.mrp?.toString() || "",
+            hsnCode: stock.hsnCode || ""
+        }
+    });
+
+    const handleUpdate = async (values: UpdateStockDetailsValues) => {
+        setIsSubmitting(true);
+        try {
+            const updatePayload = {
+                id: stock.id,
+                mrp: parseFloat(values.mrp || '0'),
+                hsnCode: values.hsnCode
+            };
+            const result = await updateStockBatchAction([updatePayload]);
+            if (result.success) {
+                toast({ title: "Update Successful", description: "Stock details have been updated." });
+                onUpdate({ ...stock, ...updatePayload });
+            } else {
+                toast({ variant: 'destructive', title: "Update Failed", description: result.message });
+            }
+        } catch (e) {
+            toast({ variant: 'destructive', title: "Error", description: "An unexpected error occurred." });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <h3 className="text-lg font-bold flex items-center gap-2"><Barcode className="h-5 w-5" /> {stock.bcn}</h3>
+                <p className="text-sm text-muted-foreground">{stock.itemName}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4 text-sm p-3 border rounded-lg bg-muted/50">
+                <p className="flex items-center gap-2"><Package className="h-4 w-4 text-muted-foreground" /><strong>Qty:</strong> {stock.quantity.toFixed(2)}</p>
+                <p className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-muted-foreground" /><strong>MRP:</strong> ₹{stock.mrp}</p>
+                <p className="flex items-center gap-2"><Warehouse className="h-4 w-4 text-muted-foreground" /><strong>Rack:</strong> {stock.rack || 'N/A'}</p>
+                <p className="flex items-center gap-2"><Tag className="h-4 w-4 text-muted-foreground" /><strong>Category:</strong> {stock.category}</p>
+            </div>
+
+            <div>
+                <h4 className="font-semibold mb-2 text-sm">Available Lengths/Rolls</h4>
+                <div className="flex flex-wrap gap-2">
+                    {availableLengths && availableLengths.length > 0 ? availableLengths.map((len, idx) => (
+                        <Badge key={idx} variant="secondary">{len.length.toFixed(2)}</Badge>
+                    )) : <p className="text-xs text-muted-foreground">No specific lengths available.</p>}
+                </div>
+            </div>
+
+            {role === 'admin' && (
+                <Card>
+                    <CardHeader className="p-3">
+                        <CardTitle className="text-base flex items-center gap-2"><Pencil className="h-4 w-4" /> Advance Options</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3">
+                        <Form {...form}>
+                            <form onSubmit={form.handleSubmit(handleUpdate)} className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <FormField control={form.control} name="mrp" render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-xs">Update MRP</FormLabel>
+                                            <FormControl><Input type="number" {...field} /></FormControl>
+                                        </FormItem>
+                                    )}/>
+                                    <FormField control={form.control} name="hsnCode" render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-xs">Update HSN/Tax</FormLabel>
+                                            <FormControl><Input {...field} /></FormControl>
+                                        </FormItem>
+                                    )}/>
+                                </div>
+                                <Button type="submit" size="sm" className="w-full" disabled={isSubmitting}>
+                                    {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                                    Save Changes
+                                </Button>
+                            </form>
+                        </Form>
+                    </CardContent>
+                </Card>
+            )}
+
+            <div>
+                <h4 className="font-semibold mb-2 text-sm flex items-center gap-2"><History className="h-4 w-4" /> Transaction History</h4>
+                <div className="space-y-2 max-h-40 overflow-y-auto pr-2">
+                    {transactions && transactions.length > 0 ? transactions.map(tx => (
+                        <div key={tx.id} className="text-xs flex items-start gap-2 p-2 border rounded-md">
+                             {tx.type === 'addition' ? <GitBranchPlus className="h-4 w-4 text-green-500 mt-0.5" /> : <GitCommitHorizontal className="h-4 w-4 text-red-500 mt-0.5" />}
+                            <div>
+                                <p className="font-medium">{tx.type === 'addition' ? 'Added' : 'Deducted'} <span className={tx.type === 'addition' ? 'text-green-600' : 'text-red-500'}>{tx.quantityChange.toFixed(2)}</span></p>
+                                <p className="text-muted-foreground">{format(new Date(tx.createdAt), 'dd MMM yyyy, hh:mm a')} by {tx.createdBy}</p>
+                                <p className="text-muted-foreground">Ref: {tx.poNumber || tx.orderId}</p>
+                            </div>
+                        </div>
+                    )) : <p className="text-xs text-muted-foreground">No transaction history.</p>}
+                </div>
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 const ScanResultDialog = ({ result, onClose }: { result: ScanResult, onClose: () => void }) => {
+    
+    const handleStockUpdate = (newStock: Stock) => {
+        // This is a bit tricky, we need to update the state in the parent
+        // For now, we assume the parent re-fetches. The dialog will show the new data passed in.
+        // A more complex state management (like Zustand or Context) would be needed for live updates here.
+        // Let's just update the local `result` state for now.
+        result.data!.stockDetails!.stock = newStock;
+    };
+
     return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-            <Card className="w-full max-w-sm">
+            <Card className="w-full max-w-md">
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                         {result.status === 'success' && <CheckCircle className="h-6 w-6 text-green-500" />}
@@ -50,9 +180,9 @@ const ScanResultDialog = ({ result, onClose }: { result: ScanResult, onClose: ()
                         Scan Result
                     </CardTitle>
                 </CardHeader>
-                <CardContent>
-                    <p>{result.message}</p>
-                    {result.data?.stock && <StockDetailDisplay stock={result.data.stock} />}
+                 <CardContent className="max-h-[70vh] overflow-y-auto">
+                    <p className="mb-4">{result.message}</p>
+                    {result.data?.stockDetails && <StockDetailDisplay stockDetails={result.data.stockDetails} onUpdate={handleStockUpdate} />}
                     {result.data?.order && (
                         <div className="text-xs mt-2 p-2 border rounded-md bg-muted">
                             <p><strong>Order:</strong> {result.data.order.id}</p>
@@ -83,13 +213,10 @@ function UniversalScanner() {
     const taskId = searchParams.get('taskId');
     const targetBcn = searchParams.get('bcn');
 
-    const handleScanSuccess = useCallback(async (decodedText: string, decodedResult: any) => {
+     const handleScanSuccess = useCallback(async (decodedText: string, decodedResult: any) => {
         if (isProcessing) return;
         setIsProcessing(true);
         
-        // Don't stop the scanner here, let it be handled by the dialog closing.
-        // This allows for continuous scanning after a result is shown.
-
         try {
             let result: ScanResult;
             switch (action) {
@@ -100,11 +227,12 @@ function UniversalScanner() {
                 case 'stockDetail':
                     const bcn = decodedText.split('|')[0];
                     const stockId = bcn.replace(/\//g, '-');
-                    const stock = await getStockById(stockId);
-                    if (stock) {
-                        result = { status: 'success', message: `Stock found for BCN: ${bcn}`, data: { stock } };
+                    const detailsResult = await getStockDetails(stockId);
+
+                    if (detailsResult.success) {
+                        result = { status: 'success', message: `Details for BCN: ${bcn}`, data: { stockDetails: detailsResult.data } };
                     } else {
-                        result = { status: 'error', message: `Stock not found for BCN: ${bcn}` };
+                        result = { status: 'error', message: detailsResult.message };
                     }
                     break;
                 case 'verifyCut':
@@ -140,7 +268,12 @@ function UniversalScanner() {
             return;
         }
         
-        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+         const config = { 
+            fps: 10, 
+            qrbox: { width: 250, height: 250 },
+            // Add this to make the scanner continuously scan
+            disableFlip: false, 
+        };
         
         html5QrCodeRef.current.start(
             { facingMode: "environment" },
@@ -156,7 +289,10 @@ function UniversalScanner() {
 
     useEffect(() => {
         html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, {
-            verbose: false
+            verbose: false,
+            experimentalFeatures: {
+                useOffscreenCanvas: true,
+            },
         });
 
         Html5Qrcode.getCameras()
@@ -186,7 +322,7 @@ function UniversalScanner() {
 
     const closeResultDialog = () => {
         setScanResult(null);
-        setIsProcessing(false); // This will trigger the useEffect to restart the scanner
+        setIsProcessing(false); 
         if (action === 'verifyCut' && scanResult?.status === 'success') {
             router.back();
         }
@@ -247,5 +383,3 @@ export default function UniversalScannerPage() {
         </Suspense>
     )
 }
-
-    

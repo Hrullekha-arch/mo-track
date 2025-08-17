@@ -372,3 +372,32 @@ export async function updateStockBatchAction(
     }
 }
     
+export async function getStockDetails(stockId: string) {
+    try {
+        const [stock, transactions, availableLengthsResult] = await Promise.all([
+            getStockById(stockId),
+            getStockTransactions(stockId),
+            getAvailableStockLengths(stockId)
+        ]);
+
+        if (!stock) {
+            return { success: false, message: "Stock not found" };
+        }
+
+        const availableLengths = availableLengthsResult.success ? availableLengthsResult.lengths : [];
+        
+        return {
+            success: true,
+            message: "Details fetched successfully.",
+            data: JSON.parse(JSON.stringify({
+                stock,
+                transactions,
+                availableLengths
+            }))
+        };
+
+    } catch (error: any) {
+        console.error("Error fetching stock details:", error);
+        return { success: false, message: `Failed to fetch details: ${error.message}` };
+    }
+}
