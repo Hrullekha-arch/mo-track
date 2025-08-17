@@ -14,6 +14,7 @@ export interface User {
   designation?: 'CRM' | 'Allocators' | 'PC';
   salesmanCode?: string;
   permissions?: string[]; // Array of allowed module keys
+  store?: string;
 }
 
 export type OrderType = 'delivery' | 'stitching' | 'stitching+installation';

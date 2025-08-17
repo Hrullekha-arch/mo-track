@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -25,6 +26,7 @@ const formSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().optional(),
   role: z.enum(['admin', 'employee', 'installer', 'salesman', 'Accounts', 'Hr'], { required_error: "Role is required" }),
+  store: z.string().optional(),
   designation: z.enum(['CRM', 'Allocators', 'PC']).optional(),
   salesmanCode: z.string().optional(),
   permissions: z.array(z.string()).optional(),
@@ -69,6 +71,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
       email: '',
       password: '',
       role: 'employee',
+      store: '',
       designation: undefined,
       salesmanCode: '',
       permissions: [],
@@ -83,6 +86,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         name: user.name,
         email: user.email,
         role: user.role,
+        store: user.store || '',
         designation: user.designation,
         password: '',
         salesmanCode: user.salesmanCode || '',
@@ -94,6 +98,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         email: '',
         password: '',
         role: 'employee',
+        store: '',
         designation: undefined,
         salesmanCode: '',
         permissions: [],
@@ -119,6 +124,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         await updateDoc(userRef, {
             name: values.name,
             role: values.role,
+            store: values.store || null,
             designation: values.designation || null,
             salesmanCode: values.salesmanCode || null,
             permissions: values.permissions || [],
@@ -140,6 +146,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                 name: values.name,
                 email: values.email,
                 role: values.role,
+                store: values.store,
                 permissions: values.permissions || [],
             };
             if (values.designation && values.role === 'employee') {
@@ -251,6 +258,26 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                     <FormMessage />
                 </FormItem>
               )}
+            />
+             <FormField
+                control={form.control}
+                name="store"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>Store</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                            <SelectTrigger><SelectValue placeholder="Assign a store" /></SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                            <SelectItem value="MO GCR BRANCH">MO GCR BRANCH</SelectItem>
+                            <SelectItem value="MO MG ROAD">MO MG ROAD</SelectItem>
+                            <SelectItem value="MO SULTANPUR">MO SULTANPUR</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <FormMessage />
+                </FormItem>
+                )}
             />
              {role === 'employee' && (
                 <FormField

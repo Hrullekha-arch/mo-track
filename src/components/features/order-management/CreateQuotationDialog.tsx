@@ -742,8 +742,8 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
                                             <TableRow key={`vas-${index}`}>
                                                 <TableCell>{index + 1}</TableCell>
                                                 <TableCell>{vas.vasName}</TableCell>
-                                                <TableCell>{vas.quantity}</TableCell>
-                                                <TableCell>{vas.rate}</TableCell>
+                                                <TableCell>{Number(vas.quantity).toFixed(2)}</TableCell>
+                                                <TableCell>{Number(vas.rate).toFixed(2)}</TableCell>
                                                 <TableCell>{vas.room || '-'}</TableCell>
                                                 <TableCell>{vas.taxableAmt.toFixed(2)}</TableCell>
                                                 <TableCell>{vas.cgst.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@2.5%</span></TableCell>
@@ -813,7 +813,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      store: "MO GCR BRANCH",
+      store: user?.store || "MO GCR BRANCH",
       company: 'MO DESIGNS PRIVATE LIMITED',
       date: new Date(),
       items: [],
@@ -847,7 +847,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
         });
 
         form.reset({
-          store: "MO GCR BRANCH",
+          store: user?.store || "MO GCR BRANCH",
           company: 'MO DESIGNS PRIVATE LIMITED',
           date: new Date(),
           validTillDate: undefined,
@@ -865,7 +865,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
       }
       setView('edit'); 
     }
-  }, [isOpen, deal, customer, initialItems, form]);
+  }, [isOpen, deal, customer, initialItems, form, user]);
 
 
   async function handleCreateQuotation() {
