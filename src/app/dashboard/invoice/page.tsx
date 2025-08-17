@@ -43,6 +43,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
+import { sendInvoiceToTally } from "@/services/tally";
 
 
 function GenerateInvoiceDialog({
@@ -61,7 +62,7 @@ function GenerateInvoiceDialog({
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isTallyDialogOpen, setIsTallyDialogOpen] = React.useState(false);
   const [tallyBillNo, setTallyBillNo] = React.useState('');
-  const [generatedInvoiceNo, setGeneratedInvoiceNo] = React.useState<string | null>(null);
+  const [generatedInvoice, setGeneratedInvoice] = React.useState<Invoice | null>(null);
   const { toast } = useToast();
 
   const handleFinalGenerate = async () => {
@@ -89,7 +90,6 @@ function GenerateInvoiceDialog({
         }
         
         const newInvoiceNumberStr = String(newInvoiceNumber);
-        setGeneratedInvoiceNo(newInvoiceNumberStr);
 
         // Combine all items from all selected batches
         const allItems = batches.flatMap(b => b.items);
@@ -197,7 +197,25 @@ function GenerateInvoiceDialog({
         await batch.commit();
 
         toast({ title: "Invoice Generated!", description: `Invoice ${String(newInvoiceNumber)} has been created and sent for cutting.`});
-        // We do not close the dialog here, instead, we let the user print.
+        
+        const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id };
+        setGeneratedInvoice(fullInvoiceData);
+        
+        // 5. Send to Tally
+        try {
+            const tallyResult = await sendInvoiceToTally(fullInvoiceData);
+            if(tallyResult.success && tallyResult.voucherNumber) {
+                // Update the invoice in Firestore with the Tally voucher number
+                await updateDoc(newInvoiceRef, { tallyVoucherNo: tallyResult.voucherNumber });
+                toast({ title: "Tally Sync Success!", description: `Sales voucher created in Tally with number: ${tallyResult.voucherNumber}` });
+            } else {
+                 toast({ variant: 'destructive', title: 'Tally Sync Failed', description: tallyResult.message });
+            }
+        } catch (tallyError: any) {
+             toast({ variant: 'destructive', title: 'Tally Sync Error', description: tallyError.message, duration: 7000 });
+        }
+
+
     } catch (error) {
         console.error("Error finalizing invoice:", error);
         toast({ variant: 'destructive', title: 'Error', description: 'Could not finalize the invoice.' });
@@ -234,12 +252,12 @@ function GenerateInvoiceDialog({
                 </DialogDescription>
             </DialogHeader>
             <div className="flex-grow overflow-y-auto pr-4" id="printable-invoice-content">
-                <PrintableInvoice batches={batches} orders={orders} preGeneratedInvoiceNo={generatedInvoiceNo}/>
+                <PrintableInvoice batches={batches} orders={orders} preGeneratedInvoiceNo={generatedInvoice?.invoiceNo}/>
             </div>
             <DialogFooter>
                 <Button variant="ghost" onClick={onClose}>Cancel</Button>
                 <Button variant="outline" onClick={handlePrint}><Printer className="mr-2 h-4 w-4"/> Print</Button>
-                <Button onClick={() => setIsTallyDialogOpen(true)} disabled={isGenerating || !!generatedInvoiceNo}>
+                <Button onClick={() => setIsTallyDialogOpen(true)} disabled={isGenerating || !!generatedInvoice}>
                     {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Confirm & Generate
                 </Button>

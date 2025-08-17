@@ -515,6 +515,7 @@ export interface Invoice {
     invoiceNo: string; // e.g. MOTRACK-INV-1234
     orderId: string;
     tallyBillNo?: string;
+    tallyVoucherNo?: string;
     customer: {
         name: string;
         phone: string;
