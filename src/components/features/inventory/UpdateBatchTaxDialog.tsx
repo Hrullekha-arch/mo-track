@@ -236,11 +236,8 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-12">#</TableHead>
-                      <TableHead>BCN / Item Name</TableHead>
                       <TableHead>HSN</TableHead>
-                      <TableHead>MRP</TableHead>
-                      <TableHead>Tax</TableHead>
-                      <TableHead>Vendor Name</TableHead>
+                      <TableHead>Tax%</TableHead>
                       <TableHead className="w-12">Action</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -249,21 +246,10 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
                       <TableRow key={field.id}>
                         <TableCell>{index + 1}</TableCell>
                         <TableCell>
-                          <p className="font-semibold">{field.bcn}</p>
-                          <p className="text-xs text-muted-foreground">{field.itemName}</p>
-                        </TableCell>
-                        <TableCell>
                            <FormField
                               control={form.control}
                               name={`items.${index}.hsnCode`}
                               render={({ field }) => ( <FormControl><Input placeholder="HSN" {...field} /></FormControl>)}
-                            />
-                        </TableCell>
-                        <TableCell>
-                           <FormField
-                              control={form.control}
-                              name={`items.${index}.mrp`}
-                              render={({ field }) => ( <FormControl><Input type="number" placeholder="MRP" {...field} /></FormControl>)}
                             />
                         </TableCell>
                         <TableCell>
@@ -277,13 +263,6 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
                               )}
                             />
                         </TableCell>
-                         <TableCell>
-                           <FormField
-                              control={form.control}
-                              name={`items.${index}.vendorName`}
-                              render={({ field }) => ( <FormControl><Input placeholder="Vendor" {...field} /></FormControl>)}
-                            />
-                        </TableCell>
                         <TableCell>
                           <Button variant="destructive" size="icon" onClick={() => remove(index)}>
                             <Trash2 className="h-4 w-4" />
@@ -292,8 +271,8 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
                       </TableRow>
                     )) : (
                       <TableRow>
-                        <TableCell colSpan={7} className="h-24 text-center">
-                          Selected bcn will be appear here
+                        <TableCell colSpan={4} className="h-24 text-center">
+                          Selected items will appear here.
                         </TableCell>
                       </TableRow>
                     )}
