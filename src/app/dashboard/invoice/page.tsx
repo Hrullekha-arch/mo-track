@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -44,6 +43,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
 import { sendInvoiceToTally } from "@/services/tally";
+import Link from "next/link";
 
 
 function GenerateInvoiceDialog({
@@ -644,5 +644,3 @@ export default function InvoicePage() {
     </>
   );
 }
-
-    
