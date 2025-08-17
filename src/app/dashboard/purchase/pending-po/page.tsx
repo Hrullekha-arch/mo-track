@@ -117,7 +117,7 @@ function CreatePoDialog({
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-4xl">
                 <DialogHeader>
                     <DialogTitle>Create Purchase Order</DialogTitle>
                 </DialogHeader>
@@ -164,15 +164,19 @@ function CreatePoDialog({
                         <div>
                             <div className="grid grid-cols-12 px-4 py-2 font-medium text-muted-foreground text-sm">
                                 <div className="col-span-1">#</div>
-                                <div className="col-span-6">BCN/Item Name</div>
-                                <div className="col-span-3">Serial No</div>
-                                <div className="col-span-2 text-right">Qty</div>
+                                <div className="col-span-3">BCN/Item Name</div>
+                                <div className="col-span-2">Serial No</div>
+                                <div className="col-span-2 text-right">Stock Qty</div>
+                                <div className="col-span-2 text-right">Order Qty</div>
+                                <div className="col-span-2 text-right">Needed Qty</div>
                             </div>
                             <div className="border rounded-md px-4 py-3">
                                  <div className="grid grid-cols-12 items-center">
                                     <div className="col-span-1 font-semibold">1</div>
-                                    <div className="col-span-6 font-semibold text-primary">{item.collectionBrand}</div>
-                                    <div className="col-span-3 text-muted-foreground">{item.serialNo}</div>
+                                    <div className="col-span-3 font-semibold text-primary">{item.collectionBrand}</div>
+                                    <div className="col-span-2 text-muted-foreground">{item.serialNo}</div>
+                                    <div className="col-span-2 text-right font-bold text-blue-600">{item.stock.toFixed(2)}</div>
+                                    <div className="col-span-2 text-right font-bold text-orange-600">{item.neededQty.toFixed(2)}</div>
                                     <div className="col-span-2 text-right font-bold">
                                         <FormField 
                                             name="neededQty"
