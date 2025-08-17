@@ -302,41 +302,20 @@ function UniversalScanner() {
     }, [action, isProcessing, targetBcn, taskId, targetLength, orderId]);
 
     const startScanner = useCallback(() => {
-        if (!html5QrCodeRef.current) {
+        if (!html5QrCodeRef.current || html5QrCodeRef.current.isScanning) {
             return;
         }
 
-        if (html5QrCodeRef.current.isScanning) {
-            console.log("Scanner is already running.");
-            return;
-        }
-        
-        const config = { 
-            fps: 10, 
+        const config = {
+            fps: 10,
             qrbox: { width: 250, height: 250 },
-            // Add this to make the scanner continuously scan
-            disableFlip: false,
-            // Add this for better performance and continuous scanning
-            experimentalFeatures: {
-                useOffscreenCanvas: true,
-            },
             rememberLastUsedCamera: true,
-            // Add resume logic
-             qrCodeSuccessCallback: (decodedText: string, decodedResult: any) => {
-                handleScanSuccess(decodedText, decodedResult);
-                if (html5QrCodeRef.current?.isScanning) {
-                    html5QrCodeRef.current.pause();
-                    setTimeout(() => {
-                         if(html5QrCodeRef.current?.isScanning) html5QrCodeRef.current.resume();
-                    }, 1000); // Pause for 1 second after a successful scan
-                }
-            }
         };
-        
+
         html5QrCodeRef.current.start(
             { facingMode: "environment" },
             config,
-            (decodedText, decodedResult) => { /* This will be handled by qrCodeSuccessCallback */ },
+            handleScanSuccess,
             (errorMessage) => { /* ignore errors */ }
         ).catch((err) => {
             console.error("Scanner start error:", err);
@@ -346,42 +325,36 @@ function UniversalScanner() {
     }, [handleScanSuccess, toast]);
 
     useEffect(() => {
-        html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, { experimentalFeatures: { useOffscreenCanvas: true }, verbose: false });
+        if (!html5QrCodeRef.current) {
+            html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, { experimentalFeatures: { useOffscreenCanvas: true }, verbose: false });
+        }
 
-        Html5Qrcode.getCameras()
-            .then(devices => {
-                if (devices && devices.length) {
-                    setHasPermission(true);
-                } else {
-                    setHasPermission(false);
-                }
-            })
-            .catch(() => setHasPermission(false));
+        if (hasPermission === null) {
+            Html5Qrcode.getCameras()
+                .then(devices => {
+                    setHasPermission(devices && devices.length > 0);
+                })
+                .catch(() => setHasPermission(false));
+        }
+
+        if (hasPermission && !isProcessing && !scanResult) {
+            startScanner();
+        }
 
         return () => {
-             if (html5QrCodeRef.current?.isScanning) {
+            if (html5QrCodeRef.current?.isScanning) {
                 html5QrCodeRef.current.stop().catch(err => {
                     console.error("Error stopping scanner on unmount:", err)
                 });
-             }
+            }
         };
-    }, []);
-
-    useEffect(() => {
-        if (hasPermission && !isProcessing && html5QrCodeRef.current && html5QrCodeRef.current.getState() !== Html5QrcodeScannerState.SCANNING) {
-            startScanner();
-        }
-    }, [hasPermission, isProcessing, startScanner]);
+    }, [hasPermission, isProcessing, scanResult, startScanner]);
 
     const closeResultDialog = () => {
         setScanResult(null);
-        setIsProcessing(false); 
+        setIsProcessing(false);
         if (action === 'verifyCut' && scanResult?.status === 'success') {
             router.back();
-        } else {
-             if(html5QrCodeRef.current && html5QrCodeRef.current.getState() !== Html5QrcodeScannerState.SCANNING){
-                startScanner();
-             }
         }
     };
     
