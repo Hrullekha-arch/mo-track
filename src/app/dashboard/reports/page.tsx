@@ -188,8 +188,7 @@ export default function ReportsPage() {
                     )
                 };
             }
-             case 'topSelling':
-             case 'deadStock': {
+             case 'topSelling': {
                 const bcn = detailView.payload.name;
                 const filteredTransactions = stockLedger.filter(tx => tx.bcn === bcn && tx.type === 'deduction');
                 return {
@@ -205,6 +204,27 @@ export default function ReportsPage() {
                     footer: (
                         <div className="flex justify-end gap-8 font-semibold">
                             <span>Total Units Sold: {filteredTransactions.reduce((acc, tx) => acc + Math.abs(tx.quantityChange), 0).toFixed(2)}</span>
+                        </div>
+                    )
+                };
+             }
+             case 'deadStock': {
+                const bcn = detailView.payload.name;
+                const filteredTransactions = stockLedger.filter(tx => tx.bcn === bcn);
+                return {
+                    title: `Transaction History for ${bcn}`,
+                    description: `Showing all purchase and sales transactions for this product.`,
+                    data: filteredTransactions,
+                    columns: [
+                        { accessorKey: 'type', header: 'Type', cell: (row: StockTransaction) => <Badge variant={row.type === 'addition' ? 'default' : 'secondary'} className={row.type === 'addition' ? 'bg-green-600' : 'bg-red-600'}>{row.type}</Badge>},
+                        { accessorKey: 'createdAt', header: 'Date', cell: (row: StockTransaction) => format(new Date(row.createdAt), 'PPP p') },
+                        { accessorKey: 'orderId', header: 'Reference ID', cell: (row: StockTransaction) => row.orderId || row.poNumber || 'N/A' },
+                        { accessorKey: 'createdBy', header: 'User' },
+                        { accessorKey: 'quantityChange', header: 'Qty Changed', cell: (row: StockTransaction) => row.quantityChange.toFixed(2) },
+                    ],
+                    footer: (
+                        <div className="flex justify-end gap-8 font-semibold">
+                            <span>Total Transactions: {filteredTransactions.length}</span>
                         </div>
                     )
                 };
@@ -427,3 +447,5 @@ export default function ReportsPage() {
         </>
     );
 }
+
+    
