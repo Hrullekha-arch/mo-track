@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +10,7 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useState, useEffect } from "react";
 import { DateRange } from "react-day-picker";
-import { getReportData, SalesPerformanceData, ProfitLossData } from "./actions";
+import { getReportData, SalesPerformanceData, ProfitLossData, StockAnalysisData } from "./actions";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 
@@ -20,6 +21,7 @@ export default function ReportsPage() {
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
     const [salesPerformance, setSalesPerformance] = useState<SalesPerformanceData[]>([]);
     const [profitLoss, setProfitLoss] = useState<ProfitLossData[]>([]);
+    const [stockAnalysis, setStockAnalysis] = useState<StockAnalysisData>({ topSellingProducts: [], deadStock: []});
     const [loading, setLoading] = useState(true);
     const { toast } = useToast();
 
@@ -27,13 +29,15 @@ export default function ReportsPage() {
         const fetchAllReports = async () => {
             setLoading(true);
             try {
-                const [salesData, profitData] = await Promise.all([
+                const [salesData, profitData, stockData] = await Promise.all([
                     getReportData({ reportType: 'sales-performance', dateRange }),
                     getReportData({ reportType: 'profit-loss', dateRange }),
+                    getReportData({ reportType: 'stock-analysis', dateRange }),
                 ]);
                 
                 setSalesPerformance(salesData.salesPerformance || []);
                 setProfitLoss(profitData.profitLoss || []);
+                setStockAnalysis(stockData.stockAnalysis || { topSellingProducts: [], deadStock: [] });
 
             } catch (error) {
                 toast({
@@ -55,19 +59,6 @@ export default function ReportsPage() {
     const totalTransactions = salesPerformance.reduce((acc, curr) => acc + curr.totalOrders, 0);
     const avgBasketSize = totalTransactions > 0 ? totalSales / totalTransactions : 0;
     
-    // Placeholder data for sections not yet fully implemented
-    const placeholderData = {
-        topProducts: [
-            { name: 'BCN-FAB-001', volume: 150, revenue: 120000 },
-            { name: 'BCN-FAB-007', volume: 120, revenue: 95000 },
-            { name: 'BCN-ROD-003', volume: 200, revenue: 45000 },
-        ],
-        deadStock: [
-            { name: 'BCN-FAB-092', age: '180+ days' },
-            { name: 'BCN-ACC-011', age: '150 days' },
-        ]
-    };
-
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <div className="flex justify-between items-center mb-8">
@@ -173,8 +164,8 @@ export default function ReportsPage() {
                                         <TableRow><TableHead>Product</TableHead><TableHead className="text-right">Volume</TableHead></TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {placeholderData.topProducts.map(p => (
-                                            <TableRow key={p.name}><TableCell>{p.name}</TableCell><TableCell className="text-right">{p.volume}</TableCell></TableRow>
+                                        {stockAnalysis.topSellingProducts.map(p => (
+                                            <TableRow key={p.name}><TableCell>{p.name}</TableCell><TableCell className="text-right">{p.volume.toFixed(2)}</TableCell></TableRow>
                                         ))}
                                     </TableBody>
                                 </Table>
@@ -186,7 +177,7 @@ export default function ReportsPage() {
                                         <TableRow><TableHead>Product</TableHead><TableHead className="text-right">Age</TableHead></TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {placeholderData.deadStock.map(p => (
+                                        {stockAnalysis.deadStock.map(p => (
                                             <TableRow key={p.name}><TableCell>{p.name}</TableCell><TableCell className="text-right">{p.age}</TableCell></TableRow>
                                         ))}
                                     </TableBody>
@@ -235,8 +226,8 @@ export default function ReportsPage() {
                     <ul className="list-disc list-inside space-y-2 text-blue-700">
                         <li>Restock high-demand items like BCN-FAB-001 immediately.</li>
                         <li>Offer a 20% discount on Dead Stock items to clear inventory.</li>
-                        <li>Reward Sales Person 1 with a bonus for top performance.</li>
-                        <li>Analyze pricing for BCN-ROD-003 to improve its low profit margin.</li>
+                        <li>Reward or incentivize top-performing salesmen.</li>
+                        <li>Adjust pricing for low-margin products.</li>
                     </ul>
                 </CardContent>
             </Card>

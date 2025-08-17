@@ -1,11 +1,13 @@
 
+
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
 import { Order, PurchaseRequest, Stock, StockTransaction } from "@/lib/types";
 import { DateRange } from "react-day-picker";
+import { subDays, differenceInDays } from "date-fns";
 
-type ReportType = 'order-summary' | 'sales-performance' | 'purchase-report' | 'stock-ledger' | 'profit-loss';
+type ReportType = 'order-summary' | 'sales-performance' | 'purchase-report' | 'stock-ledger' | 'profit-loss' | 'stock-analysis';
 
 interface ReportParams {
     reportType: ReportType;
@@ -29,6 +31,11 @@ export interface ProfitLossData {
     profit: number;
 }
 
+export interface StockAnalysisData {
+    topSellingProducts: { name: string; volume: number; }[];
+    deadStock: { name: string; age: string; }[];
+}
+
 
 export interface ReportData {
     orders?: Order[];
@@ -36,6 +43,7 @@ export interface ReportData {
     purchaseReport?: PurchaseRequest[];
     stockLedger?: StockTransaction[];
     profitLoss?: ProfitLossData[];
+    stockAnalysis?: StockAnalysisData;
 }
 
 export async function getReportData(params: ReportParams): Promise<ReportData> {
@@ -50,6 +58,8 @@ export async function getReportData(params: ReportParams): Promise<ReportData> {
             return { stockLedger: await getStockLedger(params.dateRange) };
         case 'profit-loss':
             return { profitLoss: await getProfitLossReport(params.dateRange) };
+        case 'stock-analysis':
+            return { stockAnalysis: await getStockAnalysis(params.dateRange) };
         default:
             throw new Error('Invalid report type');
     }
@@ -227,5 +237,66 @@ async function getProfitLossReport(dateRange?: DateRange): Promise<ProfitLossDat
     } catch (error) {
         console.error("Error fetching profit and loss report:", error);
         return [];
+    }
+}
+
+async function getStockAnalysis(dateRange?: DateRange): Promise<StockAnalysisData> {
+    try {
+        const stockSoldQuery = adminDb.collectionGroup('stockSold');
+        let filteredSoldQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = stockSoldQuery;
+
+        if (dateRange?.from) {
+            filteredSoldQuery = filteredSoldQuery.where('createdAt', '>=', dateRange.from.toISOString());
+        }
+        if (dateRange?.to) {
+            filteredSoldQuery = filteredSoldQuery.where('createdAt', '<=', dateRange.to.toISOString());
+        }
+        
+        const stockSoldSnapshot = await filteredSoldQuery.get();
+        const soldTransactions = stockSoldSnapshot.docs.map(doc => doc.data() as StockTransaction);
+
+        // Top Selling Products
+        const salesVolume = soldTransactions.reduce((acc, tx) => {
+            const itemName = tx.bcn || 'Unknown';
+            acc[itemName] = (acc[itemName] || 0) + Math.abs(tx.quantityChange);
+            return acc;
+        }, {} as Record<string, number>);
+
+        const topSellingProducts = Object.entries(salesVolume)
+            .map(([name, volume]) => ({ name, volume }))
+            .sort((a, b) => b.volume - a.volume)
+            .slice(0, 5); // Top 5
+
+        // Dead Stock
+        const allStockSnapshot = await adminDb.collection('stocks').get();
+        const allStock = allStockSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
+
+        const deadStockItems: { name: string; age: string; }[] = [];
+        const ninetyDaysAgo = subDays(new Date(), 90);
+
+        allStock.forEach(stock => {
+            const lastSale = soldTransactions
+                .filter(tx => tx.bcn === stock.bcn)
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+            if (!lastSale) {
+                // Never sold
+                const age = differenceInDays(new Date(), new Date(stock.lastUpdatedAt));
+                deadStockItems.push({ name: stock.bcn || stock.itemName, age: `${age}+ days` });
+            } else if (new Date(lastSale.createdAt) < ninetyDaysAgo) {
+                // Not sold in the last 90 days
+                const age = differenceInDays(new Date(), new Date(lastSale.createdAt));
+                deadStockItems.push({ name: stock.bcn || stock.itemName, age: `${age} days` });
+            }
+        });
+
+        return {
+            topSellingProducts,
+            deadStock: deadStockItems.sort((a, b) => parseInt(b.age) - parseInt(a.age)).slice(0, 5), // Top 5 oldest
+        };
+
+    } catch (error) {
+        console.error("Error fetching stock analysis:", error);
+        return { topSellingProducts: [], deadStock: [] };
     }
 }
