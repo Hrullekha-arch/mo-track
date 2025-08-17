@@ -16,6 +16,8 @@ import { Loader2, PlusCircle, Trash2, Upload } from "lucide-react";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import * as XLSX from "xlsx";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 const updateTaxSchema = z.object({
   items: z.array(z.object({
@@ -50,7 +52,7 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
     },
   });
 
-  const { getValues, setValue, control } = form;
+  const { control, getValues, setValue } = form;
 
   const { fields, append, remove } = useFieldArray({
     control: control,
@@ -107,48 +109,60 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet) as any[];
+        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-        if (json.length === 0) {
-          toast({ variant: "destructive", title: "Empty File", description: "The selected Excel file is empty." });
+        if (json.length < 2) {
+            toast({ variant: "destructive", title: "Empty File", description: "The Excel file has no data rows." });
+            return;
+        }
+        
+        const hsnAndTaxList = json.slice(1).map(row => ({
+            hsn: String((row as any)[0] || '').trim(),
+            tax: String((row as any)[1] || '').trim().replace('%', '')
+        })).filter(item => item.hsn && item.tax);
+
+        if (hsnAndTaxList.length === 0) {
+          toast({ variant: "destructive", title: "Invalid Format", description: "The file must have HSN codes in column A and Tax % in column B." });
           return;
         }
 
-        toast({ title: "Importing...", description: "Fetching stock details for imported items." });
+        toast({ title: "Importing...", description: `Found ${hsnAndTaxList.length} HSN/Tax pairs. Fetching matching stock items...` });
         setIsSearching(true);
-
+        
+        const hsnToTaxMap = new Map(hsnAndTaxList.map(item => [item.hsn, item.tax]));
+        const uniqueHsnCodes = Array.from(hsnToTaxMap.keys());
+        
+        const stockQuery = query(collection(db, 'stocks'), where('hsnCode', 'in', uniqueHsnCodes));
+        const querySnapshot = await getDocs(stockQuery);
+        
         let itemsAdded = 0;
         const currentItems = getValues('items');
+        
+        querySnapshot.forEach(doc => {
+            const stockItem = { id: doc.id, ...doc.data() } as Stock;
 
-        for (const row of json) {
-            const bcn = row.BCN || row.bcn;
-            if (!bcn) continue;
-            
-            // Avoid adding duplicates that are already in the list
-            if (currentItems.some(item => item.bcn === bcn)) continue;
-            
-            const results = await searchStockByBcn(bcn);
-            const stockItem = results[0];
+            if (currentItems.some(item => item.id === stockItem.id)) return; // Skip if already in the list
 
-            if (stockItem) {
-                append({
+            const importedTax = hsnToTaxMap.get(stockItem.hsnCode || '');
+            if (importedTax) {
+                 append({
                     id: stockItem.id,
                     bcn: stockItem.bcn || '',
                     itemName: stockItem.itemName,
-                    hsnCode: row.HSN || row.hsnCode || stockItem.hsnCode,
-                    mrp: String(row.MRP || row.mrp || stockItem.mrp || ''),
-                    tax: String(row.Tax || row.tax || stockItem.tax || ''),
-                    vendorName: row['Vendor Name'] || row.vendorName || stockItem.vendorName,
+                    hsnCode: stockItem.hsnCode,
+                    mrp: String(stockItem.mrp || ''),
+                    tax: importedTax,
+                    vendorName: stockItem.vendorName,
                 });
                 itemsAdded++;
             }
-        }
-        
+        });
+
         toast({ title: "Import Complete", description: `${itemsAdded} new items were added to the list for review.` });
 
       } catch (error) {
         console.error("Error processing Excel file:", error);
-        toast({ variant: "destructive", title: "Import Failed", description: "Could not process the selected file. Ensure it has a 'BCN' column." });
+        toast({ variant: "destructive", title: "Import Failed", description: "Could not process the selected file. Ensure it has HSN in column A and Tax % in column B." });
       } finally {
         setIsSearching(false);
         if (fileInputRef.current) {
@@ -197,7 +211,7 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
       <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Update Batch Tax</DialogTitle>
-          <DialogDescription>Search for items by BCN to add them to the batch for tax updates.</DialogDescription>
+          <DialogDescription>Search for items by BCN to add them to the batch for tax updates, or import an Excel file.</DialogDescription>
         </DialogHeader>
         <div className="py-4 flex-grow overflow-y-auto pr-4">
           <Form {...form}>
