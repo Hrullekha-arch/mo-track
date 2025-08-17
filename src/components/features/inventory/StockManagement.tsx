@@ -276,7 +276,7 @@ export function StockManagement() {
         {selectedStock && (
           <div className="space-y-4">
             <Card className="p-4">
-                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 items-center">
+                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 items-center">
                     <p className="text-sm"><strong className="block text-muted-foreground">BCN:</strong> {selectedStock.bcn}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Sr No:</strong> {selectedStock.serialNo}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Rack:</strong> {selectedStock.rack || 'N/A'}</p>
@@ -284,7 +284,8 @@ export function StockManagement() {
                     <p className="text-sm"><strong className="block text-muted-foreground">Vendor:</strong> {selectedStock.vendorName}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Category:</strong> {selectedStock.category}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">MRP:</strong> ₹{selectedStock.mrp}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Last Updated:</strong> {new Date(selectedStock.lastUpdatedAt).toLocaleDateString()}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Tax:</strong> {selectedStock.tax ?? 'N/A'}%</p>
+                    <p className="text-sm col-span-2 md:col-span-1"><strong className="block text-muted-foreground">Last Updated:</strong> {new Date(selectedStock.lastUpdatedAt).toLocaleDateString()}</p>
                  </div>
                  <Separator className="my-4" />
                 {isLoadingDetails ? <Loader2 className="h-4 w-4 animate-spin"/> : (
