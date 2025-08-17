@@ -4,11 +4,11 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DollarSign, ShoppingCart, Users, TrendingUp, Package, Star, BarChart, AlertTriangle, ArrowRight, TrendingDown } from "lucide-react";
+import { DollarSign, ShoppingCart, Users, TrendingUp, Package, Star, BarChart, AlertTriangle, ArrowRight, TrendingDown, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { DateRange } from "react-day-picker";
 import { getReportData, SalesPerformanceData, ProfitLossData, StockAnalysisData } from "./actions";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -59,6 +59,40 @@ export default function ReportsPage() {
     const totalTransactions = salesPerformance.reduce((acc, curr) => acc + curr.totalOrders, 0);
     const avgBasketSize = totalTransactions > 0 ? totalSales / totalTransactions : 0;
     
+    const actionableInsights = useMemo(() => {
+        const insights = [];
+
+        // Insight 1: Top selling product
+        if (stockAnalysis.topSellingProducts.length > 0) {
+            const topProduct = stockAnalysis.topSellingProducts[0];
+            insights.push(`Restock high-demand items like ${topProduct.name} immediately.`);
+        }
+
+        // Insight 2: Dead stock
+        if (stockAnalysis.deadStock.length > 0) {
+            const deadItem = stockAnalysis.deadStock[0];
+            insights.push(`Offer a promotion on Dead Stock items like ${deadItem.name} to clear inventory.`);
+        }
+
+        // Insight 3: Top salesman
+        if (salesPerformance.length > 0) {
+            const topSalesman = salesPerformance[0];
+            insights.push(`Reward or incentivize top-performing salesman: ${topSalesman.salesman}.`);
+        }
+
+        // Insight 4: Low margin products
+        const lowMarginOrder = profitLoss
+            .filter(p => p.totalAmount > 0)
+            .sort((a,b) => (a.profit / a.totalAmount) - (b.profit / b.totalAmount))[0];
+        
+        if(lowMarginOrder) {
+            insights.push(`Adjust pricing for products in Order #${lowMarginOrder.orderId} to improve low margins.`);
+        }
+
+        return insights;
+    }, [stockAnalysis, salesPerformance, profitLoss]);
+
+
     return (
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
             <div className="flex justify-between items-center mb-8">
@@ -218,17 +252,28 @@ export default function ReportsPage() {
                 </CardContent>
             </Card>
 
-            <Card className="mt-6 bg-blue-50 border-blue-200">
+            <Card className="mt-6 bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-700">
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-blue-800">⚡ Actionable Insights</CardTitle>
+                    <CardTitle className="flex items-center gap-2 text-blue-800 dark:text-blue-300"><Sparkles/> Actionable Insights</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <ul className="list-disc list-inside space-y-2 text-blue-700">
-                        <li>Restock high-demand items like BCN-FAB-001 immediately.</li>
-                        <li>Offer a 20% discount on Dead Stock items to clear inventory.</li>
-                        <li>Reward or incentivize top-performing salesmen.</li>
-                        <li>Adjust pricing for low-margin products.</li>
-                    </ul>
+                    {loading ? (
+                        <div className="space-y-2">
+                            <Skeleton className="h-4 w-3/4" />
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-2/3" />
+                        </div>
+                    ) : (
+                        <ul className="list-disc list-inside space-y-2 text-blue-700 dark:text-blue-400">
+                            {actionableInsights.length > 0 ? (
+                                actionableInsights.map((insight, index) => (
+                                    <li key={index}>{insight}</li>
+                                ))
+                            ) : (
+                                <li>No specific insights to show based on the current data.</li>
+                            )}
+                        </ul>
+                    )}
                 </CardContent>
             </Card>
         </div>
