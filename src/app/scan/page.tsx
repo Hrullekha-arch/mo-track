@@ -246,7 +246,7 @@ function UniversalScanner() {
                     break;
                 case 'verifyCut':
                     const [scannedBcn, scannedLength] = decodedText.split('|');
-                    if (scannedBcn === targetBcn && scannedLength === targetLength) {
+                    if (scannedBcn === targetBcn && parseFloat(scannedLength) === parseFloat(targetLength!)) {
                          const taskRef = doc(db, 'Cutting', taskId!);
                          const taskDoc = await getDoc(taskRef);
                          if (taskDoc.exists()) {
@@ -308,7 +308,7 @@ function UniversalScanner() {
     }, [handleScanSuccess, toast]);
 
     useEffect(() => {
-        html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, false);
+        html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, { experimentalFeatures: { useOffscreenCanvas: true }, verbose: false });
 
         Html5Qrcode.getCameras()
             .then(devices => {
