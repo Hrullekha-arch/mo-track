@@ -192,24 +192,6 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
             )
         }
     },
-    { 
-        id: 'nextStatus', 
-        header: 'Next Status', 
-        cell: ({ row }) => {
-            const nextStatus = row.original.nextStatus;
-            if (!nextStatus) return <Badge>Completed</Badge>;
-
-            return (
-                <div className={cn("flex items-center gap-2", nextStatus.isOverdue && "text-red-600")}>
-                    {nextStatus.isOverdue && <Clock className="h-4 w-4" />}
-                    <div>
-                        <p className="font-semibold">{nextStatus.text}</p>
-                        <p className="text-xs text-muted-foreground">by {nextStatus.role} on {format(nextStatus.expectedDate, 'dd/MM/yy')}</p>
-                    </div>
-                </div>
-            )
-        }
-    },
     {
       accessorKey: "createdAt",
       header: "Created Date",
