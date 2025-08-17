@@ -227,35 +227,14 @@ export function StockManagement() {
   const stockSoldTransactions = transactions.filter(t => t.type === 'deduction');
 
   const calculatedAvailableLengths = React.useMemo(() => {
-    const rollMap = new Map<string, number>();
-
-    // Initialize with original lengths from 'addition' transactions
-    stockAddedTransactions.forEach(tx => {
-        if (tx.lengths) {
-            rollMap.set(tx.id, tx.lengths.reduce((a, b) => a + b, 0));
-        }
-    });
-
-    // Subtract all deductions, regardless of status
-    stockSoldTransactions.forEach(tx => {
-        // Find parent 'addition' transaction ID (this needs modification if structure changes)
-        // Assuming the logic to link deduction to addition is available or can be inferred.
-        // For this example, let's assume we need a way to link sold to added tx.
-        // The current data model does not directly link a deduction to its parent roll ID, which is a flaw.
-        // Let's use the `originalLength` as a proxy if it was recorded on the deduction.
-        // This is a temporary solution based on the existing structure.
-        
-        // A better approach: The deduction needs a parent transaction ID. Let's assume it can be inferred for now.
-        // The display will be based on the stockAdded's `quantityChange` which is updated live.
-    });
-
-    // The most reliable data source is the `quantityChange` on the stockAdded document itself.
-    // Let's rely on that for now, as it's updated atomically in the allocation function.
-    return stockAddedTransactions.map(tx => ({
+    // This calculation is based on the on-the-fly updated quantityChange
+    // field in the stockAdded documents, which is handled by the allocation transaction.
+    return stockAddedTransactions
+      .map(tx => ({
         length: tx.quantityChange,
-        transactionId: tx.id
-    })).filter(l => l.length > 0.01); // Filter out tiny remnants
-    
+        transactionId: tx.id,
+      }))
+      .filter(l => l.length > 0.01); // Filter out tiny remnants
   }, [stockAddedTransactions]);
 
 
