@@ -5,6 +5,7 @@
 import { adminDb } from "@/lib/firebase-admin";
 import { PurchaseRequest, Stock, InboundRequest, InboundItem, PurchaseStatus } from "@/lib/types";
 import { FieldValue } from 'firebase-admin/firestore';
+import { addDays } from 'date-fns';
 
 export interface PendingPoItem {
     id: string; // Combination of orderId and itemName
@@ -105,6 +106,7 @@ export async function createPurchaseRequestAction(
                     ...originalItem,
                     poNumber: poNumber,
                     vendorName: vendor,
+                    expectedDeliveryDate: addDays(new Date(), 6).toISOString(), // Set expected delivery date 6 days from now
                 };
             }
             return originalItem;
@@ -147,7 +149,8 @@ export async function createPurchaseRequestAction(
             mode: mode,
             fabricDetails: newFabricDetails,
             milestones: FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
-            poMilestones: FieldValue.arrayUnion(poConfirmationMilestone) // Add the auto-completed step
+            poMilestones: FieldValue.arrayUnion(poConfirmationMilestone), // Add the auto-completed step
+            promiseDeliveryDate: addDays(new Date(), 6).toISOString(), // Also set it on the root document
         });
 
         const inboundRef = adminDb.collection('inbounds').doc(poNumber);
