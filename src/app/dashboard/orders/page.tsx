@@ -1,12 +1,14 @@
 
+
 import { OrdersTable } from "@/components/features/order-management/OrdersTable";
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { OrdersDashboard } from "@/components/features/order-management/OrdersDashboard";
 
 export default function OrdersPage() {
     return (
         <Suspense fallback={<OrdersDashboardSkeleton />}>
-            <OrdersTable />
+            <OrdersDashboard />
         </Suspense>
     );
 }

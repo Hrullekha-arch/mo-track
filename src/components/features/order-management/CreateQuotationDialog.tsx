@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, ReactNode, useMemo } from "react";
@@ -300,7 +301,11 @@ const roomOptions = [
 ];
 
 const companyOptions = [{ value: "mo-design", label: "Mo Design" }];
-const storeOptions = [{ value: "mo-gcr-branch", label: "MO GCR BRANCH" }];
+const storeOptions = [
+    { value: "MO GCR BRANCH", label: "MO GCR BRANCH" },
+    { value: "MO MG ROAD", label: "MO MG ROAD" },
+    { value: "MO SULTANPUR", label: "MO SULTANPUR" },
+];
 const dealOptions = [{ value: "deal-1", label: "Deal 1" }, { value: "deal-2", label: "Deal 2" }];
 const billingOptions = [{ value: "billing-1", label: "Billing 1" }];
 const descriptionOptions = [{ value: "curtain", label: "Curtain" }, { value: "sofa-fabric", label: "Sofa Fabric" }];
@@ -808,7 +813,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      store: "mo-gcr-branch",
+      store: "MO GCR BRANCH",
       company: 'MO DESIGNS PRIVATE LIMITED',
       date: new Date(),
       items: [],
@@ -842,7 +847,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
         });
 
         form.reset({
-          store: "mo-gcr-branch",
+          store: "MO GCR BRANCH",
           company: 'MO DESIGNS PRIVATE LIMITED',
           date: new Date(),
           validTillDate: undefined,
@@ -928,7 +933,18 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
             <FormProvider {...form}>
             <form className="space-y-6 py-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    <FormField control={form.control} name="store" render={({ field }) => (<FormItem><FormLabel>Store*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={form.control} name="store" render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Store*</FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl><SelectTrigger><SelectValue placeholder="Select a store" /></SelectTrigger></FormControl>
+                                <SelectContent>
+                                    {storeOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                            <FormMessage />
+                        </FormItem>
+                    )} />
                     <FormField control={form.control} name="date" render={({ field }) => (<FormItem><FormLabel>Date*</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className="w-full justify-start text-left font-normal"><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="validTillDate" render={({ field }) => (<FormItem><FormLabel>Valid Till Date</FormLabel><Popover><PopoverTrigger asChild><FormControl><Button variant={"outline"} className="w-full justify-start text-left font-normal"><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger><PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover><FormMessage /></FormItem>)} />
                     <FormField control={form.control} name="customerName" render={({ field }) => (<FormItem><FormLabel>Customer Name*</FormLabel><FormControl><Input {...field} readOnly /></FormControl><FormMessage /></FormItem>)} />
