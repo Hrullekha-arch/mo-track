@@ -13,6 +13,7 @@ export interface User {
   avatarUrl?: string;
   designation?: 'CRM' | 'Allocators' | 'PC';
   salesmanCode?: string;
+  permissions?: string[]; // Array of allowed module keys
 }
 
 export type OrderType = 'delivery' | 'stitching' | 'stitching+installation';

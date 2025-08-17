@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -16,6 +17,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { User, UserRole } from "@/lib/types";
 import { Loader2 } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { navItems } from "@/components/shared/AppShell";
 
 const formSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -24,6 +28,7 @@ const formSchema = z.object({
   role: z.enum(['admin', 'employee', 'installer', 'salesman', 'Accounts', 'Hr'], { required_error: "Role is required" }),
   designation: z.enum(['CRM', 'Allocators', 'PC']).optional(),
   salesmanCode: z.string().optional(),
+  permissions: z.array(z.string()).optional(),
 }).refine(data => {
     if (data.role === 'employee' && !data.designation) {
         return false;
@@ -67,6 +72,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
       role: 'employee',
       designation: undefined,
       salesmanCode: '',
+      permissions: [],
     },
   });
 
@@ -81,6 +87,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         designation: user.designation,
         password: '',
         salesmanCode: user.salesmanCode || '',
+        permissions: user.permissions || [],
       });
     } else {
       form.reset({
@@ -90,6 +97,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         role: 'employee',
         designation: undefined,
         salesmanCode: '',
+        permissions: [],
       });
     }
   }, [user, isOpen, form]);
@@ -114,6 +122,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
             role: values.role,
             designation: values.designation || null,
             salesmanCode: values.salesmanCode || null,
+            permissions: values.permissions || [],
         });
         toast({ title: "User Updated", description: "User details have been successfully updated." });
       } else {
@@ -132,6 +141,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                 name: values.name,
                 email: values.email,
                 role: values.role,
+                permissions: values.permissions || [],
             };
             if (values.designation && values.role === 'employee') {
                 newUser.designation = values.designation;
@@ -184,7 +194,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4 max-h-[80vh] overflow-y-auto pr-4">
             <FormField
               control={form.control}
               name="name"
@@ -278,6 +288,57 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                 )}
               />
             )}
+             <Separator />
+            <FormField
+                control={form.control}
+                name="permissions"
+                render={() => (
+                    <FormItem>
+                        <div className="mb-4">
+                            <FormLabel className="text-base">Module Permissions</FormLabel>
+                            <FormDescription>
+                                Select the modules this user can access.
+                            </FormDescription>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                        {navItems.map((item) => (
+                            <FormField
+                                key={item.href}
+                                control={form.control}
+                                name="permissions"
+                                render={({ field }) => {
+                                    return (
+                                    <FormItem
+                                        key={item.href}
+                                        className="flex flex-row items-start space-x-3 space-y-0"
+                                    >
+                                        <FormControl>
+                                        <Checkbox
+                                            checked={field.value?.includes(item.href)}
+                                            onCheckedChange={(checked) => {
+                                            return checked
+                                                ? field.onChange([...(field.value || []), item.href])
+                                                : field.onChange(
+                                                    (field.value || []).filter(
+                                                        (value) => value !== item.href
+                                                    )
+                                                    )
+                                            }}
+                                        />
+                                        </FormControl>
+                                        <FormLabel className="font-normal">
+                                            {item.label}
+                                        </FormLabel>
+                                    </FormItem>
+                                    )
+                                }}
+                            />
+                         ))}
+                        </div>
+                        <FormMessage />
+                    </FormItem>
+                )}
+             />
             <DialogFooter>
                 <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
                 <Button type="submit" disabled={loading}>

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -50,7 +51,7 @@ import {
 } from "@/components/ui/sheet";
 
 
-const navItems = [
+export const navItems = [
     { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee', 'Accounts'] },
     { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts'] },
     { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
@@ -68,14 +69,17 @@ const navItems = [
 
 function SidebarNav({ className }: { className?: string }) {
   const pathname = usePathname();
-  const { role } = useAuth();
+  const { user, role } = useAuth();
 
   const navItemsForUser = React.useMemo(() => {
     return navItems.filter(item => {
-      if (!role) return false;
-      return item.roles.includes(role);
+      if (!user) return false;
+      // Admin sees everything
+      if (role === 'admin') return true;
+      // For other roles, check the permissions array
+      return user.permissions?.includes(item.href);
     });
-  }, [role]);
+  }, [user, role]);
 
   return (
     <nav className={cn("space-y-1 p-2", className)}>
