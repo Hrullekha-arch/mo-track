@@ -146,7 +146,7 @@ function CuttingTaskDetail({ task, onBack }: { task: CuttingTask, onBack: () => 
                                                     </>
                                                 ) : (
                                                     <Button asChild size="sm">
-                                                        <Link href={`/scan?action=verifyCut&taskId=${task.id}&bcn=${item.bcn}`}>
+                                                        <Link href={`/scan?action=verifyCut&taskId=${task.id}&bcn=${item.bcn}&originalLength=${item.originalLength}`}>
                                                             <ScanLine className="mr-2 h-4 w-4" />
                                                             Scan to Verify Cut
                                                         </Link>

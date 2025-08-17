@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useEffect, useState, useRef, useCallback, Suspense } from "react";
@@ -8,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info, Package, DollarSign, History, Pencil, Warehouse, Tag, Barcode, GitCommitHorizontal, GitBranchPlus, ChevronsUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { completePmsProcess } from "./actions";
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Order, Stock, StockTransaction } from "@/lib/types";
@@ -25,6 +24,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import Image from "next/image";
 
 type ScanAction = 'pmsComplete' | 'stockDetail' | 'verifyCut' | 'verifyInbound';
 
@@ -174,10 +174,6 @@ const StockDetailDisplay = ({ stockDetails, onUpdate }: { stockDetails: StockDet
 const ScanResultDialog = ({ result, onClose }: { result: ScanResult, onClose: () => void }) => {
     
     const handleStockUpdate = (newStock: Stock) => {
-        // This is a bit tricky, we need to update the state in the parent
-        // For now, we assume the parent re-fetches. The dialog will show the new data passed in.
-        // A more complex state management (like Zustand or Context) would be needed for live updates here.
-        // Let's just update the local `result` state for now.
         result.data!.stockDetails!.stock = newStock;
     };
 
@@ -224,6 +220,7 @@ function UniversalScanner() {
     const action = (searchParams.get('action') || 'pmsComplete') as ScanAction;
     const taskId = searchParams.get('taskId');
     const targetBcn = searchParams.get('bcn');
+    const targetLength = searchParams.get('originalLength');
 
      const handleScanSuccess = useCallback(async (decodedText: string, decodedResult: any) => {
         if (isProcessing) return;
@@ -248,7 +245,8 @@ function UniversalScanner() {
                     }
                     break;
                 case 'verifyCut':
-                    if (decodedText === targetBcn) {
+                    const [scannedBcn, scannedLength] = decodedText.split('|');
+                    if (scannedBcn === targetBcn && scannedLength === targetLength) {
                          const taskRef = doc(db, 'Cutting', taskId!);
                          const taskDoc = await getDoc(taskRef);
                          if (taskDoc.exists()) {
@@ -258,12 +256,12 @@ function UniversalScanner() {
                             );
                              const allCut = updatedItems.every((item:any) => item.status === 'cut');
                              await updateDoc(taskRef, { items: updatedItems, status: allCut ? 'Completed' : 'In Progress' });
-                             result = { status: 'success', message: `Verified cut for ${targetBcn} on task ${taskId}.` };
+                             result = { status: 'success', message: `Verified cut for ${targetBcn} from roll of length ${targetLength}.` };
                          } else {
                             result = { status: 'error', message: "Task not found." };
                          }
                     } else {
-                        result = { status: 'error', message: `Incorrect BCN. Expected ${targetBcn}, scanned ${decodedText}.` };
+                        result = { status: 'error', message: `Incorrect Barcode. Expected ${targetBcn}|${targetLength}, scanned ${decodedText}.` };
                     }
                     break;
                 default:
@@ -273,18 +271,28 @@ function UniversalScanner() {
         } catch (e: any) {
             setScanResult({ status: 'error', message: `An error occurred: ${e.message}` });
         }
-    }, [action, isProcessing, targetBcn, taskId]);
+    }, [action, isProcessing, targetBcn, taskId, targetLength]);
 
     const startScanner = useCallback(() => {
-        if (!html5QrCodeRef.current || html5QrCodeRef.current.isScanning) {
+        if (!html5QrCodeRef.current) {
+            return;
+        }
+
+        if (html5QrCodeRef.current.isScanning) {
+            console.log("Scanner is already running.");
             return;
         }
         
-         const config = { 
+        const config = { 
             fps: 10, 
             qrbox: { width: 250, height: 250 },
             // Add this to make the scanner continuously scan
-            disableFlip: false, 
+            disableFlip: false,
+            // Add this for better performance and continuous scanning
+            experimentalFeatures: {
+                useOffscreenCanvas: true,
+            },
+            rememberLastUsedCamera: true
         };
         
         html5QrCodeRef.current.start(
@@ -300,12 +308,7 @@ function UniversalScanner() {
     }, [handleScanSuccess, toast]);
 
     useEffect(() => {
-        html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, {
-            verbose: false,
-            experimentalFeatures: {
-                useOffscreenCanvas: true,
-            },
-        });
+        html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, false);
 
         Html5Qrcode.getCameras()
             .then(devices => {
@@ -327,7 +330,7 @@ function UniversalScanner() {
     }, []);
 
     useEffect(() => {
-        if (hasPermission && !isProcessing) {
+        if (hasPermission && !isProcessing && html5QrCodeRef.current && html5QrCodeRef.current.getState() !== Html5QrcodeScannerState.SCANNING) {
             startScanner();
         }
     }, [hasPermission, isProcessing, startScanner]);
@@ -337,6 +340,10 @@ function UniversalScanner() {
         setIsProcessing(false); 
         if (action === 'verifyCut' && scanResult?.status === 'success') {
             router.back();
+        } else {
+             if(html5QrCodeRef.current && html5QrCodeRef.current.getState() !== Html5QrcodeScannerState.SCANNING){
+                startScanner();
+             }
         }
     };
     
@@ -353,7 +360,7 @@ function UniversalScanner() {
             break;
         case 'verifyCut':
             pageTitle = "Verify Cut Scanner";
-            pageDescription = `Scan the barcode for item BCN: ${targetBcn} to verify it has been cut.`;
+            pageDescription = `Scan the barcode for item BCN: ${targetBcn} from roll of length ${targetLength} to verify it has been cut.`;
             break;
     }
 
