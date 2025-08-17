@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -152,6 +151,46 @@ function UserProfile() {
     );
 }
 
+function MobileUserMenu() {
+    const { user, logout } = useAuth();
+    const { theme, setTheme } = useTheme();
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="rounded-full">
+                    <Avatar className="h-8 w-8">
+                        <AvatarImage src={`https://placehold.co/100x100.png`} />
+                        <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>{user?.name}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="cursor-pointer">
+                    <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center">
+                            {theme === 'dark' ? <Sun className="mr-2 h-4 w-4"/> : <Moon className="mr-2 h-4 w-4"/>}
+                            <span>Toggle Theme</span>
+                        </div>
+                        <Switch
+                            checked={theme === 'dark'}
+                            aria-readonly
+                            className="pointer-events-none"
+                        />
+                    </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Log out</span>
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   
   return (
@@ -169,10 +208,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex flex-col flex-1 md:pl-16">
         <header className="md:hidden flex h-[65px] items-center justify-between border-b bg-card px-4">
-            <div className="flex items-center gap-2">
-                 <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>
-                 <span className="font-bold text-lg">MoTrack</span>
-            </div>
             <Sheet>
                 <SheetTrigger asChild>
                     <Button variant="ghost" size="icon">
@@ -186,9 +221,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                              <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>
                              <span>MoTrack</span>
                         </SheetTitle>
-                        <SheetDescription>
-                            Your operations management partner.
-                        </SheetDescription>
                     </SheetHeader>
                     <div className="flex flex-col h-full">
                         <div className="flex-1 overflow-y-auto">
@@ -211,12 +243,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                 })}
                             </nav>
                         </div>
-                        <div className="opacity-100 mt-auto">
-                            <UserProfile />
-                        </div>
                     </div>
                 </SheetContent>
             </Sheet>
+            <div className="flex items-center gap-2">
+                 <MobileUserMenu />
+            </div>
         </header>
         <main className="flex-1 overflow-y-auto">
           {children}
