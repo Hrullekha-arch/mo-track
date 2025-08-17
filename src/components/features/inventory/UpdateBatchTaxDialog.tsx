@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm, useFieldArray, get, useFormContext } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -16,7 +16,7 @@ import { Loader2, PlusCircle, Trash2, Upload } from "lucide-react";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import * as XLSX from "xlsx";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where, DocumentData, QuerySnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 const updateTaxSchema = z.object({
@@ -132,30 +132,41 @@ export function UpdateBatchTaxDialog({ isOpen, onClose }: UpdateBatchTaxDialogPr
         const hsnToTaxMap = new Map(hsnAndTaxList.map(item => [item.hsn, item.tax]));
         const uniqueHsnCodes = Array.from(hsnToTaxMap.keys());
         
-        const stockQuery = query(collection(db, 'stocks'), where('hsnCode', 'in', uniqueHsnCodes));
-        const querySnapshot = await getDocs(stockQuery);
-        
+        // Chunking the queries to avoid Firestore's 30-value limit for 'in' operator
+        const hsnChunks: string[][] = [];
+        for (let i = 0; i < uniqueHsnCodes.length; i += 30) {
+            hsnChunks.push(uniqueHsnCodes.slice(i, i + 30));
+        }
+
+        const queryPromises = hsnChunks.map(chunk => 
+            getDocs(query(collection(db, 'stocks'), where('hsnCode', 'in', chunk)))
+        );
+
+        const querySnapshots = await Promise.all(queryPromises);
+
         let itemsAdded = 0;
         const currentItems = getValues('items');
         
-        querySnapshot.forEach(doc => {
-            const stockItem = { id: doc.id, ...doc.data() } as Stock;
+        querySnapshots.forEach(snapshot => {
+            snapshot.forEach(doc => {
+                const stockItem = { id: doc.id, ...doc.data() } as Stock;
 
-            if (currentItems.some(item => item.id === stockItem.id)) return; // Skip if already in the list
+                if (currentItems.some(item => item.id === stockItem.id)) return; // Skip if already in the list
 
-            const importedTax = hsnToTaxMap.get(stockItem.hsnCode || '');
-            if (importedTax) {
-                 append({
-                    id: stockItem.id,
-                    bcn: stockItem.bcn || '',
-                    itemName: stockItem.itemName,
-                    hsnCode: stockItem.hsnCode,
-                    mrp: String(stockItem.mrp || ''),
-                    tax: importedTax,
-                    vendorName: stockItem.vendorName,
-                });
-                itemsAdded++;
-            }
+                const importedTax = hsnToTaxMap.get(stockItem.hsnCode || '');
+                if (importedTax) {
+                     append({
+                        id: stockItem.id,
+                        bcn: stockItem.bcn || '',
+                        itemName: stockItem.itemName,
+                        hsnCode: stockItem.hsnCode,
+                        mrp: String(stockItem.mrp || ''),
+                        tax: importedTax,
+                        vendorName: stockItem.vendorName,
+                    });
+                    itemsAdded++;
+                }
+            });
         });
 
         toast({ title: "Import Complete", description: `${itemsAdded} new items were added to the list for review.` });
