@@ -6,10 +6,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFoo
 import { DollarSign, ShoppingCart, Users, TrendingUp, Package, Star, BarChart, AlertTriangle, ArrowRight, TrendingDown, Sparkles, LineChart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-import { BarChart as RechartsBarChart, LineChart as RechartsLineChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart as RechartsBarChart, LineChart as RechartsLineChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import { useState, useEffect, useMemo } from "react";
 import { DateRange } from "react-day-picker";
-import { getReportData, SalesPerformanceData, ProfitLossData, StockAnalysisData, Order } from "./actions";
+import { getReportData, SalesPerformanceData, ProfitLossData, StockAnalysisData, Order, StockTransaction } from "./actions";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -24,25 +24,28 @@ export default function ReportsPage() {
     const [salesPerformance, setSalesPerformance] = useState<SalesPerformanceData[]>([]);
     const [profitLoss, setProfitLoss] = useState<ProfitLossData[]>([]);
     const [stockAnalysis, setStockAnalysis] = useState<StockAnalysisData>({ topSellingProducts: [], deadStock: []});
+    const [stockLedger, setStockLedger] = useState<StockTransaction[]>([]);
     const [loading, setLoading] = useState(true);
-    const [detailView, setDetailView] = useState<string | null>(null);
+    const [detailView, setDetailView] = useState<{ type: string | null, payload?: any }>({ type: null });
     const { toast } = useToast();
 
     useEffect(() => {
         const fetchAllReports = async () => {
             setLoading(true);
             try {
-                const [salesData, profitData, stockData, orderData] = await Promise.all([
+                const [salesData, profitData, stockData, orderData, ledgerData] = await Promise.all([
                     getReportData({ reportType: 'sales-performance', dateRange }),
                     getReportData({ reportType: 'profit-loss', dateRange }),
                     getReportData({ reportType: 'stock-analysis', dateRange }),
                     getReportData({ reportType: 'order-summary', dateRange }),
+                    getReportData({ reportType: 'stock-ledger', dateRange }),
                 ]);
                 
                 setSalesPerformance(salesData.salesPerformance || []);
                 setProfitLoss(profitData.profitLoss || []);
                 setStockAnalysis(stockData.stockAnalysis || { topSellingProducts: [], deadStock: [] });
                 setOrders(orderData.orders || []);
+                setStockLedger(ledgerData.stockLedger || []);
 
             } catch (error) {
                 toast({
@@ -119,8 +122,9 @@ export default function ReportsPage() {
     const chartColors = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#0088FE', '#00C49F'];
 
     const getDetailDialogContent = () => {
-        switch (detailView) {
+        switch (detailView.type) {
             case 'totalSales':
+            case 'avgBasketSize':
                 return {
                     title: 'Total Sales Details',
                     description: `A list of all ${orders.length} orders contributing to the total sales amount.`,
@@ -142,6 +146,7 @@ export default function ReportsPage() {
                     )
                 };
             case 'totalProfit':
+            case 'avgMargin':
                  return {
                     title: 'Profit & Loss Details',
                     description: `A breakdown of profit for each of the ${profitLoss.length} orders.`,
@@ -161,13 +166,55 @@ export default function ReportsPage() {
                         </div>
                     )
                 };
+            case 'salesmanPerformance': {
+                const salesman = detailView.payload.salesman;
+                const salesmanOrders = orders.filter(o => o.salesPerson === salesman);
+                const totalSalesmanValue = salesmanOrders.reduce((acc, o) => acc + (o.totalAmount || 0), 0);
+                return {
+                    title: `Sales Details for ${salesman}`,
+                    description: `All orders attributed to ${salesman}.`,
+                    data: salesmanOrders,
+                    columns: [
+                        { accessorKey: 'crmOrderNo', header: 'Order No' },
+                        { accessorKey: 'createdAt', header: 'Date', cell: (row: Order) => format(new Date(row.createdAt), 'PPP') },
+                        { accessorKey: 'customerName', header: 'Customer Name' },
+                        { accessorKey: 'totalAmount', header: 'Amount', cell: (row: Order) => formatToINR(row.totalAmount || 0) },
+                    ],
+                     footer: (
+                        <div className="flex justify-end gap-8 font-semibold">
+                            <span>Total Orders: {salesmanOrders.length}</span>
+                            <span>Total Value: {formatToINR(totalSalesmanValue)}</span>
+                        </div>
+                    )
+                };
+            }
+             case 'topSelling':
+             case 'deadStock': {
+                const bcn = detailView.payload.name;
+                const filteredTransactions = stockLedger.filter(tx => tx.bcn === bcn && tx.type === 'deduction');
+                return {
+                    title: `Transaction History for ${bcn}`,
+                    description: `Showing all sales transactions for this product.`,
+                    data: filteredTransactions,
+                    columns: [
+                        { accessorKey: 'createdAt', header: 'Date', cell: (row: StockTransaction) => format(new Date(row.createdAt), 'PPP p') },
+                        { accessorKey: 'orderId', header: 'Order ID' },
+                        { accessorKey: 'createdBy', header: 'User' },
+                        { accessorKey: 'quantityChange', header: 'Qty Sold', cell: (row: StockTransaction) => Math.abs(row.quantityChange).toFixed(2) },
+                    ],
+                    footer: (
+                        <div className="flex justify-end gap-8 font-semibold">
+                            <span>Total Units Sold: {filteredTransactions.reduce((acc, tx) => acc + Math.abs(tx.quantityChange), 0).toFixed(2)}</span>
+                        </div>
+                    )
+                };
+             }
             default:
                 return null;
         }
     };
     
     const detailContent = getDetailDialogContent();
-
 
     return (
         <>
@@ -188,11 +235,11 @@ export default function ReportsPage() {
                         <CardTitle className="flex items-center gap-2"><DollarSign /> Sales Overview</CardTitle>
                     </CardHeader>
                     <CardContent className="grid grid-cols-2 gap-4">
-                        <button onClick={() => setDetailView('totalSales')} className="p-4 rounded-lg bg-muted text-left hover:bg-muted/80 transition-colors">
+                        <button onClick={() => setDetailView({ type: 'totalSales' })} className="p-4 rounded-lg bg-muted text-left hover:bg-muted/80 transition-colors">
                             <p className="text-sm text-muted-foreground">Total Sales</p>
                             {loading ? <Skeleton className="h-7 w-24 mt-1" /> : <p className="text-2xl font-bold">{formatToINR(totalSales)}</p>}
                         </button>
-                         <button onClick={() => setDetailView('totalProfit')} className="p-4 rounded-lg bg-muted text-left hover:bg-muted/80 transition-colors">
+                         <button onClick={() => setDetailView({ type: 'totalProfit' })} className="p-4 rounded-lg bg-muted text-left hover:bg-muted/80 transition-colors">
                             <p className="text-sm text-muted-foreground">Net Profit</p>
                             {loading ? <Skeleton className="h-7 w-24 mt-1" /> : <p className="text-2xl font-bold text-green-600">{formatToINR(totalProfit)}</p>}
                         </button>
@@ -204,10 +251,10 @@ export default function ReportsPage() {
                     </CardHeader>
                     <CardContent>
                         {loading ? <Skeleton className="h-10 w-3/4" /> : (
-                            <>
+                            <button onClick={() => setDetailView({ type: 'avgMargin' })} className="w-full text-left">
                                 <p className="text-sm text-muted-foreground">Avg. Margin %</p>
                                 <p className="text-2xl font-bold">{avgMargin.toFixed(2)}%</p>
-                            </>
+                            </button>
                         )}
                     </CardContent>
                 </Card>
@@ -217,10 +264,10 @@ export default function ReportsPage() {
                     </CardHeader>
                     <CardContent>
                          {loading ? <Skeleton className="h-10 w-3/4" /> : (
-                            <>
+                            <button onClick={() => setDetailView({ type: 'avgBasketSize' })} className="w-full text-left">
                                 <p className="text-sm text-muted-foreground">Avg. Basket Size</p>
                                 <p className="text-2xl font-bold">{formatToINR(avgBasketSize)}</p>
-                            </>
+                            </button>
                         )}
                     </CardContent>
                 </Card>
@@ -240,7 +287,11 @@ export default function ReportsPage() {
                                     <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `₹${Number(value)/1000}k`}/>
                                     <Tooltip formatter={(value) => formatToINR(value as number)} />
                                     <Legend />
-                                    <Bar dataKey="totalValue" fill="hsl(var(--chart-1))" name="Total Sales" radius={[4, 4, 0, 0]} />
+                                    <Bar dataKey="totalValue" name="Total Sales" radius={[4, 4, 0, 0]} onClick={(data) => setDetailView({ type: 'salesmanPerformance', payload: data })}>
+                                         {salesPerformance.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={'hsl(var(--chart-1))'} />
+                                        ))}
+                                    </Bar>
                                 </RechartsBarChart>
                             </ResponsiveContainer>
                         )}
@@ -261,7 +312,7 @@ export default function ReportsPage() {
                                     </TableHeader>
                                     <TableBody>
                                         {stockAnalysis.topSellingProducts.map(p => (
-                                            <TableRow key={p.name}><TableCell>{p.name}</TableCell><TableCell className="text-right">{p.volume.toFixed(2)}</TableCell></TableRow>
+                                            <TableRow key={p.name} className="cursor-pointer hover:bg-muted" onClick={() => setDetailView({ type: 'topSelling', payload: p })}><TableCell>{p.name}</TableCell><TableCell className="text-right">{p.volume.toFixed(2)}</TableCell></TableRow>
                                         ))}
                                     </TableBody>
                                 </Table>
@@ -274,7 +325,7 @@ export default function ReportsPage() {
                                     </TableHeader>
                                     <TableBody>
                                         {stockAnalysis.deadStock.map(p => (
-                                            <TableRow key={p.name}><TableCell>{p.name}</TableCell><TableCell className="text-right">{p.age}</TableCell></TableRow>
+                                            <TableRow key={p.name} className="cursor-pointer hover:bg-muted" onClick={() => setDetailView({ type: 'deadStock', payload: p })}><TableCell>{p.name}</TableCell><TableCell className="text-right">{p.age}</TableCell></TableRow>
                                         ))}
                                     </TableBody>
                                 </Table>
@@ -364,8 +415,8 @@ export default function ReportsPage() {
         </div>
         {detailContent && (
              <ReportDetailDialog
-                isOpen={!!detailView}
-                onClose={() => setDetailView(null)}
+                isOpen={!!detailView.type}
+                onClose={() => setDetailView({ type: null })}
                 title={detailContent.title}
                 description={detailContent.description}
                 data={detailContent.data}

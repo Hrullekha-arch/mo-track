@@ -52,7 +52,7 @@ export function ReportDetailDialog({ isOpen, onClose, title, description, data, 
               <TableBody>
                 {data.length > 0 ? (
                   data.map((row, index) => (
-                    <TableRow key={index}>
+                    <TableRow key={row.id || index}>
                       {columns.map((col) => (
                         <TableCell key={col.accessorKey}>
                           {col.cell ? col.cell(row) : row[col.accessorKey]}
