@@ -10,10 +10,12 @@ import {
   getSortedRowModel,
   useReactTable,
   SortingState,
+  RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, FileText } from "lucide-react";
+import { ArrowUpDown, FileText, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -23,18 +25,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Invoice } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from 'next/link';
+import { sendInvoiceToTally } from "@/services/tally";
 
 export function InvoiceLogTable() {
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [isSyncing, setIsSyncing] = React.useState(false);
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }]);
+  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
+
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -51,8 +57,56 @@ export function InvoiceLogTable() {
 
     return () => unsubscribe();
   }, [toast]);
+  
+  const handleGenerateTallyInvoice = async () => {
+    const selectedInvoices = table.getFilteredSelectedRowModel().rows.map(row => row.original);
+    if (selectedInvoices.length === 0) {
+      toast({ variant: 'destructive', title: 'No Invoices Selected', description: 'Please select at least one invoice to sync.' });
+      return;
+    }
+    
+    setIsSyncing(true);
+    toast({ title: 'Sync Started', description: `Sending ${selectedInvoices.length} invoices to Tally...` });
+
+    for (const invoice of selectedInvoices) {
+        try {
+            const result = await sendInvoiceToTally(invoice);
+            if (result.success && result.voucherNumber) {
+                const invoiceRef = doc(db, "invoices", invoice.id);
+                await updateDoc(invoiceRef, { tallyVoucherNo: result.voucherNumber });
+                toast({ title: `Success for #${invoice.invoiceNo}`, description: `Voucher created in Tally: ${result.voucherNumber}` });
+            } else {
+                toast({ variant: 'destructive', title: `Failed for #${invoice.invoiceNo}`, description: result.message });
+            }
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: `Error for #${invoice.invoiceNo}`, description: error.message });
+        }
+    }
+    
+    setIsSyncing(false);
+    table.resetRowSelection();
+  };
 
   const columns: ColumnDef<Invoice>[] = [
+    {
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label="Select all"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false,
+    },
     {
       accessorKey: "invoiceNo",
       header: "Invoice No",
@@ -94,9 +148,9 @@ export function InvoiceLogTable() {
         cell: ({ row }) => `₹${row.original.totals.grandTotal.toFixed(2)}`,
     },
     {
-      accessorKey: "tallyBillNo",
-      header: "Tally Bill No",
-       cell: ({ row }) => row.original.tallyBillNo || '-',
+      accessorKey: "tallyVoucherNo",
+      header: "Tally Voucher No",
+      cell: ({ row }) => row.original.tallyVoucherNo || '-',
     },
      {
       accessorKey: "createdBy",
@@ -108,11 +162,13 @@ export function InvoiceLogTable() {
     data: invoices,
     columns,
     onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     state: {
       sorting,
+      rowSelection,
     },
   });
 
@@ -145,7 +201,7 @@ export function InvoiceLogTable() {
                             </TableRow>
                         ) : table.getRowModel().rows?.length ? (
                             table.getRowModel().rows.map((row) => (
-                                <TableRow key={row.id}>
+                                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                                 {row.getVisibleCells().map((cell) => (
                                     <TableCell key={cell.id}>
                                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -164,6 +220,17 @@ export function InvoiceLogTable() {
                 </Table>
             </div>
              <div className="flex items-center justify-end space-x-2 py-4">
+                <div className="flex-1 text-sm text-muted-foreground">
+                  {table.getFilteredSelectedRowModel().rows.length} of{" "}
+                  {table.getFilteredRowModel().rows.length} row(s) selected.
+                </div>
+                 <Button 
+                    onClick={handleGenerateTallyInvoice}
+                    disabled={isSyncing || table.getFilteredSelectedRowModel().rows.length === 0}
+                 >
+                    {isSyncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                    Generate Tally Invoice
+                 </Button>
                 <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>Previous</Button>
                 <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next</Button>
             </div>
