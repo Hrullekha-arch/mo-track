@@ -5,6 +5,9 @@ import { Invoice } from '@/lib/types';
 import { format } from 'date-fns';
 
 function escapeXml(unsafe: string): string {
+    if (typeof unsafe !== 'string') {
+        return '';
+    }
     return unsafe.replace(/[<>&'"]/g, function (c) {
         switch (c) {
             case '<': return '&lt;';
@@ -17,10 +20,70 @@ function escapeXml(unsafe: string): string {
     });
 }
 
+function buildLedgerCreateXML(customerName: string, customerPhone: string): string {
+    const ledgerName = escapeXml(`${customerName} (${customerPhone})`);
+    return `
+    <ENVELOPE>
+        <HEADER>
+            <TALLYREQUEST>Import Data</TALLYREQUEST>
+        </HEADER>
+        <BODY>
+            <IMPORTDATA>
+                <REQUESTDESC>
+                    <REPORTNAME>All Masters</REPORTNAME>
+                    <STATICVARIABLES>
+                        <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
+                    </STATICVARIABLES>
+                </REQUESTDESC>
+                <REQUESTDATA>
+                    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+                        <LEDGER NAME="${ledgerName}" RESERVEDNAME="">
+                            <PARENT>Sundry Debtors</PARENT>
+                            <ISBILLWISEON>Yes</ISBILLWISEON>
+                        </LEDGER>
+                    </TALLYMESSAGE>
+                </REQUESTDATA>
+            </IMPORTDATA>
+        </BODY>
+    </ENVELOPE>
+    `;
+}
+
+function buildStockItemCreateXML(itemName: string): string {
+    const escapedItemName = escapeXml(itemName);
+    return `
+    <ENVELOPE>
+        <HEADER>
+            <TALLYREQUEST>Import Data</TALLYREQUEST>
+        </HEADER>
+        <BODY>
+            <IMPORTDATA>
+                <REQUESTDESC>
+                    <REPORTNAME>All Masters</REPORTNAME>
+                    <STATICVARIABLES>
+                        <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
+                    </STATICVARIABLES>
+                </REQUESTDESC>
+                <REQUESTDATA>
+                    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+                        <STOCKITEM NAME="${escapedItemName}" RESERVEDNAME="">
+                            <PARENT>Primary</PARENT>
+                            <BASEUNITS>Nos</BASEUNITS>
+                        </STOCKITEM>
+                    </TALLYMESSAGE>
+                </REQUESTDATA>
+            </IMPORTDATA>
+        </BODY>
+    </ENVELOPE>
+    `;
+}
+
+
 function buildSalesVoucherXML(invoice: Invoice): string {
   const date = format(new Date(invoice.createdAt), 'yyyyMMdd');
-  const customerName = escapeXml(invoice.customer.name);
-  const salesLedger = "Sales Accounts"; // As per new XML
+  // Use the new standardized ledger name format
+  const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
+  const salesLedger = "Sales Accounts";
   
   const { grandTotal } = invoice.totals;
 
@@ -68,9 +131,9 @@ function buildSalesVoucherXML(invoice: Invoice): string {
               <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
                 <DATE>${date}</DATE>
                 <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
-                <PARTYNAME>${customerName}</PARTYNAME>
-                <PARTYLEDGERNAME>${customerName}</PARTYLEDGERNAME>
-                <BASICBUYERNAME>${customerName}</BASICBUYERNAME>
+                <PARTYNAME>${partyLedgerName}</PARTYNAME>
+                <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
+                <BASICBUYERNAME>${partyLedgerName}</BASICBUYERNAME>
                 <STATENAME>HARYANA</STATENAME> 
                 <PLACEOFSUPPLY>HARYANA</PLACEOFSUPPLY>
                 <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
@@ -78,7 +141,7 @@ function buildSalesVoucherXML(invoice: Invoice): string {
                 <ISINVOICE>Yes</ISINVOICE>
                 ${inventoryEntries}
                 <LEDGERENTRIES.LIST>
-                    <LEDGERNAME>${customerName}</LEDGERNAME>
+                    <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
                     <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
                     <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
                     <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
@@ -98,30 +161,30 @@ function buildSalesVoucherXML(invoice: Invoice): string {
 }
 
 async function parseTallyResponse(xmlString: string): Promise<{ success: boolean; voucherNumber?: string; message: string }> {
-    // A simple parser for Tally's response. A robust solution might use an XML parsing library.
-    const successMatch = xmlString.match(/<STATUS>(.*?)<\/STATUS>/);
-    if (successMatch && successMatch[1] === '1') {
+    const successMatch = xmlString.match(/<CREATED>1<\/CREATED>/) || xmlString.match(/<ALTERED>1<\/ALTERED>/);
+    if (successMatch) {
         const voucherNumberMatch = xmlString.match(/<VOUCHERNUMBER>(.*?)<\/VOUCHERNUMBER>/);
         return {
             success: true,
             voucherNumber: voucherNumberMatch ? voucherNumberMatch[1] : undefined,
-            message: "Successfully created voucher in Tally."
+            message: "Successfully created/updated voucher in Tally."
         };
     } else {
         const errorMatch = xmlString.match(/<LINEERROR>(.*?)<\/LINEERROR>/);
+        if (errorMatch && /name already exists/i.test(errorMatch[1])) {
+             // This isn't an error, it means the master data is already there.
+             return { success: true, message: "Master already exists." };
+        }
         const message = errorMatch ? `Tally Error: ${errorMatch[1]}` : "Unknown error from Tally.";
         return { success: false, message };
     }
 }
 
-
-export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
+async function postToTally(xmlRequest: string): Promise<{ success: boolean; message: string; responseXml?: string; }> {
     const tallyUrl = process.env.TALLY_SERVER_URL;
     if (!tallyUrl) {
         throw new Error("Tally server URL is not configured in environment variables.");
     }
-
-    const xmlRequest = buildSalesVoucherXML(invoice);
     
     try {
         const response = await fetch(tallyUrl, {
@@ -130,18 +193,55 @@ export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: b
             body: xmlRequest,
         });
 
+        const responseXml = await response.text();
+
         if (!response.ok) {
+            console.error("Tally HTTP Error Response:", responseXml);
             throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
         }
         
-        const responseXml = await response.text();
-        return await parseTallyResponse(responseXml);
+        const parsedResponse = await parseTallyResponse(responseXml);
+        return { ...parsedResponse, responseXml };
 
     } catch (error: any) {
-        console.error("Failed to send request to Tally:", error);
+        console.error("Failed to send request to Tally:", error.message);
         return {
             success: false,
-            message: `Could not connect to Tally server at ${tallyUrl}. Please ensure Tally is running and accessible. Error: ${error.message}`
+            message: `Could not connect to Tally server. Error: ${error.message}`
         };
+    }
+}
+
+
+export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
+    // Step 1: Ensure Customer Ledger exists
+    const ledgerXml = buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone);
+    const ledgerResult = await postToTally(ledgerXml);
+    if (!ledgerResult.success) {
+        return { success: false, message: `Failed to create customer ledger: ${ledgerResult.message}` };
+    }
+
+    // Step 2: Ensure all Stock Items exist
+    for (const item of invoice.items) {
+        const itemXml = buildStockItemCreateXML(item.itemName);
+        const itemResult = await postToTally(itemXml);
+        if (!itemResult.success) {
+            return { success: false, message: `Failed to create stock item ${item.itemName}: ${itemResult.message}` };
+        }
+    }
+
+    // Step 3: Create the Sales Voucher
+    const voucherXml = buildSalesVoucherXML(invoice);
+    const voucherResult = await postToTally(voucherXml);
+
+    if (voucherResult.success) {
+        const finalParsedResponse = await parseTallyResponse(voucherResult.responseXml!);
+        return { 
+            success: true, 
+            message: "Sales voucher created successfully.", 
+            voucherNumber: finalParsedResponse.voucherNumber 
+        };
+    } else {
+        return { success: false, message: `Failed to create sales voucher: ${voucherResult.message}` };
     }
 }
