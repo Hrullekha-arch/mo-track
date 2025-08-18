@@ -88,7 +88,6 @@ function buildSalesVoucherXML(invoice: Invoice): string {
   const date = '20250401'; // Hardcoded for testing
   const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
   const salesLedger = "Sales Accounts";
-  
   const { grandTotal } = invoice.totals;
 
   let inventoryEntries = '';
@@ -97,21 +96,22 @@ function buildSalesVoucherXML(invoice: Invoice): string {
     inventoryEntries += `
       <ALLINVENTORYENTRIES.LIST>
         <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
         <RATE>${item.rate.toFixed(2)}/Nos</RATE>
         <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
         <ACTUALQTY>${item.quantityAllocated.toFixed(2)} Nos</ACTUALQTY>
         <BILLEDQTY>${item.quantityAllocated.toFixed(2)} Nos</BILLEDQTY>
         <BATCHALLOCATIONS.LIST>
-            <GODOWNNAME>Main Location</GODOWNNAME>
-            <BATCHNAME>Primary Batch</BATCHNAME>
-            <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
-            <ACTUALQTY>${item.quantityAllocated.toFixed(2)} Nos</ACTUALQTY>
-            <BILLEDQTY>${item.quantityAllocated.toFixed(2)} Nos</BILLEDQTY>
+          <GODOWNNAME>Main Location</GODOWNNAME>
+          <BATCHNAME>Primary Batch</BATCHNAME>
+          <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
+          <ACTUALQTY>${item.quantityAllocated.toFixed(2)} Nos</ACTUALQTY>
+          <BILLEDQTY>${item.quantityAllocated.toFixed(2)} Nos</BILLEDQTY>
         </BATCHALLOCATIONS.LIST>
         <ACCOUNTINGALLOCATIONS.LIST>
-            <LEDGERNAME>${salesLedger}</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-            <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
+          <LEDGERNAME>${salesLedger}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
         </ACCOUNTINGALLOCATIONS.LIST>
       </ALLINVENTORYENTRIES.LIST>
     `;
@@ -133,27 +133,30 @@ function buildSalesVoucherXML(invoice: Invoice): string {
           <REQUESTDATA>
             <TALLYMESSAGE xmlns:UDF="TallyUDF">
               <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
+                <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
                 <DATE>${date}</DATE>
                 <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
                 <PARTYNAME>${partyLedgerName}</PARTYNAME>
                 <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
                 <BASICBUYERNAME>${partyLedgerName}</BASICBUYERNAME>
-                <STATENAME>HARYANA</STATENAME> 
+                <STATENAME>HARYANA</STATENAME>
                 <PLACEOFSUPPLY>HARYANA</PLACEOFSUPPLY>
                 <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
                 <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
                 <ISINVOICE>Yes</ISINVOICE>
+
                 ${inventoryEntries}
+
                 <LEDGERENTRIES.LIST>
-                    <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
-                    <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-                    <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+                  <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
+                  <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+                  <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+                  <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
+                  <BILLALLOCATIONS.LIST>
+                    <NAME>${invoice.invoiceNo}</NAME>
+                    <BILLTYPE>New Ref</BILLTYPE>
                     <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
-                    <BILLALLOCATIONS.LIST>
-                        <NAME>${invoice.invoiceNo}</NAME>
-                        <BILLTYPE>New Ref</BILLTYPE>
-                        <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
-                    </BILLALLOCATIONS.LIST>
+                  </BILLALLOCATIONS.LIST>
                 </LEDGERENTRIES.LIST>
               </VOUCHER>
             </TALLYMESSAGE>
@@ -163,6 +166,7 @@ function buildSalesVoucherXML(invoice: Invoice): string {
     </ENVELOPE>
   `;
 }
+
 
 async function parseTallyResponse(xmlString: string): Promise<{ success: boolean; voucherNumber?: string; message: string }> {
     const successMatch = xmlString.match(/<CREATED>1<\/CREATED>/) || xmlString.match(/<ALTERED>1<\/ALTERED>/);
