@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { Invoice } from '@/lib/types';
@@ -88,7 +89,9 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
   const salesLedger = "Sales Accounts";
   
-  const { grandTotal, taxableValue, cgst, sgst } = invoice.totals;
+  const { taxableValue, cgst, sgst } = invoice.totals;
+  const grandTotal = taxableValue + cgst + sgst;
+
 
   let inventoryEntries = '';
   invoice.items.forEach(item => {
@@ -148,8 +151,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                 <PARTYNAME>${partyLedgerName}</PARTYNAME>
                 <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
                 <BASICBUYERNAME>${partyLedgerName}</BASICBUYERNAME>
-                <STATENAME>HARYANA</STATENAME>
-                <PLACEOFSUPPLY>HARYANA</PLACEOFSUPPLY>
                 <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
                 <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
                 <ISINVOICE>Yes</ISINVOICE>
@@ -166,14 +167,8 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                   </BILLALLOCATIONS.LIST>
                 </LEDGERENTRIES.LIST>
 
-                <LEDGERENTRIES.LIST>
-                  <LEDGERNAME>${salesLedger}</LEDGERNAME>
-                  <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                  <AMOUNT>${taxableValue.toFixed(2)}</AMOUNT>
-                </LEDGERENTRIES.LIST>
-
                 ${inventoryEntries}
-
+                
                 ${cgstLedgerEntry}
                 ${sgstLedgerEntry}
               </VOUCHER>
