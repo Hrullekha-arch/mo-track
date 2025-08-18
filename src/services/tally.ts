@@ -85,99 +85,124 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
 
 
 export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
-  const date = '20250401'; // Hardcoded for testing
+  // --- helpers ---
+  const money = (n: number) => (Math.round(n * 100) / 100); // banker's rounding not needed here
+  const fmt = (n: number) => money(n).toFixed(2);
+
+  // --- setup ---
+  const date = '20250401'; // test
   const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
   const salesLedger = "Sales Accounts";
-  
-  const { taxableValue, cgst, sgst } = invoice.totals;
-  const grandTotal = taxableValue + cgst + sgst;
 
+  // Force same-state so CGST/SGST both apply (adjust if your company state is different)
+  const state = "Delhi";           // <- set to your company state
+  const placeOfSupply = "Delhi";   // <- same as state for intra-state
 
+  // --- build inventory lines and compute subtotal from the same numbers we write ---
+  let itemSubtotal = 0;
   let inventoryEntries = '';
+
   invoice.items.forEach(item => {
-    const itemAmount = item.rate * item.quantityAllocated;
+    const qty = Number(item.quantityAllocated || 0);
+    const rate = Number(item.rate || 0);
+    const lineAmount = money(rate * qty);
+    itemSubtotal = money(itemSubtotal + lineAmount);
+
     inventoryEntries += `
       <ALLINVENTORYENTRIES.LIST>
         <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
         <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-        <RATE>${item.rate.toFixed(2)}/Nos</RATE>
-        <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
-        <ACTUALQTY>${item.quantityAllocated.toFixed(2)} Nos</ACTUALQTY>
-        <BILLEDQTY>${item.quantityAllocated.toFixed(2)} Nos</BILLEDQTY>
+        <RATE>${fmt(rate)}/Nos</RATE>
+        <AMOUNT>${fmt(lineAmount)}</AMOUNT>
+        <ACTUALQTY>${fmt(qty)} Nos</ACTUALQTY>
+        <BILLEDQTY>${fmt(qty)} Nos</BILLEDQTY>
         <ACCOUNTINGALLOCATIONS.LIST>
           <LEDGERNAME>${salesLedger}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-          <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
+          <AMOUNT>${fmt(lineAmount)}</AMOUNT>
         </ACCOUNTINGALLOCATIONS.LIST>
-      </ALLINVENTORYENTRIES.LIST>
-    `;
+      </ALLINVENTORYENTRIES.LIST>`;
   });
-  
+
+  // --- compute taxes to match what we’ll post ---
+  // If you want 5% GST split, compute on the rounded itemSubtotal:
+  const totalGST = money(itemSubtotal * 0.05);
+  const cgst = money(totalGST / 2);
+  const sgst = money(totalGST - cgst); // keep pennies consistent
+
+  // If your business logic sometimes posts IGST or only one tax, adjust here and
+  // ALSO change the XML tax lines accordingly.
+
+  const partyAmount = money(itemSubtotal + cgst + sgst); // what customer owes
+
   const cgstLedgerEntry = cgst > 0 ? `
     <LEDGERENTRIES.LIST>
       <LEDGERNAME>CGST 2.5%</LEDGERNAME>
       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-      <AMOUNT>${cgst.toFixed(2)}</AMOUNT>
-    </LEDGERENTRIES.LIST>
-  ` : '';
+      <AMOUNT>${fmt(cgst)}</AMOUNT>
+    </LEDGERENTRIES.LIST>` : '';
 
   const sgstLedgerEntry = sgst > 0 ? `
     <LEDGERENTRIES.LIST>
       <LEDGERNAME>SGST 2.5%</LEDGERNAME>
       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-      <AMOUNT>${sgst.toFixed(2)}</AMOUNT>
-    </LEDGERENTRIES.LIST>
-  ` : '';
+      <AMOUNT>${fmt(sgst)}</AMOUNT>
+    </LEDGERENTRIES.LIST>` : '';
 
   return `
-    <ENVELOPE>
-      <HEADER>
-        <TALLYREQUEST>Import Data</TALLYREQUEST>
-      </HEADER>
-      <BODY>
-        <IMPORTDATA>
-          <REQUESTDESC>
-            <REPORTNAME>Vouchers</REPORTNAME>
-            <STATICVARIABLES>
-              <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
-            </STATICVARIABLES>
-          </REQUESTDESC>
-          <REQUESTDATA>
-            <TALLYMESSAGE xmlns:UDF="TallyUDF">
-              <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
-                <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
-                <DATE>${date}</DATE>
-                <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
-                <PARTYNAME>${partyLedgerName}</PARTYNAME>
-                <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
-                <BASICBUYERNAME>${partyLedgerName}</BASICBUYERNAME>
-                <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
-                <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
-                <ISINVOICE>Yes</ISINVOICE>
-                
-                <LEDGERENTRIES.LIST>
-                  <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
-                  <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-                  <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
-                  <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
-                  <BILLALLOCATIONS.LIST>
-                    <NAME>${invoice.invoiceNo}</NAME>
-                    <BILLTYPE>New Ref</BILLTYPE>
-                    <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
-                  </BILLALLOCATIONS.LIST>
-                </LEDGERENTRIES.LIST>
+<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>Vouchers</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
+            <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
+            <DATE>${date}</DATE>
+            <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
 
-                ${inventoryEntries}
-                
-                ${cgstLedgerEntry}
-                ${sgstLedgerEntry}
-              </VOUCHER>
-            </TALLYMESSAGE>
-          </REQUESTDATA>
-        </IMPORTDATA>
-      </BODY>
-    </ENVELOPE>
-  `;
+            <!-- keep intra-state for CGST+SGST -->
+            <STATENAME>${state}</STATENAME>
+            <PLACEOFSUPPLY>${placeOfSupply}</PLACEOFSUPPLY>
+
+            <PARTYNAME>${partyLedgerName}</PARTYNAME>
+            <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
+            <BASICBUYERNAME>${partyLedgerName}</BASICBUYERNAME>
+            <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+            <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
+            <ISINVOICE>Yes</ISINVOICE>
+
+            ${inventoryEntries}
+
+            ${cgstLedgerEntry}
+            ${sgstLedgerEntry}
+
+            <!-- Party (Debit) = -(items + taxes) -->
+            <LEDGERENTRIES.LIST>
+              <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+              <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+              <AMOUNT>-${fmt(partyAmount)}</AMOUNT>
+              <BILLALLOCATIONS.LIST>
+                <NAME>${invoice.invoiceNo}</NAME>
+                <BILLTYPE>New Ref</BILLTYPE>
+                <AMOUNT>-${fmt(partyAmount)}</AMOUNT>
+              </BILLALLOCATIONS.LIST>
+            </LEDGERENTRIES.LIST>
+          </VOUCHER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
 }
 
 
