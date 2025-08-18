@@ -55,36 +55,36 @@ function buildStockItemCreateXML(itemName: string): string {
     const escapedItemName = escapeXml(itemName);
     return `
     <ENVELOPE>
-        <HEADER>
-            <VERSION>1</VERSION>
-            <TALLYREQUEST>Import</TALLYREQUEST>
-            <TYPE>Data</TYPE>
-            <ID>All Masters</ID>
-        </HEADER>
-        <BODY>
-            <DESC>
-                <STATICVARIABLES>
-                    <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
-                </STATICVARIABLES>
-            </DESC>
-            <DATA>
-                <TALLYMESSAGE>
-                    <STOCKITEM NAME="${escapedItemName}" ACTION="Create">
-                        <NAME>${escapedItemName}</NAME>
-                        <PARENT>Primary</PARENT>
-                        <BASEUNITS>Nos</BASEUNITS>
-                    </STOCKITEM>
-                </TALLYMESSAGE>
-            </DATA>
-        </BODY>
+      <HEADER>
+        <VERSION>1</VERSION>
+        <TALLYREQUEST>Import</TALLYREQUEST>
+        <TYPE>Data</TYPE>
+        <ID>All Masters</ID>
+      </HEADER>
+      <BODY>
+        <DESC>
+          <STATICVARIABLES>
+            <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
+          </STATICVARIABLES>
+        </DESC>
+        <DATA>
+          <TALLYMESSAGE>
+            <STOCKITEM NAME="${escapedItemName}" ACTION="Create">
+              <NAME>${escapedItemName}</NAME>
+              <PARENT>Products</PARENT>
+              <BASEUNITS>Nos</BASEUNITS>
+            </STOCKITEM>
+          </TALLYMESSAGE>
+        </DATA>
+      </BODY>
     </ENVELOPE>
     `;
 }
 
 
 function buildSalesVoucherXML(invoice: Invoice): string {
-  const date = format(new Date(invoice.createdAt), 'yyyyMMdd');
-  // Use the new standardized ledger name format
+  // const date = format(new Date(invoice.createdAt), 'yyyyMMdd');
+  const date = '20250401'; // Hardcoded for testing
   const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
   const salesLedger = "Sales Accounts";
   
