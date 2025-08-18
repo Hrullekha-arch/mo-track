@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { Invoice } from '@/lib/types';
@@ -88,7 +87,8 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const date = '20250401'; // Hardcoded for testing
   const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
   const salesLedger = "Sales Accounts";
-  const { grandTotal } = invoice.totals;
+  
+  const { grandTotal, taxableValue, cgst, sgst } = invoice.totals;
 
   let inventoryEntries = '';
   invoice.items.forEach(item => {
@@ -101,13 +101,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
         <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
         <ACTUALQTY>${item.quantityAllocated.toFixed(2)} Nos</ACTUALQTY>
         <BILLEDQTY>${item.quantityAllocated.toFixed(2)} Nos</BILLEDQTY>
-        <BATCHALLOCATIONS.LIST>
-          <GODOWNNAME>Main Location</GODOWNNAME>
-          <BATCHNAME>Primary Batch</BATCHNAME>
-          <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
-          <ACTUALQTY>${item.quantityAllocated.toFixed(2)} Nos</ACTUALQTY>
-          <BILLEDQTY>${item.quantityAllocated.toFixed(2)} Nos</BILLEDQTY>
-        </BATCHALLOCATIONS.LIST>
         <ACCOUNTINGALLOCATIONS.LIST>
           <LEDGERNAME>${salesLedger}</LEDGERNAME>
           <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
@@ -116,6 +109,22 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
       </ALLINVENTORYENTRIES.LIST>
     `;
   });
+  
+  const cgstLedgerEntry = cgst > 0 ? `
+    <LEDGERENTRIES.LIST>
+      <LEDGERNAME>CGST 2.5%</LEDGERNAME>
+      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+      <AMOUNT>${cgst.toFixed(2)}</AMOUNT>
+    </LEDGERENTRIES.LIST>
+  ` : '';
+
+  const sgstLedgerEntry = sgst > 0 ? `
+    <LEDGERENTRIES.LIST>
+      <LEDGERNAME>SGST 2.5%</LEDGERNAME>
+      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+      <AMOUNT>${sgst.toFixed(2)}</AMOUNT>
+    </LEDGERENTRIES.LIST>
+  ` : '';
 
   return `
     <ENVELOPE>
@@ -145,8 +154,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                 <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
                 <ISINVOICE>Yes</ISINVOICE>
 
-                ${inventoryEntries}
-
                 <LEDGERENTRIES.LIST>
                   <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
                   <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
@@ -158,6 +165,11 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                     <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
                   </BILLALLOCATIONS.LIST>
                 </LEDGERENTRIES.LIST>
+
+                ${inventoryEntries}
+
+                ${cgstLedgerEntry}
+                ${sgstLedgerEntry}
               </VOUCHER>
             </TALLYMESSAGE>
           </REQUESTDATA>
@@ -182,7 +194,6 @@ async function parseTallyResponse(xmlString: string): Promise<{ success: boolean
     const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
     if (errorMatch) {
         const errorMessage = errorMatch[1].trim();
-        // If the error indicates that the master already exists, we treat it as a success for our workflow.
         if (/name already exists/i.test(errorMessage)) {
              return { success: true, message: `Master already exists: ${errorMessage}` };
         }
@@ -194,9 +205,7 @@ async function parseTallyResponse(xmlString: string): Promise<{ success: boolean
         return { success: false, message: `Tally reported a failure with status 0. Full Response: ${xmlString}` };
     }
 
-
-    // Capture the entire XML for unknown errors or responses that aren't clear success/failure.
-    return { success: false, message: `Unknown Tally response. Please check Tally for details. Response: ${xmlString}` };
+    return { success: false, message: `Unknown Tally response: ${xmlString}` };
 }
 
 async function postToTally(xmlRequest: string): Promise<{ success: boolean; message: string; responseXml?: string; }> {
@@ -258,7 +267,6 @@ export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: b
         await updateDoc(invoiceRef, { tallySalesXml: voucherXml });
     } catch (error) {
         console.error("Error saving sales XML to Firestore:", error);
-        // We can still proceed, but we'll log the error.
     }
     
     const voucherResult = await postToTally(voucherXml);
@@ -274,3 +282,5 @@ export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: b
         return { success: false, message: `Failed to create sales voucher: ${voucherResult.message}` };
     }
 }
+
+    
