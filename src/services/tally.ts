@@ -169,15 +169,29 @@ async function parseTallyResponse(xmlString: string): Promise<{ success: boolean
             voucherNumber: voucherNumberMatch ? voucherNumberMatch[1] : undefined,
             message: "Successfully created/updated voucher in Tally."
         };
-    } else {
-        const errorMatch = xmlString.match(/<LINEERROR>(.*?)<\/LINEERROR>/);
-        if (errorMatch && /name already exists/i.test(errorMatch[1])) {
-             // This isn't an error, it means the master data is already there.
-             return { success: true, message: "Master already exists." };
-        }
-        const message = errorMatch ? `Tally Error: ${errorMatch[1]}` : "Unknown error from Tally.";
-        return { success: false, message };
     }
+    
+    const statusMatch = xmlString.match(/<STATUS>(.*?)<\/STATUS>/);
+    if (statusMatch && statusMatch[1] === '0') {
+        // Tally sometimes reports failure with <STATUS>0</STATUS>
+        const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
+        if (errorMatch) {
+            return { success: false, message: `Tally Error: ${errorMatch[1].trim()}` };
+        }
+        return { success: false, message: "Tally reported a failure with status 0." };
+    }
+
+    const lineErrorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
+    if (lineErrorMatch) {
+        const errorMessage = lineErrorMatch[1].trim();
+        // Check if it's a non-blocking error (e.g., master already exists)
+        if (/name already exists/i.test(errorMessage)) {
+             return { success: true, message: `Master already exists: ${errorMessage}` };
+        }
+        return { success: false, message: `Tally Error: ${errorMessage}` };
+    }
+
+    return { success: false, message: "Unknown error from Tally. Response did not indicate success or a known error format." };
 }
 
 async function postToTally(xmlRequest: string): Promise<{ success: boolean; message: string; responseXml?: string; }> {
