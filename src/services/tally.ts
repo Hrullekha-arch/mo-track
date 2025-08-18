@@ -25,25 +25,27 @@ function buildLedgerCreateXML(customerName: string, customerPhone: string): stri
     return `
     <ENVELOPE>
         <HEADER>
-            <TALLYREQUEST>Import Data</TALLYREQUEST>
+            <VERSION>1</VERSION>
+            <TALLYREQUEST>Import</TALLYREQUEST>
+            <TYPE>Data</TYPE>
+            <ID>All Masters</ID>
         </HEADER>
         <BODY>
-            <IMPORTDATA>
-                <REQUESTDESC>
-                    <REPORTNAME>All Masters</REPORTNAME>
-                    <STATICVARIABLES>
-                        <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
-                    </STATICVARIABLES>
-                </REQUESTDESC>
-                <REQUESTDATA>
-                    <TALLYMESSAGE xmlns:UDF="TallyUDF">
-                        <LEDGER NAME="${ledgerName}" RESERVEDNAME="">
-                            <PARENT>Sundry Debtors</PARENT>
-                            <ISBILLWISEON>Yes</ISBILLWISEON>
-                        </LEDGER>
-                    </TALLYMESSAGE>
-                </REQUESTDATA>
-            </IMPORTDATA>
+            <DESC>
+                <STATICVARIABLES>
+                    <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
+                </STATICVARIABLES>
+            </DESC>
+            <DATA>
+                <TALLYMESSAGE>
+                    <LEDGER NAME="${ledgerName}" ACTION="Create">
+                        <NAME>${ledgerName}</NAME>
+                        <PARENT>Sundry Debtors</PARENT>
+                        <ISBILLWISEON>Yes</ISBILLWISEON>
+                        <MOBILENUMBER>${escapeXml(customerPhone)}</MOBILENUMBER>
+                    </LEDGER>
+                </TALLYMESSAGE>
+            </DATA>
         </BODY>
     </ENVELOPE>
     `;
@@ -173,7 +175,6 @@ async function parseTallyResponse(xmlString: string): Promise<{ success: boolean
     
     const statusMatch = xmlString.match(/<STATUS>(.*?)<\/STATUS>/);
     if (statusMatch && statusMatch[1] === '0') {
-        // Tally sometimes reports failure with <STATUS>0</STATUS>
         const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
         if (errorMatch) {
             return { success: false, message: `Tally Error: ${errorMatch[1].trim()}` };
@@ -184,14 +185,14 @@ async function parseTallyResponse(xmlString: string): Promise<{ success: boolean
     const lineErrorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
     if (lineErrorMatch) {
         const errorMessage = lineErrorMatch[1].trim();
-        // Check if it's a non-blocking error (e.g., master already exists)
         if (/name already exists/i.test(errorMessage)) {
              return { success: true, message: `Master already exists: ${errorMessage}` };
         }
         return { success: false, message: `Tally Error: ${errorMessage}` };
     }
 
-    return { success: false, message: "Unknown error from Tally. Response did not indicate success or a known error format." };
+    // Capture the entire XML for unknown errors
+    return { success: false, message: `Unknown error from Tally. Full response: ${xmlString}` };
 }
 
 async function postToTally(xmlRequest: string): Promise<{ success: boolean; message: string; responseXml?: string; }> {
