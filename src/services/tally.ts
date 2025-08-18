@@ -5,7 +5,6 @@ import { Invoice } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
 import axios from 'axios';
 import xml2js from 'xml2js';
-import { doc, updateDoc } from 'firebase/firestore';
 
 // ---------------- Helpers ----------------
 
@@ -97,7 +96,7 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
 
 export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   // --- helpers ---
-  const money = (n: number) => (Math.round(n * 100) / 100); // banker's rounding not needed here
+  const money = (n: number) => (Math.round(n * 100) / 100);
   const fmt = (n: number) => money(n).toFixed(2);
 
   // --- setup ---
@@ -106,8 +105,8 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const salesLedger = "Sales Accounts";
 
   // Force same-state so CGST/SGST both apply (adjust if your company state is different)
-  const state = "Delhi";           // <- set to your company state
-  const placeOfSupply = "Delhi";   // <- same as state for intra-state
+  const state = "Delhi";
+  const placeOfSupply = "Delhi";
 
   // --- build inventory lines and compute subtotal from the same numbers we write ---
   let itemSubtotal = 0;
@@ -137,8 +136,8 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
 
   const totalGST = money(itemSubtotal * 0.05);
   const cgst = money(totalGST / 2);
-  const sgst = money(totalGST - cgst); // keep pennies consistent
-  const partyAmount = money(itemSubtotal + cgst + sgst); // what customer owes
+  const sgst = money(totalGST - cgst);
+  const partyAmount = money(itemSubtotal + cgst + sgst);
 
   const cgstLedgerEntry = cgst > 0 ? `
     <LEDGERENTRIES.LIST>
@@ -203,7 +202,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
 </ENVELOPE>`.trim();
 }
 
-function buildVoucherFilterXML(ledgerName: string, amount: number): string {
+export async function buildVoucherFilterXML(ledgerName: string, amount: number): Promise<string> {
   const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
   return `
 <ENVELOPE>
@@ -257,15 +256,16 @@ async function createIfNeeded(xml: string): Promise<{ success: boolean; message:
     const errLine = resp.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/)?.[1]?.trim() ?? 'Unknown Tally error.';
     return { success: false, message: errLine, responseXml: resp };
   } catch (e: any) {
-    return { success: false, message: String(e?.message || e), responseXml: '' };
+    console.error("Tally Communication Error in createIfNeeded:", e);
+    return { success: false, message: `Tally connection failed: ${e?.message || e}`, responseXml: '' };
   }
 }
 
-async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | undefined> {
+export async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | undefined> {
   const ledgerName = `${invoice.customer.name} (${invoice.customer.phone})`;
   const amount = Number(invoice?.totals?.grandTotal ?? 0);
 
-  const filterXml = buildVoucherFilterXML(escapeXml(ledgerName), amount);
+  const filterXml = await buildVoucherFilterXML(escapeXml(ledgerName), amount);
   try {
     const xml = await httpPostXml(filterXml);
     const voucherNo = extractVoucherNumber(xml);
@@ -280,29 +280,59 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | und
   }
 }
 
-export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
-  // 1) Ensure Ledger and Stock Items
-  await createIfNeeded(await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone));
+export async function sendInvoiceToTally(
+  invoice: Invoice
+): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
+  // 1) Ensure Ledger
+  await createIfNeeded(
+    await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone)
+  );
+
+  // 2) Check stock for each item BEFORE creating voucher
   for (const item of invoice.items) {
+    // Make sure stock item exists in Tally
     await createIfNeeded(await buildStockItemCreateXML(item.itemName));
+
+    const stockCheck = await getStockFromTally(item.itemName);
+    if (!stockCheck.success) {
+      return {
+        success: false,
+        message: `Failed to fetch stock for ${item.itemName}: ${stockCheck.message}`,
+      };
+    }
+    
+    // The available quantity should be considered as the current Tally stock PLUS what we are about to deduct.
+    // This prevents errors if this function runs moments after the Firestore stock is deducted.
+    const effectiveAvailableQty = (stockCheck.quantity ?? 0) + item.quantityAllocated;
+
+    if (stockCheck.quantity !== null && effectiveAvailableQty < item.quantityAllocated) {
+      return {
+        success: false,
+        message: `Insufficient stock for ${item.itemName}. Available: ${stockCheck.quantity}, Required: ${item.quantityAllocated}`,
+      };
+    }
   }
 
-  // 2) Create the Sales Voucher
+  // 3) Create the Sales Voucher
   const voucherXml = await buildSalesVoucherXML(invoice);
-  const voucherResult = await createIfNeeded(voucherXml);
-
-  // 3) Save XML we posted (for debugging/traceability)
+  
+  // Save XML before sending for better debugging
   await adminDb.collection('invoices').doc(invoice.id).update({ tallySalesXml: voucherXml });
+  
+  const voucherResult = await createIfNeeded(voucherXml);
 
   // 4) Always try to fetch the voucher number and save it
   const voucherNumber = await fetchAndSaveVoucherNumber(invoice);
 
   return {
     success: voucherResult.success,
-    message: voucherResult.message + (voucherNumber ? ` Voucher No: ${voucherNumber}` : ' Could not fetch voucher number.'),
+    message:
+      voucherResult.message +
+      (voucherNumber ? ` Voucher No: ${voucherNumber}` : ' Could not fetch voucher number.'),
     voucherNumber,
   };
 }
+
 
 export async function getStockFromTally(itemName: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
   const xml = `
@@ -326,15 +356,15 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
     const responseXml = await httpPostXml(xml);
     const parsed = await xml2js.parseStringPromise(responseXml, { explicitArray: false, trim: true });
     
-    const closingBalance = parsed?.ENVELOPE?.BODY?.DATA?.COLLECTION?.STOCKITEM?.CLOSINGBALANCE;
+    const closingBalance = parsed?.ENVELOPE?.STOCKITEM?.CLOSINGBALANCE;
     if (typeof closingBalance === 'string') {
         const quantity = parseFloat(closingBalance);
         return { success: true, quantity: isNaN(quantity) ? 0 : quantity, message: 'Success' };
     }
     return { success: true, quantity: 0, message: 'Stock item not found in Tally or has no balance.' };
   } catch (error: any) {
-    console.error(`Tally stock fetch error for ${itemName}:`, error.message);
-    return { success: false, quantity: null, message: error.message };
+    console.error(`Tally stock fetch error for ${itemName}:`, error.message, `Response XML: ${error.responseXml || ''}`);
+    return { success: false, quantity: null, message: `Tally stock fetch error: ${error.message}` };
   }
 }
 
