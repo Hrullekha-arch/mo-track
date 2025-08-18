@@ -1,3 +1,4 @@
+
 'use server';
 
 import { Invoice } from '@/lib/types';
@@ -20,6 +21,33 @@ function escapeXml(unsafe: string): string {
             default: return c;
         }
     });
+}
+
+async function postToTally(xml: string): Promise<{ success: boolean; message?: string }> {
+  if (!process.env.TALLY_SERVER_URL) {
+    console.error("Tally server URL is not configured in environment variables.");
+    return { success: false, message: "Tally integration is not configured." };
+  }
+
+  try {
+    const response = await axios.post(process.env.TALLY_SERVER_URL, xml, {
+      headers: { "Content-Type": "text/xml" },
+    });
+    const parsedResponse = await parseStringPromise(response.data);
+
+    if (parsedResponse.RESPONSE.CREATED) {
+      return { success: true, message: "Voucher created in Tally." };
+    } else if (parsedResponse.RESPONSE.ALTERED) {
+      return { success: true, message: "Voucher altered in Tally." };
+    } else if (parsedResponse.ENVELOPE.BODY.DATA.LINEERROR) {
+       return { success: false, message: `Tally Error: ${parsedResponse.ENVELOPE.BODY.DATA.LINEERROR}` };
+    } else {
+      return { success: false, message: `Tally reported an issue: ${JSON.stringify(parsedResponse)}` };
+    }
+  } catch (error: any) {
+    console.error("Error posting to Tally:", error.message);
+    return { success: false, message: `Failed to connect to Tally server. Please ensure Tally is running and the URL is correct. Error: ${error.message}` };
+  }
 }
 
 // ---------------- XML Builders ----------------
@@ -67,25 +95,30 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
 }
 
 export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
-    const money = (n: number) => (Math.round(n * 100) / 100);
-    const fmt = (n: number) => money(n).toFixed(2);
+  // --- helpers ---
+  const money = (n: number) => (Math.round(n * 100) / 100); // banker's rounding not needed here
+  const fmt = (n: number) => money(n).toFixed(2);
 
-    const date = '20250401'; // static for now
-    const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
-    const salesLedger = "Sales Accounts";
-    const state = "Delhi";
-    const placeOfSupply = "Delhi";
+  // --- setup ---
+  const date = '20250401'; // test
+  const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
+  const salesLedger = "Sales Accounts";
 
-    let itemSubtotal = 0;
-    let inventoryEntries = '';
+  // Force same-state so CGST/SGST both apply (adjust if your company state is different)
+  const state = "Delhi";           // <- set to your company state
+  const placeOfSupply = "Delhi";   // <- same as state for intra-state
 
-    invoice.items.forEach(item => {
-        const qty = Number(item.quantityAllocated || 0);
-        const rate = Number(item.rate || 0);
-        const lineAmount = money(rate * qty);
-        itemSubtotal = money(itemSubtotal + lineAmount);
+  // --- build inventory lines and compute subtotal from the same numbers we write ---
+  let itemSubtotal = 0;
+  let inventoryEntries = '';
 
-        inventoryEntries += `
+  invoice.items.forEach(item => {
+    const qty = Number(item.quantityAllocated || 0);
+    const rate = Number(item.rate || 0);
+    const lineAmount = money(rate * qty);
+    itemSubtotal = money(itemSubtotal + lineAmount);
+
+    inventoryEntries += `
       <ALLINVENTORYENTRIES.LIST>
         <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
         <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
@@ -99,49 +132,65 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
           <AMOUNT>${fmt(lineAmount)}</AMOUNT>
         </ACCOUNTINGALLOCATIONS.LIST>
       </ALLINVENTORYENTRIES.LIST>`;
-    });
+  });
 
-    const totalGST = money(itemSubtotal * 0.05);
-    const cgst = money(totalGST / 2);
-    const sgst = money(totalGST - cgst);
-    const partyAmount = money(itemSubtotal + cgst + sgst);
+  // --- compute taxes to match what we’ll post ---
+  // If you want 5% GST split, compute on the rounded itemSubtotal:
+  const totalGST = money(itemSubtotal * 0.05);
+  const cgst = money(totalGST / 2);
+  const sgst = money(totalGST - cgst); // keep pennies consistent
 
-    const cgstLedgerEntry = cgst > 0 ? `
+  // If your business logic sometimes posts IGST or only one tax, adjust here and
+  // ALSO change the XML tax lines accordingly.
+
+  const partyAmount = money(itemSubtotal + cgst + sgst); // what customer owes
+
+  const cgstLedgerEntry = cgst > 0 ? `
     <LEDGERENTRIES.LIST>
       <LEDGERNAME>CGST 2.5%</LEDGERNAME>
       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
       <AMOUNT>${fmt(cgst)}</AMOUNT>
     </LEDGERENTRIES.LIST>` : '';
 
-    const sgstLedgerEntry = sgst > 0 ? `
+  const sgstLedgerEntry = sgst > 0 ? `
     <LEDGERENTRIES.LIST>
       <LEDGERNAME>SGST 2.5%</LEDGERNAME>
       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
       <AMOUNT>${fmt(sgst)}</AMOUNT>
     </LEDGERENTRIES.LIST>` : '';
 
-    return `
+  return `
 <ENVELOPE>
-  <HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
   <BODY>
     <IMPORTDATA>
       <REQUESTDESC>
         <REPORTNAME>Vouchers</REPORTNAME>
-        <STATICVARIABLES><SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY></STATICVARIABLES>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
       </REQUESTDESC>
       <REQUESTDATA>
         <TALLYMESSAGE xmlns:UDF="TallyUDF">
           <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
+            <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
             <DATE>${date}</DATE>
             <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
+
+            <!-- keep intra-state for CGST+SGST -->
             <STATENAME>${state}</STATENAME>
             <PLACEOFSUPPLY>${placeOfSupply}</PLACEOFSUPPLY>
+
             <PARTYNAME>${partyLedgerName}</PARTYNAME>
             <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
             <BASICBUYERNAME>${partyLedgerName}</BASICBUYERNAME>
             <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+            <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
             <ISINVOICE>Yes</ISINVOICE>
-            
+
+            <!-- Party (Debit) = -(items + taxes) -->
             <LEDGERENTRIES.LIST>
               <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
               <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
@@ -155,6 +204,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             </LEDGERENTRIES.LIST>
 
             ${inventoryEntries}
+
             ${cgstLedgerEntry}
             ${sgstLedgerEntry}
           </VOUCHER>
@@ -231,17 +281,22 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice) {
 // ---------------- Main ----------------
 
 export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
-    // Ledger + Stock Items
+    const voucherXml = await buildSalesVoucherXML(invoice);
+    
+    // 1. Save the generated XML to the invoice document
+    const invoiceRef = doc(adminDb, "invoices", invoice.id);
+    await updateDoc(invoiceRef, { tallySalesXml: voucherXml });
+    
+    // 2. Create Ledger and Stock Items first
     await postToTally(await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone));
     for (const item of invoice.items) {
         await postToTally(await buildStockItemCreateXML(item.itemName));
     }
 
-    // Sales Voucher
-    const voucherXml = await buildSalesVoucherXML(invoice);
+    // 3. Post the actual Sales Voucher
     const voucherResult = await postToTally(voucherXml);
 
-    // Always fetch voucher number
+    // 4. Always try to fetch the voucher number after posting
     const finalVoucherNo = await fetchAndSaveVoucherNumber(invoice);
 
     return {
