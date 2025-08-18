@@ -56,25 +56,26 @@ function buildStockItemCreateXML(itemName: string): string {
     return `
     <ENVELOPE>
         <HEADER>
-            <TALLYREQUEST>Import Data</TALLYREQUEST>
+            <VERSION>1</VERSION>
+            <TALLYREQUEST>Import</TALLYREQUEST>
+            <TYPE>Data</TYPE>
+            <ID>All Masters</ID>
         </HEADER>
         <BODY>
-            <IMPORTDATA>
-                <REQUESTDESC>
-                    <REPORTNAME>All Masters</REPORTNAME>
-                    <STATICVARIABLES>
-                        <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
-                    </STATICVARIABLES>
-                </REQUESTDESC>
-                <REQUESTDATA>
-                    <TALLYMESSAGE xmlns:UDF="TallyUDF">
-                        <STOCKITEM NAME="${escapedItemName}" RESERVEDNAME="">
-                            <PARENT>Primary</PARENT>
-                            <BASEUNITS>Nos</BASEUNITS>
-                        </STOCKITEM>
-                    </TALLYMESSAGE>
-                </REQUESTDATA>
-            </IMPORTDATA>
+            <DESC>
+                <STATICVARIABLES>
+                    <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
+                </STATICVARIABLES>
+            </DESC>
+            <DATA>
+                <TALLYMESSAGE>
+                    <STOCKITEM NAME="${escapedItemName}" ACTION="Create">
+                        <NAME>${escapedItemName}</NAME>
+                        <PARENT>Primary</PARENT>
+                        <BASEUNITS>Nos</BASEUNITS>
+                    </STOCKITEM>
+                </TALLYMESSAGE>
+            </DATA>
         </BODY>
     </ENVELOPE>
     `;
@@ -169,30 +170,28 @@ async function parseTallyResponse(xmlString: string): Promise<{ success: boolean
         return {
             success: true,
             voucherNumber: voucherNumberMatch ? voucherNumberMatch[1] : undefined,
-            message: "Successfully created/updated voucher in Tally."
+            message: "Successfully created/updated in Tally."
         };
     }
     
-    const statusMatch = xmlString.match(/<STATUS>(.*?)<\/STATUS>/);
-    if (statusMatch && statusMatch[1] === '0') {
-        const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
-        if (errorMatch) {
-            return { success: false, message: `Tally Error: ${errorMatch[1].trim()}` };
-        }
-        return { success: false, message: "Tally reported a failure with status 0." };
-    }
-
-    const lineErrorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
-    if (lineErrorMatch) {
-        const errorMessage = lineErrorMatch[1].trim();
+    const errorMatch = xmlString.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/);
+    if (errorMatch) {
+        const errorMessage = errorMatch[1].trim();
+        // If the error indicates that the master already exists, we treat it as a success for our workflow.
         if (/name already exists/i.test(errorMessage)) {
              return { success: true, message: `Master already exists: ${errorMessage}` };
         }
         return { success: false, message: `Tally Error: ${errorMessage}` };
     }
+    
+    const statusMatch = xmlString.match(/<STATUS>(.*?)<\/STATUS>/);
+    if (statusMatch && statusMatch[1] === '0') {
+        return { success: false, message: `Tally reported a failure with status 0. Full Response: ${xmlString}` };
+    }
 
-    // Capture the entire XML for unknown errors
-    return { success: false, message: `Unknown error from Tally. Full response: ${xmlString}` };
+
+    // Capture the entire XML for unknown errors or responses that aren't clear success/failure.
+    return { success: false, message: `Unknown Tally response. Please check Tally for details. Response: ${xmlString}` };
 }
 
 async function postToTally(xmlRequest: string): Promise<{ success: boolean; message: string; responseXml?: string; }> {
