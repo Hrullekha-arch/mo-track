@@ -696,10 +696,12 @@ export default function InvoicePage() {
       toast({ title: 'Sync Started', description: `Sending invoice #${invoiceToSync.invoiceNo} to Tally...` });
       try {
           const result = await sendInvoiceToTally(invoiceToSync);
-          if (result.success && result.voucherNumber) {
+          if (result.success) {
               const invoiceRef = doc(db, "invoices", invoiceToSync.id);
-              await updateDoc(invoiceRef, { tallyVoucherNo: result.voucherNumber });
-              toast({ title: `Success for #${invoiceToSync.invoiceNo}`, description: `Voucher created in Tally: ${result.voucherNumber}` });
+              if (result.voucherNumber) {
+                await updateDoc(invoiceRef, { tallyVoucherNo: result.voucherNumber });
+              }
+              toast({ title: `Success for #${invoiceToSync.invoiceNo}`, description: result.message });
           } else {
               toast({ variant: 'destructive', title: `Failed for #${invoiceToSync.invoiceNo}`, description: result.message });
           }
