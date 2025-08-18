@@ -281,7 +281,7 @@ export interface StockTransaction {
   poNumber?: string;
   orderId?: string;
   lengths?: number[]; // if addition, original lengths. if deduction, length(s) cut.
-  originalLength?: number;
+  lastLength?: number;
   createdAt: string; // ISO string
   createdBy: string;
   status?: 'pending for cutting' | 'cut';

@@ -99,7 +99,7 @@ export async function allocateStockToAction(
                     type: 'deduction',
                     quantityChange: -allocatedPiece.length, // The actual amount cut
                     lengths: [allocatedPiece.length],
-                    originalLength: originalTxData.quantityChange, // The roll's length *before* this cut
+                    lastLength: originalTxData.quantityChange, // The roll's length *before* this cut
                     orderId: orderId,
                     createdAt: new Date().toISOString(),
                     createdBy: userName,
