@@ -153,7 +153,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                 <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
                 <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
                 <ISINVOICE>Yes</ISINVOICE>
-
+                
                 <LEDGERENTRIES.LIST>
                   <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
                   <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
@@ -164,6 +164,12 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                     <BILLTYPE>New Ref</BILLTYPE>
                     <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
                   </BILLALLOCATIONS.LIST>
+                </LEDGERENTRIES.LIST>
+
+                <LEDGERENTRIES.LIST>
+                  <LEDGERNAME>${salesLedger}</LEDGERNAME>
+                  <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                  <AMOUNT>${taxableValue.toFixed(2)}</AMOUNT>
                 </LEDGERENTRIES.LIST>
 
                 ${inventoryEntries}
