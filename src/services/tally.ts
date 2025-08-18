@@ -179,12 +179,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
             <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
             <ISINVOICE>Yes</ISINVOICE>
-
-            ${inventoryEntries}
-
-            ${cgstLedgerEntry}
-            ${sgstLedgerEntry}
-
+            
             <!-- Party (Debit) = -(items + taxes) -->
             <LEDGERENTRIES.LIST>
               <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
@@ -197,6 +192,12 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                 <AMOUNT>-${fmt(partyAmount)}</AMOUNT>
               </BILLALLOCATIONS.LIST>
             </LEDGERENTRIES.LIST>
+
+            ${inventoryEntries}
+
+            ${cgstLedgerEntry}
+            ${sgstLedgerEntry}
+
           </VOUCHER>
         </TALLYMESSAGE>
       </REQUESTDATA>
@@ -299,6 +300,10 @@ export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: b
 
     if (voucherResult.success) {
         const finalParsedResponse = await parseTallyResponse(voucherResult.responseXml!);
+        if (finalParsedResponse.voucherNumber) {
+             const invoiceRef = doc(adminDb, "invoices", invoice.id);
+             await updateDoc(invoiceRef, { tallyVoucherNo: finalParsedResponse.voucherNumber });
+        }
         return { 
             success: true, 
             message: "Sales voucher created successfully.", 

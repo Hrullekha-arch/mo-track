@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -685,7 +686,7 @@ export default function InvoicePage() {
     setInvoiceToSync(firstInvoice);
 
     // Build the XML here just for preview
-    const xml = buildSalesVoucherXML(firstInvoice);
+    const xml = await buildSalesVoucherXML(firstInvoice);
     setXmlPreview(xml);
   };
   
