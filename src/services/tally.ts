@@ -3,7 +3,6 @@
 
 import { Invoice } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
-import { doc, updateDoc } from 'firebase/firestore';
 import axios from "axios";
 import { parseStringPromise } from "xml2js";
 
@@ -35,13 +34,14 @@ async function postToTally(xml: string): Promise<{ success: boolean; message?: s
     });
     const parsedResponse = await parseStringPromise(response.data);
 
-    if (parsedResponse.RESPONSE.CREATED) {
+    if (parsedResponse.RESPONSE.CREATED && parsedResponse.RESPONSE.CREATED[0] === '1') {
       return { success: true, message: "Voucher created in Tally." };
-    } else if (parsedResponse.RESPONSE.ALTERED) {
+    } else if (parsedResponse.RESPONSE.ALTERED && parsedResponse.RESPONSE.ALTERED[0] === '1') {
       return { success: true, message: "Voucher altered in Tally." };
-    } else if (parsedResponse.ENVELOPE.BODY.DATA.LINEERROR) {
-       return { success: false, message: `Tally Error: ${parsedResponse.ENVELOPE.BODY.DATA.LINEERROR}` };
+    } else if (parsedResponse.ENVELOPE.BODY.DATA[0].LINEERROR) {
+       return { success: false, message: `Tally Error: ${parsedResponse.ENVELOPE.BODY.DATA[0].LINEERROR}` };
     } else {
+      console.warn("Unknown Tally Response:", parsedResponse);
       return { success: false, message: `Tally reported an issue: ${JSON.stringify(parsedResponse)}` };
     }
   } catch (error: any) {
@@ -96,22 +96,19 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
 
 export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   // --- helpers ---
-  const money = (n: number) => (Math.round(n * 100) / 100); // banker's rounding not needed here
+  const money = (n: number) => (Math.round(n * 100) / 100);
   const fmt = (n: number) => money(n).toFixed(2);
 
   // --- setup ---
   const date = '20250401'; // test
   const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
   const salesLedger = "Sales Accounts";
+  const state = "Delhi";
+  const placeOfSupply = "Delhi";
 
-  // Force same-state so CGST/SGST both apply (adjust if your company state is different)
-  const state = "Delhi";           // <- set to your company state
-  const placeOfSupply = "Delhi";   // <- same as state for intra-state
-
-  // --- build inventory lines and compute subtotal from the same numbers we write ---
+  // --- build inventory lines and compute subtotal ---
   let itemSubtotal = 0;
   let inventoryEntries = '';
-
   invoice.items.forEach(item => {
     const qty = Number(item.quantityAllocated || 0);
     const rate = Number(item.rate || 0);
@@ -133,17 +130,12 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
         </ACCOUNTINGALLOCATIONS.LIST>
       </ALLINVENTORYENTRIES.LIST>`;
   });
-
-  // --- compute taxes to match what we’ll post ---
-  // If you want 5% GST split, compute on the rounded itemSubtotal:
+  
+  // --- Compute taxes and totals ---
   const totalGST = money(itemSubtotal * 0.05);
   const cgst = money(totalGST / 2);
-  const sgst = money(totalGST - cgst); // keep pennies consistent
-
-  // If your business logic sometimes posts IGST or only one tax, adjust here and
-  // ALSO change the XML tax lines accordingly.
-
-  const partyAmount = money(itemSubtotal + cgst + sgst); // what customer owes
+  const sgst = money(totalGST - cgst);
+  const partyAmount = money(itemSubtotal + totalGST);
 
   const cgstLedgerEntry = cgst > 0 ? `
     <LEDGERENTRIES.LIST>
@@ -178,19 +170,14 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
             <DATE>${date}</DATE>
             <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
-
-            <!-- keep intra-state for CGST+SGST -->
             <STATENAME>${state}</STATENAME>
             <PLACEOFSUPPLY>${placeOfSupply}</PLACEOFSUPPLY>
-
             <PARTYNAME>${partyLedgerName}</PARTYNAME>
             <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
             <BASICBUYERNAME>${partyLedgerName}</BASICBUYERNAME>
             <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
             <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
             <ISINVOICE>Yes</ISINVOICE>
-
-            <!-- Party (Debit) = -(items + taxes) -->
             <LEDGERENTRIES.LIST>
               <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
               <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
@@ -202,9 +189,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                 <AMOUNT>-${fmt(partyAmount)}</AMOUNT>
               </BILLALLOCATIONS.LIST>
             </LEDGERENTRIES.LIST>
-
             ${inventoryEntries}
-
             ${cgstLedgerEntry}
             ${sgstLedgerEntry}
           </VOUCHER>
@@ -267,8 +252,8 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice) {
     const voucherNumber = parsed?.ENVELOPE?.BODY?.DATA?.COLLECTION?.VOUCHER?.VOUCHERNUMBER || null;
 
     if (voucherNumber) {
-      const invoiceRef = doc(adminDb, "invoices", invoice.id);
-      await updateDoc(invoiceRef, { tallyVoucherNo: voucherNumber });
+      const invoiceRef = adminDb.collection("invoices").doc(invoice.id);
+      await invoiceRef.update({ tallyVoucherNo: voucherNumber });
       return voucherNumber;
     }
     return undefined;
@@ -284,8 +269,8 @@ export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: b
     const voucherXml = await buildSalesVoucherXML(invoice);
     
     // 1. Save the generated XML to the invoice document
-    const invoiceRef = doc(adminDb, "invoices", invoice.id);
-    await updateDoc(invoiceRef, { tallySalesXml: voucherXml });
+    const invoiceRef = adminDb.collection("invoices").doc(invoice.id);
+    await invoiceRef.update({ tallySalesXml: voucherXml });
     
     // 2. Create Ledger and Stock Items first
     await postToTally(await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone));
