@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -29,7 +28,7 @@ import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, add
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format, isWithinInterval } from "date-fns";
-import { InvoiceBatch, Order, Invoice, CuttingTask, CuttingTaskItem } from "@/lib/types";
+import { InvoiceBatch, Order, Invoice, CuttingTask, CuttingTaskItem, Stock } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
 import { Input } from "@/components/ui/input";
@@ -44,9 +43,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
-import { sendInvoiceToTally, buildSalesVoucherXML } from "@/services/tally";
+import { sendInvoiceToTally, buildSalesVoucherXML, getFirestoreStockQuantity, getStockFromTally } from "@/services/tally";
 import Link from "next/link";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { StockMismatchDialog } from "@/components/features/invoice/StockMismatchDialog";
 
 
 function GenerateInvoiceDialog({
@@ -64,9 +64,43 @@ function GenerateInvoiceDialog({
 }) {
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isTallyDialogOpen, setIsTallyDialogOpen] = React.useState(false);
+  const [isStockMismatchOpen, setIsStockMismatchOpen] = React.useState(false);
+  const [mismatchedItems, setMismatchedItems] = React.useState<{ itemName: string; crmQty: number; tallyQty: number; }[]>([]);
   const [tallyBillNo, setTallyBillNo] = React.useState('');
   const [generatedInvoice, setGeneratedInvoice] = React.useState<Invoice | null>(null);
   const { toast } = useToast();
+
+  const handlePreVoucherCheck = async () => {
+    if (!creator) return;
+    setIsGenerating(true);
+    const mismatches = [];
+
+    const allItems = batches.flatMap(b => b.items);
+
+    for (const item of allItems) {
+      const firestoreRes = await getFirestoreStockQuantity(item.itemName);
+      const tallyRes = await getStockFromTally(item.itemName);
+
+      if (firestoreRes.success && tallyRes.success && firestoreRes.quantity !== null && tallyRes.quantity !== null) {
+        if (Math.abs(firestoreRes.quantity - tallyRes.quantity) > 0.01) { // Use a tolerance for float comparison
+          mismatches.push({
+            itemName: item.itemName,
+            crmQty: firestoreRes.quantity,
+            tallyQty: tallyRes.quantity,
+          });
+        }
+      }
+    }
+
+    setIsGenerating(false);
+
+    if (mismatches.length > 0) {
+      setMismatchedItems(mismatches);
+      setIsStockMismatchOpen(true);
+    } else {
+      setIsTallyDialogOpen(true); // No mismatches, proceed to Tally dialog
+    }
+  };
 
   const handleFinalGenerate = async () => {
     if (!creator) {
@@ -74,6 +108,7 @@ function GenerateInvoiceDialog({
         return;
     }
     setIsTallyDialogOpen(false);
+    setIsStockMismatchOpen(false); // Close mismatch dialog as well
     setIsGenerating(true);
     
     try {
@@ -125,7 +160,7 @@ function GenerateInvoiceDialog({
         const newInvoice: Omit<Invoice, 'id'> = {
             invoiceNo: newInvoiceNumberStr,
             orderId: primaryOrder.id,
-            tallyBillNo: tallyBillNo || null,
+            tallyBillNo: tallyBillNo || undefined,
             customer: {
                 name: primaryOrder.customerName,
                 phone: primaryOrder.customerPhone,
@@ -207,10 +242,8 @@ function GenerateInvoiceDialog({
         // 5. Send to Tally
         try {
             const tallyResult = await sendInvoiceToTally(fullInvoiceData);
-            if(tallyResult.success && tallyResult.voucherNumber) {
-                // Update the invoice in Firestore with the Tally voucher number
-                await updateDoc(newInvoiceRef, { tallyVoucherNo: tallyResult.voucherNumber });
-                toast({ title: "Tally Sync Success!", description: `Sales voucher created in Tally with number: ${tallyResult.voucherNumber}` });
+            if(tallyResult.success) {
+                toast({ title: "Tally Sync Success!", description: tallyResult.message });
             } else {
                  toast({ variant: 'destructive', title: 'Tally Sync Failed', description: tallyResult.message });
             }
@@ -260,7 +293,7 @@ function GenerateInvoiceDialog({
             <DialogFooter>
                 <Button variant="ghost" onClick={onClose}>Cancel</Button>
                 <Button variant="outline" onClick={handlePrint}><Printer className="mr-2 h-4 w-4"/> Print</Button>
-                <Button onClick={() => setIsTallyDialogOpen(true)} disabled={isGenerating || !!generatedInvoice}>
+                <Button onClick={handlePreVoucherCheck} disabled={isGenerating || !!generatedInvoice}>
                     {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Confirm & Generate
                 </Button>
@@ -290,6 +323,15 @@ function GenerateInvoiceDialog({
             </AlertDialogFooter>
         </AlertDialogContent>
     </AlertDialog>
+    <StockMismatchDialog
+      isOpen={isStockMismatchOpen}
+      onClose={() => setIsStockMismatchOpen(false)}
+      onConfirm={() => {
+        setIsStockMismatchOpen(false);
+        setIsTallyDialogOpen(true);
+      }}
+      mismatchedItems={mismatchedItems}
+    />
     </>
   )
 }
@@ -697,10 +739,6 @@ export default function InvoicePage() {
       try {
           const result = await sendInvoiceToTally(invoiceToSync);
           if (result.success) {
-              const invoiceRef = doc(db, "invoices", invoiceToSync.id);
-              if (result.voucherNumber) {
-                await updateDoc(invoiceRef, { tallyVoucherNo: result.voucherNumber });
-              }
               toast({ title: `Success for #${invoiceToSync.invoiceNo}`, description: result.message });
           } else {
               toast({ variant: 'destructive', title: `Failed for #${invoiceToSync.invoiceNo}`, description: result.message });

@@ -3,81 +3,113 @@
 
 import { Invoice } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
-import { doc, updateDoc } from 'firebase-admin/firestore';
-import axios from "axios";
+import axios from 'axios';
 import xml2js from 'xml2js';
+import { doc, updateDoc } from 'firebase/firestore';
 
 // ---------------- Helpers ----------------
 
 function escapeXml(unsafe: string): string {
-    if (typeof unsafe !== 'string') return '';
-    return unsafe.replace(/[<>&'"]/g, c => {
-        switch (c) {
-            case '<': return '&lt;';
-            case '>': return '&gt;';
-            case '&': return '&amp;';
-            case '\'': return '&apos;';
-            case '"': return '&quot;';
-            default: return c;
-        }
-    });
+  if (typeof unsafe !== 'string') return '';
+  return unsafe.replace(/[<>&'"]/g, c => {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
+}
+
+function getEnvTallyUrl(): string {
+  const url = process.env.TALLY_SERVER_URL;
+  if (!url) throw new Error('TALLY_SERVER_URL is not set');
+  return url;
+}
+
+async function httpPostXml(xml: string): Promise<string> {
+  const res = await fetch(getEnvTallyUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/xml' },
+    body: xml,
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${res.statusText} -> ${text.slice(0, 300)}`);
+  }
+  return text;
+}
+
+function tallyCreateOk(xml: string): boolean {
+  return /<CREATED>1<\/CREATED>/.test(xml) || /<ALTERED>1<\/ALTERED>/.test(xml);
+}
+
+function extractVoucherNumber(xml: string): string | undefined {
+  const matches = [...xml.matchAll(/<VOUCHERNUMBER>([^<]+)<\/VOUCHERNUMBER>/g)];
+  return matches.length ? matches[matches.length - 1][1] : undefined;
 }
 
 // ---------------- XML Builders ----------------
 
 export async function buildLedgerCreateXML(customerName: string, customerPhone: string): Promise<string> {
-    const ledgerName = escapeXml(`${customerName} (${customerPhone})`);
-    return `
-    <ENVELOPE>
-        <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
-        <BODY>
-            <DESC>
-                <STATICVARIABLES><SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY></STATICVARIABLES>
-            </DESC>
-            <DATA>
-                <TALLYMESSAGE>
-                    <LEDGER NAME="${ledgerName}" ACTION="Create">
-                        <NAME>${ledgerName}</NAME>
-                        <PARENT>Sundry Debtors</PARENT>
-                        <ISBILLWISEON>Yes</ISBILLWISEON>
-                    </LEDGER>
-                </TALLYMESSAGE>
-            </DATA>
-        </BODY>
-    </ENVELOPE>`;
+  const ledgerName = escapeXml(`${customerName} (${customerPhone})`);
+  return `
+<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES><SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY></STATICVARIABLES>
+    </DESC>
+    <DATA>
+      <TALLYMESSAGE>
+        <LEDGER NAME="${ledgerName}" ACTION="Create">
+          <NAME>${ledgerName}</NAME>
+          <PARENT>Sundry Debtors</PARENT>
+          <ISBILLWISEON>Yes</ISBILLWISEON>
+        </LEDGER>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`.trim();
 }
 
 export async function buildStockItemCreateXML(itemName: string): Promise<string> {
-    const escapedItemName = escapeXml(itemName);
-    return `
-    <ENVELOPE>
-      <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
-      <BODY>
-        <DESC><STATICVARIABLES><SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY></STATICVARIABLES></DESC>
-        <DATA>
-          <TALLYMESSAGE>
-            <STOCKITEM NAME="${escapedItemName}" ACTION="Create">
-              <NAME>${escapedItemName}</NAME>
-              <PARENT>Products</PARENT>
-              <BASEUNITS>Nos</BASEUNITS>
-            </STOCKITEM>
-          </TALLYMESSAGE>
-        </DATA>
-      </BODY>
-    </ENVELOPE>`;
+  const escapedItemName = escapeXml(itemName);
+  return `
+<ENVELOPE>
+  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+  <BODY>
+    <DESC><STATICVARIABLES><SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY></STATICVARIABLES></DESC>
+    <DATA>
+      <TALLYMESSAGE>
+        <STOCKITEM NAME="${escapedItemName}" ACTION="Create">
+          <NAME>${escapedItemName}</NAME>
+          <PARENT>Products</PARENT>
+          <BASEUNITS>Nos</BASEUNITS>
+        </STOCKITEM>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`.trim();
 }
 
 export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
-  const money = (n: number) => (Math.round(n * 100) / 100);
+  // --- helpers ---
+  const money = (n: number) => (Math.round(n * 100) / 100); // banker's rounding not needed here
   const fmt = (n: number) => money(n).toFixed(2);
 
+  // --- setup ---
   const date = '20250401'; // test
   const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
   const salesLedger = "Sales Accounts";
 
-  const state = "Delhi";
-  const placeOfSupply = "Delhi";
+  // Force same-state so CGST/SGST both apply (adjust if your company state is different)
+  const state = "Delhi";           // <- set to your company state
+  const placeOfSupply = "Delhi";   // <- same as state for intra-state
 
+  // --- build inventory lines and compute subtotal from the same numbers we write ---
   let itemSubtotal = 0;
   let inventoryEntries = '';
 
@@ -105,9 +137,8 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
 
   const totalGST = money(itemSubtotal * 0.05);
   const cgst = money(totalGST / 2);
-  const sgst = money(totalGST - cgst);
-
-  const partyAmount = money(itemSubtotal + cgst + sgst);
+  const sgst = money(totalGST - cgst); // keep pennies consistent
+  const partyAmount = money(itemSubtotal + cgst + sgst); // what customer owes
 
   const cgstLedgerEntry = cgst > 0 ? `
     <LEDGERENTRIES.LIST>
@@ -150,9 +181,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
             <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
             <ISINVOICE>Yes</ISINVOICE>
-            ${inventoryEntries}
-            ${cgstLedgerEntry}
-            ${sgstLedgerEntry}
             <LEDGERENTRIES.LIST>
               <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
               <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
@@ -164,139 +192,163 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                 <AMOUNT>-${fmt(partyAmount)}</AMOUNT>
               </BILLALLOCATIONS.LIST>
             </LEDGERENTRIES.LIST>
+            ${inventoryEntries}
+            ${cgstLedgerEntry}
+            ${sgstLedgerEntry}
           </VOUCHER>
         </TALLYMESSAGE>
       </REQUESTDATA>
     </IMPORTDATA>
   </BODY>
-</ENVELOPE>`;
+</ENVELOPE>`.trim();
 }
 
-
-// ---------------- Networking ----------------
-
-async function postToTally(xmlRequest: string): Promise<{ success: boolean; message: string; responseXml?: string }> {
-    const tallyUrl = process.env.TALLY_SERVER_URL;
-    if (!tallyUrl) {
-      return { success: false, message: "TALLY_SERVER_URL environment variable is not set." };
-    }
-    try {
-        const response = await axios.post(tallyUrl, xmlRequest, {
-            headers: { "Content-Type": "text/xml" },
-        });
-        const responseXml = response.data;
-        const parsedResult = await xml2js.parseStringPromise(responseXml, { explicitArray: false, trim: true });
-        
-        if (parsedResult.RESPONSE.CREATED === '1' || parsedResult.RESPONSE.ALTERED === '1') {
-            return { success: true, message: "Created/updated successfully in Tally.", responseXml };
-        } else {
-             const error = parsedResult.RESPONSE.LINEERROR || "Unknown Tally error.";
-             return { success: false, message: error, responseXml };
-        }
-    } catch (err: any) {
-        return { success: false, message: `Connection error: ${err.message}` };
-    }
+function buildVoucherFilterXML(ledgerName: string, amount: number): string {
+  const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
+  return `
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>VoucherFilter</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="VoucherFilter" ISMODIFY="No">
+            <TYPE>Voucher</TYPE>
+            <NATIVEMETHOD>VoucherNumber</NATIVEMETHOD>
+            <NATIVEMETHOD>VoucherTypeName</NATIVEMETHOD>
+            <NATIVEMETHOD>LedgerName</NATIVEMETHOD>
+            <NATIVEMETHOD>Date</NATIVEMETHOD>
+            <FILTER>FilterByVoucherType</FILTER>
+            <FILTER>FilterByLedgerName</FILTER>
+            <FILTER>FilterByAmount</FILTER>
+          </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="FilterByVoucherType">
+            $VoucherTypeName = $$String:"Sales"
+          </SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="FilterByLedgerName">
+            $LedgerName = $$String:"${ledgerName}"
+          </SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="FilterByAmount">
+            $Amount = ${amountStr}
+          </SYSTEM>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`.trim();
 }
 
-// ---------------- Voucher Fetcher ----------------
+// ---------------- Main ops ----------------
 
-export async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | undefined> {
-    const ledgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
-    const amount = invoice.totals.grandTotal.toFixed(2);
-
-    const requestXML = `
-    <ENVELOPE>
-        <HEADER>
-            <VERSION>1</VERSION>
-            <TALLYREQUEST>Export</TALLYREQUEST>
-            <TYPE>Collection</TYPE>
-            <ID>VoucherFilter</ID>
-        </HEADER>
-        <BODY>
-            <DESC>
-                <STATICVARIABLES>
-                    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-                </STATICVARIABLES>
-                <TDL>
-                    <TDLMESSAGE>
-                        <COLLECTION NAME="VoucherFilter" ISMODIFY="No">
-                            <TYPE>Voucher</TYPE>
-                            <NATIVEMETHOD>VoucherNumber</NATIVEMETHOD>
-                            <NATIVEMETHOD>VoucherTypeName</NATIVEMETHOD>
-                            <NATIVEMETHOD>LedgerName</NATIVEMETHOD>
-                            <NATIVEMETHOD>Date</NATIVEMETHOD>
-                            <FILTER>FilterByVoucherType</FILTER>
-                            <FILTER>FilterByLedgerName</FILTER>
-                            <FILTER>FilterByAmount</FILTER>
-                        </COLLECTION>
-                        <SYSTEM TYPE="Formulae" NAME="FilterByVoucherType">
-                            $VoucherTypeName = $$String:"Sales"
-                        </SYSTEM>
-                        <SYSTEM TYPE="Formulae" NAME="FilterByLedgerName">
-                            $LedgerName = $$String:"${ledgerName}"
-                        </SYSTEM>
-                        <SYSTEM TYPE="Formulae" NAME="FilterByAmount">
-                            $Amount = ${amount}
-                        </SYSTEM>
-                    </TDLMESSAGE>
-                </TDL>
-            </DESC>
-        </BODY>
-    </ENVELOPE>`;
-
-    try {
-        const tallyUrl = process.env.TALLY_SERVER_URL;
-        if (!tallyUrl) {
-            console.error("TALLY_SERVER_URL is not set.");
-            return undefined;
-        }
-        const tallyResponse = await axios.post(tallyUrl, requestXML, {
-            headers: { "Content-Type": "text/xml" },
-        });
-
-        const parsed = await xml2js.parseStringPromise(tallyResponse.data, { explicitArray: false });
-        
-        const voucherNumber = parsed?.ENVELOPE?.BODY?.DATA?.COLLECTION?.VOUCHER?.VOUCHERNUMBER;
-
-        if (voucherNumber) {
-            const invoiceRef = doc(adminDb, "invoices", invoice.id);
-            await updateDoc(invoiceRef, { tallyVoucherNo: voucherNumber });
-            return voucherNumber;
-        }
-        return undefined;
-    } catch (err: any) {
-        console.error("Voucher fetch failed:", err.message);
-        return undefined;
+async function createIfNeeded(xml: string): Promise<{ success: boolean; message: string; responseXml: string }> {
+  try {
+    const resp = await httpPostXml(xml);
+    if (tallyCreateOk(resp)) {
+      return { success: true, message: 'Created/updated successfully in Tally.', responseXml: resp };
     }
+    const errLine = resp.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/)?.[1]?.trim() ?? 'Unknown Tally error.';
+    return { success: false, message: errLine, responseXml: resp };
+  } catch (e: any) {
+    return { success: false, message: String(e?.message || e), responseXml: '' };
+  }
 }
 
-// ---------------- Main ----------------
+async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | undefined> {
+  const ledgerName = `${invoice.customer.name} (${invoice.customer.phone})`;
+  const amount = Number(invoice?.totals?.grandTotal ?? 0);
+
+  const filterXml = buildVoucherFilterXML(escapeXml(ledgerName), amount);
+  try {
+    const xml = await httpPostXml(filterXml);
+    const voucherNo = extractVoucherNumber(xml);
+    if (voucherNo) {
+      await adminDb.collection('invoices').doc(invoice.id).update({ tallyVoucherNo: voucherNo });
+      return voucherNo;
+    }
+    return undefined;
+  } catch (e) {
+    console.error('Voucher fetch failed:', e);
+    return undefined;
+  }
+}
 
 export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
-    // 1. Ensure Ledger and Stock Items exist
-    await postToTally(await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone));
-    for (const item of invoice.items) {
-        await postToTally(await buildStockItemCreateXML(item.itemName));
+  // 1) Ensure Ledger and Stock Items
+  await createIfNeeded(await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone));
+  for (const item of invoice.items) {
+    await createIfNeeded(await buildStockItemCreateXML(item.itemName));
+  }
+
+  // 2) Create the Sales Voucher
+  const voucherXml = await buildSalesVoucherXML(invoice);
+  const voucherResult = await createIfNeeded(voucherXml);
+
+  // 3) Save XML we posted (for debugging/traceability)
+  await adminDb.collection('invoices').doc(invoice.id).update({ tallySalesXml: voucherXml });
+
+  // 4) Always try to fetch the voucher number and save it
+  const voucherNumber = await fetchAndSaveVoucherNumber(invoice);
+
+  return {
+    success: voucherResult.success,
+    message: voucherResult.message + (voucherNumber ? ` Voucher No: ${voucherNumber}` : ' Could not fetch voucher number.'),
+    voucherNumber,
+  };
+}
+
+export async function getStockFromTally(itemName: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
+  const xml = `
+    <ENVELOPE>
+        <HEADER>
+            <TALLYREQUEST>Export</TALLYREQUEST>
+        </HEADER>
+        <BODY>
+            <EXPORTDATA>
+                <REQUESTDESC>
+                    <REPORTNAME>Stock Summary</REPORTNAME>
+                    <STATICVARIABLES>
+                        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+                        <STOCKITEMNAME>${escapeXml(itemName)}</STOCKITEMNAME>
+                    </STATICVARIABLES>
+                </REQUESTDESC>
+            </EXPORTDATA>
+        </BODY>
+    </ENVELOPE>`;
+  try {
+    const responseXml = await httpPostXml(xml);
+    const parsed = await xml2js.parseStringPromise(responseXml, { explicitArray: false, trim: true });
+    
+    const closingBalance = parsed?.ENVELOPE?.BODY?.DATA?.COLLECTION?.STOCKITEM?.CLOSINGBALANCE;
+    if (typeof closingBalance === 'string') {
+        const quantity = parseFloat(closingBalance);
+        return { success: true, quantity: isNaN(quantity) ? 0 : quantity, message: 'Success' };
     }
+    return { success: true, quantity: 0, message: 'Stock item not found in Tally or has no balance.' };
+  } catch (error: any) {
+    console.error(`Tally stock fetch error for ${itemName}:`, error.message);
+    return { success: false, quantity: null, message: error.message };
+  }
+}
 
-    // 2. Create the Sales Voucher
-    const voucherXml = await buildSalesVoucherXML(invoice);
-    const voucherResult = await postToTally(voucherXml);
-
-    // 3. Save the generated XML to Firestore for logging/debugging
-    const invoiceRef = doc(adminDb, "invoices", invoice.id);
-    await updateDoc(invoiceRef, { tallySalesXml: voucherXml });
-
-    if (!voucherResult.success) {
-        return voucherResult;
+export async function getFirestoreStockQuantity(itemName: string): Promise<{ success: boolean; quantity: number | null; message: string; }> {
+    try {
+        const stockId = itemName.replace(/\//g, '-');
+        const stockRef = adminDb.collection('stocks').doc(stockId);
+        const docSnap = await stockRef.get();
+        if (docSnap.exists) {
+            const quantity = docSnap.data()?.quantity || 0;
+            return { success: true, quantity: quantity, message: 'Success' };
+        }
+        return { success: true, quantity: 0, message: 'Stock not found in Firestore.' };
+    } catch (error: any) {
+        return { success: false, quantity: null, message: error.message };
     }
-
-    // 4. Fetch and save the voucher number from Tally
-    const finalVoucherNo = await fetchAndSaveVoucherNumber(invoice);
-
-    return {
-        success: true,
-        message: `Voucher created successfully.` + (finalVoucherNo ? ` Tally Voucher No: ${finalVoucherNo}` : " Could not retrieve voucher number."),
-        voucherNumber: finalVoucherNo
-    };
 }
