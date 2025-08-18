@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -43,7 +42,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
-import { sendInvoiceToTally } from "@/services/tally";
+import { sendInvoiceToTally, buildSalesVoucherXML } from "@/services/tally";
 import Link from "next/link";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -628,13 +627,17 @@ export default function InvoicePage() {
   const [orders, setOrders] = React.useState<Order[]>([]);
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [isSyncing, setIsSyncing] = React.useState(false);
+  const [xmlPreview, setXmlPreview] = React.useState<string | null>(null);
+  const [invoiceToSync, setInvoiceToSync] = React.useState<Invoice | null>(null);
+
   const { toast } = useToast();
 
   React.useEffect(() => {
     setLoading(true);
     const batchesQuery = query(collection(db, "invoiceBatches"));
     const ordersQuery = query(collection(db, "orders"));
-    const invoicesQuery = query(collection(db, "invoices"), where("tallySalesXml", "!=", null), orderBy("tallySalesXml"), orderBy("createdAt", "desc"));
+    const invoicesQuery = query(collection(db, "invoices"), orderBy("createdAt", "desc"));
 
     const unsubscribeBatches = onSnapshot(batchesQuery, (snapshot) => {
         const batchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvoiceBatch));
@@ -670,6 +673,44 @@ export default function InvoicePage() {
   }, [toast]);
   
 
+  const handleGenerateTallyInvoice = async (selectedInvoices: Invoice[]) => {
+    if (selectedInvoices.length === 0) {
+      toast({ variant: 'destructive', title: 'No Invoices Selected', description: 'Please select at least one invoice to sync.' });
+      return;
+    }
+    
+    // For simplicity, we'll show a preview for the first selected invoice.
+    const firstInvoice = selectedInvoices[0];
+    setInvoiceToSync(firstInvoice);
+
+    // Build the XML here just for preview
+    const xml = buildSalesVoucherXML(firstInvoice);
+    setXmlPreview(xml);
+  };
+  
+  const handleConfirmAndSend = async () => {
+      if (!invoiceToSync) return;
+      setIsSyncing(true);
+      toast({ title: 'Sync Started', description: `Sending invoice #${invoiceToSync.invoiceNo} to Tally...` });
+      try {
+          const result = await sendInvoiceToTally(invoiceToSync);
+          if (result.success && result.voucherNumber) {
+              const invoiceRef = doc(db, "invoices", invoiceToSync.id);
+              await updateDoc(invoiceRef, { tallyVoucherNo: result.voucherNumber });
+              toast({ title: `Success for #${invoiceToSync.invoiceNo}`, description: `Voucher created in Tally: ${result.voucherNumber}` });
+          } else {
+              toast({ variant: 'destructive', title: `Failed for #${invoiceToSync.invoiceNo}`, description: result.message });
+          }
+      } catch (error: any) {
+          toast({ variant: 'destructive', title: `Error for #${invoiceToSync.invoiceNo}`, description: error.message });
+      } finally {
+          setIsSyncing(false);
+          setXmlPreview(null);
+          setInvoiceToSync(null);
+      }
+  }
+
+
   const activeBatches = React.useMemo(() => batches.filter(b => b.status === 'pending'), [batches]);
 
   return (
@@ -698,13 +739,36 @@ export default function InvoicePage() {
                 <InvoiceTable batches={activeBatches} orders={orders} loading={loading} view="active" />
             </TabsContent>
             <TabsContent value="history" className="pt-4">
-                <InvoiceLogTable />
+                <InvoiceLogTable onGenerateTallyInvoice={handleGenerateTallyInvoice} />
             </TabsContent>
             <TabsContent value="xml-log" className="pt-4">
                 <XmlLogTable invoices={invoices} />
             </TabsContent>
         </Tabs>
     </div>
+    <Dialog open={!!xmlPreview} onOpenChange={() => setXmlPreview(null)}>
+        <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
+            <DialogHeader>
+                <DialogTitle>Confirm Tally Sync</DialogTitle>
+                <DialogDescription>
+                    Review the generated XML. This will be sent to Tally to create a sales voucher for invoice #{invoiceToSync?.invoiceNo}.
+                </DialogDescription>
+            </DialogHeader>
+             <ScrollArea className="flex-grow bg-muted rounded-md p-4 border">
+                <pre className="text-xs whitespace-pre-wrap break-all">
+                    <code>{xmlPreview}</code>
+                </pre>
+            </ScrollArea>
+            <DialogFooter>
+                <Button variant="ghost" onClick={() => setXmlPreview(null)}>Cancel</Button>
+                <Button onClick={handleConfirmAndSend} disabled={isSyncing}>
+                    {isSyncing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Confirm & Send to Tally
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
     </>
   );
 }
+
