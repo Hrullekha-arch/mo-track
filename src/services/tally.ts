@@ -1,9 +1,11 @@
+
+
 'use server';
 
 import { Invoice } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
 import axios from "axios";
-import { parseStringPromise } from "xml2js";
+import xml2js from "xml2js";
 import { doc, updateDoc } from 'firebase-admin/firestore';
 
 // ---------------- Helpers ----------------
@@ -32,7 +34,7 @@ async function postToTally(xml: string): Promise<any> {
     const response = await axios.post(process.env.TALLY_SERVER_URL, xml, {
       headers: { "Content-Type": "text/xml" },
     });
-    return await parseStringPromise(response.data);
+    return await xml2js.parseStringPromise(response.data);
   } catch (error: any) {
     console.error("Error posting to Tally:", error.message);
     throw new Error(`Failed to connect to Tally server. Please ensure Tally is running and the URL is correct. Error: ${error.message}`);
@@ -85,7 +87,7 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
 
 export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   // --- helpers ---
-  const money = (n: number) => (Math.round(n * 100) / 100);
+  const money = (n: number) => (Math.round(n * 100) / 100); // banker's rounding not needed here
   const fmt = (n: number) => money(n).toFixed(2);
 
   // --- setup ---
@@ -93,10 +95,11 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
   const salesLedger = "Sales Accounts";
 
-  const state = "Delhi";
-  const placeOfSupply = "Delhi";
+  // Force same-state so CGST/SGST both apply (adjust if your company state is different)
+  const state = "Delhi";           // <- set to your company state
+  const placeOfSupply = "Delhi";   // <- same as state for intra-state
 
-  // --- build inventory lines and compute subtotal ---
+  // --- build inventory lines and compute subtotal from the same numbers we write ---
   let itemSubtotal = 0;
   let inventoryEntries = '';
 
@@ -121,12 +124,17 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
         </ACCOUNTINGALLOCATIONS.LIST>
       </ALLINVENTORYENTRIES.LIST>`;
   });
-  
-  // --- Compute taxes and totals ---
+
+  // --- compute taxes to match what we’ll post ---
+  // If you want 5% GST split, compute on the rounded itemSubtotal:
   const totalGST = money(itemSubtotal * 0.05);
   const cgst = money(totalGST / 2);
-  const sgst = money(totalGST - cgst);
-  const partyAmount = money(itemSubtotal + cgst + sgst);
+  const sgst = money(totalGST - cgst); // keep pennies consistent
+
+  // If your business logic sometimes posts IGST or only one tax, adjust here and
+  // ALSO change the XML tax lines accordingly.
+
+  const partyAmount = money(itemSubtotal + cgst + sgst); // what customer owes
 
   const cgstLedgerEntry = cgst > 0 ? `
     <LEDGERENTRIES.LIST>
@@ -161,15 +169,18 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
             <DATE>${date}</DATE>
             <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
+
+            <!-- keep intra-state for CGST+SGST -->
             <STATENAME>${state}</STATENAME>
             <PLACEOFSUPPLY>${placeOfSupply}</PLACEOFSUPPLY>
+
             <PARTYNAME>${partyLedgerName}</PARTYNAME>
             <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
             <BASICBUYERNAME>${partyLedgerName}</BASICBUYERNAME>
             <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
             <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
             <ISINVOICE>Yes</ISINVOICE>
-            
+
             <LEDGERENTRIES.LIST>
               <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
               <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
