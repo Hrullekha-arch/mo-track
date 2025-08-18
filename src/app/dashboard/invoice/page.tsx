@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -11,7 +12,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon, Code } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +45,7 @@ import { useAuth } from "@/context/AuthContext";
 import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
 import { sendInvoiceToTally } from "@/services/tally";
 import Link from "next/link";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 
 function GenerateInvoiceDialog({
@@ -548,21 +550,91 @@ function InvoiceTable({
   )
 }
 
+function XmlLogTable({ invoices }: { invoices: Invoice[] }) {
+    const [selectedXml, setSelectedXml] = React.useState<string | null>(null);
+
+    return (
+        <>
+            <Card>
+                <CardHeader>
+                    <CardTitle>XML Log</CardTitle>
+                    <CardDescription>A log of all XML payloads sent to Tally for sales voucher creation.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="rounded-md border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Invoice No</TableHead>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Customer</TableHead>
+                                    <TableHead className="text-right">Amount</TableHead>
+                                    <TableHead className="text-right">Action</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {invoices.length > 0 ? (
+                                    invoices.map((invoice) => (
+                                        <TableRow key={invoice.id}>
+                                            <TableCell className="font-mono">{invoice.invoiceNo}</TableCell>
+                                            <TableCell>{format(new Date(invoice.createdAt), 'dd/MM/yyyy')}</TableCell>
+                                            <TableCell>{invoice.customer.name}</TableCell>
+                                            <TableCell className="text-right">₹{invoice.totals.grandTotal.toFixed(2)}</TableCell>
+                                            <TableCell className="text-right">
+                                                <Button variant="outline" size="sm" onClick={() => setSelectedXml(invoice.tallySalesXml || null)}>
+                                                    <Code className="mr-2 h-4 w-4" />
+                                                    View XML
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="h-24 text-center">
+                                            No XML logs found. Generate an invoice to see the log here.
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+            <Dialog open={!!selectedXml} onOpenChange={() => setSelectedXml(null)}>
+                <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle>Sales Voucher XML</DialogTitle>
+                        <DialogDescription>
+                            This is the exact XML payload that was sent to Tally.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <ScrollArea className="flex-grow bg-muted rounded-md p-4">
+                        <pre className="text-xs whitespace-pre-wrap break-all">
+                           <code>{selectedXml}</code>
+                        </pre>
+                    </ScrollArea>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setSelectedXml(null)}>Close</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
+}
+
 
 export default function InvoicePage() {
   const [batches, setBatches] = React.useState<InvoiceBatch[]>([]);
   const [orders, setOrders] = React.useState<Order[]>([]);
+  const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();
-
-  const [orderNoFilter, setOrderNoFilter] = React.useState("");
-  const [dateRangeFilter, setDateRangeFilter] = React.useState<DateRange | undefined>();
-  const [storeFilter, setStoreFilter] = React.useState("all");
 
   React.useEffect(() => {
     setLoading(true);
     const batchesQuery = query(collection(db, "invoiceBatches"));
     const ordersQuery = query(collection(db, "orders"));
+    const invoicesQuery = query(collection(db, "invoices"), where("tallySalesXml", "!=", null), orderBy("tallySalesXml"), orderBy("createdAt", "desc"));
 
     const unsubscribeBatches = onSnapshot(batchesQuery, (snapshot) => {
         const batchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvoiceBatch));
@@ -579,38 +651,26 @@ export default function InvoicePage() {
         console.error("Error fetching orders:", error);
     });
 
+    const unsubscribeInvoices = onSnapshot(invoicesQuery, (snapshot) => {
+        const invoicesData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Invoice));
+        setInvoices(invoicesData);
+    });
+
     Promise.all([
         getDocs(batchesQuery),
-        getDocs(ordersQuery)
+        getDocs(ordersQuery),
+        getDocs(invoicesQuery),
     ]).finally(() => setLoading(false));
 
     return () => {
       unsubscribeBatches();
       unsubscribeOrders();
+      unsubscribeInvoices();
     };
   }, [toast]);
   
-  const clearFilters = () => {
-    setOrderNoFilter("");
-    setDateRangeFilter(undefined);
-    setStoreFilter("all");
-  };
 
-  const filteredBatches = React.useMemo(() => {
-    return batches.filter(batch => {
-      const order = orders.find(o => o.id === batch.orderId);
-      if (!order) return false; // Should not happen if data is consistent
-
-      const orderNoMatch = orderNoFilter ? batch.orderId.includes(orderNoFilter.toUpperCase()) : true;
-      const dateMatch = dateRangeFilter?.from ? isWithinInterval(batch.createdAt.toDate(), { start: dateRangeFilter.from, end: dateRangeFilter.to || dateRangeFilter.from }) : true;
-      const storeMatch = storeFilter === 'all' ? true : order.storeName === storeFilter;
-
-      return orderNoMatch && dateMatch && storeMatch;
-    });
-  }, [batches, orders, orderNoFilter, dateRangeFilter, storeFilter]);
-
-  const activeBatches = React.useMemo(() => filteredBatches.filter(b => b.status === 'pending'), [filteredBatches]);
-  const uniqueStores = [...new Set(orders.map(o => o.storeName).filter(Boolean))];
+  const activeBatches = React.useMemo(() => batches.filter(b => b.status === 'pending'), [batches]);
 
   return (
     <>
@@ -629,15 +689,19 @@ export default function InvoicePage() {
             </Button>
         </header>
        <Tabs defaultValue="active" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="active">Active Invoices</TabsTrigger>
-                <TabsTrigger value="all">Tally Log / Invoice History</TabsTrigger>
+                <TabsTrigger value="history">Tally Log</TabsTrigger>
+                <TabsTrigger value="xml-log">XML Log</TabsTrigger>
             </TabsList>
             <TabsContent value="active" className="pt-4">
                 <InvoiceTable batches={activeBatches} orders={orders} loading={loading} view="active" />
             </TabsContent>
-            <TabsContent value="all" className="pt-4">
+            <TabsContent value="history" className="pt-4">
                 <InvoiceLogTable />
+            </TabsContent>
+            <TabsContent value="xml-log" className="pt-4">
+                <XmlLogTable invoices={invoices} />
             </TabsContent>
         </Tabs>
     </div>

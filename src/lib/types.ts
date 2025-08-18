@@ -535,6 +535,7 @@ export interface Invoice {
     };
     createdAt: string; // ISO Date string
     createdBy: string; // User name
+    tallySalesXml?: string; // To store the generated XML
 }
 
 export interface CuttingTaskItem {

@@ -1,8 +1,11 @@
 
+
 'use server';
 
 import { Invoice } from '@/lib/types';
 import { format } from 'date-fns';
+import { adminDb } from '@/lib/firebase-admin';
+import { doc, updateDoc } from 'firebase/firestore';
 
 function escapeXml(unsafe: string): string {
     if (typeof unsafe !== 'string') {
@@ -42,7 +45,6 @@ function buildLedgerCreateXML(customerName: string, customerPhone: string): stri
                         <NAME>${ledgerName}</NAME>
                         <PARENT>Sundry Debtors</PARENT>
                         <ISBILLWISEON>Yes</ISBILLWISEON>
-                        <MOBILENUMBER>${escapeXml(customerPhone)}</MOBILENUMBER>
                     </LEDGER>
                 </TALLYMESSAGE>
             </DATA>
@@ -83,7 +85,6 @@ function buildStockItemCreateXML(itemName: string): string {
 
 
 function buildSalesVoucherXML(invoice: Invoice): string {
-  // const date = format(new Date(invoice.createdAt), 'yyyyMMdd');
   const date = '20250401'; // Hardcoded for testing
   const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
   const salesLedger = "Sales Accounts";
@@ -244,8 +245,18 @@ export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: b
         }
     }
 
-    // Step 3: Create the Sales Voucher
+    // Step 3: Create the Sales Voucher and store the XML
     const voucherXml = buildSalesVoucherXML(invoice);
+    
+    // Save the generated XML to the invoice document in Firestore.
+    try {
+        const invoiceRef = doc(adminDb, 'invoices', invoice.id);
+        await updateDoc(invoiceRef, { tallySalesXml: voucherXml });
+    } catch (error) {
+        console.error("Error saving sales XML to Firestore:", error);
+        // We can still proceed, but we'll log the error.
+    }
+    
     const voucherResult = await postToTally(voucherXml);
 
     if (voucherResult.success) {
