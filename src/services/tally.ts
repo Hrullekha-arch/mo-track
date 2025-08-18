@@ -20,28 +20,32 @@ function escapeXml(unsafe: string): string {
 function buildSalesVoucherXML(invoice: Invoice): string {
   const date = format(new Date(invoice.createdAt), 'yyyyMMdd');
   const customerName = escapeXml(invoice.customer.name);
-  const salesLedger = "Sales"; // Replace with your actual sales ledger name in Tally
-  const cgstLedger = "CGST"; // Replace with your CGST ledger
-  const sgstLedger = "SGST"; // Replace with your SGST ledger
-
-  const {
-      subTotal,
-      taxableValue,
-      cgst,
-      sgst,
-      grandTotal,
-  } = invoice.totals;
+  const salesLedger = "Sales Accounts"; // As per new XML
   
+  const { grandTotal } = invoice.totals;
+
   let inventoryEntries = '';
   invoice.items.forEach(item => {
+    const itemAmount = item.rate * item.quantityAllocated;
     inventoryEntries += `
       <ALLINVENTORYENTRIES.LIST>
         <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
-        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-        <RATE>${item.rate.toFixed(2)}/Mtr</RATE>
-        <AMOUNT>${(item.rate * item.quantityAllocated).toFixed(2)}</AMOUNT>
-        <ACTUALQTY>${item.quantityAllocated.toFixed(2)} Mtr</ACTUALQTY>
-        <BILLEDQTY>${item.quantityAllocated.toFixed(2)} Mtr</BILLEDQTY>
+        <RATE>${item.rate.toFixed(2)}/Nos</RATE>
+        <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
+        <ACTUALQTY>${item.quantityAllocated.toFixed(2)} Nos</ACTUALQTY>
+        <BILLEDQTY>${item.quantityAllocated.toFixed(2)} Nos</BILLEDQTY>
+        <BATCHALLOCATIONS.LIST>
+            <GODOWNNAME>Main Location</GODOWNNAME>
+            <BATCHNAME>Primary Batch</BATCHNAME>
+            <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
+            <ACTUALQTY>${item.quantityAllocated.toFixed(2)} Nos</ACTUALQTY>
+            <BILLEDQTY>${item.quantityAllocated.toFixed(2)} Nos</BILLEDQTY>
+        </BATCHALLOCATIONS.LIST>
+        <ACCOUNTINGALLOCATIONS.LIST>
+            <LEDGERNAME>${salesLedger}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <AMOUNT>${itemAmount.toFixed(2)}</AMOUNT>
+        </ACCOUNTINGALLOCATIONS.LIST>
       </ALLINVENTORYENTRIES.LIST>
     `;
   });
@@ -53,34 +57,37 @@ function buildSalesVoucherXML(invoice: Invoice): string {
       </HEADER>
       <BODY>
         <IMPORTDATA>
+          <REQUESTDESC>
+            <REPORTNAME>Vouchers</REPORTNAME>
+            <STATICVARIABLES>
+              <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
+            </STATICVARIABLES>
+          </REQUESTDESC>
           <REQUESTDATA>
             <TALLYMESSAGE xmlns:UDF="TallyUDF">
-              <VOUCHER VCHTYPE="Sales" ACTION="Create">
+              <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
                 <DATE>${date}</DATE>
-                <PARTYLEDGERNAME>${customerName}</PARTYLEDGERNAME>
-                <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
                 <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
-                <ALLLEDGERENTRIES.LIST>
-                  <LEDGERNAME>${customerName}</LEDGERNAME>
-                  <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-                  <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
-                </ALLLEDGERENTRIES.LIST>
-                <ALLLEDGERENTRIES.LIST>
-                  <LEDGERNAME>${salesLedger}</LEDGERNAME>
-                  <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                  <AMOUNT>${taxableValue.toFixed(2)}</AMOUNT>
-                  ${inventoryEntries}
-                </ALLLEDGERENTRIES.LIST>
-                 <ALLLEDGERENTRIES.LIST>
-                  <LEDGERNAME>${cgstLedger}</LEDGERNAME>
-                  <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                  <AMOUNT>${cgst.toFixed(2)}</AMOUNT>
-                </ALLLEDGERENTRIES.LIST>
-                 <ALLLEDGERENTRIES.LIST>
-                  <LEDGERNAME>${sgstLedger}</LEDGERNAME>
-                  <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                  <AMOUNT>${sgst.toFixed(2)}</AMOUNT>
-                </ALLLEDGERENTRIES.LIST>
+                <PARTYNAME>${customerName}</PARTYNAME>
+                <PARTYLEDGERNAME>${customerName}</PARTYLEDGERNAME>
+                <BASICBUYERNAME>${customerName}</BASICBUYERNAME>
+                <STATENAME>HARYANA</STATENAME> 
+                <PLACEOFSUPPLY>HARYANA</PLACEOFSUPPLY>
+                <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+                <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
+                <ISINVOICE>Yes</ISINVOICE>
+                ${inventoryEntries}
+                <LEDGERENTRIES.LIST>
+                    <LEDGERNAME>${customerName}</LEDGERNAME>
+                    <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+                    <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+                    <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
+                    <BILLALLOCATIONS.LIST>
+                        <NAME>${invoice.invoiceNo}</NAME>
+                        <BILLTYPE>New Ref</BILLTYPE>
+                        <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
+                    </BILLALLOCATIONS.LIST>
+                </LEDGERENTRIES.LIST>
               </VOUCHER>
             </TALLYMESSAGE>
           </REQUESTDATA>
