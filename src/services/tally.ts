@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { Invoice } from '@/lib/types';
@@ -23,7 +22,7 @@ function escapeXml(unsafe: string): string {
     });
 }
 
-function buildLedgerCreateXML(customerName: string, customerPhone: string): string {
+export function buildLedgerCreateXML(customerName: string, customerPhone: string): string {
     const ledgerName = escapeXml(`${customerName} (${customerPhone})`);
     return `
     <ENVELOPE>
@@ -53,7 +52,7 @@ function buildLedgerCreateXML(customerName: string, customerPhone: string): stri
     `;
 }
 
-function buildStockItemCreateXML(itemName: string): string {
+export function buildStockItemCreateXML(itemName: string): string {
     const escapedItemName = escapeXml(itemName);
     return `
     <ENVELOPE>
@@ -84,7 +83,7 @@ function buildStockItemCreateXML(itemName: string): string {
 }
 
 
-function buildSalesVoucherXML(invoice: Invoice): string {
+export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const date = '20250401'; // Hardcoded for testing
   const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
   const salesLedger = "Sales Accounts";
@@ -250,7 +249,7 @@ export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: b
     }
 
     // Step 3: Create the Sales Voucher and store the XML
-    const voucherXml = buildSalesVoucherXML(invoice);
+    const voucherXml = await buildSalesVoucherXML(invoice);
     
     // Save the generated XML to the invoice document in Firestore.
     try {
