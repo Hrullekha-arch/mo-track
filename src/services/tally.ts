@@ -22,7 +22,7 @@ function escapeXml(unsafe: string): string {
     });
 }
 
-export function buildLedgerCreateXML(customerName: string, customerPhone: string): string {
+export async function buildLedgerCreateXML(customerName: string, customerPhone: string): Promise<string> {
     const ledgerName = escapeXml(`${customerName} (${customerPhone})`);
     return `
     <ENVELOPE>
@@ -52,7 +52,7 @@ export function buildLedgerCreateXML(customerName: string, customerPhone: string
     `;
 }
 
-export function buildStockItemCreateXML(itemName: string): string {
+export async function buildStockItemCreateXML(itemName: string): Promise<string> {
     const escapedItemName = escapeXml(itemName);
     return `
     <ENVELOPE>
@@ -233,7 +233,7 @@ async function postToTally(xmlRequest: string): Promise<{ success: boolean; mess
 
 export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
     // Step 1: Ensure Customer Ledger exists
-    const ledgerXml = buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone);
+    const ledgerXml = await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone);
     const ledgerResult = await postToTally(ledgerXml);
     if (!ledgerResult.success) {
         return { success: false, message: `Failed to create customer ledger: ${ledgerResult.message}` };
@@ -241,7 +241,7 @@ export async function sendInvoiceToTally(invoice: Invoice): Promise<{ success: b
 
     // Step 2: Ensure all Stock Items exist
     for (const item of invoice.items) {
-        const itemXml = buildStockItemCreateXML(item.itemName);
+        const itemXml = await buildStockItemCreateXML(item.itemName);
         const itemResult = await postToTally(itemXml);
         if (!itemResult.success) {
             return { success: false, message: `Failed to create stock item ${item.itemName}: ${itemResult.message}` };
