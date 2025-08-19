@@ -62,6 +62,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
   React.useEffect(() => {
     const processData = async () => {
         const flattenedDataPromises = tableData.flatMap(req => {
+            // Filter for items that actually have a PO number, as those are the only ones relevant for inbound.
             const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
 
             return itemsWithPo.map(async item => {
@@ -73,6 +74,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                         const inboundSnap = await getDoc(inboundRef);
                         if (inboundSnap.exists()) {
                             const inboundData = inboundSnap.data() as InboundRequest;
+                            // Check the specific item within the inbound document
                             const inboundItem = inboundData.items.find(i => i.itemName === item.fabricName);
                             const completedMilestones = (inboundItem?.inboundMilestones || []);
                             const completedStepsCount = completedMilestones.length;
@@ -80,10 +82,11 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                             if (completedStepsCount === INBOUND_PROCESS_CONFIG.length) {
                                 statusText = 'Received';
                             } else if (completedStepsCount > 0) {
-                                const lastCompletedStepId = completedMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())[0].stepId;
+                                const lastCompletedStepId = completedMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.createdAt).getTime())[0].stepId;
                                 const lastStepConfig = INBOUND_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
                                 statusText = lastStepConfig?.name || "In Progress";
                             } else {
+                                // If the inbound doc exists but no milestones, it's pending the first step
                                 statusText = INBOUND_PROCESS_CONFIG[0]?.name || "Pending Receiving";
                             }
                         }

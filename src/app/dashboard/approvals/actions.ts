@@ -14,6 +14,14 @@ export async function approveOrderAndCreatePurchaseRequest(
     try {
         const orderRef = adminDb.collection('orders').doc(orderId);
         
+        // We need the order data to proceed with other actions
+        const orderSnap = await orderRef.get();
+        if (!orderSnap.exists) {
+            return { success: false, message: "Order not found." };
+        }
+        const orderData = orderSnap.data() as Order;
+        
+        // Use a batch for all subsequent writes
         const batch = adminDb.batch();
 
         // 1. Update the root Order status with approver details
@@ -22,17 +30,9 @@ export async function approveOrderAndCreatePurchaseRequest(
             approvedBy: approver, 
             approvedAt: new Date().toISOString() 
         });
-        
-        // We need the order data to proceed with other actions
-        const orderSnap = await orderRef.get();
-        if (!orderSnap.exists) {
-            return { success: false, message: "Order not found." };
-        }
-        const orderData = orderSnap.data() as Order;
 
         // 2. Update the DealOrder status in the customer's subcollection
         if (orderData.customerId && orderData.dealId && orderData.dealOrderDocId) {
-            // To get the deal's firestore ID, we can query for it using the numeric dealId
             const dealsQuery = adminDb.collection('customers').doc(orderData.customerId).collection('deals').where('dealId', '==', orderData.dealId);
             const dealsSnapshot = await dealsQuery.get();
             if(!dealsSnapshot.empty) {
@@ -49,10 +49,11 @@ export async function approveOrderAndCreatePurchaseRequest(
         const allItems: FabricDetail[] = orderData.fabricDetails || [];
 
         for (const item of allItems) {
+            // A simplified check. A more robust solution would check against available lengths.
             const stockId = item.fabricName.replace(/\//g, '-');
             const stockRef = adminDb.collection('stocks').doc(stockId);
             const stockSnap = await stockRef.get();
-            const currentStockQty = (stockSnap.data() as Stock)?.quantity || 0;
+            const currentStockQty = (stockSnap.data() as Stock)?.availableQty || 0;
             const requiredQty = parseFloat(item.quantity);
 
             if (requiredQty > currentStockQty) {
@@ -66,30 +67,38 @@ export async function approveOrderAndCreatePurchaseRequest(
         let purchaseMessage = "";
         const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
 
-        // 4. Create a new Purchase Request document if there are items to purchase
+        // 4. ***REFACTORED LOGIC***
+        // Create a separate Purchase Request document for EACH item that needs to be purchased.
         if (itemsToPurchase.length > 0) {
-            const prRef = adminDb.collection('purchaseRequests').doc(orderData.crmOrderNo);
-            
             const initialMilestones: PurchaseStatus[] = [
                 { stepId: 1, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
                 { stepId: 2, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
             ];
 
-            const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-                dealId: orderData.crmOrderNo,
-                customerName: orderData.customerName,
-                promiseDeliveryDate: new Date().toISOString(), // Placeholder
-                salesman: orderData.salesPerson,
-                type: 'fabric',
-                fabricDetails: itemsToPurchase,
-                createdAt: new Date().toISOString(),
-                createdBy: approver,
-                milestones: initialMilestones,
-                vendorType: 'undecided',
-                status: 'Approved', // This request should be approved and ready for SO to PO
-            };
-            batch.set(prRef, newPurchaseRequest);
-            purchaseMessage = ` A purchase request has been generated for ${itemsToPurchase.length} out-of-stock item(s).`;
+            for (const itemToPurchase of itemsToPurchase) {
+                 // Create a unique ID for each item's purchase request
+                const prDocId = `${orderData.crmOrderNo}-${itemToPurchase.fabricName.replace(/\s+/g, '-')}`;
+                const prRef = adminDb.collection('purchaseRequests').doc(prDocId);
+                
+                const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
+                    dealId: orderData.crmOrderNo,
+                    customerName: orderData.customerName,
+                    promiseDeliveryDate: new Date().toISOString(), // Placeholder
+                    salesman: orderData.salesPerson,
+                    type: 'fabric',
+                    // This now only contains the single item
+                    fabricDetails: [itemToPurchase],
+                    createdAt: new Date().toISOString(),
+                    createdBy: approver,
+                    milestones: initialMilestones,
+                    vendorType: 'undecided',
+                    status: 'Approved', 
+                };
+                batch.set(prRef, newPurchaseRequest);
+            }
+
+            purchaseMessage = ` ${itemsToPurchase.length} purchase request(s) have been generated for out-of-stock items.`;
+
         } else {
             // AUTOMATION: If no items to purchase, all stock is available. Mark material receiving as complete.
             const o2dSnapshot = await o2dQuery.get();
