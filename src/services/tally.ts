@@ -368,9 +368,11 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
     const responseXml = await httpPostXml(xml);
     const parsed = await xml2js.parseStringPromise(responseXml, { explicitArray: false, trim: true });
     
-    const closingBalance = parsed?.ENVELOPE?.STOCKITEM?.CLOSINGBALANCE;
+    const closingBalance = parsed?.ENVELOPE?.BODY?.DATA?.COLLECTION?.STOCKITEM?.CLOSINGBALANCE;
+    
     if (typeof closingBalance === 'string') {
-        const quantity = parseFloat(closingBalance);
+        const match = closingBalance.match(/^(-?\d+(\.\d+)?)/);
+        const quantity = match ? parseFloat(match[1]) : 0;
         return { success: true, quantity: isNaN(quantity) ? 0 : quantity, message: 'Success' };
     }
     return { success: true, quantity: 0, message: 'Stock item not found in Tally or has no balance.' };
