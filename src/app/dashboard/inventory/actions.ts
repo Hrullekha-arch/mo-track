@@ -1,5 +1,3 @@
-
-
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -319,7 +317,7 @@ export async function deleteStockTransaction(stockId: string, transactionId: str
   // Deleting an 'addition' would require deleting all its 'deduction' subcollections.
   // For now, we will prevent this action until a clear business rule is defined.
   
-  return { success: false, message: "Direct deletion of individual transactions is currently disabled due to the new data structure. Please revert from the source (e.g., order page)." };
+  return { success: false, message: "Direct deletion of individual transactions is currently disabled due to the new nested stock structure. Please revert from the source (e.g., order page)." };
 }
 
 
