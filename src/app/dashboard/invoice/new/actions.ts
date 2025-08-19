@@ -3,8 +3,9 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType, CutRequest } from '@/lib/types';
+import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType, CuttingTask } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
+import { FieldValue } from 'firebase-admin/firestore';
 
 export async function getQuotationsForDeal(customerId: string, dealId: string): Promise<Quotation[]> {
     try {
@@ -64,7 +65,6 @@ export async function createDealOrderAction(
     const customerData = customerSnap.data() as Customer;
     const dealData = dealSnap.data() as Deal;
 
-    // Fetch the salesman's name from the users collection
     let salesmanName = 'N/A';
     if (dealData.representativeId) {
         const salesmanRef = adminDb.collection('users').doc(dealData.representativeId);
@@ -76,25 +76,36 @@ export async function createDealOrderAction(
 
     const batch = adminDb.batch();
     
-    // Create the DealOrder subcollection document first to get its ID
     const dealOrdersRef = dealRef.collection('orders');
     const newDealOrderRef = dealOrdersRef.doc();
 
-    // 1. Create the new order in the main orders collection
     const orderId = `MOTRACK-${quotation.quotationNo}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
+    
+    // Check stock availability and create reservation details
+    for (const item of quotation.items) {
+        const stockId = item.collectionBrand.replace(/\//g, '-');
+        const stockRef = adminDb.collection('stocks').doc(stockId);
+        const stockDoc = await stockRef.get();
 
-    const allFabricDetails: FabricDetail[] = await Promise.all(quotation.items.map(async (item) => {
-        const stockRef = adminDb.collection('stocks').doc(item.collectionBrand.replace(/\//g, '-'));
-        const stockSnap = await stockRef.get();
-        const currentStockQty = (stockSnap.data() as Stock)?.quantity || 0;
-        const requiredQty = item.quantity;
+        if (!stockDoc.exists) throw new Error(`Stock item ${item.collectionBrand} not found.`);
+        const stockData = stockDoc.data() as Stock;
 
-        return {
-            fabricName: item.collectionBrand,
-            quantity: String(requiredQty),
-            status: requiredQty <= currentStockQty ? 'in stock' : 'pending for po',
-        };
+        if (stockData.availableQty < item.quantity) {
+            throw new Error(`Insufficient available stock for ${item.collectionBrand}. Available: ${stockData.availableQty}, Required: ${item.quantity}`);
+        }
+        
+        // Reserve the stock
+        batch.update(stockRef, {
+            reservedQty: FieldValue.increment(item.quantity),
+            availableQty: FieldValue.increment(-item.quantity)
+        });
+    }
+
+    const allFabricDetails: FabricDetail[] = quotation.items.map(item => ({
+      fabricName: item.collectionBrand,
+      quantity: String(item.quantity),
+      status: 'allocated', // The new flow considers this "reserved"
     }));
     
     const initialMilestones = getMilestonesForOrder(orderType);
@@ -102,7 +113,7 @@ export async function createDealOrderAction(
     if (firstMilestone) {
         firstMilestone.completed = true;
         firstMilestone.completedAt = new Date().toISOString();
-        firstMilestone.completedBy: creator.name;
+        firstMilestone.completedBy = creator.name;
     }
 
 
@@ -117,14 +128,14 @@ export async function createDealOrderAction(
       milestones: initialMilestones,
       createdAt: new Date().toISOString(),
       isAcknowledged: true,
-      status: 'Pending Approval', // Set status to Pending Approval
+      status: 'Pending Approval',
       customerId: customerId,
       dealId: dealData.dealId,
       dealOrderDocId: newDealOrderRef.id,
       storeName: quotation.store,
       fabricDetails: allFabricDetails,
-      totalAmount: quotation.totalAmount, // Store the final amount from the quotation
-      vasDetails: quotation.vasDetails || [], // Include VAS details
+      totalAmount: quotation.totalAmount,
+      vasDetails: quotation.vasDetails || [],
       createdBy: {
         id: creator.id,
         name: creator.name
@@ -134,7 +145,6 @@ export async function createDealOrderAction(
 
     batch.set(newOrderRef, newOrder);
     
-    // 2. Now define the DealOrder with the main order ID
     const newDealOrder: DealOrder = {
       orderNo: newOrder.id,
       id: newDealOrderRef.id,
@@ -142,43 +152,21 @@ export async function createDealOrderAction(
       createdBy: creator.name,
       remark: quotation.billingName || '',
       items: quotation.items,
-      status: 'Pending Approval' // Set status to Pending Approval
+      status: 'Pending Approval'
     };
 
     batch.set(newDealOrderRef, newDealOrder);
 
-    // 3. Update the quotation status
     batch.update(quotationRef, { 
       status: 'Converted to Order',
       orderNo: newOrder.id,
     });
     
-    // 4. Create Cut Requests
-    for (const item of quotation.items) {
-        const stockId = item.collectionBrand.replace(/\//g, '-');
-        const cutRequestRef = adminDb.collection('stocks').doc(stockId).collection('cutRequests').doc();
-        
-        const newCutRequest: Omit<CutRequest, 'id'> = {
-            invoiceId: newOrder.id, // Using order ID as invoice reference for now
-            orderId: newOrder.id,
-            rollId: 'R1', // This needs to be determined during allocation
-            stockId: stockId,
-            bcn: item.collectionBrand,
-            cutLength: item.quantity,
-            beforeBarcode: '', // To be filled during cut
-            status: "pending",
-            createdAt: new Date().toISOString(),
-            customerName: newOrder.customerName,
-            salesPerson: newOrder.salesPerson,
-        };
-        batch.set(cutRequestRef, { ...newCutRequest, id: cutRequestRef.id });
-    }
-
     await batch.commit();
 
     return {
       success: true,
-      message: 'Order created and sent for approval.',
+      message: 'Order created, stock reserved, and sent for approval.',
       order: JSON.parse(JSON.stringify(newOrder)),
     };
   } catch (error: any) {

@@ -265,63 +265,15 @@ export interface Stock {
   tax?: number; // Tax percentage
   category?: string;
   vendorName?: string;
-  quantity: number; // You may want a default or handle this from import
+  quantity: number; // Actual Stock: what you physically have
+  availableQty: number; // What you can sell = Actual - Reserved
+  reservedQty: number; // Stock blocked for orders but not yet billed/cut
+  cutQty: number; // How much has been physically cut from rolls
   unit: string;
   type: 'fabric' | 'furniture' | string; // Making it flexible
   lastUpdatedAt: string; // ISO Date
   rack?: string;
-
-  // New reservation fields
-  availableQty?: number;
-  reservedQty?: number;
-  cutQty?: number;
   status?: "available" | "reserved" | "cut" | "on-hold";
-}
-
-
-export interface Roll {
-  id: string; // rollId
-  length: number;
-  availableLength: number;
-  reservedLength: number;
-  cutLength: number;
-  dynamicBarcode: string; // e.g., "123456|50"
-  status: "available" | "on-hold" | "fully_used";
-}
-
-export interface Allocation {
-  id: string; // allocationId
-  orderId: string;
-  rollId: string;
-  reservedLength: number;
-  status: "reserved" | "invoiced" | "cut" | "cancelled" | "on-hold";
-  createdAt: string; // timestamp
-}
-
-export interface CutRequest {
-    id: string; // cutId
-    invoiceId: string;
-    orderId: string;
-    rollId: string;
-    stockId: string; // parent stock doc id
-    bcn: string;
-    cutLength: number;
-    beforeBarcode: string; // e.g. "123456|50"
-    status: "pending" | "completed" | "failed";
-    createdAt: string; // timestamp
-    customerName: string;
-    salesPerson: string;
-}
-
-export interface CutHistory {
-    id: string; // historyId
-    cutId: string;
-    rollId: string;
-    cutLength: number;
-    fromBarcode: string;
-    toBarcode: string;
-    operator: string;
-    timestamp: string;
 }
 
 
@@ -330,10 +282,10 @@ export interface StockTransaction {
   stockId: string;
   bcn: string;
   type: 'addition' | 'deduction';
-  quantityChange: number; // if addition, total length. if deduction, length cut.
+  quantityChange: number;
   poNumber?: string;
   orderId?: string;
-  lengths?: number[]; // if addition, original lengths. if deduction, length(s) cut.
+  lengths?: number[];
   lastLength?: number;
   createdAt: string; // ISO string
   createdBy: string;

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -62,7 +63,7 @@ export function StockDetails() {
     }
   }, [toast]);
   
-  const stockAddedTransactions = transactions.filter(t => t.type === 'addition' && t.quantityChange > 0);
+  const stockAddedTransactions = transactions.filter(t => t.type === 'addition');
 
   const handlePrint = () => {
     const printContent = document.getElementById('sticker-print-area');
@@ -71,7 +72,7 @@ export function StockDetails() {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    printWindow.document.write('<html><head><title>Print Stickers</title>');
+    printWindow.document.write('<html><head><title>Print Stickers</title></head><body>');
     printWindow.document.write(`
         <style>
             @media print {

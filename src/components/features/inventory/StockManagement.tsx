@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Stock, StockTransaction } from "@/lib/types";
-import { searchStockByBcn, updateStockQuantityAction, getStockTransactions, getStockById, getAvailableStockLengths } from "@/app/dashboard/inventory/actions";
+import { searchStockByBcn, updateStockQuantityAction, getStockTransactions, getStockById } from "@/app/dashboard/inventory/actions";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, PlusCircle, RefreshCw, Trash2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -227,26 +227,6 @@ export function StockManagement() {
   const stockAddedTransactions = transactions.filter(t => t.type === 'addition');
   const stockSoldTransactions = transactions.filter(t => t.type === 'deduction');
 
-  const calculatedAvailableLengths = React.useMemo(() => {
-    return stockAddedTransactions.map(addedTx => {
-        // Find all 'cut' deductions for this specific roll (addedTx)
-        const cutsMade = stockSoldTransactions.filter(
-            soldTx => (soldTx as any).parentTransactionId === addedTx.id && soldTx.status === 'cut'
-        );
-        const totalCutQuantity = cutsMade.reduce((sum, cut) => sum + Math.abs(cut.quantityChange), 0);
-        
-        // Original length is the quantityChange on the 'addition' transaction
-        const originalLength = addedTx.quantityChange;
-        const availableLength = originalLength - totalCutQuantity;
-        
-        return {
-            length: availableLength,
-            transactionId: addedTx.id,
-        };
-    }).filter(l => l.length > 0.01); // Filter out tiny remnants
-  }, [stockAddedTransactions, stockSoldTransactions]);
-
-
   return (
     <Card>
       <CardHeader>
@@ -279,28 +259,12 @@ export function StockManagement() {
             <Card className="p-4">
                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 items-center">
                     <p className="text-sm"><strong className="block text-muted-foreground">BCN:</strong> {selectedStock.bcn}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Sr No:</strong> {selectedStock.serialNo}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Rack:</strong> {selectedStock.rack || 'N/A'}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Current Stock Qty:</strong> {selectedStock.quantity}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Vendor:</strong> {selectedStock.vendorName}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Category:</strong> {selectedStock.category}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">MRP:</strong> ₹{selectedStock.mrp}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Tax:</strong> {selectedStock.tax ?? 'N/A'}%</p>
-                    <p className="text-sm col-span-2 md:col-span-1"><strong className="block text-muted-foreground">Last Updated:</strong> {new Date(selectedStock.lastUpdatedAt).toLocaleDateString()}</p>
+                    <p className="text-sm col-span-2"><strong className="block text-muted-foreground">Item Name:</strong> {selectedStock.itemName}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Available Qty:</strong> {selectedStock.availableQty?.toFixed(2) || '0.00'}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Reserved Qty:</strong> {selectedStock.reservedQty?.toFixed(2) || '0.00'}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Total Qty:</strong> {selectedStock.quantity.toFixed(2)}</p>
                  </div>
                  <Separator className="my-4" />
-                {isLoadingDetails ? <Loader2 className="h-4 w-4 animate-spin"/> : (
-                    <div className="space-y-2">
-                        <Label>Available Lengths</Label>
-                        <div className="flex flex-wrap gap-2">
-                            {calculatedAvailableLengths.length > 0 ? (
-                                calculatedAvailableLengths.map((len, index) => <Badge key={index} variant="secondary">{len.length.toFixed(2)}</Badge>)
-                            ) : (
-                                <p className="text-xs text-muted-foreground">No specific lengths available or tracked.</p>
-                            )}
-                        </div>
-                    </div>
-                )}
                  <div className="flex justify-end mt-4 gap-2">
                     <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
                         {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -312,36 +276,30 @@ export function StockManagement() {
 
             <div className="grid md:grid-cols-2 gap-6">
                 <div>
-                    <h3 className="font-semibold mb-2 text-center">Stock Sold</h3>
+                    <h3 className="font-semibold mb-2 text-center">Stock Deducted (Sold)</h3>
                     <div className="border rounded-lg">
                          <Table>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Date</TableHead>
-                                    <TableHead>Sold Length</TableHead>
-                                    <TableHead>Last Length</TableHead>
-                                    <TableHead>Status</TableHead>
+                                    <TableHead>Qty</TableHead>
                                     <TableHead>Order ID</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                  {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={3} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
                                 ) : stockSoldTransactions.length > 0 ? (
                                     stockSoldTransactions.map(tx => (
                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
-                                            <TableCell>{tx.lengths ? tx.lengths.join(', ') : Math.abs(tx.quantityChange)}</TableCell>
-                                            <TableCell>{tx.lastLength?.toFixed(2) || 'N/A'}</TableCell>
-                                            <TableCell>
-                                                <Badge variant={tx.status === 'cut' ? 'default' : 'outline'} className="capitalize">{tx.status || 'pending'}</Badge>
-                                            </TableCell>
+                                            <TableCell>{Math.abs(tx.quantityChange).toFixed(2)}</TableCell>
                                             <TableCell>{tx.orderId}</TableCell>
                                         </TableRow>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="h-24 text-center">
+                                        <TableCell colSpan={3} className="h-24 text-center">
                                             No sold data available.
                                         </TableCell>
                                     </TableRow>
@@ -351,32 +309,30 @@ export function StockManagement() {
                     </div>
                 </div>
                  <div>
-                    <h3 className="font-semibold mb-2 text-center">Stock Added</h3>
+                    <h3 className="font-semibold mb-2 text-center">Stock Added (Purchase)</h3>
                      <div className="border rounded-lg">
                         <Table>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Date</TableHead>
-                                    <TableHead>Added By</TableHead>
-                                    <TableHead>Lengths</TableHead>
-                                    <TableHead>Po Number</TableHead>
+                                    <TableHead>Qty</TableHead>
+                                    <TableHead>PO Number</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={3} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
                                 ) : stockAddedTransactions.length > 0 ? (
                                     stockAddedTransactions.map(tx => (
                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
-                                            <TableCell>{tx.createdBy}</TableCell>
-                                            <TableCell>{tx.lengths ? tx.lengths.join(', ') : tx.quantityChange}</TableCell>
+                                            <TableCell>{tx.quantityChange.toFixed(2)}</TableCell>
                                             <TableCell>{tx.poNumber}</TableCell>
                                         </TableRow>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={4} className="h-24 text-center">
+                                        <TableCell colSpan={3} className="h-24 text-center">
                                             No purchase data available.
                                         </TableCell>
                                     </TableRow>

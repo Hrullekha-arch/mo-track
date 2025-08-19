@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -68,7 +69,6 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
                  return;
             }
             
-            // Extract base64 part from data URL
             const base64Data = dataUrl.split(',')[1];
             
             const result = await importStockData(base64Data);
@@ -123,8 +123,16 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
       cell: ({ row }) => <div>{row.getValue("itemName")}</div>,
     },
     {
-      accessorKey: "serialNo",
-      header: "Serial No",
+      accessorKey: "quantity",
+      header: "Actual Qty"
+    },
+    {
+      accessorKey: "availableQty",
+      header: "Available Qty"
+    },
+    {
+      accessorKey: "reservedQty",
+      header: "Reserved Qty"
     },
     {
       accessorKey: "vendorName",
@@ -136,21 +144,9 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
       cell: ({ row }) => <Badge variant="outline" className="capitalize">{row.getValue("category")}</Badge>,
     },
     {
-      accessorKey: "hsnCode",
-      header: "HSN Code",
-    },
-    {
       accessorKey: "mrp",
       header: "MRP",
       cell: ({ row }) => `₹${row.getValue("mrp")}`,
-    },
-    {
-      accessorKey: "lastUpdatedAt",
-      header: "Last Updated",
-      cell: ({ row }) => {
-        const dateValue = row.getValue("lastUpdatedAt");
-        return dateValue ? new Date(dateValue as string).toLocaleDateString() : 'N/A';
-      }
     },
   ];
 

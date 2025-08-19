@@ -3,12 +3,12 @@
 "use client";
 
 import { useState, useEffect, use } from 'react';
-import { doc, onSnapshot, updateDoc, collection, getDoc, query, where, getDocs } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, collection, getDoc, query, where, getDocs, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest, InvoiceBatch } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2 } from 'lucide-react';
+import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2 } from "lucide-react";
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
@@ -24,18 +24,16 @@ import { Label } from '@/components/ui/label';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Form } from '@/components/ui/form';
+import { Form, FormControl, FormItem } from '@/components/ui/form';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 
 
 type OrderItem = (FabricDetail | FurnitureDetail) & { type: 'Fabric' | 'Furniture' };
 
 const allocationSchema = z.object({
-    selectedLengths: z.array(z.object({
-        length: z.number(),
-        transactionId: z.string(),
-    })).min(1, "Please select at least one length to allocate."),
+    quantityToAllocate: z.number().positive("Quantity must be greater than 0."),
 });
 
 type AllocationFormValues = z.infer<typeof allocationSchema>;
@@ -43,8 +41,6 @@ type AllocationFormValues = z.infer<typeof allocationSchema>;
 
 function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: OrderItem, stock: Stock, orderId: string, onAllocationSuccess: () => void }) {
     const [isOpen, setIsOpen] = useState(false);
-    const [availableLengths, setAvailableLengths] = useState<{ length: number; transactionId: string }[]>([]);
-    const [loadingLengths, setLoadingLengths] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
     const { user } = useAuth();
@@ -52,64 +48,10 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
     const form = useForm<AllocationFormValues>({
         resolver: zodResolver(allocationSchema),
         defaultValues: {
-            selectedLengths: [],
+            quantityToAllocate: parseFloat((item as any).quantity || '0'),
         }
     });
-    
-    const { fields, append, remove } = useFieldArray({
-        control: form.control,
-        name: "selectedLengths"
-    });
 
-    const itemRequiredQty = parseFloat((item as any).quantity || '0');
-    const selectedTotal = form.watch('selectedLengths').reduce((acc, curr) => acc + curr.length, 0);
-
-
-    useEffect(() => {
-        if (isOpen) {
-            const fetchLengths = async () => {
-                setLoadingLengths(true);
-                const result = await getAvailableStockLengths(stock.id);
-                if (result.success && result.lengths) {
-                    setAvailableLengths(result.lengths);
-                } else {
-                    toast({ variant: 'destructive', title: 'Error', description: result.message });
-                }
-                setLoadingLengths(false);
-            };
-            fetchLengths();
-        }
-    }, [isOpen, stock.id, toast]);
-    
-    const handleCheckboxChange = (checked: boolean, length: number, transactionId: string) => {
-        const selectedIndex = fields.findIndex(f => f.transactionId === transactionId && f.length === length);
-        
-        if (checked) {
-            if (selectedIndex !== -1) return; // Already selected
-    
-            const currentTotal = form.getValues('selectedLengths').reduce((acc, curr) => acc + curr.length, 0);
-            const remainingNeeded = itemRequiredQty - currentTotal;
-    
-            if (remainingNeeded <= 0) {
-                toast({
-                    title: 'Allocation Met',
-                    description: 'You have already selected enough quantity to fulfill the requirement.',
-                });
-                return;
-            }
-    
-            // If the available piece is larger than what's needed, only take what's needed.
-            const quantityToAllocate = Math.min(length, remainingNeeded);
-            
-            append({ length: quantityToAllocate, transactionId });
-    
-        } else {
-            if (selectedIndex !== -1) {
-                remove(selectedIndex);
-            }
-        }
-    };
-    
     const onSubmit = async (data: AllocationFormValues) => {
         if (!user) return toast({ variant: 'destructive', title: 'Not authenticated'});
         setIsSubmitting(true);
@@ -117,14 +59,14 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
             const result = await allocateStockToAction({
                 orderId,
                 stockId: stock.id,
-                itemName: (item as any).fabricName || (item as any).furnitureName,
-                allocatedLengths: data.selectedLengths,
+                itemName: stock.itemName,
+                allocatedQty: data.quantityToAllocate,
                 userId: user.id,
                 userName: user.name,
             });
 
             if (result.success) {
-                toast({ title: 'Allocation Successful!', description: 'Stock has been allocated to this order.' });
+                toast({ title: 'Allocation Successful!', description: 'Stock has been reserved for this order.' });
                 onAllocationSuccess();
                 setIsOpen(false);
             } else {
@@ -138,12 +80,7 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
     }
 
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => {
-            setIsOpen(open);
-            if (!open) {
-                form.reset(); // Reset form when closing
-            }
-        }}>
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
                 <Button variant="outline" size="sm">Allocate</Button>
             </DialogTrigger>
@@ -151,49 +88,42 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
                 <DialogHeader>
                     <DialogTitle>Allocate Stock</DialogTitle>
                     <DialogDescription>
-                        Allocate available lengths for <strong>{stock.bcn}</strong>. Required: {itemRequiredQty.toFixed(2)}
+                        Reserve stock for <strong>{stock.bcn}</strong>. Required: {(item as any).quantity}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="py-4">
-                    {loadingLengths ? (
-                        <div className="flex justify-center items-center h-24">
-                            <Loader2 className="h-6 w-6 animate-spin" />
-                        </div>
-                    ) : (
-                        <Form {...form}>
+                     <Form {...form}>
                             <form onSubmit={form.handleSubmit(onSubmit)}>
-                                <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-                                     {availableLengths.length > 0 ? availableLengths.map((l, i) => (
-                                         <div key={`${l.transactionId}-${i}`} className="flex items-center gap-4 p-2 border rounded-md">
-                                             <Checkbox 
-                                                id={`len-${l.transactionId}-${l.length}-${i}`}
-                                                onCheckedChange={(checked) => handleCheckboxChange(!!checked, l.length, l.transactionId)}
-                                                checked={fields.some(f => f.transactionId === l.transactionId && f.length === l.length)}
-                                             />
-                                             <Label htmlFor={`len-${l.transactionId}-${l.length}-${i}`} className="flex-grow">
-                                                Length: <span className="font-mono font-bold">{l.length.toFixed(2)}</span>
-                                             </Label>
-                                         </div>
-                                     )) : (
-                                        <p className="text-sm text-muted-foreground text-center">No available lengths found for this item.</p>
-                                     )}
-                                </div>
-                                <div className="font-semibold text-sm mt-4 text-right">
-                                    Selected Total: {selectedTotal.toFixed(2)} / {itemRequiredQty.toFixed(2)}
-                                </div>
+                                <FormField
+                                    control={form.control}
+                                    name="quantityToAllocate"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <Label>Quantity to Reserve</Label>
+                                            <FormControl>
+                                                <Input 
+                                                    type="number"
+                                                    {...field}
+                                                    onChange={e => field.onChange(parseFloat(e.target.value) || 0)}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
                                 <DialogFooter className="pt-4">
                                      <AlertDialog>
                                         <AlertDialogTrigger asChild>
-                                            <Button type="button" disabled={isSubmitting || selectedTotal > itemRequiredQty}>
+                                            <Button type="button" disabled={isSubmitting}>
                                                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                                Allocate
+                                                Reserve Stock
                                             </Button>
                                         </AlertDialogTrigger>
                                         <AlertDialogContent>
                                             <AlertDialogHeader>
                                                 <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                                                 <AlertDialogDescription>
-                                                    This will permanently allocate {selectedTotal.toFixed(2)} units from stock to this order. This action cannot be easily undone.
+                                                    This will reserve {form.getValues('quantityToAllocate')} units from available stock. This action can be reversed if the order is cancelled before invoicing.
                                                 </AlertDialogDescription>
                                             </AlertDialogHeader>
                                             <AlertDialogFooter>
@@ -205,7 +135,6 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
                                 </DialogFooter>
                             </form>
                         </Form>
-                    )}
                 </div>
             </DialogContent>
         </Dialog>
@@ -224,22 +153,29 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
         const fetchItemData = async () => {
             setLoading(true);
             const itemName = (item as any).fabricName || (item as any).furnitureName;
-            if (!itemName) {
+            const bcn = itemName.split(' - ')[0]; // Extract BCN from item name if present
+
+            if (!bcn) {
                 setLoading(false);
                 setStatus({ text: 'Invalid Item', variant: 'destructive' });
                 return;
             }
+            
+            const rollsQuery = query(collection(db, 'stocks'), where('bcn', '==', bcn), limit(1));
 
-            // Fetch all related data in parallel
-            const stockId = itemName.replace(/\//g, '-');
-            const stockPromise = getStockById(stockId);
             const allocationsPromise = getOrderAllocations(orderId);
             const poPromise = getDoc(doc(db, 'purchaseRequests', orderCrmNo));
             const invoiceQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', orderId));
             const invoicePromise = getDocs(invoiceQuery);
 
-            const [stock, allocations, poSnap, invoiceSnaps] = await Promise.all([stockPromise, allocationsPromise, poPromise, invoicePromise]);
+            const [rollsSnapshot, allocations, poSnap, invoiceSnaps] = await Promise.all([
+                getDocs(rollsQuery), 
+                allocationsPromise, 
+                poPromise, 
+                invoicePromise
+            ]);
 
+            const stock = rollsSnapshot.docs[0] ? { id: rollsSnapshot.docs[0].id, ...rollsSnapshot.docs[0].data() } as Stock : null;
             setStockInfo(stock);
             
             const itemAllocations = allocations.filter(a => a.itemName === itemName);
@@ -248,7 +184,6 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             
             const requiredQty = parseFloat((item as any).quantity || '0');
             
-            // Find the specific invoice batch that contains this item and is invoiced
             const invoicedBatch = invoiceSnaps.docs.find(doc => {
                 const batch = doc.data() as InvoiceBatch;
                 return batch.status === 'invoiced' && batch.items.some(batchItem => batchItem.itemName === itemName);
@@ -263,7 +198,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 });
             } else if (totalAllocated >= requiredQty) {
                 setStatus({ text: 'Pending for Invoice', variant: 'outline' });
-            } else if ((stock?.quantity || 0) >= (requiredQty - totalAllocated)) {
+            } else if ((stock?.availableQty || 0) >= (requiredQty - totalAllocated)) {
                 setStatus({ text: 'In Stock', variant: 'default' });
             } else {
                 if (poSnap.exists()) {
@@ -297,7 +232,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             <TableCell>{stockInfo?.serialNo || 'N/A'}</TableCell>
             <TableCell>{(item as any).quantity} {unit}</TableCell>
             <TableCell>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (stockInfo?.quantity ?? 'N/A')}
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (stockInfo?.availableQty?.toFixed(2) ?? 'N/A')}
             </TableCell>
             <TableCell>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (allocatedQty > 0 ? (
