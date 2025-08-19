@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Stock, StockTransaction } from "@/lib/types";
-import { searchStockByBcn, updateStockQuantityAction, getStockTransactions, getStockById } from "@/app/dashboard/inventory/actions";
+import { searchStockByBcn, getStockTransactions, getStockById } from "@/app/dashboard/inventory/actions";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, PlusCircle, RefreshCw, Trash2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -31,127 +31,11 @@ type UpdateStockFormValues = z.infer<typeof updateStockSchema>;
 
 
 function UpdateStockDialog({ stock, onStockUpdated }: { stock: Stock, onStockUpdated: (newStock: Stock) => void }) {
-    const [isOpen, setIsOpen] = React.useState(false);
-    const [isSubmitting, setIsSubmitting] = React.useState(false);
-    const { toast } = useToast();
-    const { user } = useAuth();
-    
-    const form = useForm<UpdateStockFormValues>({
-        resolver: zodResolver(updateStockSchema),
-        defaultValues: {
-            poNo: "",
-            lengths: [{ value: "" }],
-        },
-    });
-
-    const { fields, append, remove } = useFieldArray({
-        control: form.control,
-        name: "lengths",
-    });
-
-    const onSubmit = async (data: UpdateStockFormValues) => {
-        if (!user) {
-            toast({ variant: 'destructive', title: 'Authentication Error' });
-            return;
-        }
-        setIsSubmitting(true);
-        try {
-            const lengthsAsNumbers = data.lengths.map(l => parseFloat(l.value)).filter(n => !isNaN(n));
-            const addedQuantity = lengthsAsNumbers.reduce((sum, length) => sum + length, 0);
-            
-            const transaction: Omit<StockTransaction, 'id'> = {
-                stockId: stock.id,
-                bcn: stock.bcn || '',
-                type: 'addition',
-                quantityChange: addedQuantity,
-                poNumber: data.poNo,
-                lengths: lengthsAsNumbers,
-                createdAt: new Date().toISOString(),
-                createdBy: user.name,
-            };
-
-            const result = await updateStockQuantityAction(stock.id, transaction);
-            
-            if (result.success && result.newStock) {
-                toast({ title: 'Stock Updated!', description: `${addedQuantity} units added successfully.`});
-                const freshStock = await getStockById(stock.id);
-                if (freshStock) {
-                    onStockUpdated(freshStock);
-                }
-                setIsOpen(false);
-                form.reset();
-            } else {
-                toast({ variant: 'destructive', title: 'Update failed', description: result.message });
-            }
-
-        } catch (error) {
-            toast({ variant: 'destructive', title: 'Error', description: 'An unexpected error occurred.' });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
+    // This dialog is now complex because it needs to add a new `length` document.
+    // This should probably be part of the import flow.
+    // For now, this will be disabled pending a rethink of manual stock addition.
     return (
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-            <DialogTrigger asChild>
-                <Button>Update Stock</Button>
-            </DialogTrigger>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Update Stock for {stock.bcn}</DialogTitle>
-                    <DialogDescription>Add new stock received via a Purchase Order.</DialogDescription>
-                </DialogHeader>
-                <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-                         <FormField
-                            control={form.control}
-                            name="poNo"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>PO NO</FormLabel>
-                                    <FormControl>
-                                        <Input placeholder="Enter Purchase Order Number" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <div className="space-y-2">
-                             <FormLabel>Lengths</FormLabel>
-                             {fields.map((field, index) => (
-                                <div key={field.id} className="flex items-center gap-2">
-                                     <FormField
-                                        control={form.control}
-                                        name={`lengths.${index}.value`}
-                                        render={({ field }) => (
-                                            <FormItem className="flex-grow">
-                                                <FormControl>
-                                                    <Input type="number" placeholder="Enter length" {...field} />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
-                                    <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)}>
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                             ))}
-                        </div>
-                        <Button type="button" variant="outline" size="sm" onClick={() => append({ value: "" })}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> Add new Length
-                        </Button>
-                        <DialogFooter className="pt-4">
-                            <Button type="button" variant="ghost" onClick={() => setIsOpen(false)}>Cancel</Button>
-                            <Button type="submit" disabled={isSubmitting}>
-                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Submit
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                </Form>
-            </DialogContent>
-        </Dialog>
+        <Button disabled>Update Stock (Disabled)</Button>
     )
 }
 
@@ -174,7 +58,7 @@ export function StockManagement() {
       const results = await searchStockByBcn(query);
       const options = results.map(stock => ({
         value: stock.id,
-        label: `${stock.bcn} - ${stock.itemName}`,
+        label: `${stock.bcn} - ${stock.itemName} (${stock.availableQty.toFixed(2)} Mtr)`,
         stockItem: stock
       }));
       setBcnOptions(options as any);
@@ -190,7 +74,7 @@ export function StockManagement() {
     setSelectedStock(stockItem);
     setIsLoadingDetails(true);
     try {
-      const transactionsResult = await getStockTransactions(stockItem.id);
+      const transactionsResult = await getStockTransactions(stockItem.bcn);
       setTransactions(transactionsResult);
     } catch (error) {
       toast({ variant: 'destructive', title: 'Error fetching details' });
@@ -208,7 +92,7 @@ export function StockManagement() {
     if (!selectedStock) return;
     setIsRefreshing(true);
     try {
-        const freshStock = await getStockById(selectedStock.id);
+        const freshStock = await getStockById(selectedStock.bcn);
         if (freshStock) {
             await handleSelectStock(freshStock);
             toast({ title: 'Data refreshed' });
@@ -260,9 +144,10 @@ export function StockManagement() {
                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 items-center">
                     <p className="text-sm"><strong className="block text-muted-foreground">BCN:</strong> {selectedStock.bcn}</p>
                     <p className="text-sm col-span-2"><strong className="block text-muted-foreground">Item Name:</strong> {selectedStock.itemName}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Original Qty:</strong> {selectedStock.quantity.toFixed(2)}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Available Qty:</strong> {selectedStock.availableQty?.toFixed(2) || '0.00'}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Reserved Qty:</strong> {selectedStock.reservedQty?.toFixed(2) || '0.00'}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Total Qty:</strong> {selectedStock.quantity.toFixed(2)}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Cut Qty:</strong> {selectedStock.cutQty?.toFixed(2) || '0.00'}</p>
                  </div>
                  <Separator className="my-4" />
                  <div className="flex justify-end mt-4 gap-2">
@@ -276,7 +161,7 @@ export function StockManagement() {
 
             <div className="grid md:grid-cols-2 gap-6">
                 <div>
-                    <h3 className="font-semibold mb-2 text-center">Stock Deducted (Sold)</h3>
+                    <h3 className="font-semibold mb-2 text-center">Stock Deducted (Sold/Cut)</h3>
                     <div className="border rounded-lg">
                          <Table>
                             <TableHeader>

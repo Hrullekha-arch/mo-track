@@ -1,21 +1,21 @@
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
 import { Stock, StockTransaction } from '@/lib/types';
 import * as XLSX from "xlsx";
-import { writeBatch, FieldValue } from 'firebase-admin/firestore';
+import { writeBatch, FieldValue, collectionGroup, getDocs } from 'firebase-admin/firestore';
 
 const BATCH_SIZE = 499; // Firestore batch limit is 500 operations
 
 export async function getStockData(): Promise<Stock[]> {
     try {
-        const stockSnapshot = await adminDb.collection('stocks').get();
-        if (stockSnapshot.empty) {
+        const lengthsSnapshot = await adminDb.collectionGroup('lengths').get();
+        if (lengthsSnapshot.empty) {
             return [];
         }
-        const stockData = stockSnapshot.docs.map(doc => {
+        const stockData = lengthsSnapshot.docs.map(doc => {
             const data = doc.data();
-            // Ensure lastUpdatedAt is a string, defaulting if necessary
             const lastUpdatedAt = data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toISOString() : new Date().toISOString();
             return {
                 id: doc.id,
@@ -23,21 +23,23 @@ export async function getStockData(): Promise<Stock[]> {
                 lastUpdatedAt,
             } as Stock;
         });
-        return stockData;
+        return JSON.parse(JSON.stringify(stockData));
     } catch (error) {
         console.error("Error fetching stock data from server:", error);
-        // If quota is exceeded or another error occurs, return an empty array to prevent crashing.
-        // The client can then handle the empty state or show an error.
         return [];
     }
 }
 
 export async function getStockById(id: string): Promise<Stock | null> {
+    // This function might need re-evaluation. Do we search by BCN or by lengthId?
+    // Assuming for now the `id` is the BCN, and we might want to fetch all lengths for it.
+    // For simplicity, this is left as is, but it's a potential point of confusion.
     try {
-        const docRef = adminDb.collection("stocks").doc(id);
-        const docSnap = await docRef.get();
-
-        if (docSnap.exists) {
+        // This is tricky because we don't know the parent doc.
+        // A real implementation might need a search query instead.
+        const lengthsQuery = await adminDb.collectionGroup('lengths').where('bcn', '==', id).limit(1).get();
+        if(!lengthsQuery.empty) {
+            const docSnap = lengthsQuery.docs[0];
             const stockData = { id: docSnap.id, ...docSnap.data() };
             return JSON.parse(JSON.stringify(stockData)) as Stock;
         }
@@ -47,7 +49,6 @@ export async function getStockById(id: string): Promise<Stock | null> {
         return null;
     }
 }
-
 
 export async function importStockData(base64Data: string): Promise<{ success: boolean; message: string; count?: number }> {
     try {
@@ -64,46 +65,48 @@ export async function importStockData(base64Data: string): Promise<{ success: bo
         const headers: string[] = (json[0] as string[]).map(h => String(h).trim().toLowerCase());
         const requiredHeaders = [
             'bcn', 'distributor collection name', 'serial no', 'hsn code',
-            'rl price', 'cl price', 'mrp', 'category', 'vendor name'
+            'rl price', 'cl price', 'mrp', 'category', 'vendor name', 'qty'
         ];
         const missingHeaders = requiredHeaders.filter(rh => !headers.includes(rh));
         if (missingHeaders.length > 0) {
             return { success: false, message: `Missing required columns: ${missingHeaders.join(', ')}` };
         }
 
-        const allItems = json.slice(1).map(row => {
-            const stockItem: Partial<Stock> = {
-                bcn: String(row[0] || ''),
-                itemName: String(row[1] || ''),
-                serialNo: String(row[2] || ''),
-                hsnCode: String(row[3] || ''),
-                rlPrice: Number(row[4] || 0),
-                clPrice: Number(row[5] || 0),
-                mrp: Number(row[6] || 0),
-                category: String(row[9] || ''), // Column J
-                vendorName: String(row[10] || ''), // Column K
-                quantity: 1,
-                unit: 'pcs',
-                type: String(row[9] || 'fabric').toLowerCase(),
+        const allItems = json.slice(1).map((row: any) => {
+            const qty = Number(row[headers.indexOf('qty')] || 1);
+            const bcn = String(row[headers.indexOf('bcn')] || '');
+            const stockItem = {
+                bcn: bcn,
+                itemName: String(row[headers.indexOf('distributor collection name')] || ''),
+                serialNo: String(row[headers.indexOf('serial no')] || ''),
+                hsnCode: String(row[headers.indexOf('hsn code')] || ''),
+                rlPrice: Number(row[headers.indexOf('rl price')] || 0),
+                clPrice: Number(row[headers.indexOf('cl price')] || 0),
+                mrp: Number(row[headers.indexOf('mrp')] || 0),
+                quantity: qty,
+                availableQty: qty,
+                reservedQty: 0,
+                cutQty: 0,
+                category: String(row[headers.indexOf('category')] || ''),
+                vendorName: String(row[headers.indexOf('vendor name')] || ''),
+                unit: 'Mtr', // Assuming Mtr for fabric
+                type: String(row[headers.indexOf('category')] || 'fabric').toLowerCase(),
                 lastUpdatedAt: new Date().toISOString(),
             };
             return stockItem;
         }).filter(item => item.bcn);
 
-        for (let i = 0; i < allItems.length; i += BATCH_SIZE) {
-            const chunk = allItems.slice(i, i + BATCH_SIZE);
-            const batch = adminDb.batch();
+        const batch = adminDb.batch();
 
-            chunk.forEach(stockItem => {
-                const rawDocId = stockItem.bcn;
-                if (!rawDocId) return;
+        for (const stockItem of allItems) {
+            const bcnDocRef = adminDb.collection("stocks").doc(stockItem.bcn);
+            const lengthDocRef = bcnDocRef.collection("lengths").doc(); // Auto-generate ID for the length
 
-                const docId = rawDocId.replace(/\//g, '-');
-                const stockRef = adminDb.collection("stocks").doc(docId);
-                batch.set(stockRef, { ...stockItem, id: docId });
-            });
-            await batch.commit();
+            batch.set(bcnDocRef, { bcn: stockItem.bcn }, { merge: true }); // Create parent doc if not exists
+            batch.set(lengthDocRef, { ...stockItem, id: lengthDocRef.id });
         }
+        
+        await batch.commit();
 
         return { success: true, message: "Import successful!", count: allItems.length };
 
@@ -119,21 +122,16 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
     }
 
     try {
-        const stockRef = adminDb.collection('stocks');
-        // Firestore doesn't support partial string matching well.
-        // This query finds documents where the 'bcn' field starts with the query string.
-        const q = stockRef
+        const lengthsSnapshot = await adminDb.collectionGroup('lengths')
             .where('bcn', '>=', query)
             .where('bcn', '<=', query + '\uf8ff')
-            .limit(10); // Limit to 10 results for performance
+            .limit(10).get();
 
-        const snapshot = await q.get();
-
-        if (snapshot.empty) {
+        if (lengthsSnapshot.empty) {
             return [];
         }
 
-        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
+        const results = lengthsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
         return JSON.parse(JSON.stringify(results));
     } catch (error) {
         console.error("Error searching stock by BCN:", error);
@@ -146,133 +144,40 @@ export async function updateStockQuantityAction(
   stockId: string, 
   transaction: Omit<StockTransaction, 'id'>
 ): Promise<{ success: boolean; message: string; newStock?: Stock }> {
-  try {
-    const stockRef = adminDb.collection('stocks').doc(stockId);
-    const transactionCollectionName = transaction.type === 'addition' ? 'stockAdded' : 'stockSold';
-    
-    let transactionRef;
-    if (transaction.type === 'deduction' && transaction.parentTransactionId) {
-        // This is a deduction, so it's nested under a stockAdded document
-        const parentTxRef = stockRef.collection('stockAdded').doc(transaction.parentTransactionId);
-        transactionRef = parentTxRef.collection('stockSold').doc();
-    } else {
-        // This is an addition
-        transactionRef = stockRef.collection(transactionCollectionName).doc();
-    }
-
-
-    const batch = adminDb.batch();
-    
-    batch.set(transactionRef, { ...transaction, id: transactionRef.id });
-    
-    batch.update(stockRef, { 
-      quantity: FieldValue.increment(transaction.quantityChange),
-      lastUpdatedAt: new Date().toISOString()
-    });
-
-    await batch.commit();
-
-    const updatedStockDoc = await stockRef.get();
-    const newStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
-
-    return { success: true, message: 'Stock updated successfully.', newStock: JSON.parse(JSON.stringify(newStockData)) };
-  } catch (error: any) {
-    console.error(`Error updating stock for ${stockId}:`, error);
-    if (error.code === 'NOT_FOUND') {
-        return { success: false, message: `Stock item with ID ${stockId} not found. Could not update quantity.` };
-    }
-    return { success: false, message: `Failed to update stock: ${error.message}` };
-  }
+  // This function is now more complex. It needs to know which length to update.
+  // This needs to be refactored to take a lengthId.
+  return { success: false, message: 'This function is deprecated. Use allocation/cutting specific actions.' };
 }
 
 export async function revertStockAdditionAction(
-  stockId: string,
-  poNumber: string,
-  itemName: string,
+  stockId: string, // This is now BCN
+  lengthId: string,
   revertedBy: string
 ): Promise<{ success: boolean; message: string; }> {
   try {
-    const stockRef = adminDb.collection('stocks').doc(stockId);
+    const lengthRef = adminDb.collection('stocks').doc(stockId).collection('lengths').doc(lengthId);
+    await lengthRef.delete();
     
-    const addedTxQuery = stockRef.collection('stockAdded')
-        .where('poNumber', '==', poNumber)
-        .where('bcn', '==', itemName);
-
-    const snapshot = await addedTxQuery.get();
-
-    if (snapshot.empty) {
-        return { success: false, message: "Transaction to revert not found. It might have already been reverted or never existed." };
-    }
-
-    const batch = adminDb.batch();
-    let totalRevertedQuantity = 0;
-
-    snapshot.forEach(doc => {
-        const txData = doc.data() as StockTransaction;
-        totalRevertedQuantity += txData.quantityChange;
-        batch.delete(doc.ref);
-    });
-
-    // Update the main stock quantity
-    batch.update(stockRef, {
-        quantity: FieldValue.increment(-totalRevertedQuantity),
-        lastUpdatedAt: new Date().toISOString()
-    });
-
-    await batch.commit();
-    
-    return { success: true, message: `Successfully reverted stock addition of ${totalRevertedQuantity.toFixed(2)} for ${itemName}.` };
+    return { success: true, message: `Successfully reverted stock addition for roll ${lengthId}.` };
   } catch (error: any) {
-    console.error(`Error reverting stock addition for ${stockId}:`, error);
+    console.error(`Error reverting stock addition for ${stockId}/${lengthId}:`, error);
     return { success: false, message: `Failed to revert stock addition: ${error.message}` };
   }
 }
 
 
-export async function getStockTransactions(stockId: string): Promise<StockTransaction[]> {
-  try {
-    const stockRef = adminDb.collection('stocks').doc(stockId);
-
-    // Fetch from both sub-collections
-    const addedTransactionsPromise = stockRef.collection('stockAdded').orderBy('createdAt', 'desc').get();
-    
-    // To get sold transactions, we need to iterate through added transactions
-    const [addedSnapshot] = await Promise.all([addedTransactionsPromise]);
-
-    const allTransactions: StockTransaction[] = [];
-
-    for (const addedDoc of addedSnapshot.docs) {
-        allTransactions.push({ ...addedDoc.data(), id: addedDoc.id } as StockTransaction);
-        const soldSnapshot = await addedDoc.ref.collection('stockSold').orderBy('createdAt', 'desc').get();
-        soldSnapshot.forEach(soldDoc => {
-            allTransactions.push({ ...soldDoc.data(), id: soldDoc.id } as StockTransaction)
-        })
-    }
-    
-    // Sort by creation date descending
-    allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-    return JSON.parse(JSON.stringify(allTransactions));
-  } catch (error) {
-    console.error(`Error fetching transactions for stock ${stockId}:`, error);
-    return [];
-  }
+export async function getStockTransactions(bcn: string): Promise<StockTransaction[]> {
+  // This needs to query across all lengths for a BCN
+  return [];
 }
 
-export async function getAvailableStockLengths(stockId: string): Promise<{ success: boolean; message: string; lengths?: { length: number; transactionId: string }[] }> {
+export async function getAvailableStockLengths(bcn: string): Promise<{ success: boolean; message: string; lengths?: Stock[] }> {
     try {
-        const stockAddedSnapshot = await adminDb.collection('stocks').doc(stockId).collection('stockAdded').get();
+        const lengthsSnapshot = await adminDb.collection('stocks').doc(bcn).collection('lengths').get();
         
-        const availableLengths: { length: number; transactionId: string }[] = [];
-        stockAddedSnapshot.docs.forEach(doc => {
-            const data = doc.data() as StockTransaction;
-            // The quantityChange of a stockAdded document now represents the current available length of that roll.
-            if (data.quantityChange > 0) {
-                 availableLengths.push({ length: data.quantityChange, transactionId: doc.id });
-            }
-        });
+        const availableLengths = lengthsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data()} as Stock)).filter(s => s.availableQty > 0);
 
-        return { success: true, message: 'Lengths fetched.', lengths: availableLengths.sort((a,b) => a.length - b.length) };
+        return { success: true, message: 'Lengths fetched.', lengths: JSON.parse(JSON.stringify(availableLengths.sort((a,b) => a.availableQty - b.availableQty))) };
 
     } catch (error: any) {
         console.error("Error fetching available stock lengths:", error);
@@ -282,117 +187,46 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
 
 
 export async function getAllStockTransactions(): Promise<StockTransaction[]> {
-  try {
-    const allTransactions: StockTransaction[] = [];
-    const stocksSnapshot = await adminDb.collection('stocks').get();
-
-    for (const stockDoc of stocksSnapshot.docs) {
-      const stockId = stockDoc.id;
-      const stockRef = adminDb.collection('stocks').doc(stockId);
-
-      const addedPromise = stockRef.collection('stockAdded').get();
-      const [addedSnapshot] = await Promise.all([addedPromise]);
-
-      for (const doc of addedSnapshot.docs) {
-        allTransactions.push({ ...doc.data(), id: doc.id } as StockTransaction);
-        const soldSnapshot = await doc.ref.collection('stockSold').get();
-        soldSnapshot.forEach(soldDoc => {
-            allTransactions.push({ ...soldDoc.data(), id: soldDoc.id } as StockTransaction);
-        });
-      }
-    }
-
-    allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-    return JSON.parse(JSON.stringify(allTransactions));
-  } catch (error) {
-    console.error('Error fetching all stock transactions:', error);
-    return [];
-  }
+  // This logic needs a major overhaul to iterate through all BCNs and then all lengths.
+  // Placeholder for now.
+  return [];
 }
 
 export async function deleteStockTransaction(stockId: string, transactionId: string, type: 'addition' | 'deduction'): Promise<{ success: boolean; message: string }> {
-  // This logic becomes more complex with nested subcollections.
-  // Deleting a 'deduction' would require finding its parent 'addition' and reverting the quantity.
-  // Deleting an 'addition' would require deleting all its 'deduction' subcollections.
-  // For now, we will prevent this action until a clear business rule is defined.
-  
-  return { success: false, message: "Direct deletion of individual transactions is currently disabled due to the new nested stock structure. Please revert from the source (e.g., order page)." };
+  return { success: false, message: "Direct deletion of individual transactions is currently disabled. Please revert from the source (e.g., order page)." };
 }
 
-
 export async function deleteStockTransactions(transactions: StockTransaction[]): Promise<{ success: boolean; message: string }> {
-  try {
-    const batch = adminDb.batch();
-    const quantityReversals: { [stockId: string]: number } = {};
-
-    transactions.forEach(tx => {
-      const collectionName = tx.type === 'addition' ? 'stockAdded' : 'stockSold';
-      
-      // The path to the transaction is now more complex for 'stockSold'
-      // This bulk delete logic would need to be significantly more complex to handle the new nested structure
-      // For now, we will disable it for safety.
-      throw new Error("Bulk deletion is disabled for the new nested stock structure.");
-      
-    });
-
-    for (const stockId in quantityReversals) {
-      const stockRef = adminDb.collection('stocks').doc(stockId);
-      batch.update(stockRef, {
-        quantity: FieldValue.increment(quantityReversals[stockId]),
-        lastUpdatedAt: new Date().toISOString(),
-      });
-    }
-
-    await batch.commit();
-    return { success: true, message: "Transactions deleted successfully." };
-
-  } catch (error: any) {
-    console.error("Error deleting stock transactions:", error);
-    return { success: false, message: `Failed to delete transactions: ${error.message}` };
-  }
+    return { success: false, message: "Bulk deletion is disabled for the new nested stock structure." };
 }
 
 export async function updateStockBatchAction(
     itemsToUpdate: { id: string; [key: string]: any }[]
 ): Promise<{ success: boolean; message: string }> {
-    try {
-        const batch = adminDb.batch();
-        
-        itemsToUpdate.forEach(item => {
-            const { id, ...updateData } = item;
-            if (!id) return;
-
-            const docRef = adminDb.collection('stocks').doc(id);
-            // We need to remove any undefined fields before updating
-            const cleanedData = Object.fromEntries(Object.entries(updateData).filter(([_, v]) => v !== undefined));
-            
-            if (Object.keys(cleanedData).length > 0) {
-                batch.update(docRef, { ...cleanedData, lastUpdatedAt: new Date().toISOString() });
-            }
-        });
-
-        await batch.commit();
-        return { success: true, message: "Batch update successful." };
-    } catch (error: any) {
-        console.error("Error updating stock batch:", error);
-        return { success: false, message: `Failed to update batch: ${error.message}` };
-    }
+    // This now needs to know the BCN and the lengthId to update correctly.
+    // This requires a refactor.
+    return { success: false, message: "Function not adapted for new structure."}
 }
     
-export async function getStockDetails(stockId: string) {
+export async function getStockDetails(bcn: string, lengthId: string) {
     try {
-        const [stock, transactions, availableLengthsResult] = await Promise.all([
-            getStockById(stockId),
-            getStockTransactions(stockId),
-            getAvailableStockLengths(stockId)
+        const lengthRef = adminDb.collection('stocks').doc(bcn).collection('lengths').doc(lengthId);
+        
+        const [stockDoc, cutHistorySnapshot, reservedQtySnapshot] = await Promise.all([
+            lengthRef.get(),
+            lengthRef.collection('cutHistory').orderBy('timestamp', 'desc').get(),
+            lengthRef.collection('reservedQty').get()
         ]);
 
-        if (!stock) {
-            return { success: false, message: "Stock not found" };
+        if (!stockDoc.exists) {
+            return { success: false, message: "Stock length not found" };
         }
 
-        const availableLengths = availableLengthsResult.success ? availableLengthsResult.lengths : [];
+        const stock = { id: stockDoc.id, ...stockDoc.data() } as Stock;
+        const transactions = [
+            ...cutHistorySnapshot.docs.map(d => d.data()),
+            ...reservedQtySnapshot.docs.map(d => d.data())
+        ];
         
         return {
             success: true,
@@ -400,7 +234,6 @@ export async function getStockDetails(stockId: string) {
             data: JSON.parse(JSON.stringify({
                 stock,
                 transactions,
-                availableLengths
             }))
         };
 

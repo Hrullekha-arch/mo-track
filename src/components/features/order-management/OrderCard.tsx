@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState } from "react";
@@ -79,12 +80,13 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             
             setMaterialDetails({ fabricDetails });
         } else {
-            setMaterialDetails({ fabricDetails: [] });
-            toast({
-                variant: 'destructive',
-                title: 'Not Found',
-                description: `No purchase request found for Deal ID ${currentOrder.crmOrderNo}`,
-            });
+            // If no PR, use details from the order itself
+            const fabricDetails = (currentOrder.fabricDetails || []).map(f => ({
+                name: f.fabricName,
+                quantity: f.quantity,
+                unit: 'Mtr'
+            }));
+             setMaterialDetails({ fabricDetails });
         }
     } catch (e) {
         console.error("Error fetching material details: ", e);
@@ -349,6 +351,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
                             <AlertDialogTrigger asChild>
                                 <DropdownMenuItem 
                                 className="text-destructive focus:text-destructive focus:bg-destructive/10"

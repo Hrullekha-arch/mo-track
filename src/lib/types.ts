@@ -254,32 +254,62 @@ export interface PurchaseStep {
 }
 
 export interface Stock {
-  id: string; // Document ID
-  itemName: string; // from Distributor Collection Name
-  bcn?: string;
+  id: string; // Document ID of the length, e.g. "Length1"
+  bcn: string; // The BCN, which is the parent document's ID
+  itemName: string;
   serialNo?: string;
   hsnCode?: string;
   rlPrice?: number;
   clPrice?: number;
   mrp?: number;
-  tax?: number; // Tax percentage
+  tax?: number;
   category?: string;
   vendorName?: string;
-  quantity: number; // Actual Stock: what you physically have
-  availableQty: number; // What you can sell = Actual - Reserved
-  reservedQty: number; // Stock blocked for orders but not yet billed/cut
-  cutQty: number; // How much has been physically cut from rolls
+  quantity: number; // Original length of this roll/piece
+  availableQty: number; // Available length = quantity - reservedQty
+  reservedQty: number; // Reserved for orders but not yet cut
+  cutQty: number; // Physically cut from this roll
   unit: string;
-  type: 'fabric' | 'furniture' | string; // Making it flexible
+  type: string;
   lastUpdatedAt: string; // ISO Date
   rack?: string;
-  status?: "available" | "reserved" | "cut" | "on-hold";
+  status?: "available" | "on-hold";
+}
+
+export interface StockReservation {
+    id: string; // reserveId
+    orderId: string;
+    reservedQty: number;
+    reservedBy: string;
+    timestamp: string; // ISO String
+}
+
+export interface CutRequest {
+    id: string; // requestId
+    orderId: string;
+    invoiceId: string;
+    cutLength: number;
+    timestamp: string; // ISO String
+    status: 'pending' | 'done' | 'rejected';
+}
+
+export interface CutHistory {
+    id: string; // cutId
+    orderId: string;
+    cutLength: number;
+    beforeCut: number;
+    afterCut: number;
+    barcodeScanned: string;
+    newBarcode: string;
+    cutBy: string;
+    timestamp: string; // ISO String
 }
 
 
 export interface StockTransaction {
   id: string;
-  stockId: string;
+  stockId: string; // BCN
+  lengthId?: string; // The specific length/roll document ID
   bcn: string;
   type: 'addition' | 'deduction';
   quantityChange: number;

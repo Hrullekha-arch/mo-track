@@ -40,7 +40,6 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [isImporting, setIsImporting] = React.useState(false);
-  const [importProgress, setImportProgress] = React.useState<number | null>(null);
   const { role } = useAuth();
   const { toast } = useToast();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -56,7 +55,6 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
     if (!file) return;
     
     setIsImporting(true);
-    setImportProgress(0);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -65,7 +63,6 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
             if (!dataUrl) {
                  toast({ variant: "destructive", title: "File Read Error", description: "Could not read the selected file."});
                  setIsImporting(false);
-                 setImportProgress(null);
                  return;
             }
             
@@ -98,7 +95,6 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
                 fileInputRef.current.value = "";
             }
             setIsImporting(false);
-            setImportProgress(null);
         }
     };
     reader.readAsDataURL(file);
@@ -124,7 +120,7 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
     },
     {
       accessorKey: "quantity",
-      header: "Actual Qty"
+      header: "Original Qty"
     },
     {
       accessorKey: "availableQty",
@@ -133,6 +129,10 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
     {
       accessorKey: "reservedQty",
       header: "Reserved Qty"
+    },
+     {
+      accessorKey: "cutQty",
+      header: "Cut Qty"
     },
     {
       accessorKey: "vendorName",
@@ -193,7 +193,7 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
           <div className="ml-auto flex items-center gap-2">
             <Button onClick={() => fileInputRef.current?.click()} variant="outline" disabled={!isAuthorized || isImporting}>
               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-              {isImporting ? `Importing... ${importProgress !== null ? `(${importProgress}%)` : ''}` : 'Import from XLS'}
+              {isImporting ? `Importing...` : 'Import from XLS'}
             </Button>
             <input
               type="file"
@@ -208,11 +208,6 @@ export function StockTableClient({ initialData }: { initialData: Stock[] }) {
             </Button>
           </div>
         </div>
-        {isImporting && importProgress !== null && (
-          <div className="px-1 py-2">
-            <Progress value={importProgress} className="w-full" />
-          </div>
-        )}
         <div className="rounded-md border">
           <Table>
             <TableHeader>
