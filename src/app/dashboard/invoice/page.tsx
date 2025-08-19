@@ -49,6 +49,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { StockMismatchDialog } from "@/components/features/invoice/StockMismatchDialog";
 
 
+interface MismatchItem {
+  itemName: string;
+  crmQty: number;
+  tallyQty: number;
+  requiredQty?: number;
+  errorType: 'mismatch' | 'insufficient';
+  difference: number;
+}
+
 function GenerateInvoiceDialog({
   isOpen,
   onClose,
@@ -65,7 +74,7 @@ function GenerateInvoiceDialog({
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isTallyDialogOpen, setIsTallyDialogOpen] = React.useState(false);
   const [isStockMismatchOpen, setIsStockMismatchOpen] = React.useState(false);
-  const [mismatchedItems, setMismatchedItems] = React.useState<{ itemName: string; crmQty: number; tallyQty: number; }[]>([]);
+  const [mismatchedItems, setMismatchedItems] = React.useState<MismatchItem[]>([]);
   const [tallyBillNo, setTallyBillNo] = React.useState('');
   const [generatedInvoice, setGeneratedInvoice] = React.useState<Invoice | null>(null);
   const { toast } = useToast();
@@ -73,12 +82,12 @@ function GenerateInvoiceDialog({
   const handlePreVoucherCheck = async () => {
     if (!creator) return;
     setIsGenerating(true);
-    const mismatches = [];
+    const mismatches: MismatchItem[] = [];
     const allItems = batches.flatMap(b => b.items);
 
     for (const item of allItems) {
-        const crmRes = await getFirestoreStockQuantity(item.itemName);
-        const tallyRes = await getStockFromTally(item.itemName);
+        const crmRes = await getFirestoreStockQuantity(item.bcn);
+        const tallyRes = await getStockFromTally(item.bcn);
         
         if (!crmRes.success || !tallyRes.success) {
             toast({ variant: 'destructive', title: 'Verification Error', description: `Could not verify stock for ${item.itemName}. CRM: ${crmRes.message}, Tally: ${tallyRes.message}` });
@@ -88,16 +97,15 @@ function GenerateInvoiceDialog({
 
         const crmQty = crmRes.quantity ?? 0;
         const tallyQty = tallyRes.quantity ?? 0;
-        const requiredQty = item.quantityAllocated;
-
-        if (crmQty > tallyQty) {
-            mismatches.push({ itemName: item.itemName, crmQty, tallyQty });
-        }
         
-        if (tallyQty < requiredQty) {
-             toast({ variant: 'destructive', title: 'Insufficient Stock in Tally', description: `For ${item.itemName}, Tally has ${tallyQty} but invoice requires ${requiredQty}.` });
-             setIsGenerating(false);
-             return;
+        if (crmQty !== tallyQty) {
+          mismatches.push({ 
+              itemName: item.itemName, 
+              crmQty, 
+              tallyQty, 
+              errorType: 'mismatch',
+              difference: crmQty - tallyQty
+          });
         }
     }
     
@@ -107,7 +115,7 @@ function GenerateInvoiceDialog({
       setMismatchedItems(mismatches);
       setIsStockMismatchOpen(true);
     } else {
-      setIsTallyDialogOpen(true); // No mismatches, proceed to Tally dialog
+      setIsTallyDialogOpen(true);
     }
   };
 
@@ -125,7 +133,7 @@ function GenerateInvoiceDialog({
         const primaryOrder = orders[0];
         
         const invoicesRef = collection(db, "invoices");
-        const q = query(invoicesRef, orderBy("createdAt", "desc"), limit(1));
+        const q = query(invoicesRef, orderBy("invoiceNo", "desc"), limit(1));
         const lastInvoiceSnap = await getDocs(q);
         let newInvoiceNumber = 1001;
         if (!lastInvoiceSnap.empty) {
@@ -194,7 +202,22 @@ function GenerateInvoiceDialog({
             batch.update(stockRef, {
                 quantity: FieldValue.increment(-item.quantityAllocated), // Actual
                 reservedQty: FieldValue.increment(-item.quantityAllocated), // Reserved
+                cutQty: FieldValue.increment(item.quantityAllocated),
             });
+
+            // Log stock transaction for cut
+            const transactionRef = doc(collection(stockRef, 'stockSold'));
+            const transaction: Omit<StockTransaction, 'id'> = {
+                stockId: stockId,
+                bcn: item.bcn,
+                type: 'deduction',
+                quantityChange: -item.quantityAllocated,
+                orderId: primaryOrder.id,
+                createdAt: new Date().toISOString(),
+                createdBy: creator.name,
+                status: 'cut'
+            };
+            batch.set(transactionRef, transaction);
         }
 
         const newCuttingTaskRef = doc(collection(db, "Cutting"));
@@ -334,10 +357,6 @@ function GenerateInvoiceDialog({
     <StockMismatchDialog
       isOpen={isStockMismatchOpen}
       onClose={() => setIsStockMismatchOpen(false)}
-      onConfirm={() => {
-        setIsStockMismatchOpen(false);
-        setIsTallyDialogOpen(true);
-      }}
       mismatchedItems={mismatchedItems}
     />
     </>

@@ -339,7 +339,10 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
             <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
           </STATICVARIABLES>
           <FETCHLIST>
-            <FETCH>ClosingBalance</FETCH>
+                <FETCH>Name</FETCH>
+                <FETCH>ClosingBalance</FETCH>
+                <FETCH>BilledQty</FETCH>
+                <FETCH>ClosingQty</FETCH>
           </FETCHLIST>
         </DESC>
       </BODY>
@@ -350,7 +353,7 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
     const parsed = await xml2js.parseStringPromise(responseXml, { explicitArray: false, trim: true });
     
     // Updated path to navigate the parsed object correctly
-    const closingBalanceNode = parsed?.ENVELOPE?.BODY?.DATA?.COLLECTION?.STOCKITEM?.CLOSINGBALANCE;
+    const closingBalanceNode = parsed?.ENVELOPE?.BODY?.DATA?.TALLYMESSAGE?.STOCKITEM?.CLOSINGBALANCE?._;
     
     if (closingBalanceNode && typeof closingBalanceNode === 'string') {
         const balanceText = closingBalanceNode;
