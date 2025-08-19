@@ -600,3 +600,63 @@ function InvoiceTable({
     </>
   )
 }
+
+export default function InvoicePage() {
+  const [activeBatches, setActiveBatches] = React.useState<InvoiceBatch[]>([]);
+  const [allBatches, setAllBatches] = React.useState<InvoiceBatch[]>([]);
+  const [allOrders, setAllOrders] = React.useState<Order[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    setLoading(true);
+    const batchesQuery = query(collection(db, "invoiceBatches"), orderBy("createdAt", "desc"));
+    const ordersQuery = query(collection(db, "orders"));
+
+    const unsubscribeBatches = onSnapshot(batchesQuery, (snapshot) => {
+        const batchesData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as InvoiceBatch));
+        setActiveBatches(batchesData.filter(b => b.status === 'pending'));
+        setAllBatches(batchesData);
+    }, (error) => {
+      console.error("Error fetching invoice batches:", error);
+      toast({ variant: "destructive", title: "Error", description: "Could not load invoice data." });
+    });
+
+    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+        setAllOrders(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order)));
+    }, (error) => {
+        console.error("Error fetching orders:", error);
+    });
+
+    Promise.all([getDocs(batchesQuery), getDocs(ordersQuery)]).finally(() => setLoading(false));
+
+    return () => {
+      unsubscribeBatches();
+      unsubscribeOrders();
+    };
+  }, [toast]);
+    
+  return (
+    <div className="w-full p-4 md:p-6 lg:p-8">
+        <header className="mb-8">
+            <h1 className="text-3xl font-bold tracking-tight">Generate Invoice</h1>
+            <p className="text-muted-foreground">
+                Select allocated items to generate and log invoices.
+            </p>
+        </header>
+
+        <Tabs defaultValue="active-invoices">
+            <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="active-invoices">Active Invoices</TabsTrigger>
+                <TabsTrigger value="tally-log">Tally Log / Invoice History</TabsTrigger>
+            </TabsList>
+            <TabsContent value="active-invoices" className="mt-4">
+                 <InvoiceTable batches={activeBatches} orders={allOrders} loading={loading} view="active" />
+            </TabsContent>
+            <TabsContent value="tally-log" className="mt-4">
+                <InvoiceLogTable />
+            </TabsContent>
+        </Tabs>
+    </div>
+  )
+}
