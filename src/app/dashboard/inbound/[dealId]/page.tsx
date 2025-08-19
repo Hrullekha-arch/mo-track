@@ -122,8 +122,9 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
         
         try {
             const requestRef = doc(db, "inbounds", request.id);
-            const items = [...(request.items || [])];
-            const itemToUpdate = { ...items[itemIndex] };
+            // Create a deep copy of the items array to avoid mutation issues.
+            const items = JSON.parse(JSON.stringify(request.items || []));
+            const itemToUpdate = items[itemIndex];
 
             if (!itemToUpdate) throw new Error("Item not found");
 
@@ -133,16 +134,17 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 completedAt: new Date().toISOString(),
                 completedBy: user.name,
             };
+            
+            itemToUpdate.inboundMilestones = itemToUpdate.inboundMilestones || [];
 
-            const existingMilestone = itemToUpdate.inboundMilestones?.find(m => m.stepId === stepId);
+            const existingMilestone = itemToUpdate.inboundMilestones.find((m: InboundMilestone) => m.stepId === stepId);
             if (existingMilestone) {
                 toast({ variant: "destructive", title: "Step already completed for this item." });
                 setUpdating(null);
                 return;
             }
 
-            const newMilestones = [...(itemToUpdate.inboundMilestones || []), newMilestone];
-            items[itemIndex] = {...itemToUpdate, inboundMilestones: newMilestones};
+            itemToUpdate.inboundMilestones.push(newMilestone);
             
             const wasLastStep = stepId === INBOUND_PROCESS_CONFIG[INBOUND_PROCESS_CONFIG.length - 1].id;
             const batch = writeBatch(db);
@@ -151,7 +153,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
 
             toast({ title: "Process Updated", description: `${INBOUND_PROCESS_CONFIG.find(s=>s.id===stepId)?.name} marked as complete for ${itemToUpdate.itemName}.`});
             
-            const itemIsNowComplete = newMilestones.length === INBOUND_PROCESS_CONFIG.length;
+            const itemIsNowComplete = itemToUpdate.inboundMilestones.length === INBOUND_PROCESS_CONFIG.length;
             
             if (itemIsNowComplete) {
                 const stockId = itemToUpdate.itemName.replace(/\//g, '-');
@@ -163,7 +165,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     type: 'addition',
                     quantityChange: quantity,
                     poNumber: itemToUpdate.poNumber,
-                    lengths: [quantity], // Assume the total quantity is a single length for now
+                    lengths: [quantity], 
                     createdAt: new Date().toISOString(),
                     createdBy: user.name,
                 };
@@ -175,7 +177,6 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     toast({ variant: 'destructive', title: 'Stock Update Failed', description: result.message });
                 }
 
-                // *** FIX: Update the status in the Order document ***
                 const orderQuery = query(collection(db, "orders"), where("crmOrderNo", "==", request.dealId), limit(1));
                 const orderSnapshot = await getDocs(orderQuery);
                 if (!orderSnapshot.empty) {
@@ -206,8 +207,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 });
             }
             
-            // Check if all items in this PO are now fully processed
-            const allItemsInCurrentInboundCompleted = items.every(item => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
+            const allItemsInCurrentInboundCompleted = items.every((item: InboundItem) => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
 
             if (allItemsInCurrentInboundCompleted) {
                 batch.update(requestRef, { 
@@ -225,11 +225,10 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     duration: 5000,
                 });
 
-                // Now, check if ALL related purchase requests for the deal are complete.
                 const parentPurchaseRequestSnap = await getDoc(purchaseRequestRef);
                 if (parentPurchaseRequestSnap.exists()) {
                     const parentPR = parentPurchaseRequestSnap.data() as PurchaseRequest;
-                    const dealIdForQuery = parentPR.dealId; // Use the dealId from the PR
+                    const dealIdForQuery = parentPR.dealId;
                     
                     const allPrQuery = query(collection(db, 'purchaseRequests'), where('dealId', '==', dealIdForQuery));
                     const allPrSnapshot = await getDocs(allPrQuery);
@@ -238,12 +237,13 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     const allPrsForDealAreComplete = allPrDocs.every(pr => pr.status === 'Completed');
                     
                     if (allPrsForDealAreComplete) {
-                        const o2dDocRef = doc(db, 'o2d', request.purchaseRequestId);
-                        const o2dDoc = await getDoc(o2dDocRef);
+                        const o2dQuery = query(collection(db, "o2d"), where("dealId", "==", dealIdForQuery), limit(1));
+                        const o2dSnapshot = await getDocs(o2dQuery);
 
-                        if (o2dDoc.exists()) {
-                            const o2dData = o2dDoc.data() as O2DProcess;
-                            const o2dStep = o2dData.milestones?.find(m => m.stepId === 7); // Step 7: Purchase Material Receiving
+                        if (!o2dSnapshot.empty) {
+                            const o2dDocRef = o2dSnapshot.docs[0].ref;
+                            const o2dData = o2dDocRef.data() as O2DProcess;
+                            const o2dStep = o2dData.milestones?.find(m => m.stepId === 7);
 
                             if (!o2dStep || o2dStep.status !== 'completed') {
                                 const newMilestone: O2DStatus = {
