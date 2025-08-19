@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -147,47 +148,52 @@ export async function updateStockQuantityAction(
   const stockRef = adminDb.collection('stocks').doc(stockId);
   
   if (transaction.type === 'addition') {
-    return adminDb.runTransaction(async (tx) => {
-        const stockDoc = await tx.get(stockRef);
-        
-        const newLengthData: Partial<Stock> = {
-            bcn: transaction.bcn,
-            itemName: transaction.bcn,
-            quantity: transaction.quantityChange,
-            availableQty: transaction.quantityChange,
-            reservedQty: 0,
-            cutQty: 0,
-            unit: 'Mtr',
-            lastUpdatedAt: transaction.createdAt,
-            // You might need to fetch more details (like MRP, category) from the PO or a master item list
-        };
+    let finalStockData: Stock;
+    
+    try {
+      await adminDb.runTransaction(async (tx) => {
+          const stockDoc = await tx.get(stockRef); // READ FIRST
+          
+          const newLengthData: Partial<Stock> = {
+              bcn: transaction.bcn,
+              itemName: transaction.bcn,
+              quantity: transaction.quantityChange,
+              availableQty: transaction.quantityChange,
+              reservedQty: 0,
+              cutQty: 0,
+              unit: 'Mtr',
+              lastUpdatedAt: transaction.createdAt,
+          };
 
-        const newLengthRef = stockRef.collection('lengths').doc(); // Auto-generate ID for the new roll
-        tx.set(newLengthRef, { ...newLengthData, id: newLengthRef.id });
+          const newLengthRef = stockRef.collection('lengths').doc();
+          tx.set(newLengthRef, { ...newLengthData, id: newLengthRef.id }); // WRITE
 
-        if (!stockDoc.exists) {
-            // If the parent BCN document doesn't exist, create it.
-            tx.set(stockRef, {
-                bcn: stockId,
-                itemName: transaction.bcn,
-                quantity: transaction.quantityChange,
-                availableQty: transaction.quantityChange,
-                reservedQty: 0,
-                cutQty: 0,
-            }, { merge: true });
-        } else {
-            // If it exists, just increment the totals.
-            tx.update(stockRef, {
-                quantity: FieldValue.increment(transaction.quantityChange),
-                availableQty: FieldValue.increment(transaction.quantityChange),
-            });
-        }
-        
-        const updatedStockDoc = await tx.get(stockRef);
-        const finalStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
+          if (!stockDoc.exists) {
+              tx.set(stockRef, { // WRITE
+                  bcn: stockId,
+                  itemName: transaction.bcn,
+                  quantity: transaction.quantityChange,
+                  availableQty: transaction.quantityChange,
+                  reservedQty: 0,
+                  cutQty: 0,
+              }, { merge: true });
+          } else {
+              tx.update(stockRef, { // WRITE
+                  quantity: FieldValue.increment(transaction.quantityChange),
+                  availableQty: FieldValue.increment(transaction.quantityChange),
+              });
+          }
+      });
 
-        return { success: true, message: 'Stock added successfully.', newStock: JSON.parse(JSON.stringify(finalStockData)) };
-    });
+      // After the transaction succeeds, fetch the final state to return
+      const updatedStockDoc = await stockRef.get();
+      finalStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
+      return { success: true, message: 'Stock added successfully.', newStock: JSON.parse(JSON.stringify(finalStockData)) };
+
+    } catch (error: any) {
+        console.error("Error in stock addition transaction:", error);
+        return { success: false, message: `Failed to add stock: ${error.message}` };
+    }
   }
   
   // Handling for deductions remains complex and should be managed via allocation/cutting flows.
@@ -287,3 +293,4 @@ export async function getStockDetails(bcn: string, lengthId: string) {
         return { success: false, message: `Failed to fetch details: ${error.message}` };
     }
 }
+
