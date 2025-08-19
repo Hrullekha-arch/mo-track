@@ -5,14 +5,14 @@
 import { useState, useEffect, use } from 'react';
 import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion, collection, query, where, getDocs, writeBatch, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { InboundRequest, InboundItem, InboundMilestone, Order, O2DStatus, StockTransaction, PurchaseRequest, O2DProcess } from "@/lib/types";
+import { InboundRequest, InboundItem, InboundMilestone, Order, O2DStatus, StockTransaction, PurchaseRequest, O2DProcess, PurchaseStatus } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2, ScanLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
-import { cn } from '@/lib/utils';
+import { cn } from "@/lib/utils";
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
