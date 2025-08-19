@@ -139,10 +139,12 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const cgst = money(totalGST / 2);
   const sgst = money(totalGST - cgst);
   const totalAmountBeforeRoundOff = money(itemSubtotal + cgst + sgst);
-  const roundedPartyAmount = Math.round(totalAmountBeforeRoundOff);
-  const roundOff = money(roundedPartyAmount - totalAmountBeforeRoundOff);
+  const roundedTotalAmount = Math.round(totalAmountBeforeRoundOff);
+  const roundOff = money(roundedTotalAmount - totalAmountBeforeRoundOff);
   
-  const partyAmount = roundedPartyAmount;
+  // This is the CRITICAL FIX. The party amount must be the exact, un-rounded total.
+  // The roundOff entry will balance the debits and credits.
+  const partyAmount = totalAmountBeforeRoundOff;
 
 
   const cgstLedgerEntry = cgst > 0 ? `
@@ -201,7 +203,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
               <BILLALLOCATIONS.LIST>
                 <NAME>${invoice.invoiceNo}</NAME>
                 <BILLTYPE>New Ref</BILLTYPE>
-                <AMOUNT>-${fmt(partyAmount)}</AMOUNT>
+                <AMOUNT>-${fmt(roundedTotalAmount)}</AMOUNT>
               </BILLALLOCATIONS.LIST>
             </LEDGERENTRIES.LIST>
             ${inventoryEntries}
