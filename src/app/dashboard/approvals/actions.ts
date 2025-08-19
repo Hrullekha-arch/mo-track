@@ -44,50 +44,59 @@ export async function approveOrderAndCreatePurchaseRequest(
             }
         }
 
-        // 3. Check stock and prepare purchase request if needed
-        const itemsToPurchase: FabricDetail[] = [];
-        const allItems: FabricDetail[] = orderData.fabricDetails || [];
+        // 3. New Stock Check and PR Logic
+        let purchaseMessage = "";
+        const allItemsInOrder = orderData.fabricDetails || [];
+        const checkedBcns = new Set<string>(); // To avoid redundant checks for the same BCN
 
-        for (const item of allItems) {
-            // A simplified check. A more robust solution would check against available lengths.
-            const stockId = item.fabricName.replace(/\//g, '-');
+        for (const item of allItemsInOrder) {
+            const bcn = item.fabricName;
+            if (checkedBcns.has(bcn)) {
+                continue; // Already processed this BCN
+            }
+            checkedBcns.add(bcn);
+
+            // Fetch all orders that have this unallocated item
+            const unallocatedOrdersSnapshot = await adminDb.collection('orders')
+                .where('fabricDetails', 'array-contains', { fabricName: bcn, status: 'pending for po' })
+                .get();
+
+            let totalUnallocatedDemand = 0;
+            unallocatedOrdersSnapshot.forEach(doc => {
+                const order = doc.data() as Order;
+                (order.fabricDetails || []).forEach(detail => {
+                    if (detail.fabricName === bcn && detail.status === 'pending for po') {
+                        totalUnallocatedDemand += parseFloat(detail.quantity);
+                    }
+                });
+            });
+
+            // Fetch current available stock
+            const stockId = bcn.replace(/\//g, '-');
             const stockRef = adminDb.collection('stocks').doc(stockId);
             const stockSnap = await stockRef.get();
-            const currentStockQty = (stockSnap.data() as Stock)?.availableQty || 0;
-            const requiredQty = parseFloat(item.quantity);
+            const availableQty = (stockSnap.data() as Stock)?.availableQty || 0;
+            
+            // Compare and create PR if needed
+            if (totalUnallocatedDemand > availableQty) {
+                const requiredQty = totalUnallocatedDemand - availableQty;
 
-            if (requiredQty > currentStockQty) {
-                itemsToPurchase.push({
-                    ...item,
-                    quantity: String(requiredQty - currentStockQty),
-                });
-            }
-        }
-        
-        let purchaseMessage = "";
-        const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
-
-        // 4. ***REFACTORED LOGIC***
-        // Create a separate Purchase Request document for EACH item that needs to be purchased.
-        if (itemsToPurchase.length > 0) {
-            const initialMilestones: PurchaseStatus[] = [
-                { stepId: 1, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
-                { stepId: 2, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
-            ];
-
-            for (const itemToPurchase of itemsToPurchase) {
-                 // Create a unique ID for each item's purchase request
-                const prDocId = `${orderData.crmOrderNo}-${itemToPurchase.fabricName.replace(/\s+/g, '-')}`;
-                const prRef = adminDb.collection('purchaseRequests').doc(prDocId);
+                const initialMilestones: PurchaseStatus[] = [
+                    { stepId: 1, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
+                    { stepId: 2, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
+                ];
                 
+                // Use a combination of order ID and BCN for a more unique PR ID
+                const prDocId = `${orderData.crmOrderNo}-${bcn.replace(/\s+/g, '-')}`;
+                const prRef = adminDb.collection('purchaseRequests').doc(prDocId);
+
                 const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-                    dealId: orderData.crmOrderNo,
+                    dealId: orderData.crmOrderNo, // Reference the triggering order
                     customerName: orderData.customerName,
                     promiseDeliveryDate: new Date().toISOString(), // Placeholder
                     salesman: orderData.salesPerson,
                     type: 'fabric',
-                    // This now only contains the single item
-                    fabricDetails: [itemToPurchase],
+                    fabricDetails: [{ ...item, quantity: String(requiredQty) }], // Only the item that needs purchase
                     createdAt: new Date().toISOString(),
                     createdBy: approver,
                     milestones: initialMilestones,
@@ -95,12 +104,14 @@ export async function approveOrderAndCreatePurchaseRequest(
                     status: 'Approved', 
                 };
                 batch.set(prRef, newPurchaseRequest);
+                
+                purchaseMessage += ` Purchase request for ${requiredQty.toFixed(2)} of ${bcn} created.`;
             }
-
-            purchaseMessage = ` ${itemsToPurchase.length} purchase request(s) have been generated for out-of-stock items.`;
-
-        } else {
+        }
+        
+        if (!purchaseMessage) {
             // AUTOMATION: If no items to purchase, all stock is available. Mark material receiving as complete.
+            const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
             const o2dSnapshot = await o2dQuery.get();
             if (!o2dSnapshot.empty) {
                 const o2dDoc = o2dSnapshot.docs[0];
@@ -120,6 +131,7 @@ export async function approveOrderAndCreatePurchaseRequest(
         
         // AUTOMATION: Mark "Balance Payment Follow Up" as complete (since order is approved)
         if (orderData.dealId) {
+            const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
             const o2dSnapshot = await o2dQuery.get();
             
             if (!o2dSnapshot.empty) {
