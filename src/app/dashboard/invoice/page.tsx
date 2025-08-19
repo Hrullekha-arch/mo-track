@@ -24,11 +24,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc, where, orderBy, limit } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc, where, orderBy, limit, FieldValue } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format, isWithinInterval } from "date-fns";
-import { InvoiceBatch, Order, Invoice, CuttingTask, CuttingTaskItem, Stock } from "@/lib/types";
+import { InvoiceBatch, Order, Invoice, CuttingTask, Stock, StockTransaction } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
 import { Input } from "@/components/ui/input";
@@ -74,24 +74,33 @@ function GenerateInvoiceDialog({
     if (!creator) return;
     setIsGenerating(true);
     const mismatches = [];
-
     const allItems = batches.flatMap(b => b.items);
 
     for (const item of allItems) {
-      const firestoreRes = await getFirestoreStockQuantity(item.itemName);
-      const tallyRes = await getStockFromTally(item.itemName);
-
-      if (firestoreRes.success && tallyRes.success && firestoreRes.quantity !== null && tallyRes.quantity !== null) {
-        if (Math.abs(firestoreRes.quantity - tallyRes.quantity) > 0.01) { // Use a tolerance for float comparison
-          mismatches.push({
-            itemName: item.itemName,
-            crmQty: firestoreRes.quantity,
-            tallyQty: tallyRes.quantity,
-          });
+        const crmRes = await getFirestoreStockQuantity(item.itemName);
+        const tallyRes = await getStockFromTally(item.itemName);
+        
+        if (!crmRes.success || !tallyRes.success) {
+            toast({ variant: 'destructive', title: 'Verification Error', description: `Could not verify stock for ${item.itemName}. CRM: ${crmRes.message}, Tally: ${tallyRes.message}` });
+            setIsGenerating(false);
+            return;
         }
-      }
-    }
 
+        const crmQty = crmRes.quantity ?? 0;
+        const tallyQty = tallyRes.quantity ?? 0;
+        const requiredQty = item.quantityAllocated;
+
+        if (crmQty > tallyQty) {
+            mismatches.push({ itemName: item.itemName, crmQty, tallyQty });
+        }
+        
+        if (tallyQty < requiredQty) {
+             toast({ variant: 'destructive', title: 'Insufficient Stock in Tally', description: `For ${item.itemName}, Tally has ${tallyQty} but invoice requires ${requiredQty}.` });
+             setIsGenerating(false);
+             return;
+        }
+    }
+    
     setIsGenerating(false);
 
     if (mismatches.length > 0) {
@@ -108,16 +117,15 @@ function GenerateInvoiceDialog({
         return;
     }
     setIsTallyDialogOpen(false);
-    setIsStockMismatchOpen(false); // Close mismatch dialog as well
+    setIsStockMismatchOpen(false); 
     setIsGenerating(true);
     
     try {
         const batch = writeBatch(db);
         const primaryOrder = orders[0];
         
-        // Generate a new 4-digit unique invoice number
         const invoicesRef = collection(db, "invoices");
-        const q = query(invoicesRef, orderBy("invoiceNo", "desc"), limit(1));
+        const q = query(invoicesRef, orderBy("createdAt", "desc"), limit(1));
         const lastInvoiceSnap = await getDocs(q);
         let newInvoiceNumber = 1001;
         if (!lastInvoiceSnap.empty) {
@@ -128,16 +136,13 @@ function GenerateInvoiceDialog({
         }
         
         const newInvoiceNumberStr = String(newInvoiceNumber);
-
-        // Combine all items from all selected batches
         const allItems = batches.flatMap(b => b.items);
 
-        // Calculate totals for the new invoice document
         const totals = allItems.reduce((acc, item) => {
             const qty = item.quantityAllocated;
             const rate = item.rate;
             const amount = qty * rate;
-            const discountAmount = 0; // Assuming 0 discount for now
+            const discountAmount = 0;
             const taxableValue = amount - discountAmount;
             const cgst = taxableValue * 0.025;
             const sgst = taxableValue * 0.025;
@@ -155,7 +160,6 @@ function GenerateInvoiceDialog({
         const roundedAmount = Math.round(netAmount);
         const roundOff = roundedAmount - netAmount;
         
-        // 1. Create the new Invoice document with the numeric ID
         const newInvoiceRef = doc(collection(db, "invoices"));
         const newInvoice: Omit<Invoice, 'id'> = {
             invoiceNo: newInvoiceNumberStr,
@@ -174,7 +178,7 @@ function GenerateInvoiceDialog({
                 taxableValue: totals.taxableValue,
                 cgst: totals.totalCgst,
                 sgst: totals.totalSgst,
-                igst: 0, // Assuming IGST is 0 for now
+                igst: 0,
                 roundOff: roundOff,
                 grandTotal: roundedAmount,
             },
@@ -183,7 +187,16 @@ function GenerateInvoiceDialog({
         };
         batch.set(newInvoiceRef, newInvoice);
 
-        // 2. Create a new Cutting Task document
+        // Update stock: reduce actual and reserved quantities
+        for (const item of allItems) {
+            const stockId = item.bcn.replace(/\//g, '-');
+            const stockRef = doc(db, 'stocks', stockId);
+            batch.update(stockRef, {
+                quantity: FieldValue.increment(-item.quantityAllocated), // Actual
+                reservedQty: FieldValue.increment(-item.quantityAllocated), // Reserved
+            });
+        }
+
         const newCuttingTaskRef = doc(collection(db, "Cutting"));
         const newCuttingTask: Omit<CuttingTask, 'id'> = {
             invoiceId: newInvoiceRef.id,
@@ -194,7 +207,7 @@ function GenerateInvoiceDialog({
             items: allItems.map(item => ({ 
                 ...item, 
                 status: 'pending',
-                originalLength: item.originalLength || 0, // Ensure originalLength is passed
+                originalLength: item.originalLength || 0,
             })),
             createdAt: new Date().toISOString(),
             status: "Pending",
@@ -202,21 +215,17 @@ function GenerateInvoiceDialog({
         batch.set(newCuttingTaskRef, newCuttingTask);
 
 
-        // 3. Update all selected batches status
         batches.forEach(b => {
             const batchRef = doc(db, "invoiceBatches", b.id);
             batch.update(batchRef, { status: "invoiced", tallyBillNo: tallyBillNo || null, invoiceId: newInvoiceRef.id });
         });
 
-        // 4. Check if all items for the order are now invoiced and update the milestone
         const allOrderFabricNames = (primaryOrder.fabricDetails || []).map(f => f.fabricName);
 
-        // Fetch all invoice batches for this order to get a complete picture
         const allBatchesQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', primaryOrder.id));
         const allBatchesSnapshot = await getDocs(allBatchesQuery);
         const allInvoicedItems = allBatchesSnapshot.docs.flatMap(doc => (doc.data() as InvoiceBatch).items.map(item => item.itemName));
         
-        // Add items from the current batch being created
         const currentBatchItems = allItems.map(item => item.itemName);
         allInvoicedItems.push(...currentBatchItems);
 
@@ -225,7 +234,7 @@ function GenerateInvoiceDialog({
         if (allItemsInvoiced) {
             const orderRef = doc(db, "orders", primaryOrder.id);
             const updatedMilestones = primaryOrder.milestones.map(m =>
-                m.id === 3 // "Sent to Stitching" milestone
+                m.id === 3
                 ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: creator.name }
                 : m
             );
@@ -239,7 +248,6 @@ function GenerateInvoiceDialog({
         const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id };
         setGeneratedInvoice(fullInvoiceData);
         
-        // 5. Send to Tally
         try {
             const tallyResult = await sendInvoiceToTally(fullInvoiceData);
             if(tallyResult.success) {
@@ -591,225 +599,4 @@ function InvoiceTable({
         )}
     </>
   )
-}
-
-function XmlLogTable({ invoices }: { invoices: Invoice[] }) {
-    const [selectedXml, setSelectedXml] = React.useState<string | null>(null);
-
-    return (
-        <>
-            <Card>
-                <CardHeader>
-                    <CardTitle>XML Log</CardTitle>
-                    <CardDescription>A log of all XML payloads sent to Tally for sales voucher creation.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="rounded-md border">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Invoice No</TableHead>
-                                    <TableHead>Date</TableHead>
-                                    <TableHead>Customer</TableHead>
-                                    <TableHead className="text-right">Amount</TableHead>
-                                    <TableHead className="text-right">Action</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {invoices.length > 0 ? (
-                                    invoices.map((invoice) => (
-                                        <TableRow key={invoice.id}>
-                                            <TableCell className="font-mono">{invoice.invoiceNo}</TableCell>
-                                            <TableCell>{format(new Date(invoice.createdAt), 'dd/MM/yyyy')}</TableCell>
-                                            <TableCell>{invoice.customer.name}</TableCell>
-                                            <TableCell className="text-right">₹{invoice.totals.grandTotal.toFixed(2)}</TableCell>
-                                            <TableCell className="text-right">
-                                                <Button variant="outline" size="sm" onClick={() => setSelectedXml(invoice.tallySalesXml || null)}>
-                                                    <Code className="mr-2 h-4 w-4" />
-                                                    View XML
-                                                </Button>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : (
-                                    <TableRow>
-                                        <TableCell colSpan={5} className="h-24 text-center">
-                                            No XML logs found. Generate an invoice to see the log here.
-                                        </TableCell>
-                                    </TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </div>
-                </CardContent>
-            </Card>
-            <Dialog open={!!selectedXml} onOpenChange={() => setSelectedXml(null)}>
-                <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
-                    <DialogHeader>
-                        <DialogTitle>Sales Voucher XML</DialogTitle>
-                        <DialogDescription>
-                            This is the exact XML payload that was sent to Tally.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <ScrollArea className="flex-grow bg-muted rounded-md p-4">
-                        <pre className="text-xs whitespace-pre-wrap break-all">
-                           <code>{selectedXml}</code>
-                        </pre>
-                    </ScrollArea>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setSelectedXml(null)}>Close</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </>
-    );
-}
-
-
-export default function InvoicePage() {
-  const [batches, setBatches] = React.useState<InvoiceBatch[]>([]);
-  const [orders, setOrders] = React.useState<Order[]>([]);
-  const [invoices, setInvoices] = React.useState<Invoice[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [isSyncing, setIsSyncing] = React.useState(false);
-  const [xmlPreview, setXmlPreview] = React.useState<string | null>(null);
-  const [invoiceToSync, setInvoiceToSync] = React.useState<Invoice | null>(null);
-
-  const { toast } = useToast();
-
-  React.useEffect(() => {
-    setLoading(true);
-    const batchesQuery = query(collection(db, "invoiceBatches"));
-    const ordersQuery = query(collection(db, "orders"));
-    const invoicesQuery = query(collection(db, "invoices"), orderBy("createdAt", "desc"));
-
-    const unsubscribeBatches = onSnapshot(batchesQuery, (snapshot) => {
-        const batchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InvoiceBatch));
-        setBatches(batchesData.sort((a,b) => b.createdAt.toMillis() - a.createdAt.toMillis()));
-    }, (error) => {
-        console.error("Error fetching invoice batches:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not load invoice data." });
-    });
-
-    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-        const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        setOrders(ordersData);
-    }, (error) => {
-        console.error("Error fetching orders:", error);
-    });
-
-    const unsubscribeInvoices = onSnapshot(invoicesQuery, (snapshot) => {
-        const invoicesData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Invoice));
-        setInvoices(invoicesData);
-    });
-
-    Promise.all([
-        getDocs(batchesQuery),
-        getDocs(ordersQuery),
-        getDocs(invoicesQuery),
-    ]).finally(() => setLoading(false));
-
-    return () => {
-      unsubscribeBatches();
-      unsubscribeOrders();
-      unsubscribeInvoices();
-    };
-  }, [toast]);
-  
-
-  const handleGenerateTallyInvoice = async (selectedInvoices: Invoice[]) => {
-    if (selectedInvoices.length === 0) {
-      toast({ variant: 'destructive', title: 'No Invoices Selected', description: 'Please select at least one invoice to sync.' });
-      return;
-    }
-    
-    // For simplicity, we'll show a preview for the first selected invoice.
-    const firstInvoice = selectedInvoices[0];
-    setInvoiceToSync(firstInvoice);
-
-    // Build the XML here just for preview
-    const xml = await buildSalesVoucherXML(firstInvoice);
-    setXmlPreview(xml);
-  };
-  
-  const handleConfirmAndSend = async () => {
-      if (!invoiceToSync) return;
-      setIsSyncing(true);
-      toast({ title: 'Sync Started', description: `Sending invoice #${invoiceToSync.invoiceNo} to Tally...` });
-      try {
-          const result = await sendInvoiceToTally(invoiceToSync);
-          if (result.success) {
-              toast({ title: `Success for #${invoiceToSync.invoiceNo}`, description: result.message });
-          } else {
-              toast({ variant: 'destructive', title: `Failed for #${invoiceToSync.invoiceNo}`, description: result.message });
-          }
-      } catch (error: any) {
-          toast({ variant: 'destructive', title: `Error for #${invoiceToSync.invoiceNo}`, description: error.message });
-      } finally {
-          setIsSyncing(false);
-          setXmlPreview(null);
-          setInvoiceToSync(null);
-      }
-  }
-
-
-  const activeBatches = React.useMemo(() => batches.filter(b => b.status === 'pending'), [batches]);
-
-  return (
-    <>
-    <div className="container mx-auto p-4 md:p-6 lg:p-8">
-        <header className="flex items-center justify-between mb-8">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Invoice</h1>
-                <p className="text-muted-foreground">
-                    Items that have been allocated and are ready for invoicing.
-                </p>
-            </div>
-            <Button asChild>
-                <Link href="/dashboard/customers">
-                    <PlusCircle className="mr-2 h-4 w-4" /> Create Invoice
-                </Link>
-            </Button>
-        </header>
-       <Tabs defaultValue="active" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="active">Active Invoices</TabsTrigger>
-                <TabsTrigger value="history">Tally Log</TabsTrigger>
-                <TabsTrigger value="xml-log">XML Log</TabsTrigger>
-            </TabsList>
-            <TabsContent value="active" className="pt-4">
-                <InvoiceTable batches={activeBatches} orders={orders} loading={loading} view="active" />
-            </TabsContent>
-            <TabsContent value="history" className="pt-4">
-                <InvoiceLogTable onGenerateTallyInvoice={handleGenerateTallyInvoice} />
-            </TabsContent>
-            <TabsContent value="xml-log" className="pt-4">
-                <XmlLogTable invoices={invoices} />
-            </TabsContent>
-        </Tabs>
-    </div>
-    <Dialog open={!!xmlPreview} onOpenChange={() => setXmlPreview(null)}>
-        <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
-            <DialogHeader>
-                <DialogTitle>Confirm Tally Sync</DialogTitle>
-                <DialogDescription>
-                    Review the generated XML. This will be sent to Tally to create a sales voucher for invoice #{invoiceToSync?.invoiceNo}.
-                </DialogDescription>
-            </DialogHeader>
-             <ScrollArea className="flex-grow bg-muted rounded-md p-4 border">
-                <pre className="text-xs whitespace-pre-wrap break-all">
-                    <code>{xmlPreview}</code>
-                </pre>
-            </ScrollArea>
-            <DialogFooter>
-                <Button variant="ghost" onClick={() => setXmlPreview(null)}>Cancel</Button>
-                <Button onClick={handleConfirmAndSend} disabled={isSyncing}>
-                    {isSyncing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Confirm & Send to Tally
-                </Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
-    </>
-  );
 }

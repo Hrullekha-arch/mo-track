@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { Invoice, Stock } from '@/lib/types';
@@ -163,7 +162,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     <LEDGERENTRIES.LIST>
       <LEDGERNAME>Round Off</LEDGERNAME>
       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-      <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
+      <AMOUNT>${fmt(roundOff)}</AMOUNT>
     </LEDGERENTRIES.LIST>` : '';
 
   return `
@@ -301,40 +300,9 @@ export async function sendInvoiceToTally(
     await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone)
   );
 
-  // 2) Pre-invoice verification check
-  for (const item of invoice.items) {
-    // Make sure stock item exists in Tally for accuracy.
-    await createIfNeeded(await buildStockItemCreateXML(item.itemName));
-
-    const { success: crmSuccess, quantity: crmAvailableQty, message: crmMessage } = await getFirestoreStockQuantity(item.itemName);
-    const { success: tallySuccess, quantity: tallyClosingStock, message: tallyMessage } = await getStockFromTally(item.itemName);
-
-    if (!crmSuccess || !tallySuccess) {
-        return { success: false, message: `Failed to verify stock for ${item.itemName}. CRM: ${crmMessage}, Tally: ${tallyMessage}` };
-    }
-
-    if (crmAvailableQty === null || tallyClosingStock === null) {
-        return { success: false, message: `Could not retrieve stock quantity for ${item.itemName}.`};
-    }
-    
-    // Check 1: CRM available stock should not be more than Tally's stock.
-    if (crmAvailableQty > tallyClosingStock) {
-      return {
-        success: false,
-        message: `Stock Mismatch for ${item.itemName}. CRM shows ${crmAvailableQty} available, but Tally only has ${tallyClosingStock}. A sync is required.`
-      };
-    }
-    
-    // Check 2: Tally must have enough stock for the current invoice item quantity.
-    if (tallyClosingStock < item.quantityAllocated) {
-      return {
-        success: false,
-        message: `Insufficient stock for ${item.itemName} in Tally. Required: ${item.quantityAllocated}, Available in Tally: ${tallyClosingStock}.`
-      };
-    }
-  }
-
-  // 3) If all checks pass, create the Sales Voucher
+  // 2) The pre-invoice verification check is now done on the client-side before calling this action.
+  
+  // 3) Create the Sales Voucher
   const voucherXml = await buildSalesVoucherXML(invoice);
   
   // Save XML before sending for better debugging
@@ -378,14 +346,14 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
     </ENVELOPE>`;
   try {
     const responseXml = await httpPostXml(xml);
-    console.log(`Tally response for ${itemName}:`, responseXml); // For debugging
+    console.log(`Tally response for ${itemName}:`, responseXml);
     const parsed = await xml2js.parseStringPromise(responseXml, { explicitArray: false, trim: true });
-
-    // Correctly navigate the parsed XML object
-    const closingBalanceNode = parsed?.ENVELOPE?.STOCKITEM?.CLOSINGBALANCE;
-
-    if (closingBalanceNode && typeof closingBalanceNode === 'object' && closingBalanceNode.$?.TYPE === 'Quantity') {
-        const balanceText = closingBalanceNode._;
+    
+    // Updated path to navigate the parsed object correctly
+    const closingBalanceNode = parsed?.ENVELOPE?.BODY?.DATA?.COLLECTION?.STOCKITEM?.CLOSINGBALANCE;
+    
+    if (closingBalanceNode && typeof closingBalanceNode === 'string') {
+        const balanceText = closingBalanceNode;
         const match = balanceText.match(/^(-?\d+(\.\d+)?)/);
         const quantity = match ? parseFloat(match[1]) : 0;
         return { success: true, quantity: isNaN(quantity) ? 0 : quantity, message: 'Success' };
