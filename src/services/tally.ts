@@ -2,7 +2,7 @@
 
 'use server';
 
-import { Invoice } from '@/lib/types';
+import { Invoice, Stock } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
 import xml2js from 'xml2js';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -142,10 +142,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const roundedTotalAmount = Math.round(totalAmountBeforeRoundOff);
   const roundOff = money(roundedTotalAmount - totalAmountBeforeRoundOff);
   
-  // This is the CRITICAL FIX. The party amount must be the exact, un-rounded total.
-  // The roundOff entry will balance the debits and credits.
   const partyAmount = totalAmountBeforeRoundOff;
-
 
   const cgstLedgerEntry = cgst > 0 ? `
     <LEDGERENTRIES.LIST>
@@ -164,7 +161,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const roundOffLedgerEntry = roundOff !== 0 ? `
     <LEDGERENTRIES.LIST>
       <LEDGERNAME>Round Off</LEDGERNAME>
-      <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
+      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
       <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
     </LEDGERENTRIES.LIST>` : '';
 
@@ -186,7 +183,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
           <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
             <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
             <DATE>${date}</DATE>
-            <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
             <STATENAME>${state}</STATENAME>
             <PLACEOFSUPPLY>${placeOfSupply}</PLACEOFSUPPLY>
             <PARTYNAME>${partyLedgerName}</PARTYNAME>
@@ -203,7 +199,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
               <BILLALLOCATIONS.LIST>
                 <NAME>${invoice.invoiceNo}</NAME>
                 <BILLTYPE>New Ref</BILLTYPE>
-                <AMOUNT>-${fmt(roundedTotalAmount)}</AMOUNT>
+                <AMOUNT>-${fmt(partyAmount)}</AMOUNT>
               </BILLALLOCATIONS.LIST>
             </LEDGERENTRIES.LIST>
             ${inventoryEntries}
@@ -319,7 +315,7 @@ export async function sendInvoiceToTally(
     
     // The available quantity should be considered as the current Tally stock PLUS what we are about to deduct.
     // This prevents errors if this function runs moments after the Firestore stock is deducted.
-    const effectiveAvailableQty = (stockCheck.quantity ?? 0) + item.quantityAllocated;
+    const effectiveAvailableQty = (stockCheck.quantity ?? 0);
 
     if (stockCheck.quantity !== null && effectiveAvailableQty < item.quantityAllocated) {
       return {
