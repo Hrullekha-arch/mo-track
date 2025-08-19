@@ -151,6 +151,9 @@ export async function updateStockQuantityAction(
     let finalStockData: Stock;
     
     try {
+      const lengthId = `Length (${transaction.quantityChange.toFixed(2)} MTR)`;
+      const newLengthRef = stockRef.collection('lengths').doc(lengthId);
+
       await adminDb.runTransaction(async (tx) => {
           const stockDoc = await tx.get(stockRef); // READ FIRST
           
@@ -165,7 +168,6 @@ export async function updateStockQuantityAction(
               lastUpdatedAt: transaction.createdAt,
           };
 
-          const newLengthRef = stockRef.collection('lengths').doc();
           tx.set(newLengthRef, { ...newLengthData, id: newLengthRef.id }); // WRITE
 
           if (!stockDoc.exists) {
@@ -293,4 +295,3 @@ export async function getStockDetails(bcn: string, lengthId: string) {
         return { success: false, message: `Failed to fetch details: ${error.message}` };
     }
 }
-
