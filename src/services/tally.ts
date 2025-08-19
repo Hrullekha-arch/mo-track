@@ -139,6 +139,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const cgst = money(totalGST / 2);
   const sgst = money(totalGST - cgst);
   const totalAmountBeforeRoundOff = money(itemSubtotal + cgst + sgst);
+  
   const roundedTotalAmount = Math.round(totalAmountBeforeRoundOff);
   const roundOff = money(roundedTotalAmount - totalAmountBeforeRoundOff);
   
@@ -366,6 +367,7 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
     </ENVELOPE>`;
   try {
     const responseXml = await httpPostXml(xml);
+    console.log('Tally Stock Response XML:', responseXml); // Temporary log
     const parsed = await xml2js.parseStringPromise(responseXml, { explicitArray: false, trim: true });
     
     const closingBalance = parsed?.ENVELOPE?.BODY?.DATA?.COLLECTION?.STOCKITEM?.CLOSINGBALANCE;
@@ -377,7 +379,7 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
     }
     return { success: true, quantity: 0, message: 'Stock item not found in Tally or has no balance.' };
   } catch (error: any) {
-    console.error(`Tally stock fetch error for ${itemName}:`, error.message, `Response XML: ${error.responseXml || ''}`);
+    console.error(`Tally stock fetch error for ${itemName}:`, error.message);
     return { success: false, quantity: null, message: `Tally stock fetch error: ${error.message}` };
   }
 }
