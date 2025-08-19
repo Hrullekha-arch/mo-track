@@ -270,7 +270,60 @@ export interface Stock {
   type: 'fabric' | 'furniture' | string; // Making it flexible
   lastUpdatedAt: string; // ISO Date
   rack?: string;
+
+  // New reservation fields
+  availableQty?: number;
+  reservedQty?: number;
+  cutQty?: number;
+  status?: "available" | "reserved" | "cut" | "on-hold";
 }
+
+
+export interface Roll {
+  id: string; // rollId
+  length: number;
+  availableLength: number;
+  reservedLength: number;
+  cutLength: number;
+  dynamicBarcode: string; // e.g., "123456|50"
+  status: "available" | "on-hold" | "fully_used";
+}
+
+export interface Allocation {
+  id: string; // allocationId
+  orderId: string;
+  rollId: string;
+  reservedLength: number;
+  status: "reserved" | "invoiced" | "cut" | "cancelled" | "on-hold";
+  createdAt: string; // timestamp
+}
+
+export interface CutRequest {
+    id: string; // cutId
+    invoiceId: string;
+    orderId: string;
+    rollId: string;
+    stockId: string; // parent stock doc id
+    bcn: string;
+    cutLength: number;
+    beforeBarcode: string; // e.g. "123456|50"
+    status: "pending" | "completed" | "failed";
+    createdAt: string; // timestamp
+    customerName: string;
+    salesPerson: string;
+}
+
+export interface CutHistory {
+    id: string; // historyId
+    cutId: string;
+    rollId: string;
+    cutLength: number;
+    fromBarcode: string;
+    toBarcode: string;
+    operator: string;
+    timestamp: string;
+}
+
 
 export interface StockTransaction {
   id: string;

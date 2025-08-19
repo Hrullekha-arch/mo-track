@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType } from '@/lib/types';
+import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType, CutRequest } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
 
 export async function getQuotationsForDeal(customerId: string, dealId: string): Promise<Quotation[]> {
@@ -85,8 +85,7 @@ export async function createDealOrderAction(
     const newOrderRef = adminDb.collection('orders').doc(orderId);
 
     const allFabricDetails: FabricDetail[] = await Promise.all(quotation.items.map(async (item) => {
-        const stockId = item.collectionBrand.replace(/\//g, '-');
-        const stockRef = adminDb.collection('stocks').doc(stockId);
+        const stockRef = adminDb.collection('stocks').doc(item.collectionBrand.replace(/\//g, '-'));
         const stockSnap = await stockRef.get();
         const currentStockQty = (stockSnap.data() as Stock)?.quantity || 0;
         const requiredQty = item.quantity;
@@ -103,7 +102,7 @@ export async function createDealOrderAction(
     if (firstMilestone) {
         firstMilestone.completed = true;
         firstMilestone.completedAt = new Date().toISOString();
-        firstMilestone.completedBy = creator.name;
+        firstMilestone.completedBy: creator.name;
     }
 
 
@@ -153,6 +152,27 @@ export async function createDealOrderAction(
       status: 'Converted to Order',
       orderNo: newOrder.id,
     });
+    
+    // 4. Create Cut Requests
+    for (const item of quotation.items) {
+        const stockId = item.collectionBrand.replace(/\//g, '-');
+        const cutRequestRef = adminDb.collection('stocks').doc(stockId).collection('cutRequests').doc();
+        
+        const newCutRequest: Omit<CutRequest, 'id'> = {
+            invoiceId: newOrder.id, // Using order ID as invoice reference for now
+            orderId: newOrder.id,
+            rollId: 'R1', // This needs to be determined during allocation
+            stockId: stockId,
+            bcn: item.collectionBrand,
+            cutLength: item.quantity,
+            beforeBarcode: '', // To be filled during cut
+            status: "pending",
+            createdAt: new Date().toISOString(),
+            customerName: newOrder.customerName,
+            salesPerson: newOrder.salesPerson,
+        };
+        batch.set(cutRequestRef, { ...newCutRequest, id: cutRequestRef.id });
+    }
 
     await batch.commit();
 
