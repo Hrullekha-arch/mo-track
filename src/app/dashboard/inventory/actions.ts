@@ -32,15 +32,11 @@ export async function getStockData(): Promise<Stock[]> {
 }
 
 export async function getStockById(id: string): Promise<Stock | null> {
-    // This function might need re-evaluation. Do we search by BCN or by lengthId?
-    // Assuming for now the `id` is the BCN, and we might want to fetch all lengths for it.
-    // For simplicity, this is left as is, but it's a potential point of confusion.
     try {
-        // This is tricky because we don't know the parent doc.
-        // A real implementation might need a search query instead.
-        const lengthsQuery = await adminDb.collectionGroup('lengths').where('bcn', '==', id).limit(1).get();
-        if(!lengthsQuery.empty) {
-            const docSnap = lengthsQuery.docs[0];
+        const docRef = adminDb.collection("stocks").doc(id);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists) {
             const stockData = { id: docSnap.id, ...docSnap.data() };
             return JSON.parse(JSON.stringify(stockData)) as Stock;
         }
@@ -123,16 +119,19 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
     }
 
     try {
-        const lengthsSnapshot = await adminDb.collectionGroup('lengths')
+        const stockRef = adminDb.collection('stocks');
+        const q = stockRef
             .where('bcn', '>=', query)
             .where('bcn', '<=', query + '\uf8ff')
-            .limit(10).get();
+            .limit(10); 
 
-        if (lengthsSnapshot.empty) {
+        const snapshot = await q.get();
+
+        if (snapshot.empty) {
             return [];
         }
 
-        const results = lengthsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
+        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
         return JSON.parse(JSON.stringify(results));
     } catch (error) {
         console.error("Error searching stock by BCN:", error);
@@ -186,10 +185,10 @@ export async function updateStockQuantityAction(
               });
           }
       });
-
-      // After the transaction succeeds, fetch the final state to return
+      
       const updatedStockDoc = await stockRef.get();
       finalStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
+      
       return { success: true, message: 'Stock added successfully.', newStock: JSON.parse(JSON.stringify(finalStockData)) };
 
     } catch (error: any) {
@@ -261,21 +260,25 @@ export async function updateStockBatchAction(
     return { success: false, message: "Function not adapted for new structure."}
 }
     
-export async function getStockDetails(bcn: string, lengthId: string) {
+export async function getStockDetails(bcn: string) {
     try {
-        const lengthRef = adminDb.collection('stocks').doc(bcn).collection('lengths').doc(lengthId);
-        
-        const [stockDoc, cutHistorySnapshot, reservedQtySnapshot] = await Promise.all([
-            lengthRef.get(),
-            lengthRef.collection('cutHistory').orderBy('timestamp', 'desc').get(),
-            lengthRef.collection('reservedQty').get()
-        ]);
+        const stockRef = adminDb.collection('stocks').doc(bcn);
+        const lengthsSnapshot = await stockRef.collection('lengths').get();
+        const cutHistorySnapshot = await stockRef.collectionGroup('cutHistory').orderBy('timestamp', 'desc').get();
+        const reservedQtySnapshot = await stockRef.collectionGroup('reservedQty').get();
 
+        const stockDoc = await stockRef.get();
         if (!stockDoc.exists) {
-            return { success: false, message: "Stock length not found" };
+            return { success: false, message: "Stock BCN not found" };
         }
 
         const stock = { id: stockDoc.id, ...stockDoc.data() } as Stock;
+        
+        const availableLengths = lengthsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return { length: data.quantity, transactionId: doc.id };
+        });
+
         const transactions = [
             ...cutHistorySnapshot.docs.map(d => d.data()),
             ...reservedQtySnapshot.docs.map(d => d.data())
@@ -287,6 +290,7 @@ export async function getStockDetails(bcn: string, lengthId: string) {
             data: JSON.parse(JSON.stringify({
                 stock,
                 transactions,
+                availableLengths
             }))
         };
 
