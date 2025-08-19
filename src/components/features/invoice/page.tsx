@@ -49,6 +49,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { StockMismatchDialog } from "@/components/features/invoice/StockMismatchDialog";
 
 
+interface MismatchItem {
+  itemName: string;
+  crmQty: number;
+  tallyQty: number;
+  requiredQty?: number;
+  errorType: 'mismatch' | 'insufficient';
+}
+
 function GenerateInvoiceDialog({
   isOpen,
   onClose,
@@ -65,7 +73,7 @@ function GenerateInvoiceDialog({
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isTallyDialogOpen, setIsTallyDialogOpen] = React.useState(false);
   const [isStockMismatchOpen, setIsStockMismatchOpen] = React.useState(false);
-  const [mismatchedItems, setMismatchedItems] = React.useState<{ itemName: string; crmQty: number; tallyQty: number; }[]>([]);
+  const [mismatchedItems, setMismatchedItems] = React.useState<MismatchItem[]>([]);
   const [tallyBillNo, setTallyBillNo] = React.useState('');
   const [generatedInvoice, setGeneratedInvoice] = React.useState<Invoice | null>(null);
   const { toast } = useToast();
@@ -73,32 +81,37 @@ function GenerateInvoiceDialog({
   const handlePreVoucherCheck = async () => {
     if (!creator) return;
     setIsGenerating(true);
-    const mismatches = [];
-
+    const mismatches: MismatchItem[] = [];
     const allItems = batches.flatMap(b => b.items);
 
     for (const item of allItems) {
-      const firestoreRes = await getFirestoreStockQuantity(item.itemName);
-      const tallyRes = await getStockFromTally(item.itemName);
-
-      if (firestoreRes.success && tallyRes.success && firestoreRes.quantity !== null && tallyRes.quantity !== null) {
-        if (Math.abs(firestoreRes.quantity - tallyRes.quantity) > 0.01) { // Use a tolerance for float comparison
-          mismatches.push({
-            itemName: item.itemName,
-            crmQty: firestoreRes.quantity,
-            tallyQty: tallyRes.quantity,
-          });
+        const crmRes = await getFirestoreStockQuantity(item.itemName);
+        const tallyRes = await getStockFromTally(item.itemName);
+        
+        if (!crmRes.success || !tallyRes.success) {
+            toast({ variant: 'destructive', title: 'Verification Error', description: `Could not verify stock for ${item.itemName}. CRM: ${crmRes.message}, Tally: ${tallyRes.message}` });
+            setIsGenerating(false);
+            return;
         }
-      }
-    }
 
+        const crmQty = crmRes.quantity ?? 0;
+        const tallyQty = tallyRes.quantity ?? 0;
+        const requiredQty = item.quantityAllocated;
+        
+        if (tallyQty < requiredQty) {
+          mismatches.push({ itemName: item.itemName, crmQty, tallyQty, requiredQty, errorType: 'insufficient' });
+        } else if (crmQty > tallyQty) {
+          mismatches.push({ itemName: item.itemName, crmQty, tallyQty, errorType: 'mismatch' });
+        }
+    }
+    
     setIsGenerating(false);
 
     if (mismatches.length > 0) {
       setMismatchedItems(mismatches);
       setIsStockMismatchOpen(true);
     } else {
-      setIsTallyDialogOpen(true); // No mismatches, proceed to Tally dialog
+      setIsTallyDialogOpen(true);
     }
   };
 
@@ -108,7 +121,7 @@ function GenerateInvoiceDialog({
         return;
     }
     setIsTallyDialogOpen(false);
-    setIsStockMismatchOpen(false);
+    setIsStockMismatchOpen(false); 
     setIsGenerating(true);
     
     try {
