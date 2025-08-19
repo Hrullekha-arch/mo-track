@@ -1,10 +1,11 @@
 
+
 'use server';
 
 import { Invoice } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
-import axios from 'axios';
 import xml2js from 'xml2js';
+import { doc, updateDoc } from 'firebase/firestore';
 
 // ---------------- Helpers ----------------
 
@@ -137,7 +138,12 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const totalGST = money(itemSubtotal * 0.05);
   const cgst = money(totalGST / 2);
   const sgst = money(totalGST - cgst);
-  const partyAmount = money(itemSubtotal + cgst + sgst);
+  const totalAmountBeforeRoundOff = money(itemSubtotal + cgst + sgst);
+  const roundedPartyAmount = Math.round(totalAmountBeforeRoundOff);
+  const roundOff = money(roundedPartyAmount - totalAmountBeforeRoundOff);
+  
+  const partyAmount = roundedPartyAmount;
+
 
   const cgstLedgerEntry = cgst > 0 ? `
     <LEDGERENTRIES.LIST>
@@ -151,6 +157,13 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
       <LEDGERNAME>SGST 2.5%</LEDGERNAME>
       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
       <AMOUNT>${fmt(sgst)}</AMOUNT>
+    </LEDGERENTRIES.LIST>` : '';
+
+  const roundOffLedgerEntry = roundOff !== 0 ? `
+    <LEDGERENTRIES.LIST>
+      <LEDGERNAME>Round Off</LEDGERNAME>
+      <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
+      <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
     </LEDGERENTRIES.LIST>` : '';
 
   return `
@@ -194,6 +207,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             ${inventoryEntries}
             ${cgstLedgerEntry}
             ${sgstLedgerEntry}
+            ${roundOffLedgerEntry}
           </VOUCHER>
         </TALLYMESSAGE>
       </REQUESTDATA>
