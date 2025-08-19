@@ -81,31 +81,12 @@ export async function createDealOrderAction(
 
     const orderId = `MOTRACK-${quotation.quotationNo}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
-    
-    // Check stock availability and create reservation details
-    for (const item of quotation.items) {
-        const stockId = item.collectionBrand.replace(/\//g, '-');
-        const stockRef = adminDb.collection('stocks').doc(stockId);
-        const stockDoc = await stockRef.get();
-
-        if (!stockDoc.exists) throw new Error(`Stock item ${item.collectionBrand} not found.`);
-        const stockData = stockDoc.data() as Stock;
-
-        if (stockData.availableQty < item.quantity) {
-            throw new Error(`Insufficient available stock for ${item.collectionBrand}. Available: ${stockData.availableQty}, Required: ${item.quantity}`);
-        }
-        
-        // Reserve the stock
-        batch.update(stockRef, {
-            reservedQty: FieldValue.increment(item.quantity),
-            availableQty: FieldValue.increment(-item.quantity)
-        });
-    }
 
     const allFabricDetails: FabricDetail[] = quotation.items.map(item => ({
       fabricName: item.collectionBrand,
       quantity: String(item.quantity),
-      status: 'allocated', // The new flow considers this "reserved"
+      // Status is now 'pending for po' by default, allocation will change it
+      status: 'pending for po', 
     }));
     
     const initialMilestones = getMilestonesForOrder(orderType);
@@ -166,7 +147,7 @@ export async function createDealOrderAction(
 
     return {
       success: true,
-      message: 'Order created, stock reserved, and sent for approval.',
+      message: 'Order created and sent for approval.',
       order: JSON.parse(JSON.stringify(newOrder)),
     };
   } catch (error: any) {
