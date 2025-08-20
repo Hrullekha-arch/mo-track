@@ -9,13 +9,13 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 export async function getAvailableStockLengths(stockId: string): Promise<{ success: boolean; message: string; lengths?: { length: number; transactionId: string }[] }> {
     try {
-        const stockAddedSnapshot = await adminDb.collection('stocks').doc(stockId).collection('stockAdded').get();
+        const stockAddedSnapshot = await adminDb.collection('stocks').doc(stockId).collection('lengths').get();
         
         const availableLengths: { length: number; transactionId: string }[] = [];
         stockAddedSnapshot.docs.forEach(doc => {
-            const data = doc.data() as StockTransaction;
-            if (data.quantityChange > 0) {
-                 availableLengths.push({ length: data.quantityChange, transactionId: doc.id });
+            const data = doc.data();
+            if (data.availableQty > 0) {
+                 availableLengths.push({ length: data.availableQty, transactionId: doc.id });
             }
         });
 
@@ -29,64 +29,87 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
 
 
 export async function allocateStockToAction(
-    { orderId, stockId, itemName, allocatedQty, userId, userName }: 
-    { orderId: string, stockId: string, itemName: string, allocatedQty: number, userId: string, userName: string }
+    { orderId, bcn, lengthId, itemName, allocatedQty, rate, userId, userName }: 
+    { orderId: string, bcn: string, lengthId: string, itemName: string, allocatedQty: number, rate: number, userId: string, userName: string }
 ): Promise<{ success: boolean; message: string }> {
     try {
        await adminDb.runTransaction(async (transaction) => {
-            const stockRef = adminDb.collection('stocks').doc(stockId);
+            const stockRef = adminDb.collection('stocks').doc(bcn);
+            const lengthRef = stockRef.collection('lengths').doc(lengthId);
             const orderRef = adminDb.collection('orders').doc(orderId);
+            const invoiceBatchRef = doc(adminDb.collection("invoiceBatches"));
             
             // --- ALL READS FIRST ---
             const stockDoc = await transaction.get(stockRef);
+            const lengthDoc = await transaction.get(lengthRef);
             const orderDoc = await transaction.get(orderRef);
             
-            if (!stockDoc.exists) {
-                throw new Error("Stock item not found.");
-            }
-            if (!orderDoc.exists) {
-                throw new Error("Order not found.");
-            }
+            if (!stockDoc.exists) throw new Error(`Stock item ${bcn} not found.`);
+            if (!lengthDoc.exists) throw new Error(`Stock length/roll ${lengthId} not found.`);
+            if (!orderDoc.exists) throw new Error("Order not found.");
             
             const stockData = stockDoc.data() as Stock;
+            const lengthData = lengthDoc.data() as Stock;
             const orderData = orderDoc.data() as Order;
 
-            if (stockData.availableQty < allocatedQty) {
-                throw new Error(`Insufficient available stock for ${itemName}. Available: ${stockData.availableQty}, Required: ${allocatedQty}`);
+            if (lengthData.availableQty < allocatedQty) {
+                throw new Error(`Insufficient available stock for ${itemName} on roll ${lengthId}. Available: ${lengthData.availableQty}, Required: ${allocatedQty}`);
             }
 
             // --- ALL WRITES AFTER ---
+            const updateTimestamp = new Date().toISOString();
 
-            // 1. Update stock quantities
+            // 1. Update quantities on both parent stock and specific length document
             transaction.update(stockRef, {
                 reservedQty: FieldValue.increment(allocatedQty),
                 availableQty: FieldValue.increment(-allocatedQty),
-                lastUpdatedAt: new Date().toISOString()
+                lastUpdatedAt: updateTimestamp
+            });
+            transaction.update(lengthRef, {
+                reservedQty: FieldValue.increment(allocatedQty),
+                availableQty: FieldValue.increment(-allocatedQty),
+                lastUpdatedAt: updateTimestamp
             });
 
-            // 2. Create an allocation log in the order's subcollection
-            const allocationData = {
-                stockId,
-                itemName,
-                quantityAllocated: allocatedQty,
-                allocatedAt: new Date().toISOString(),
-                allocatedBy: userName,
-                status: 'reserved'
-            };
-            const allocationRef = orderRef.collection('allocations').doc();
-            transaction.set(allocationRef, allocationData);
+            // 2. Create a reservation log in the specific length's subcollection
+            const reservationRef = lengthRef.collection('reservedQty').doc();
+            transaction.set(reservationRef, {
+                orderId: orderId,
+                reservedQty: allocatedQty,
+                reservedBy: userName,
+                timestamp: updateTimestamp
+            });
             
             // 3. Update the main order's "Fabric Allocated" milestone
             const updatedMilestones = orderData.milestones.map(m => {
                 if (m.id === 2) { // ID for "Fabric Allocated"
-                    return { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: userName };
+                    return { ...m, completed: true, completedAt: updateTimestamp, completedBy: userName };
                 }
                 return m;
             });
             transaction.update(orderRef, { milestones: updatedMilestones });
+
+            // 4. Create a new "pending" invoice batch for this allocated item
+            const newInvoiceBatch: InvoiceBatch = {
+                id: invoiceBatchRef.id,
+                orderId: orderId,
+                customerName: orderData.customerName,
+                customerPhone: orderData.customerPhone,
+                createdAt: Timestamp.fromDate(new Date()),
+                status: 'pending',
+                items: [{
+                    itemName: itemName,
+                    bcn: bcn,
+                    quantityAllocated: allocatedQty,
+                    rate: rate,
+                    originalLength: lengthData.quantity, // Save the original length of the roll it came from
+                    stockAddedId: lengthId, // Reference to the specific roll document
+                }]
+            };
+            transaction.set(invoiceBatchRef, newInvoiceBatch);
        });
 
-        return { success: true, message: 'Stock reserved successfully.' };
+        return { success: true, message: 'Stock reserved successfully and sent for invoicing.' };
 
     } catch (error: any) {
         console.error("Error in allocateStockToAction:", error);

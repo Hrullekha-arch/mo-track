@@ -6,7 +6,7 @@ import { useState, useEffect, use } from 'react';
 import { doc, onSnapshot, updateDoc, collection, getDoc, query, where, getDocs, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest, InvoiceBatch } from "@/lib/types";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2 } from "lucide-react";
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,7 @@ type OrderItem = (FabricDetail | FurnitureDetail) & { type: 'Fabric' | 'Furnitur
 
 const allocationSchema = z.object({
     quantityToAllocate: z.number().positive("Quantity must be greater than 0."),
+    selectedLengthId: z.string().min(1, "You must select a roll to allocate from."),
 });
 
 type AllocationFormValues = z.infer<typeof allocationSchema>;
@@ -42,6 +43,9 @@ type AllocationFormValues = z.infer<typeof allocationSchema>;
 function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: OrderItem, stock: Stock, orderId: string, onAllocationSuccess: () => void }) {
     const [isOpen, setIsOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [availableLengths, setAvailableLengths] = useState<{ length: number; transactionId: string; }[]>([]);
+    const [loadingLengths, setLoadingLengths] = useState(false);
+
     const { toast } = useToast();
     const { user } = useAuth();
     
@@ -49,8 +53,25 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
         resolver: zodResolver(allocationSchema),
         defaultValues: {
             quantityToAllocate: parseFloat((item as any).quantity || '0'),
+            selectedLengthId: '',
         }
     });
+
+    useEffect(() => {
+        if (isOpen) {
+            const fetchLengths = async () => {
+                setLoadingLengths(true);
+                const result = await getAvailableStockLengths(stock.id);
+                if (result.success && result.lengths) {
+                    setAvailableLengths(result.lengths);
+                } else {
+                    toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch available stock rolls.' });
+                }
+                setLoadingLengths(false);
+            };
+            fetchLengths();
+        }
+    }, [isOpen, stock.id, toast]);
 
     const onSubmit = async (data: AllocationFormValues) => {
         if (!user) return toast({ variant: 'destructive', title: 'Not authenticated'});
@@ -58,15 +79,17 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
         try {
             const result = await allocateStockToAction({
                 orderId,
-                stockId: stock.id,
+                bcn: stock.bcn,
+                lengthId: data.selectedLengthId,
                 itemName: stock.itemName,
                 allocatedQty: data.quantityToAllocate,
+                rate: stock.mrp || 0,
                 userId: user.id,
                 userName: user.name,
             });
 
             if (result.success) {
-                toast({ title: 'Allocation Successful!', description: 'Stock has been reserved for this order.' });
+                toast({ title: 'Allocation Successful!', description: 'Stock has been reserved and sent for invoicing.' });
                 onAllocationSuccess();
                 setIsOpen(false);
             } else {
@@ -93,7 +116,33 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
                 </DialogHeader>
                 <div className="py-4">
                      <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit)}>
+                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                                <FormField
+                                    control={form.control}
+                                    name="selectedLengthId"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <Label>Available Rolls/Lengths</Label>
+                                            <FormControl>
+                                                <div className="flex flex-wrap gap-2 pt-2">
+                                                    {loadingLengths ? <Loader2 className="animate-spin" /> :
+                                                        availableLengths.length > 0 ? availableLengths.map(len => (
+                                                            <Button
+                                                                key={len.transactionId}
+                                                                type="button"
+                                                                variant={field.value === len.transactionId ? "default" : "outline"}
+                                                                onClick={() => field.onChange(len.transactionId)}
+                                                            >
+                                                                {len.length.toFixed(2)}
+                                                            </Button>
+                                                        )) : <p className="text-xs text-muted-foreground">No specific rolls available.</p>
+                                                    }
+                                                </div>
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
                                 <FormField
                                     control={form.control}
                                     name="quantityToAllocate"
@@ -161,21 +210,20 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 return;
             }
             
-            const rollsQuery = query(collection(db, 'stocks'), where('bcn', '==', bcn), limit(1));
-
+            const stockId = bcn.replace(/\//g, '-');
+            const stockPromise = getStockById(stockId);
             const allocationsPromise = getOrderAllocations(orderId);
             const poPromise = getDoc(doc(db, 'purchaseRequests', orderCrmNo));
             const invoiceQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', orderId));
             const invoicePromise = getDocs(invoiceQuery);
 
-            const [rollsSnapshot, allocations, poSnap, invoiceSnaps] = await Promise.all([
-                getDocs(rollsQuery), 
+            const [stock, allocations, poSnap, invoiceSnaps] = await Promise.all([
+                stockPromise, 
                 allocationsPromise, 
                 poPromise, 
                 invoicePromise
             ]);
 
-            const stock = rollsSnapshot.docs[0] ? { id: rollsSnapshot.docs[0].id, ...rollsSnapshot.docs[0].data() } as Stock : null;
             setStockInfo(stock);
             
             const itemAllocations = allocations.filter(a => a.itemName === itemName);
