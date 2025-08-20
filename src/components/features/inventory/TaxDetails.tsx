@@ -13,7 +13,7 @@ import { Loader2, Trash2, Upload, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { collection, onSnapshot, addDoc, deleteDoc, doc, query, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { TaxDetail } from "@/lib/types";
+import { TaxDetail, Stock } from "@/lib/types";
 import * as XLSX from "xlsx";
 
 const taxDetailSchema = z.object({
@@ -28,6 +28,7 @@ type TaxDetailFormValues = z.infer<typeof taxDetailSchema>;
 
 export function TaxDetails() {
   const [taxDetails, setTaxDetails] = useState<TaxDetail[]>([]);
+  const [stocks, setStocks] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -41,14 +42,34 @@ export function TaxDetails() {
   });
 
   useEffect(() => {
-    const q = query(collection(db, "taxDetails"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TaxDetail));
-      setTaxDetails(data);
+    const taxQuery = query(collection(db, "taxDetails"));
+    const unsubscribeTax = onSnapshot(taxQuery, (snapshot) => {
+      const taxData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TaxDetail));
+      setTaxDetails(taxData);
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    const stockQuery = query(collection(db, "stocks"));
+    const unsubscribeStocks = onSnapshot(stockQuery, (snapshot) => {
+      const stockData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
+      setStocks(stockData);
+    });
+
+    return () => {
+        unsubscribeTax();
+        unsubscribeStocks();
+    };
   }, []);
+
+  const hsnStockCount = useMemo(() => {
+    const countMap = new Map<string, number>();
+    for (const stock of stocks) {
+        if (stock.hsnCode) {
+            countMap.set(stock.hsnCode, (countMap.get(stock.hsnCode) || 0) + 1);
+        }
+    }
+    return countMap;
+  }, [stocks]);
 
   const filteredTaxDetails = useMemo(() => {
     if (!searchTerm) {
@@ -202,13 +223,14 @@ export function TaxDetails() {
                 <TableHead>CGST%</TableHead>
                 <TableHead>SGST%</TableHead>
                 <TableHead>IGST%</TableHead>
+                <TableHead>No Of Stock</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center">
+                  <TableCell colSpan={8} className="h-24 text-center">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin" />
                   </TableCell>
                 </TableRow>
@@ -221,6 +243,7 @@ export function TaxDetails() {
                     <TableCell>{item.cgst.toFixed(2)}%</TableCell>
                     <TableCell>{item.sgst.toFixed(2)}%</TableCell>
                     <TableCell>{item.igst.toFixed(2)}%</TableCell>
+                    <TableCell className="font-medium">{hsnStockCount.get(item.hsnCode) || 0}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="destructive" size="sm" onClick={() => handleDelete(item.id)}>
                         Delete
@@ -230,7 +253,7 @@ export function TaxDetails() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center">
+                  <TableCell colSpan={8} className="h-24 text-center">
                     No tax details found.
                   </TableCell>
                 </TableRow>
