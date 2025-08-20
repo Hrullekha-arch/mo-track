@@ -75,7 +75,7 @@ export async function approveOrderAndCreatePurchaseRequest(
             const stockId = bcn.replace(/\//g, '-');
             const stockRef = adminDb.collection('stocks').doc(stockId);
             const stockSnap = await stockRef.get();
-            const availableQty = stockSnap.exists() ? (stockSnap.data() as Stock)?.availableQty || 0 : 0;
+            const availableQty = stockSnap.exists ? (stockSnap.data() as Stock)?.availableQty || 0 : 0;
             
             // Compare and create PR if needed
             if (totalUnallocatedDemand > availableQty) {
