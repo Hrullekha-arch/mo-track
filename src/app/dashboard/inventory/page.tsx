@@ -1,4 +1,5 @@
 
+
 import { Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +13,7 @@ import { StockDetails } from "@/components/features/inventory/StockDetails";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ScanLine } from "lucide-react";
+import { TaxDetails } from "@/components/features/inventory/TaxDetails";
 
 
 export default async function InventoryPage() {
@@ -35,10 +37,11 @@ export default async function InventoryPage() {
                 </Button>
             </header>
             <Tabs defaultValue="stock" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-5">
                     <TabsTrigger value="stock">Stock List</TabsTrigger>
                     <TabsTrigger value="stock-management">Stock Management</TabsTrigger>
                     <TabsTrigger value="stock-details">Stock Details</TabsTrigger>
+                    <TabsTrigger value="tax-details">Tax Details</TabsTrigger>
                     <TabsTrigger value="history">History</TabsTrigger>
                 </TabsList>
                 <TabsContent value="stock">
@@ -54,6 +57,11 @@ export default async function InventoryPage() {
                 <TabsContent value="stock-details">
                      <Suspense fallback={<InventorySkeleton />}>
                         <StockDetails />
+                    </Suspense>
+                </TabsContent>
+                <TabsContent value="tax-details">
+                    <Suspense fallback={<InventorySkeleton />}>
+                        <TaxDetails />
                     </Suspense>
                 </TabsContent>
                  <TabsContent value="history">

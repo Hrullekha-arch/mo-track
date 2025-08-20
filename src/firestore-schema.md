@@ -269,52 +269,63 @@ Stores cutting tasks generated from invoices.
 
 The main inventory collection.
 
--   **Path**: `/stocks/{stockId}` (where `stockId` is a sanitized BCN)
+-   **Path**: `/stocks/{bcn}` (where `bcn` is the barcode number)
 -   **Operations**: Read, Update
--   **Structure**:
+-   **Structure**: The parent document mainly serves as a container. Key aggregated data is stored here.
+
     ```typescript
     interface Stock {
-      id: string;
-      bcn?: string;
+      id: string; // Same as bcn
+      bcn: string;
       itemName: string;
-      quantity: number;
-      // ... and other inventory fields
+      // Aggregated quantities
+      quantity: number; // Total original qty from all rolls
+      availableQty: number;
+      reservedQty: number;
+      cutQty: number;
+      // ... other identifying fields like category, vendor, mrp
     }
     ```
 
-### Subcollection: `stockAdded`
+### Subcollection: `lengths`
 
--   **Path**: `/stocks/{stockId}/stockAdded/{transactionId}`
--   **Operations**: Read, Create, Update, Delete
--   **Structure**: A `StockTransaction` document representing a roll of fabric.
+Stores individual rolls or pieces of a stock item.
+
+-   **Path**: `/stocks/{bcn}/lengths/{lengthId}`
+-   **Operations**: Create, Read, Update, Delete
+-   **Structure**: Contains the detailed properties of a single roll.
     ```typescript
-    interface StockTransaction {
-      id: string;
-      stockId: string;
-      type: 'addition';
-      quantityChange: number; // Represents the CURRENT available length of this roll
-      poNumber?: string;
-      lengths?: number[]; // The original lengths added in this transaction
-      createdAt: string; // ISO Date
-      createdBy: string; // User name
+    interface StockLength {
+        id: string; // e.g., "Length1", "Length (12.50 MTR)"
+        bcn: string;
+        itemName: string;
+        quantity: number;     // Original length of this specific roll
+        availableQty: number;
+        reservedQty: number;
+        cutQty: number;
+        // ... and other detailed properties like mrp, serialNo, etc.
     }
     ```
+    -   **`cutHistory` (Subcollection)**: Logs every cut made from this roll.
+    -   **`cutRequests` (Subcollection)**: Stores pending cutting jobs for this roll.
+    -   **`reservedQty` (Subcollection)**: Logs reservations made against this roll for specific orders.
 
-### Sub-subcollection: `stockSold`
+---
 
--   **Path**: `/stocks/{stockId}/stockAdded/{transactionId}/stockSold/{soldTransactionId}`
--   **Operations**: Create
--   **Structure**: A `StockTransaction` document representing a piece cut from the parent roll.
+## `taxDetails`
+
+Stores tax information based on HSN code.
+
+-   **Path**: `/taxDetails/{hsnCode}`
+-   **Operations**: Create, Read, Update, Delete
+-   **Structure**:
     ```typescript
-    interface StockTransaction {
-      id: string;
-      stockId: string;
-      type: 'deduction';
-      quantityChange: number; // The amount that was CUT (-ve value)
-      orderId?: string;
-      createdAt: string; // ISO Date
-      createdBy: string; // User name
+    interface TaxDetail {
+      id: string;      // Same as HSN Code
+      hsnCode: string;
+      gst: number;
+      cgst: number;
+      sgst: number;
+      igst: number;
     }
     ```
-
-```

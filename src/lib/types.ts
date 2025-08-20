@@ -596,4 +596,14 @@ export interface CuttingTask {
   status: 'Pending' | 'In Progress' | 'Completed';
 }
 
+export interface TaxDetail {
+    id: string; // Firestore document ID
+    hsnCode: string;
+    gst: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+}
+
+
 export { type ComboboxOption };
