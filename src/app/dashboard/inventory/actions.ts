@@ -220,35 +220,50 @@ export async function revertStockAdditionAction(
 
 
 export async function getStockTransactions(bcn: string): Promise<StockTransaction[]> {
-    try {
-      const stockRef = adminDb.collection('stocks').doc(bcn);
-      
-      const addedTransactionsPromise = stockRef.collection('lengths').get();
-      const soldTransactionsPromise = stockRef.collectionGroup('stockSold').where('bcn', '==', bcn).get();
-      
-      const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
-  
-      const addedTransactions = addedSnapshot.docs.map(doc => {
-          const data = doc.data();
-          return { 
-              ...data,
-              id: doc.id,
-              type: 'addition',
-              quantityChange: data.quantity, // The original length of the roll
-              bcn: data.bcn,
-              createdAt: data.lastUpdatedAt, // Use the roll's creation time as the transaction time
-          } as StockTransaction
-      });
-      const soldTransactions = soldSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as StockTransaction));
-      
-      const allTransactions = [...addedTransactions, ...soldTransactions];
-      allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  
-      return JSON.parse(JSON.stringify(allTransactions));
-    } catch (error) {
-      console.error(`Error fetching transactions for stock ${bcn}:`, error);
-      return [];
-    }
+  try {
+    const stockRef = adminDb.collection('stocks').doc(bcn);
+
+    // Fetch added rolls
+    const addedSnapshot = await stockRef.collection('lengths').get();
+
+    // Fetch sold transactions
+    const soldSnapshot = await stockRef.collectionGroup('stockSold').where('bcn', '==', bcn).get();
+
+    // Build "added" transactions
+    const addedTransactions = addedSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return { 
+        id: doc.id,
+        bcn: bcn,  // force parent bcn
+        type: 'addition',
+        quantityChange: Number(data.quantity) || 0,
+        createdAt: data.lastUpdatedAt || new Date().toISOString(),
+        ...data
+      } as StockTransaction;
+    });
+
+    // Build "sold" transactions
+    const soldTransactions = soldSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return { 
+        id: doc.id,
+        bcn: bcn,
+        type: 'sold',
+        quantityChange: -(Number(data.soldQty) || 0),  // negative
+        createdAt: data.createdAt || new Date().toISOString(),
+        ...data
+      } as StockTransaction;
+    });
+
+    // Merge & sort
+    const allTransactions = [...addedTransactions, ...soldTransactions];
+    allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return JSON.parse(JSON.stringify(allTransactions));
+  } catch (error) {
+    console.error(`Error fetching transactions for stock ${bcn}:`, error);
+    return [];
+  }
 }
 
 export async function getAvailableStockLengths(bcn: string): Promise<{ success: boolean; message: string; lengths?: Stock[] }> {
