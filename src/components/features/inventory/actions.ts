@@ -166,6 +166,8 @@ export async function updateStockQuantityAction(
               cutQty: 0,
               unit: 'Mtr',
               lastUpdatedAt: transaction.createdAt,
+              poNumber: transaction.poNumber || null, 
+              salesman: transaction.salesman || null,
           };
 
           tx.set(newLengthRef, { ...newLengthData, id: newLengthRef.id }); // WRITE
@@ -222,18 +224,49 @@ export async function revertStockAdditionAction(
 export async function getStockTransactions(bcn: string): Promise<StockTransaction[]> {
     try {
       const stockRef = adminDb.collection('stocks').doc(bcn);
-      
-      // Fetching from two different subcollections, which is fine.
-      const addedTransactionsPromise = stockRef.collection('stockAdded').get();
-      const soldTransactionsPromise = stockRef.collection('stockSold').get();
-      
-      const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
   
-      const addedTransactions = addedSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as StockTransaction));
-      const soldTransactions = soldSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as StockTransaction));
-      
+      // Added stock comes from "lengths" subcollection
+      const addedSnapshotPromise = stockRef.collection('lengths').get();
+  
+      // Sold stock comes from "stockSold" subcollection
+      const soldSnapshotPromise = stockRef.collection('stockSold').get();
+  
+      const [addedSnapshot, soldSnapshot] = await Promise.all([
+        addedSnapshotPromise,
+        soldSnapshotPromise,
+      ]);
+  
+      // Map added rolls
+      const addedTransactions = addedSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          ...data,
+          id: doc.id,
+          bcn,
+          type: "addition",
+          quantityChange: Number(data.quantity) || 0,
+          createdAt: data.lastUpdatedAt || new Date().toISOString(),
+        } as StockTransaction;
+      });
+  
+      // Map sold transactions
+      const soldTransactions = soldSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          ...data,
+          id: doc.id,
+          bcn,
+          type: "deduction",
+          quantityChange: -(Number(data.quantity) || 0),
+          createdAt: data.createdAt || new Date().toISOString(),
+        } as StockTransaction;
+      });
+  
+      // Merge & sort by latest first
       const allTransactions = [...addedTransactions, ...soldTransactions];
-      allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      allTransactions.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
   
       return JSON.parse(JSON.stringify(allTransactions));
     } catch (error) {
@@ -241,7 +274,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
       return [];
     }
   }
-
+  
 export async function getAvailableStockLengths(bcn: string): Promise<{ success: boolean; message: string; lengths?: Stock[] }> {
     try {
         const lengthsSnapshot = await adminDb.collection('stocks').doc(bcn).collection('lengths').get();
