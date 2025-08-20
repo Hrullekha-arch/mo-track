@@ -154,7 +154,7 @@ export async function updateStockQuantityAction(
       const lengthId = `Length (${transaction.quantityChange.toFixed(2)} MTR)`;
       const newLengthRef = stockRef.collection('lengths').doc(lengthId);
 
-      const stockDataForTxn = await adminDb.runTransaction(async (tx) => {
+      await adminDb.runTransaction(async (tx) => {
           const stockDoc = await tx.get(stockRef); // READ FIRST
           
           const newLengthData: Partial<Stock> = {
@@ -170,34 +170,25 @@ export async function updateStockQuantityAction(
 
           tx.set(newLengthRef, { ...newLengthData, id: newLengthRef.id }); // WRITE
 
-          let currentData: Stock;
           if (!stockDoc.exists) {
-              const newStock: Partial<Stock> = {
+              tx.set(stockRef, { // WRITE
                   bcn: stockId,
                   itemName: transaction.bcn,
                   quantity: transaction.quantityChange,
                   availableQty: transaction.quantityChange,
                   reservedQty: 0,
                   cutQty: 0,
-              };
-              tx.set(stockRef, newStock, { merge: true }); // WRITE
-              currentData = newStock as Stock;
+              }, { merge: true });
           } else {
               tx.update(stockRef, { // WRITE
                   quantity: FieldValue.increment(transaction.quantityChange),
                   availableQty: FieldValue.increment(transaction.quantityChange),
               });
-              currentData = stockDoc.data() as Stock;
           }
-          
-          return {
-              ...currentData,
-              quantity: (currentData.quantity || 0) + transaction.quantityChange,
-              availableQty: (currentData.availableQty || 0) + transaction.quantityChange,
-          };
       });
       
-      finalStockData = { id: stockId, ...stockDataForTxn } as Stock;
+      const updatedStockDoc = await stockRef.get();
+      finalStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
       
       return { success: true, message: 'Stock added successfully.', newStock: JSON.parse(JSON.stringify(finalStockData)) };
 
