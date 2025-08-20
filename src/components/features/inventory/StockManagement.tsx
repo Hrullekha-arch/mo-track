@@ -9,7 +9,7 @@ import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Stock, StockTransaction } from "@/lib/types";
 import { searchStockByBcn, getStockTransactions, getStockById } from "@/app/dashboard/inventory/actions";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, PlusCircle, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, PlusCircle, RefreshCw, Trash2, Tag, Warehouse, BadgePercent, Building } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -144,9 +144,14 @@ export function StockManagement() {
                     <p className="text-sm"><strong className="block text-muted-foreground">BCN:</strong> {selectedStock.bcn}</p>
                     <p className="text-sm col-span-2"><strong className="block text-muted-foreground">Item Name:</strong> {selectedStock.itemName}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Original Qty:</strong> {selectedStock.quantity.toFixed(2)}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Available Qty:</strong> {selectedStock.availableQty?.toFixed(2) || '0.00'}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Reserved Qty:</strong> {selectedStock.reservedQty?.toFixed(2) || '0.00'}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Cut Qty:</strong> {selectedStock.cutQty?.toFixed(2) || '0.00'}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Available Qty:</strong> {(selectedStock.availableQty || 0).toFixed(2)}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Reserved Qty:</strong> {(selectedStock.reservedQty || 0).toFixed(2)}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Cut Qty:</strong> {(selectedStock.cutQty || 0).toFixed(2)}</p>
+                    <p className="text-sm flex items-center gap-1"><Tag className="h-3 w-3 text-muted-foreground" /><strong className="text-muted-foreground">Category:</strong> {selectedStock.category || 'N/A'}</p>
+                    <p className="text-sm flex items-center gap-1"><BadgePercent className="h-3 w-3 text-muted-foreground" /><strong className="text-muted-foreground">HSN/Tax:</strong> {selectedStock.hsnCode || 'N/A'}</p>
+                    <p className="text-sm flex items-center gap-1"><Building className="h-3 w-3 text-muted-foreground" /><strong className="text-muted-foreground">Vendor:</strong> {selectedStock.vendorName || 'N/A'}</p>
+                    <p className="text-sm flex items-center gap-1">₹<strong className="text-muted-foreground">MRP:</strong> {selectedStock.mrp || 0}</p>
+                    <p className="text-sm flex items-center gap-1"><Warehouse className="h-3 w-3 text-muted-foreground" /><strong className="text-muted-foreground">Rack:</strong> {selectedStock.rack || 'N/A'}</p>
                  </div>
                  <Separator className="my-4" />
                  <div className="flex justify-end mt-4 gap-2">
@@ -161,7 +166,7 @@ export function StockManagement() {
             <div className="grid md:grid-cols-2 gap-6">
                 <div>
                     <h3 className="font-semibold mb-2 text-center">Stock Deducted (Sold/Cut)</h3>
-                    <div className="border rounded-lg">
+                    <div className="border rounded-lg max-h-60 overflow-y-auto">
                          <Table>
                             <TableHeader>
                                 <TableRow>
@@ -194,7 +199,7 @@ export function StockManagement() {
                 </div>
                  <div>
                     <h3 className="font-semibold mb-2 text-center">Stock Added (Purchase)</h3>
-                     <div className="border rounded-lg">
+                     <div className="border rounded-lg max-h-60 overflow-y-auto">
                         <Table>
                             <TableHeader>
                                 <TableRow>
