@@ -154,7 +154,7 @@ export async function updateStockQuantityAction(
       const lengthId = `Length (${transaction.quantityChange.toFixed(2)} MTR)`;
       const newLengthRef = stockRef.collection('lengths').doc(lengthId);
 
-      await adminDb.runTransaction(async (tx) => {
+      const stockDataForTxn = await adminDb.runTransaction(async (tx) => {
           const stockDoc = await tx.get(stockRef); // READ FIRST
           
           const newLengthData: Partial<Stock> = {
@@ -170,25 +170,34 @@ export async function updateStockQuantityAction(
 
           tx.set(newLengthRef, { ...newLengthData, id: newLengthRef.id }); // WRITE
 
+          let currentData: Stock;
           if (!stockDoc.exists) {
-              tx.set(stockRef, { // WRITE
+              const newStock: Partial<Stock> = {
                   bcn: stockId,
                   itemName: transaction.bcn,
                   quantity: transaction.quantityChange,
                   availableQty: transaction.quantityChange,
                   reservedQty: 0,
                   cutQty: 0,
-              }, { merge: true });
+              };
+              tx.set(stockRef, newStock, { merge: true }); // WRITE
+              currentData = newStock as Stock;
           } else {
               tx.update(stockRef, { // WRITE
                   quantity: FieldValue.increment(transaction.quantityChange),
                   availableQty: FieldValue.increment(transaction.quantityChange),
               });
+              currentData = stockDoc.data() as Stock;
           }
+          
+          return {
+              ...currentData,
+              quantity: (currentData.quantity || 0) + transaction.quantityChange,
+              availableQty: (currentData.availableQty || 0) + transaction.quantityChange,
+          };
       });
       
-      const updatedStockDoc = await stockRef.get();
-      finalStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
+      finalStockData = { id: stockId, ...stockDataForTxn } as Stock;
       
       return { success: true, message: 'Stock added successfully.', newStock: JSON.parse(JSON.stringify(finalStockData)) };
 
@@ -220,8 +229,35 @@ export async function revertStockAdditionAction(
 
 
 export async function getStockTransactions(bcn: string): Promise<StockTransaction[]> {
-  // This needs to query across all lengths for a BCN
-  return [];
+    try {
+      const stockRef = adminDb.collection('stocks').doc(bcn);
+      
+      const addedTransactionsPromise = stockRef.collection('lengths').get();
+      const soldTransactionsPromise = stockRef.collectionGroup('stockSold').where('bcn', '==', bcn).get();
+      
+      const [addedSnapshot, soldSnapshot] = await Promise.all([addedTransactionsPromise, soldTransactionsPromise]);
+  
+      const addedTransactions = addedSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return { 
+              ...data,
+              id: doc.id,
+              type: 'addition',
+              quantityChange: data.quantity, // The original length of the roll
+              bcn: data.bcn,
+              createdAt: data.lastUpdatedAt, // Use the roll's creation time as the transaction time
+          } as StockTransaction
+      });
+      const soldTransactions = soldSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as StockTransaction));
+      
+      const allTransactions = [...addedTransactions, ...soldTransactions];
+      allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  
+      return JSON.parse(JSON.stringify(allTransactions));
+    } catch (error) {
+      console.error(`Error fetching transactions for stock ${bcn}:`, error);
+      return [];
+    }
 }
 
 export async function getAvailableStockLengths(bcn: string): Promise<{ success: boolean; message: string; lengths?: Stock[] }> {

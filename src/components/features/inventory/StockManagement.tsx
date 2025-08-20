@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -143,12 +144,12 @@ export function StockManagement() {
                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 items-center">
                     <p className="text-sm"><strong className="block text-muted-foreground">BCN:</strong> {selectedStock.bcn}</p>
                     <p className="text-sm col-span-2"><strong className="block text-muted-foreground">Item Name:</strong> {selectedStock.itemName}</p>
-                    <p className="text-sm"><strong className="block text-muted-foreground">Original Qty:</strong> {selectedStock.quantity.toFixed(2)}</p>
+                    <p className="text-sm"><strong className="block text-muted-foreground">Original Qty:</strong> {(selectedStock.quantity || 0).toFixed(2)}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Available Qty:</strong> {(selectedStock.availableQty || 0).toFixed(2)}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Reserved Qty:</strong> {(selectedStock.reservedQty || 0).toFixed(2)}</p>
                     <p className="text-sm"><strong className="block text-muted-foreground">Cut Qty:</strong> {(selectedStock.cutQty || 0).toFixed(2)}</p>
                     <p className="text-sm flex items-center gap-1"><Tag className="h-3 w-3 text-muted-foreground" /><strong className="text-muted-foreground">Category:</strong> {selectedStock.category || 'N/A'}</p>
-                    <p className="text-sm flex items-center gap-1"><BadgePercent className="h-3 w-3 text-muted-foreground" /><strong className="text-muted-foreground">HSN/Tax:</strong> {selectedStock.hsnCode || 'N/A'}</p>
+                    <p className="text-sm flex items-center gap-1"><BadgePercent className="h-3 w-3 text-muted-foreground" /><strong className="text-muted-foreground">HSN/Tax:</strong> {selectedStock.hsnCode || 'N/A'} / {selectedStock.tax || 0}%</p>
                     <p className="text-sm flex items-center gap-1"><Building className="h-3 w-3 text-muted-foreground" /><strong className="text-muted-foreground">Vendor:</strong> {selectedStock.vendorName || 'N/A'}</p>
                     <p className="text-sm flex items-center gap-1">₹<strong className="text-muted-foreground">MRP:</strong> {selectedStock.mrp || 0}</p>
                     <p className="text-sm flex items-center gap-1"><Warehouse className="h-3 w-3 text-muted-foreground" /><strong className="text-muted-foreground">Rack:</strong> {selectedStock.rack || 'N/A'}</p>
@@ -198,13 +199,13 @@ export function StockManagement() {
                     </div>
                 </div>
                  <div>
-                    <h3 className="font-semibold mb-2 text-center">Stock Added (Purchase)</h3>
+                    <h3 className="font-semibold mb-2 text-center">Stock Added (Purchase Rolls)</h3>
                      <div className="border rounded-lg max-h-60 overflow-y-auto">
                         <Table>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Date</TableHead>
-                                    <TableHead>Qty</TableHead>
+                                    <TableHead>Roll Length</TableHead>
                                     <TableHead>PO Number</TableHead>
                                 </TableRow>
                             </TableHeader>
