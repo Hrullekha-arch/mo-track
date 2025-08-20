@@ -274,6 +274,8 @@ export interface Stock {
   lastUpdatedAt: string; // ISO Date
   rack?: string;
   status?: "available" | "on-hold";
+  poNumber?: string;
+  salesman?: string;
 }
 
 export interface StockReservation {
@@ -321,6 +323,7 @@ export interface StockTransaction {
   createdBy: string;
   status?: 'pending for cutting' | 'cut';
   parentTransactionId?: string;
+  salesman?: string;
 }
 
 export interface Customer {

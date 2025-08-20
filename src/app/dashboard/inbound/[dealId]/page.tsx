@@ -159,12 +159,18 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 const stockId = itemToUpdate.itemName.replace(/\//g, '-');
                 const quantity = parseFloat(itemToUpdate.quantity);
                 
+                // Fetch the original purchase request to get the salesman
+                const purchaseRequestRef = doc(db, 'purchaseRequests', request.purchaseRequestId);
+                const prDoc = await getDoc(purchaseRequestRef);
+                const salesman = prDoc.exists() ? (prDoc.data() as PurchaseRequest).salesman : 'Unknown';
+
                 const transaction: Omit<StockTransaction, 'id'> = {
                     stockId: stockId,
                     bcn: itemToUpdate.itemName,
                     type: 'addition',
                     quantityChange: quantity,
                     poNumber: itemToUpdate.poNumber,
+                    salesman: salesman,
                     lengths: [quantity], 
                     createdAt: new Date().toISOString(),
                     createdBy: user.name,

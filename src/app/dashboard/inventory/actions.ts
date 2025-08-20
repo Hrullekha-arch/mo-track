@@ -151,7 +151,7 @@ export async function updateStockQuantityAction(
     let finalStockData: Stock;
     
     try {
-      const lengthId = `Length (${transaction.quantityChange.toFixed(2)} MTR)`;
+      const lengthId = transaction.poNumber ? `${transaction.poNumber}-${transaction.quantityChange.toFixed(2)}` : `Manual-${new Date().getTime()}`;
       const newLengthRef = stockRef.collection('lengths').doc(lengthId);
 
       await adminDb.runTransaction(async (tx) => {
@@ -166,6 +166,8 @@ export async function updateStockQuantityAction(
               cutQty: 0,
               unit: 'Mtr',
               lastUpdatedAt: transaction.createdAt,
+              poNumber: transaction.poNumber,
+              salesman: transaction.salesman,
           };
 
           tx.set(newLengthRef, { ...newLengthData, id: newLengthRef.id }); // WRITE
