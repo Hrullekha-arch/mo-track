@@ -51,25 +51,31 @@ export async function approveOrderAndCreatePurchaseRequest(
 
         for (const item of allItemsInOrder) {
             const bcn = item.fabricName;
-            if (checkedBcns.has(bcn)) {
-                continue; // Already processed this BCN
+            if (!bcn || checkedBcns.has(bcn)) {
+                continue; // Already processed this BCN or item is invalid
             }
             checkedBcns.add(bcn);
 
-            // Fetch all orders that have this unallocated item
+            // Find all orders that have this unallocated item
             const unallocatedOrdersSnapshot = await adminDb.collection('orders')
                 .where('fabricDetails', 'array-contains', { fabricName: bcn, status: 'pending for po' })
                 .get();
 
             let totalUnallocatedDemand = 0;
-            unallocatedOrdersSnapshot.forEach(doc => {
-                const order = doc.data() as Order;
-                (order.fabricDetails || []).forEach(detail => {
-                    if (detail.fabricName === bcn && detail.status === 'pending for po') {
-                        totalUnallocatedDemand += parseFloat(detail.quantity);
-                    }
+            if (!unallocatedOrdersSnapshot.empty) {
+                unallocatedOrdersSnapshot.forEach(doc => {
+                    const order = doc.data() as Order;
+                    (order.fabricDetails || []).forEach(detail => {
+                        if (detail.fabricName === bcn && detail.status === 'pending for po') {
+                            totalUnallocatedDemand += parseFloat(detail.quantity);
+                        }
+                    });
                 });
-            });
+            } else {
+                 // If no other orders have this item pending, demand is just from the current order.
+                 totalUnallocatedDemand = parseFloat(item.quantity);
+            }
+            
 
             // Fetch current available stock
             const stockId = bcn.replace(/\//g, '-');
