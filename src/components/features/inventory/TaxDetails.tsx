@@ -1,19 +1,20 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useState, useEffect, useRef } from "react";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, PlusCircle, Trash2 } from "lucide-react";
+import { Loader2, Trash2, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { collection, onSnapshot, addDoc, deleteDoc, doc, query } from "firebase/firestore";
+import { collection, onSnapshot, addDoc, deleteDoc, doc, query, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { TaxDetail } from "@/lib/types";
+import * as XLSX from "xlsx";
 
 const taxDetailSchema = z.object({
   hsnCode: z.string().min(1, "HSN Code is required."),
@@ -29,7 +30,9 @@ export function TaxDetails() {
   const [taxDetails, setTaxDetails] = useState<TaxDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<TaxDetailFormValues>({
     resolver: zodResolver(taxDetailSchema),
@@ -69,6 +72,71 @@ export function TaxDetails() {
       toast({ variant: "destructive", title: "Error", description: "Could not delete tax detail." });
     }
   };
+  
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const data = new Uint8Array(e.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+            if (json.length < 2) {
+                toast({ variant: "destructive", title: "Empty File", description: "The Excel file has no data rows." });
+                return;
+            }
+
+            const taxDetailsToImport: Omit<TaxDetail, 'id'>[] = json.slice(1).map(row => {
+                const hsn = String((row as any)[0] || '').trim();
+                const gst = parseFloat(String((row as any)[1] || '0').replace('%', ''));
+
+                if (!hsn || isNaN(gst)) {
+                    return null;
+                }
+                
+                return {
+                    hsnCode: hsn,
+                    gst: gst,
+                    cgst: gst / 2,
+                    sgst: gst / 2,
+                    igst: 0,
+                };
+            }).filter((item): item is Omit<TaxDetail, 'id'> => item !== null);
+            
+            if (taxDetailsToImport.length === 0) {
+                toast({ variant: "destructive", title: "Invalid Format", description: "No valid HSN/Tax data found. Ensure HSN is in column A and Tax % is in column B." });
+                return;
+            }
+
+            const batch = writeBatch(db);
+            const taxDetailsCollection = collection(db, "taxDetails");
+            taxDetailsToImport.forEach(taxDetail => {
+                const docRef = doc(taxDetailsCollection);
+                batch.set(docRef, taxDetail);
+            });
+
+            await batch.commit();
+
+            toast({ title: "Import Successful", description: `${taxDetailsToImport.length} tax details have been added.` });
+
+        } catch (error) {
+            console.error(error);
+            toast({ variant: "destructive", title: "Import Failed", description: "Could not process the Excel file." });
+        } finally {
+            setIsImporting(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
+        }
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   return (
     <Card>
@@ -77,6 +145,19 @@ export function TaxDetails() {
         <CardDescription>Manage HSN-based tax rates for your products.</CardDescription>
       </CardHeader>
       <CardContent>
+        <div className="flex justify-end mb-4">
+             <Button onClick={() => fileInputRef.current?.click()} variant="outline" disabled={isImporting}>
+              {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+              {isImporting ? `Importing...` : 'Import from XLS'}
+            </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              className="hidden"
+              accept=".xlsx, .xls"
+            />
+        </div>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex items-end gap-2 mb-4 p-4 border rounded-lg">
           <div className="grid grid-cols-5 gap-4 flex-grow">
             <Input placeholder="HSN Code" {...form.register("hsnCode")} />
