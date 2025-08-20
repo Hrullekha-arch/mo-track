@@ -141,7 +141,7 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
     )
 }
 
-function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuccess }: { item: OrderItem, index: number, order: Order, orderId: string, orderCrmNo: string, onAllocationSuccess: () => void }) {
+function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuccess, refreshKey }: { item: OrderItem, index: number, order: Order, orderId: string, orderCrmNo: string, onAllocationSuccess: () => void, refreshKey: number }) {
     const [stockInfo, setStockInfo] = useState<Stock | null>(null);
     const [loading, setLoading] = useState(true);
     const [allocatedQty, setAllocatedQty] = useState(0);
@@ -216,7 +216,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             setLoading(false);
         };
         fetchItemData();
-    }, [item, orderId, onAllocationSuccess, orderCrmNo]);
+    }, [item, orderId, orderCrmNo, refreshKey]);
 
 
     const name = (item as any).fabricName || (item as any).furnitureName;
@@ -255,7 +255,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
 }
 
 
-function AllocateOrderTable({ order, onAllocationSuccess }: { order: Order, onAllocationSuccess: () => void }) {
+function AllocateOrderTable({ order, onAllocationSuccess, refreshKey }: { order: Order, onAllocationSuccess: () => void, refreshKey: number }) {
     const items: OrderItem[] = [
         ...(order.fabricDetails || []).map(d => ({ ...d, type: 'Fabric' as const })),
         ...(order.furnitureDetails || []).map(d => ({ ...d, type: 'Furniture' as const }))
@@ -283,7 +283,7 @@ function AllocateOrderTable({ order, onAllocationSuccess }: { order: Order, onAl
                         </TableHeader>
                         <TableBody>
                             {items.length > 0 ? items.map((item, index) => (
-                                <OrderItemRow key={index} item={item} index={index} order={order} orderId={order.id} orderCrmNo={order.crmOrderNo} onAllocationSuccess={onAllocationSuccess} />
+                                <OrderItemRow key={index} item={item} index={index} order={order} orderId={order.id} orderCrmNo={order.crmOrderNo} onAllocationSuccess={onAllocationSuccess} refreshKey={refreshKey} />
                             )) : (
                                 <TableRow>
                                     <TableCell colSpan={7} className="h-24 text-center">No items found in this order.</TableCell>
@@ -413,7 +413,7 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
                         </CardContent>
                     </Card>
 
-                    <AllocateOrderTable order={order} onAllocationSuccess={handleAllocationSuccess} />
+                    <AllocateOrderTable order={order} onAllocationSuccess={handleAllocationSuccess} refreshKey={refreshKey} />
 
                 </div>
 
