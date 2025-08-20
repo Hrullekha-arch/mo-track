@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Trash2, Upload } from "lucide-react";
+import { Loader2, Trash2, Upload, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { collection, onSnapshot, addDoc, deleteDoc, doc, query, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -31,6 +31,7 @@ export function TaxDetails() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -48,6 +49,15 @@ export function TaxDetails() {
     });
     return () => unsubscribe();
   }, []);
+
+  const filteredTaxDetails = useMemo(() => {
+    if (!searchTerm) {
+      return taxDetails;
+    }
+    return taxDetails.filter(detail =>
+      detail.hsnCode.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [taxDetails, searchTerm]);
 
   const onSubmit = async (data: TaxDetailFormValues) => {
     setIsSubmitting(true);
@@ -171,6 +181,17 @@ export function TaxDetails() {
           </Button>
         </form>
 
+        <div className="relative mb-4">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+                type="search"
+                placeholder="Search by HSN Code..."
+                className="pl-8 w-full md:w-1/3"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+            />
+        </div>
+
         <div className="border rounded-md">
           <Table>
             <TableHeader>
@@ -191,8 +212,8 @@ export function TaxDetails() {
                     <Loader2 className="mx-auto h-6 w-6 animate-spin" />
                   </TableCell>
                 </TableRow>
-              ) : taxDetails.length > 0 ? (
-                taxDetails.map((item, index) => (
+              ) : filteredTaxDetails.length > 0 ? (
+                filteredTaxDetails.map((item, index) => (
                   <TableRow key={item.id}>
                     <TableCell>{index + 1}</TableCell>
                     <TableCell>{item.hsnCode}</TableCell>
@@ -210,7 +231,7 @@ export function TaxDetails() {
               ) : (
                 <TableRow>
                   <TableCell colSpan={7} className="h-24 text-center">
-                    No tax details found. Add one to get started.
+                    No tax details found.
                   </TableCell>
                 </TableRow>
               )}
