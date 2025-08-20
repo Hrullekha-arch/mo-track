@@ -11,12 +11,13 @@ const BATCH_SIZE = 499; // Firestore batch limit is 500 operations
 
 export async function getStockData(): Promise<Stock[]> {
     try {
-        const lengthsSnapshot = await adminDb.collectionGroup('lengths').get();
-        if (lengthsSnapshot.empty) {
+        const stockSnapshot = await adminDb.collection('stocks').get();
+        if (stockSnapshot.empty) {
             return [];
         }
-        const stockData = lengthsSnapshot.docs.map(doc => {
+        const stockData = stockSnapshot.docs.map(doc => {
             const data = doc.data();
+            // Ensure lastUpdatedAt is a string, defaulting if necessary
             const lastUpdatedAt = data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toISOString() : new Date().toISOString();
             return {
                 id: doc.id,
