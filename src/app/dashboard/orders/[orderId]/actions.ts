@@ -4,14 +4,14 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import { Order, Stock, StockTransaction, InvoiceBatch, InvoiceBatchItem, O2DStatus } from '@/lib/types';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, doc } from 'firebase-admin/firestore';
 
 
 export async function getAvailableStockLengths(stockId: string): Promise<{ success: boolean; message: string; lengths?: { length: number; transactionId: string }[] }> {
     try {
         const stockAddedSnapshot = await adminDb.collection('stocks').doc(stockId).collection('lengths').get();
         
-        const availableLengths: { length: number; transactionId: string }[] = [];
+        const availableLengths: { length: number; transactionId: string; }[] = [];
         stockAddedSnapshot.docs.forEach(doc => {
             const data = doc.data();
             if (data.availableQty > 0) {
@@ -37,7 +37,6 @@ export async function allocateStockToAction(
             const stockRef = adminDb.collection('stocks').doc(bcn);
             const lengthRef = stockRef.collection('lengths').doc(lengthId);
             const orderRef = adminDb.collection('orders').doc(orderId);
-            const invoiceBatchRef = doc(adminDb.collection("invoiceBatches"));
             
             // --- ALL READS FIRST ---
             const stockDoc = await transaction.get(stockRef);
@@ -57,6 +56,7 @@ export async function allocateStockToAction(
             }
 
             // --- ALL WRITES AFTER ---
+            const invoiceBatchRef = adminDb.collection("invoiceBatches").doc();
             const updateTimestamp = new Date().toISOString();
 
             // 1. Update quantities on both parent stock and specific length document
