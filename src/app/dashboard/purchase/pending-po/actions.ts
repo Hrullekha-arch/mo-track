@@ -86,7 +86,7 @@ export async function createPurchaseRequestAction(
         const batch = adminDb.batch();
         const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
         const { item, vendor, courier, mode, isNewVendor } = poData;
-        const purchaseRequestId = item.orderId;
+        const purchaseRequestId = item.id; // Use the composite ID
 
         const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
         const originalRequestDoc = await requestRef.get();
