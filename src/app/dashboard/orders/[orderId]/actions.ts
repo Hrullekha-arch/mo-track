@@ -37,23 +37,34 @@ export async function allocateStockToAction(
             const stockRef = adminDb.collection('stocks').doc(stockId);
             const orderRef = adminDb.collection('orders').doc(orderId);
             
+            // --- ALL READS FIRST ---
             const stockDoc = await transaction.get(stockRef);
-            if (!stockDoc.exists) throw new Error("Stock item not found.");
+            const orderDoc = await transaction.get(orderRef);
+            
+            if (!stockDoc.exists) {
+                throw new Error("Stock item not found.");
+            }
+            if (!orderDoc.exists) {
+                throw new Error("Order not found.");
+            }
             
             const stockData = stockDoc.data() as Stock;
-            
+            const orderData = orderDoc.data() as Order;
+
             if (stockData.availableQty < allocatedQty) {
                 throw new Error(`Insufficient available stock for ${itemName}. Available: ${stockData.availableQty}, Required: ${allocatedQty}`);
             }
 
-            // Update stock quantities
+            // --- ALL WRITES AFTER ---
+
+            // 1. Update stock quantities
             transaction.update(stockRef, {
                 reservedQty: FieldValue.increment(allocatedQty),
                 availableQty: FieldValue.increment(-allocatedQty),
                 lastUpdatedAt: new Date().toISOString()
             });
 
-            // Create an allocation log in the order's subcollection
+            // 2. Create an allocation log in the order's subcollection
             const allocationData = {
                 stockId,
                 itemName,
@@ -65,9 +76,7 @@ export async function allocateStockToAction(
             const allocationRef = orderRef.collection('allocations').doc();
             transaction.set(allocationRef, allocationData);
             
-            // Update the main order's "Fabric Allocated" milestone
-            const orderDoc = await transaction.get(orderRef);
-            const orderData = orderDoc.data() as Order;
+            // 3. Update the main order's "Fabric Allocated" milestone
             const updatedMilestones = orderData.milestones.map(m => {
                 if (m.id === 2) { // ID for "Fabric Allocated"
                     return { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: userName };
