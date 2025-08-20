@@ -151,7 +151,7 @@ export async function updateStockQuantityAction(
     let finalStockData: Stock;
     
     try {
-      const lengthId = transaction.poNumber ? `${transaction.poNumber}-${transaction.quantityChange.toFixed(2)}` : `Manual-${new Date().getTime()}`;
+      const lengthId = `Length (${transaction.quantityChange.toFixed(2)} MTR)`;
       const newLengthRef = stockRef.collection('lengths').doc(lengthId);
 
       await adminDb.runTransaction(async (tx) => {
@@ -180,6 +180,13 @@ export async function updateStockQuantityAction(
                   availableQty: transaction.quantityChange,
                   reservedQty: 0,
                   cutQty: 0,
+                  tax: 0,
+                  rack: "",
+                  vendorName: "",
+                  hsnCode: "",
+                  category: "",
+                  serialNo: "",
+                  mrp: 0
               }, { merge: true });
           } else {
               tx.update(stockRef, { // WRITE
@@ -220,7 +227,6 @@ export async function revertStockAdditionAction(
   }
 }
 
-
 export async function getStockTransactions(bcn: string): Promise<StockTransaction[]> {
   try {
     const stockRef = adminDb.collection('stocks').doc(bcn);
@@ -236,7 +242,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
       const data = doc.data();
       return { 
         id: doc.id,
-        bcn: bcn,  // force parent bcn
+        bcn: bcn,
         type: 'addition',
         quantityChange: Number(data.quantity) || 0,
         createdAt: data.lastUpdatedAt || new Date().toISOString(),
@@ -250,7 +256,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
       return { 
         id: doc.id,
         bcn: bcn,
-        type: 'sold',
+        type: 'deduction',
         quantityChange: -(Number(data.soldQty) || 0),  // negative
         createdAt: data.createdAt || new Date().toISOString(),
         ...data
@@ -300,9 +306,31 @@ export async function deleteStockTransactions(transactions: StockTransaction[]):
 export async function updateStockBatchAction(
     itemsToUpdate: { id: string; [key: string]: any }[]
 ): Promise<{ success: boolean; message: string }> {
-    // This now needs to know the BCN and the lengthId to update correctly.
-    // This requires a refactor.
-    return { success: false, message: "Function not adapted for new structure."}
+    if (!itemsToUpdate || itemsToUpdate.length === 0) {
+        return { success: false, message: "No items provided for update." };
+    }
+
+    let batch = adminDb.batch();
+    let opCount = 0;
+
+    for (const item of itemsToUpdate) {
+        const docRef = adminDb.collection('stocks').doc(item.id);
+        const { id, ...updateData } = item;
+        batch.update(docRef, updateData);
+        opCount++;
+
+        if (opCount >= 499) {
+            await batch.commit();
+            batch = adminDb.batch();
+            opCount = 0;
+        }
+    }
+
+    if (opCount > 0) {
+        await batch.commit();
+    }
+
+    return { success: true, message: `${itemsToUpdate.length} items have been updated.` };
 }
     
 export async function getStockDetails(bcn: string) {

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -206,23 +207,25 @@ export function StockManagement() {
                                 <TableRow>
                                     <TableHead>Date</TableHead>
                                     <TableHead>Roll Length</TableHead>
+                                    <TableHead>Salesman</TableHead>
                                     <TableHead>PO Number</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={3} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
+                                    <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
                                 ) : stockAddedTransactions.length > 0 ? (
                                     stockAddedTransactions.map(tx => (
                                          <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
                                             <TableCell>{`${tx.quantityChange.toFixed(2)} Mtr`}</TableCell>
+                                            <TableCell>{tx.salesman || 'N/A'}</TableCell>
                                             <TableCell>{tx.poNumber || 'N/A'}</TableCell>
                                          </TableRow>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={3} className="h-24 text-center">
+                                        <TableCell colSpan={4} className="h-24 text-center">
                                             No purchase data available.
                                         </TableCell>
                                     </TableRow>
