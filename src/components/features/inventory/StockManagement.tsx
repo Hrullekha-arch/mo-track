@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -73,11 +72,12 @@ export function StockManagement() {
   const handleSelectStock = React.useCallback(async (stockItem: Stock) => {
     setSelectedStock(stockItem);
     setIsLoadingDetails(true);
-    try {
+      try {
       const transactionsResult = await getStockTransactions(stockItem.bcn);
       setTransactions(transactionsResult);
+
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Error fetching details' });
+        toast({ variant: 'destructive', title: 'Error fetching details' });
     } finally {
       setIsLoadingDetails(false);
     }
@@ -211,14 +211,14 @@ export function StockManagement() {
                             </TableHeader>
                             <TableBody>
                                 {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={3} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={3} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
                                 ) : stockAddedTransactions.length > 0 ? (
                                     stockAddedTransactions.map(tx => (
-                                        <TableRow key={tx.id}>
+                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
-                                            <TableCell>{tx.quantityChange.toFixed(2)}</TableCell>
-                                            <TableCell>{tx.poNumber}</TableCell>
-                                        </TableRow>
+                                            <TableCell>{`${tx.quantityChange.toFixed(2)} Mtr`}</TableCell>
+                                            <TableCell>{tx.poNumber || 'N/A'}</TableCell>
+                                         </TableRow>
                                     ))
                                 ) : (
                                     <TableRow>
