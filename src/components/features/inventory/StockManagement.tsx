@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -58,7 +57,7 @@ export function StockManagement() {
       const results = await searchStockByBcn(query);
       const options = results.map(stock => ({
         value: stock.id,
-        label: `${stock.bcn} - ${stock.itemName} (${stock.availableQty.toFixed(2)} Mtr)`,
+        label: `${stock.bcn} - ${stock.itemName} (${(stock.availableQty || 0).toFixed(2)} Mtr)`,
         stockItem: stock
       }));
       setBcnOptions(options as any);
