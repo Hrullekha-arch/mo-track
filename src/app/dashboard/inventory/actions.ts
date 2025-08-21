@@ -231,10 +231,8 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
     try {
       const stockRef = adminDb.collection('stocks').doc(bcn);
   
-      // Fetch added rolls from the 'lengths' subcollection
       const addedSnapshot = await stockRef.collection('lengths').get();
   
-      // Fetch sold transactions from the 'stockSold' subcollection
       const soldSnapshot = await stockRef.collection('stockSold').get();
       
       const soldTransactions: StockTransaction[] = soldSnapshot.docs.map(soldDoc => {
@@ -246,10 +244,10 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
               type: 'deduction',
               quantityChange: -(Number(data.quantityChange) || 0),
               createdAt: data.createdAt || new Date().toISOString(),
+              lengthId: data.parentTransactionId || 'N/A'
           } as StockTransaction;
       });
   
-      // Build "added" transactions from the length documents themselves
       const addedTransactions = addedSnapshot.docs.map(doc => {
         const data = doc.data();
         return { 
@@ -262,7 +260,6 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
         } as StockTransaction;
       });
   
-      // Merge & sort
       const allTransactions = [...addedTransactions, ...soldTransactions];
       allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   

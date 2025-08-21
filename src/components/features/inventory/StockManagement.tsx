@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -174,7 +175,7 @@ export function StockManagement() {
                                     <TableHead>Date</TableHead>
                                     <TableHead>Qty</TableHead>
                                     <TableHead>Order ID</TableHead>
-                                    <TableHead>Full Lengths</TableHead>
+                                    <TableHead>Length ID</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -186,7 +187,7 @@ export function StockManagement() {
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
                                             <TableCell>{Math.abs(tx.quantityChange).toFixed(2)}</TableCell>
                                             <TableCell>{tx.orderId}</TableCell>
-                                            <TableCell>{tx.lastLength?.toFixed(2) || 'N/A'}</TableCell>
+                                            <TableCell className="text-xs font-mono">{tx.lengthId || 'N/A'}</TableCell>
                                         </TableRow>
                                     ))
                                 ) : (
