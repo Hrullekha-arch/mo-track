@@ -96,7 +96,7 @@ export async function allocateStockToAction(
                 customerName: orderData.customerName,
                 customerPhone: orderData.customerPhone,
                 createdAt: Timestamp.fromDate(new Date()),
-                status: 'pending',
+                status: 'pendingInvoice',
                 items: [{
                     itemName: itemName,
                     bcn: bcn,
@@ -120,13 +120,30 @@ export async function allocateStockToAction(
 
 export async function getOrderAllocations(orderId: string): Promise<any[]> {
     try {
-        const snapshot = await adminDb.collection('orders').doc(orderId).collection('allocations').get();
-        if (snapshot.empty) {
-            return [];
+        const stockRef = adminDb.collection('stocks');
+        let allocations: any[] = [];
+
+        // This is inefficient. A better way would be to have a dedicated `allocations` subcollection on the order.
+        // For now, we will query all stock documents. This should be refactored for performance later.
+        const allStockSnapshot = await stockRef.get();
+        for (const stockDoc of allStockSnapshot.docs) {
+            const lengthsSnapshot = await stockDoc.ref.collection('lengths').get();
+            for (const lengthDoc of lengthsSnapshot.docs) {
+                const reservedSnapshot = await lengthDoc.ref.collection('reservedQty').where('orderId', '==', orderId).get();
+                reservedSnapshot.forEach(doc => {
+                    allocations.push({
+                        bcn: stockDoc.id,
+                        lengthId: lengthDoc.id,
+                        ...doc.data()
+                    });
+                });
+            }
         }
-        return snapshot.docs.map(doc => doc.data());
+        
+        return JSON.parse(JSON.stringify(allocations));
     } catch (error) {
         console.error("Error fetching order allocations:", error);
         return [];
     }
 }
+
