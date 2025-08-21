@@ -88,7 +88,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
         const qty = item.quantityAllocated;
         const rate = item.rate;
         const amount = qty * rate;
-        const discountPercent = 0; // Assuming no discount for now
+        const discountPercent = 0;
         const discountAmount = amount * (discountPercent / 100);
         const taxableValue = amount - discountAmount;
         const cgst = taxableValue * 0.025;
@@ -178,7 +178,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                            return (
                                <tr key={index}>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'center' }}>{index + 1}</td>
-                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{item.itemName}</td>
+                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{item.itemName}<br/><strong>{item.bcn}</strong></td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd' }}>{stockDetails[item.bcn]?.hsnCode || ''}</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{qty.toFixed(2)} MTRS</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(rate)}</td>
