@@ -129,15 +129,17 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     // Fetch salesman details for reference and narration
     let salesmanRefText = invoice.salesPerson;
     const orderDoc = await adminDb.collection('orders').doc(invoice.orderId).get();
-    if (orderDoc.exists() && orderDoc.data()?.representativeId) {
+    if (orderDoc.exists && orderDoc.data()?.representativeId) {
         const salesmanDoc = await adminDb.collection('users').doc(orderDoc.data()?.representativeId).get();
-        if (salesmanDoc.exists()) {
+        if (salesmanDoc.exists) {
             const salesmanData = salesmanDoc.data() as User;
             salesmanRefText = `${salesmanData.name} (${salesmanData.salesmanCode || 'N/A'})`;
         }
     }
     
-    const narration = escapeXml(`Sale for Order ${invoice.orderId}. Salesman: ${salesmanRefText}`);
+    const totalQty = invoice.items.reduce((sum, item) => sum + item.quantityAllocated, 0);
+    const firstItemName = invoice.items[0]?.bcn || 'items';
+    const narration = escapeXml(`Sale of ${totalQty} mtr of Stock Item ${firstItemName}`);
     const stateName = "Haryana"; 
 
     // Pre-fetch all necessary stock and tax details
@@ -265,7 +267,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             <PARTYNAME>${partyLedgerName}</PARTYNAME>
             <STATENAME>${stateName}</STATENAME>
             <PLACEOFSUPPLY>${stateName}</PLACEOFSUPPLY>
-            <CMPGSTSTATE>${stateName}</CMPGSTSTATE>
             <NARRATION>${narration}</NARRATION>
             <ISDELETED>No</ISDELETED>
             <ISOPTIONAL>No</ISOPTIONAL>
