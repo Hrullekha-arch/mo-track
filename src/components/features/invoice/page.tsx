@@ -12,7 +12,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon, Code } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon, Code, CheckCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
@@ -75,8 +75,10 @@ function GenerateInvoiceDialog({
   const [isStockMismatchOpen, setIsStockMismatchOpen] = React.useState(false);
   const [mismatchedItems, setMismatchedItems] = React.useState<MismatchItem[]>([]);
   const [generatedInvoice, setGeneratedInvoice] = React.useState<Invoice | null>(null);
-  const { toast } = useToast();
+  const [tallySyncResult, setTallySyncResult] = React.useState<{ success: boolean; message: string; voucherNumber?: string; } | null>(null);
 
+  const { toast } = useToast();
+  
   const handleFinalGenerate = React.useCallback(async () => {
     if (!creator) {
         toast({ variant: 'destructive', title: 'Error', description: 'You must be logged in to perform this action.' });
@@ -227,17 +229,16 @@ function GenerateInvoiceDialog({
         try {
             const tallyResult = await sendInvoiceToTally(fullInvoiceData);
             if(tallyResult.success && tallyResult.voucherNumber) {
-                toast({ title: "Tally Sync Success!", description: `Voucher created: ${tallyResult.voucherNumber}` });
                 // Update the invoice with the voucher number
                 const invoiceRefToUpdate = doc(db, "invoices", newInvoiceRef.id);
                 await updateDoc(invoiceRefToUpdate, { tallyVoucherNo: tallyResult.voucherNumber });
                 setGeneratedInvoice({ ...fullInvoiceData, tallyVoucherNo: tallyResult.voucherNumber });
             } else {
-                 toast({ variant: 'destructive', title: 'Tally Sync Failed', description: tallyResult.message });
                  setGeneratedInvoice(fullInvoiceData); // Still show invoice even if Tally fails
             }
+            setTallySyncResult(tallyResult); // Open the result dialog
         } catch (tallyError: any) {
-             toast({ variant: 'destructive', title: 'Tally Sync Error', description: tallyError.message, duration: 7000 });
+             setTallySyncResult({ success: false, message: tallyError.message });
              setGeneratedInvoice(fullInvoiceData);
         }
 
@@ -306,9 +307,15 @@ function GenerateInvoiceDialog({
     }, 250);
   };
 
+  const resetAndClose = () => {
+    setGeneratedInvoice(null);
+    setTallySyncResult(null);
+    onClose();
+  }
+
   return (
     <>
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen && !tallySyncResult} onOpenChange={onClose}>
         <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
             <DialogHeader>
                 <DialogTitle>Generate Invoice</DialogTitle>
@@ -334,6 +341,26 @@ function GenerateInvoiceDialog({
       onClose={() => setIsStockMismatchOpen(false)}
       mismatchedItems={mismatchedItems}
     />
+     <AlertDialog open={!!tallySyncResult} onOpenChange={() => resetAndClose()}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                    {tallySyncResult?.success ? <CheckCircle className="text-green-500"/> : <X className="text-destructive"/>}
+                    Tally Sync {tallySyncResult?.success ? "Successful" : "Failed"}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                    {tallySyncResult?.message}
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="py-2">
+                <p className="text-sm font-semibold">Tally Voucher No:</p>
+                <p className="text-lg font-mono p-2 bg-muted rounded-md">{tallySyncResult?.voucherNumber || "Not available"}</p>
+            </div>
+            <AlertDialogFooter>
+                <AlertDialogAction onClick={() => resetAndClose()}>Close</AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
     </>
   )
 }
@@ -439,7 +466,7 @@ function InvoiceTable({
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => {
-        const status = row.getValue("status") as string;
+        const status = row.original.status;
         const tallyBillNo = row.original.tallyBillNo;
         const variant = status === 'pendingInvoice' ? 'secondary' : 'default';
         const color = status === 'pendingInvoice' ? '' : 'bg-green-600';
@@ -655,3 +682,5 @@ export default function InvoicePage() {
     </div>
   )
 }
+
+    
