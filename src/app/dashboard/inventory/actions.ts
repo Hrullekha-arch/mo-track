@@ -231,35 +231,37 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
   try {
     const stockRef = adminDb.collection('stocks').doc(bcn);
 
-    // Fetch added rolls
+    // Fetch added rolls from the 'lengths' subcollection
     const addedSnapshot = await stockRef.collection('lengths').get();
 
-    // Fetch sold transactions
-    const soldSnapshot = await stockRef.collectionGroup('stockSold').where('bcn', '==', bcn).get();
+    // Fetch sold transactions from the 'stockSold' subcollection within each length
+    const soldTransactions: StockTransaction[] = [];
+    for (const lengthDoc of addedSnapshot.docs) {
+        const soldSnapshot = await lengthDoc.ref.collection('stockSold').get();
+        soldSnapshot.forEach(soldDoc => {
+            const data = soldDoc.data();
+            soldTransactions.push({ 
+                ...data,
+                id: soldDoc.id,
+                bcn: bcn,
+                lengthId: lengthDoc.id, // Add reference to the roll it was cut from
+                type: 'deduction',
+                quantityChange: -(Number(data.quantityChange) || 0),
+                createdAt: data.createdAt || new Date().toISOString(),
+            } as StockTransaction);
+        });
+    }
 
-    // Build "added" transactions
+    // Build "added" transactions from the length documents themselves
     const addedTransactions = addedSnapshot.docs.map(doc => {
       const data = doc.data();
       return { 
+        ...data,
         id: doc.id,
         bcn: bcn,
         type: 'addition',
         quantityChange: Number(data.quantity) || 0,
         createdAt: data.lastUpdatedAt || new Date().toISOString(),
-        ...data
-      } as StockTransaction;
-    });
-
-    // Build "sold" transactions
-    const soldTransactions = soldSnapshot.docs.map(doc => {
-      const data = doc.data();
-      return { 
-        id: doc.id,
-        bcn: bcn,
-        type: 'deduction',
-        quantityChange: -(Number(data.soldQty) || 0),  // negative
-        createdAt: data.createdAt || new Date().toISOString(),
-        ...data
       } as StockTransaction;
     });
 
@@ -273,6 +275,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
     return [];
   }
 }
+
 
 export async function getAvailableStockLengths(bcn: string): Promise<{ success: boolean; message: string; lengths?: Stock[] }> {
     try {
