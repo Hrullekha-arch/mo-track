@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -25,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc, where, orderBy, limit, FieldValue } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc, where, orderBy, limit, FieldValue, increment } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format, isWithinInterval } from "date-fns";
@@ -159,9 +158,9 @@ function GenerateInvoiceDialog({
             const stockId = item.bcn.replace(/\//g, '-');
             const stockRef = doc(db, 'stocks', stockId);
             batch.update(stockRef, {
-                availableQty: FieldValue.increment(-item.quantityAllocated), // Reduce available
-                reservedQty: FieldValue.increment(-item.quantityAllocated), // Reduce reserved
-                cutQty: FieldValue.increment(item.quantityAllocated),
+                availableQty: increment(-item.quantityAllocated), // Reduce available
+                reservedQty: increment(-item.quantityAllocated), // Reduce reserved
+                cutQty: increment(item.quantityAllocated),
             });
 
             // Log stock transaction for cut
