@@ -202,61 +202,63 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
         const fetchItemData = async () => {
             setLoading(true);
             const itemName = (item as any).fabricName || (item as any).furnitureName;
-            const bcn = itemName.split(' - ')[0]; // Extract BCN from item name if present
+            const bcn = itemName.split(' - ')[0];
 
             if (!bcn) {
                 setLoading(false);
                 setStatus({ text: 'Invalid Item', variant: 'destructive' });
                 return;
             }
-            
+
             const stockId = bcn.replace(/\//g, '-');
             const stockPromise = getStockById(stockId);
-            const allocationsPromise = getOrderAllocations(orderId);
+            
+            // New logic to fetch reserved quantities from the stock item's subcollection
+            const stockRef = doc(db, 'stocks', stockId);
+            const lengthsCollectionRef = collection(stockRef, 'lengths');
+            const lengthsSnapshotPromise = getDocs(lengthsCollectionRef);
+
             const poPromise = getDoc(doc(db, 'purchaseRequests', orderCrmNo));
             const invoiceQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', orderId));
             const invoicePromise = getDocs(invoiceQuery);
 
-            const [stock, allocations, poSnap, invoiceSnaps] = await Promise.all([
-                stockPromise, 
-                allocationsPromise, 
-                poPromise, 
+            const [stock, lengthsSnapshot, poSnap, invoiceSnaps] = await Promise.all([
+                stockPromise,
+                lengthsSnapshotPromise,
+                poPromise,
                 invoicePromise
             ]);
 
             setStockInfo(stock);
             
-            const itemAllocations = allocations.filter(a => a.itemName === itemName);
-            const totalAllocated = itemAllocations.reduce((sum, alloc) => sum + alloc.quantityAllocated, 0);
-            setAllocatedQty(totalAllocated);
-            
+            let totalReservedForOrder = 0;
+            for (const lengthDoc of lengthsSnapshot.docs) {
+                const reservationsQuery = query(collection(lengthDoc.ref, 'reservedQty'), where('orderId', '==', orderId));
+                const reservationsSnapshot = await getDocs(reservationsQuery);
+                reservationsSnapshot.forEach(reservationDoc => {
+                    totalReservedForOrder += reservationDoc.data().reservedQty || 0;
+                });
+            }
+            setAllocatedQty(totalReservedForOrder);
+
             const requiredQty = parseFloat((item as any).quantity || '0');
-            
+
             const invoicedBatch = invoiceSnaps.docs.find(doc => {
                 const batch = doc.data() as InvoiceBatch;
                 return batch.status === 'invoiced' && batch.items.some(batchItem => batchItem.itemName === itemName);
             })?.data() as InvoiceBatch | undefined;
 
-
             if (invoicedBatch) {
-                setStatus({ 
-                    text: invoicedBatch.tallyBillNo ? `Invoice Generated: ${invoicedBatch.tallyBillNo}` : 'Invoice Generated', 
-                    variant: 'default',
-                    tallyBillNo: invoicedBatch.tallyBillNo
-                });
-            } else if (totalAllocated >= requiredQty) {
+                setStatus({ text: `Invoice Generated: ${invoicedBatch.tallyBillNo || ''}`, variant: 'default', tallyBillNo: invoicedBatch.tallyBillNo });
+            } else if (totalReservedForOrder >= requiredQty) {
                 setStatus({ text: 'Pending for Invoice', variant: 'outline' });
-            } else if ((stock?.availableQty || 0) >= (requiredQty - totalAllocated)) {
+            } else if ((stock?.availableQty || 0) >= (requiredQty - totalReservedForOrder)) {
                 setStatus({ text: 'In Stock', variant: 'default' });
             } else {
-                if (poSnap.exists()) {
-                    const poData = poSnap.data() as PurchaseRequest;
-                    const poItem = (poData.fabricDetails || []).find(pi => pi.fabricName === itemName);
-                    if (poItem?.poNumber) {
-                         setStatus({ text: 'PO Generated', variant: 'outline', poNumber: poItem.poNumber });
-                    } else {
-                         setStatus({ text: 'Pending for PO', variant: 'destructive' });
-                    }
+                const poData = poSnap.exists() ? poSnap.data() as PurchaseRequest : null;
+                const poItem = poData?.fabricDetails?.find(pi => pi.fabricName === itemName);
+                if (poItem?.poNumber) {
+                    setStatus({ text: 'PO Generated', variant: 'outline', poNumber: poItem.poNumber });
                 } else {
                     setStatus({ text: 'Pending for PO', variant: 'destructive' });
                 }
