@@ -1,10 +1,12 @@
 
+
 'use server';
 
 import { Invoice, Stock } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
 import xml2js from 'xml2js';
 import { doc, updateDoc } from 'firebase/firestore';
+import { format } from 'date-fns';
 
 // ---------------- Helpers ----------------
 
@@ -59,7 +61,7 @@ export async function buildLedgerCreateXML(customerName: string, customerPhone: 
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY>
     <DESC>
-      <STATICVARIABLES><SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY></STATICVARIABLES>
+      <STATICVARIABLES><SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY></STATICVARIABLES>
     </DESC>
     <DATA>
       <TALLYMESSAGE>
@@ -80,7 +82,7 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
 <ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
   <BODY>
-    <DESC><STATICVARIABLES><SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY></STATICVARIABLES></DESC>
+    <DESC><STATICVARIABLES><SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY></STATICVARIABLES></DESC>
     <DATA>
       <TALLYMESSAGE>
         <STOCKITEM NAME="${escapedItemName}" ACTION="Create">
@@ -95,77 +97,104 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
 }
 
 export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
-  // --- helpers ---
-  const money = (n: number) => (Math.round(n * 100) / 100);
-  const fmt = (n: number) => money(n).toFixed(2);
+    const money = (n: number) => (Math.round(n * 100) / 100);
+    const fmt = (n: number) => money(n).toFixed(2);
 
-  // --- setup ---
-  const date = '20250401'; // test
-  const partyLedgerName = escapeXml(`${invoice.customer.name} (${invoice.customer.phone})`);
-  const salesLedger = "Sales Accounts";
+    const date = format(new Date(invoice.createdAt), 'yyyyMMdd');
+    const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
+    const narration = escapeXml(`Sale of items for order ${invoice.orderId}`);
 
-  // Force same-state so CGST/SGST both apply (adjust if your company state is different)
-  const state = "Delhi";
-  const placeOfSupply = "Delhi";
+    // Assuming intra-state transaction
+    const stateName = "Haryana"; 
+    
+    let itemSubtotal = 0;
+    let inventoryEntries = '';
 
-  // --- build inventory lines and compute subtotal from the same numbers we write ---
-  let itemSubtotal = 0;
-  let inventoryEntries = '';
+    invoice.items.forEach(item => {
+        const qty = Number(item.quantityAllocated || 0);
+        const rate = Number(item.rate || 0);
+        const lineAmount = money(rate * qty);
+        itemSubtotal = money(itemSubtotal + lineAmount);
 
-  invoice.items.forEach(item => {
-    const qty = Number(item.quantityAllocated || 0);
-    const rate = Number(item.rate || 0);
-    const lineAmount = money(rate * qty);
-    itemSubtotal = money(itemSubtotal + lineAmount);
+        inventoryEntries += `
+            <ALLINVENTORYENTRIES.LIST>
+              <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <RATE>${fmt(rate)}/pcs</RATE>
+              <AMOUNT>${fmt(lineAmount)}</AMOUNT>
+              <ACTUALQTY>${qty} pcs</ACTUALQTY>
+              <BILLEDQTY>${qty} pcs</BILLEDQTY>
+              <BATCHALLOCATIONS.LIST>
+                <GODOWNNAME>Mo</GODOWNNAME>
+                <BATCHNAME>Primary Batch</BATCHNAME>
+                <AMOUNT>${fmt(lineAmount)}</AMOUNT>
+                <ACTUALQTY>${qty} pcs</ACTUALQTY>
+                <BILLEDQTY>${qty} pcs</BILLEDQTY>
+              </BATCHALLOCATIONS.LIST>
+              <ACCOUNTINGALLOCATIONS.LIST>
+                <LEDGERNAME>Haryana Sale @ 12%</LEDGERNAME>
+                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                <LEDGERFROMITEM>Yes</LEDGERFROMITEM>
+                <AMOUNT>${fmt(lineAmount)}</AMOUNT>
+              </ACCOUNTINGALLOCATIONS.LIST>
+              <RATEDETAILS.LIST>
+                <GSTRATEDUTYHEAD>CGST</GSTRATEDUTYHEAD>
+                <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
+                <GSTRATE>6</GSTRATE>
+              </RATEDETAILS.LIST>
+              <RATEDETAILS.LIST>
+                <GSTRATEDUTYHEAD>SGST/UTGST</GSTRATEDUTYHEAD>
+                <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
+                <GSTRATE>6</GSTRATE>
+              </RATEDETAILS.LIST>
+              <RATEDETAILS.LIST>
+                <GSTRATEDUTYHEAD>IGST</GSTRATEDUTYHEAD>
+                <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
+                <GSTRATE>12</GSTRATE>
+              </RATEDETAILS.LIST>
+            </ALLINVENTORYENTRIES.LIST>`;
+    });
+    
+    // Using invoice totals directly as they are now pre-calculated
+    const taxableValue = invoice.totals.taxableValue;
+    const cgst = invoice.totals.cgst;
+    const sgst = invoice.totals.sgst;
+    const roundOff = invoice.totals.roundOff;
+    const grandTotal = invoice.totals.grandTotal;
 
-    inventoryEntries += `
-      <ALLINVENTORYENTRIES.LIST>
-        <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
-        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-        <RATE>${fmt(rate)}/Nos</RATE>
-        <AMOUNT>${fmt(lineAmount)}</AMOUNT>
-        <ACTUALQTY>${fmt(qty)} Nos</ACTUALQTY>
-        <BILLEDQTY>${fmt(qty)} Nos</BILLEDQTY>
-        <ACCOUNTINGALLOCATIONS.LIST>
-          <LEDGERNAME>${salesLedger}</LEDGERNAME>
-          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-          <AMOUNT>${fmt(lineAmount)}</AMOUNT>
-        </ACCOUNTINGALLOCATIONS.LIST>
-      </ALLINVENTORYENTRIES.LIST>`;
-  });
 
-  const totalGST = money(itemSubtotal * 0.05);
-  const cgst = money(totalGST / 2);
-  const sgst = money(totalGST - cgst);
-  const totalAmountBeforeRoundOff = money(itemSubtotal + cgst + sgst);
-  
-  const roundedTotalAmount = Math.round(totalAmountBeforeRoundOff);
-  const roundOff = money(roundedTotalAmount - totalAmountBeforeRoundOff);
-  
-  const partyAmount = totalAmountBeforeRoundOff;
+    const partyLedgerEntry = `
+        <LEDGERENTRIES.LIST>
+            <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+            <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+            <AMOUNT>-${fmt(grandTotal)}</AMOUNT>
+        </LEDGERENTRIES.LIST>`;
+    
+    const cgstLedgerEntry = `
+        <LEDGERENTRIES.LIST>
+            <LEDGERNAME>Output CGST</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <AMOUNT>${fmt(cgst)}</AMOUNT>
+            <VATEXPAMOUNT>${fmt(cgst)}</VATEXPAMOUNT>
+        </LEDGERENTRIES.LIST>`;
 
-  const cgstLedgerEntry = cgst > 0 ? `
-    <LEDGERENTRIES.LIST>
-      <LEDGERNAME>CGST 2.5%</LEDGERNAME>
-      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-      <AMOUNT>${fmt(cgst)}</AMOUNT>
-    </LEDGERENTRIES.LIST>` : '';
+    const sgstLedgerEntry = `
+        <LEDGERENTRIES.LIST>
+            <LEDGERNAME>Output SGST</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <AMOUNT>${fmt(sgst)}</AMOUNT>
+            <VATEXPAMOUNT>${fmt(sgst)}</VATEXPAMOUNT>
+        </LEDGERENTRIES.LIST>`;
+        
+    const roundOffLedgerEntry = roundOff !== 0 ? `
+        <LEDGERENTRIES.LIST>
+          <LEDGERNAME>Round Off</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
+          <AMOUNT>${fmt(roundOff)}</AMOUNT>
+        </LEDGERENTRIES.LIST>` : '';
 
-  const sgstLedgerEntry = sgst > 0 ? `
-    <LEDGERENTRIES.LIST>
-      <LEDGERNAME>SGST 2.5%</LEDGERNAME>
-      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-      <AMOUNT>${fmt(sgst)}</AMOUNT>
-    </LEDGERENTRIES.LIST>` : '';
-
-  const roundOffLedgerEntry = roundOff !== 0 ? `
-    <LEDGERENTRIES.LIST>
-      <LEDGERNAME>Round Off</LEDGERNAME>
-      <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-      <AMOUNT>${fmt(roundOff)}</AMOUNT>
-    </LEDGERENTRIES.LIST>` : '';
-
-  return `
+    return `
 <ENVELOPE>
   <HEADER>
     <TALLYREQUEST>Import Data</TALLYREQUEST>
@@ -175,34 +204,27 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
       <REQUESTDESC>
         <REPORTNAME>Vouchers</REPORTNAME>
         <STATICVARIABLES>
-          <SVCURRENTCOMPANY>Mo Designs</SVCURRENTCOMPANY>
+          <SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY>
         </STATICVARIABLES>
       </REQUESTDESC>
       <REQUESTDATA>
         <TALLYMESSAGE xmlns:UDF="TallyUDF">
           <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
-            <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
             <DATE>${date}</DATE>
-            <STATENAME>${state}</STATENAME>
-            <PLACEOFSUPPLY>${placeOfSupply}</PLACEOFSUPPLY>
-            <PARTYNAME>${partyLedgerName}</PARTYNAME>
-            <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
-            <BASICBUYERNAME>${partyLedgerName}</BASICBUYERNAME>
             <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
-            <VCHENTRYMODE>Item Invoice</VCHENTRYMODE>
             <ISINVOICE>Yes</ISINVOICE>
-            <LEDGERENTRIES.LIST>
-              <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
-              <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-              <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
-              <AMOUNT>-${fmt(partyAmount)}</AMOUNT>
-              <BILLALLOCATIONS.LIST>
-                <NAME>${invoice.invoiceNo}</NAME>
-                <BILLTYPE>New Ref</BILLTYPE>
-                <AMOUNT>-${fmt(partyAmount)}</AMOUNT>
-              </BILLALLOCATIONS.LIST>
-            </LEDGERENTRIES.LIST>
+            <NUMBERINGSTYLE>Auto Retain</NUMBERINGSTYLE>
+            <REFERENCE>${invoice.invoiceNo}</REFERENCE>
+            <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
+            <PARTYNAME>${partyLedgerName}</PARTYNAME>
+            <STATENAME>${stateName}</STATENAME>
+            <PLACEOFSUPPLY>${stateName}</PLACEOFSUPPLY>
+            <CMPGSTSTATE>${stateName}</CMPGSTSTATE>
+            <NARRATION>${narration}</NARRATION>
+            <ISDELETED>No</ISDELETED>
+            <ISOPTIONAL>No</ISOPTIONAL>
             ${inventoryEntries}
+            ${partyLedgerEntry}
             ${cgstLedgerEntry}
             ${sgstLedgerEntry}
             ${roundOffLedgerEntry}
@@ -274,7 +296,7 @@ async function createIfNeeded(xml: string): Promise<{ success: boolean; message:
 }
 
 export async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | undefined> {
-  const ledgerName = `${invoice.customer.name} (${invoice.customer.phone})`;
+  const ledgerName = `${invoice.customer.name}-${invoice.customer.phone}`;
   const amount = Number(invoice?.totals?.grandTotal ?? 0);
 
   const filterXml = await buildVoucherFilterXML(escapeXml(ledgerName), amount);
