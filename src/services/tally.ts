@@ -1,5 +1,3 @@
-
-
 'use server';
 
 import { Invoice, Stock, TaxDetail } from '@/lib/types';
@@ -90,6 +88,7 @@ export async function buildLedgerCreateXML(customerName: string, customerPhone: 
       <INCOMETAXNUMBER/>
       <SALESTAXNUMBER/>
       <GSTREGISTRATIONTYPE>Unregistered/Consumer</GSTREGISTRATIONTYPE>
+      <ISBILLWISEON>No</ISBILLWISEON>
       <ISBILLWISEPROVISIONAL>No</ISBILLWISEPROVISIONAL>
       <OPENINGBALANCE>0</OPENINGBALANCE>
      </LEDGER>
@@ -164,7 +163,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
 
         inventoryEntries += `
             <ALLINVENTORYENTRIES.LIST>
-              <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
+              <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
               <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
               <RATE>${fmt(rate)}/pcs</RATE>
               <AMOUNT>${fmt(lineAmount)}</AMOUNT>
@@ -437,7 +436,7 @@ export async function getFirestoreStockQuantity(itemName: string): Promise<{ suc
         const stockRef = adminDb.collection('stocks').doc(stockId);
         const docSnap = await stockRef.get();
         if (docSnap.exists) {
-            const quantity = docSnap.data()?.quantity || 0; // Use availableQty for the check
+            const quantity = docSnap.data()?.availableQty || 0; // Use availableQty for the check
             return { success: true, quantity: quantity, message: 'Success' };
         }
         return { success: true, quantity: 0, message: 'Stock not found in Firestore.' };
@@ -445,5 +444,4 @@ export async function getFirestoreStockQuantity(itemName: string): Promise<{ suc
         return { success: false, quantity: null, message: error.message };
     }
 }
-
     
