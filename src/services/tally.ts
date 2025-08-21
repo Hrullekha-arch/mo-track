@@ -2,7 +2,7 @@
 
 'use server';
 
-import { Invoice, Stock } from '@/lib/types';
+import { Invoice, Stock, TaxDetail } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
 import xml2js from 'xml2js';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -55,7 +55,7 @@ function extractVoucherNumber(xml: string): string | undefined {
 // ---------------- XML Builders ----------------
 
 export async function buildLedgerCreateXML(customerName: string, customerPhone: string): Promise<string> {
-  const ledgerName = escapeXml(`${customerName} (${customerPhone})`);
+  const ledgerName = escapeXml(`${customerName}-${customerPhone}`);
   return `
 <ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
@@ -103,18 +103,40 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     const date = format(new Date(invoice.createdAt), 'yyyyMMdd');
     const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
     const narration = escapeXml(`Sale of items for order ${invoice.orderId}`);
-
-    // Assuming intra-state transaction
     const stateName = "Haryana"; 
-    
-    let itemSubtotal = 0;
-    let inventoryEntries = '';
 
-    invoice.items.forEach(item => {
+    // Pre-fetch all necessary stock and tax details
+    const uniqueBcns = [...new Set(invoice.items.map(item => item.bcn))];
+    const stockDetailsMap = new Map<string, Stock>();
+    const taxDetailsMap = new Map<string, TaxDetail>();
+
+    for (const bcn of uniqueBcns) {
+        const stockId = bcn.replace(/\//g, '-');
+        const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
+        if (stockDoc.exists) {
+            const stockData = stockDoc.data() as Stock;
+            stockDetailsMap.set(bcn, stockData);
+            if (stockData.hsnCode) {
+                const taxDoc = await adminDb.collection('taxDetails').doc(stockData.hsnCode).get();
+                if (taxDoc.exists) {
+                    taxDetailsMap.set(stockData.hsnCode, taxDoc.data() as TaxDetail);
+                }
+            }
+        }
+    }
+
+    let inventoryEntries = '';
+    for (const item of invoice.items) {
+        const stockDetail = stockDetailsMap.get(item.bcn);
+        const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
+        const gstRate = taxDetail?.gst ?? 12; // Default to 12% if not found
+        const halfGst = gstRate / 2;
+
+        const ledgerName = `Haryana Sale @ ${gstRate}%`;
+
         const qty = Number(item.quantityAllocated || 0);
         const rate = Number(item.rate || 0);
         const lineAmount = money(rate * qty);
-        itemSubtotal = money(itemSubtotal + lineAmount);
 
         inventoryEntries += `
             <ALLINVENTORYENTRIES.LIST>
@@ -132,7 +154,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                 <BILLEDQTY>${qty} pcs</BILLEDQTY>
               </BATCHALLOCATIONS.LIST>
               <ACCOUNTINGALLOCATIONS.LIST>
-                <LEDGERNAME>Haryana Sale @ 12%</LEDGERNAME>
+                <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
                 <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
                 <LEDGERFROMITEM>Yes</LEDGERFROMITEM>
                 <AMOUNT>${fmt(lineAmount)}</AMOUNT>
@@ -140,55 +162,48 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
               <RATEDETAILS.LIST>
                 <GSTRATEDUTYHEAD>CGST</GSTRATEDUTYHEAD>
                 <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
-                <GSTRATE>6</GSTRATE>
+                <GSTRATE>${halfGst}</GSTRATE>
               </RATEDETAILS.LIST>
               <RATEDETAILS.LIST>
                 <GSTRATEDUTYHEAD>SGST/UTGST</GSTRATEDUTYHEAD>
                 <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
-                <GSTRATE>6</GSTRATE>
+                <GSTRATE>${halfGst}</GSTRATE>
               </RATEDETAILS.LIST>
               <RATEDETAILS.LIST>
                 <GSTRATEDUTYHEAD>IGST</GSTRATEDUTYHEAD>
                 <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
-                <GSTRATE>12</GSTRATE>
+                <GSTRATE>${gstRate}</GSTRATE>
               </RATEDETAILS.LIST>
             </ALLINVENTORYENTRIES.LIST>`;
-    });
+    }
     
-    // Using invoice totals directly as they are now pre-calculated
-    const taxableValue = invoice.totals.taxableValue;
+    const grandTotal = invoice.totals.grandTotal;
     const cgst = invoice.totals.cgst;
     const sgst = invoice.totals.sgst;
     const roundOff = invoice.totals.roundOff;
-    const grandTotal = invoice.totals.grandTotal;
-
-
-    const partyLedgerEntry = `
-        <LEDGERENTRIES.LIST>
+    
+    const partyLedgerEntry = `<LEDGERENTRIES.LIST>
             <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
             <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
             <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
             <AMOUNT>-${fmt(grandTotal)}</AMOUNT>
         </LEDGERENTRIES.LIST>`;
     
-    const cgstLedgerEntry = `
-        <LEDGERENTRIES.LIST>
+    const cgstLedgerEntry = `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output CGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(cgst)}</AMOUNT>
             <VATEXPAMOUNT>${fmt(cgst)}</VATEXPAMOUNT>
         </LEDGERENTRIES.LIST>`;
 
-    const sgstLedgerEntry = `
-        <LEDGERENTRIES.LIST>
+    const sgstLedgerEntry = `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output SGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(sgst)}</AMOUNT>
             <VATEXPAMOUNT>${fmt(sgst)}</VATEXPAMOUNT>
         </LEDGERENTRIES.LIST>`;
         
-    const roundOffLedgerEntry = roundOff !== 0 ? `
-        <LEDGERENTRIES.LIST>
+    const roundOffLedgerEntry = roundOff !== 0 ? `<LEDGERENTRIES.LIST>
           <LEDGERNAME>Round Off</LEDGERNAME>
           <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
           <AMOUNT>${fmt(roundOff)}</AMOUNT>
