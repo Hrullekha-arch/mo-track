@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { Invoice, Stock, TaxDetail, User } from '@/lib/types';
@@ -126,7 +127,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     const date = format(new Date(), 'yyyyMMdd');
     const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
     
-    // Fetch salesman details for reference and narration
     let salesmanRefText = invoice.salesPerson;
     const orderDoc = await adminDb.collection('orders').doc(invoice.orderId).get();
     if (orderDoc.exists && orderDoc.data()?.representativeId) {
@@ -142,7 +142,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     const narration = escapeXml(`Sale of ${totalQty} mtr of Stock Item ${firstItemName}`);
     const stateName = "Haryana"; 
 
-    // Pre-fetch all necessary stock and tax details
     const uniqueBcns = [...new Set(invoice.items.map(item => item.bcn))];
     const stockDetailsMap = new Map<string, Stock>();
     const taxDetailsMap = new Map<string, TaxDetail>();
@@ -166,7 +165,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     for (const item of invoice.items) {
         const stockDetail = stockDetailsMap.get(item.bcn);
         const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
-        const gstRate = taxDetail?.gst ?? 5; // Default to 5% if not found
+        const gstRate = taxDetail?.gst ?? 5; 
         const halfGst = gstRate / 2;
         const unit = stockDetail?.unit?.toLowerCase() || 'mtr';
 
@@ -194,7 +193,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
               <ACCOUNTINGALLOCATIONS.LIST>
                 <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
                 <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                <LEDGERFROMITEM>Yes</LEDGERFROMITEM>
                 <AMOUNT>${fmt(lineAmount)}</AMOUNT>
               </ACCOUNTINGALLOCATIONS.LIST>
               <RATEDETAILS.LIST>
@@ -261,8 +259,8 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             <DATE>${date}</DATE>
             <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
             <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
-            <ISINVOICE>Yes</ISINVOICE>
             <REFERENCE>${escapeXml(salesmanRefText)}</REFERENCE>
+            <ISINVOICE>Yes</ISINVOICE>
             <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
             <PARTYNAME>${partyLedgerName}</PARTYNAME>
             <STATENAME>${stateName}</STATENAME>
