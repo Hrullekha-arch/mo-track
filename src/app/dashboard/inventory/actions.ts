@@ -3,9 +3,9 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Stock, StockTransaction } from '@/lib/types';
+import { Stock, StockTransaction, CuttingTask, CuttingTaskItem } from '@/lib/types';
 import * as XLSX from "xlsx";
-import { writeBatch, FieldValue, collectionGroup, getDocs } from 'firebase-admin/firestore';
+import { writeBatch, FieldValue, collection, collectionGroup, getDocs, query, where } from 'firebase-admin/firestore';
 
 const BATCH_SIZE = 499; // Firestore batch limit is 500 operations
 
@@ -231,32 +231,46 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
     try {
         const stockRef = adminDb.collection('stocks').doc(bcn);
         const addedSnapshot = await stockRef.collection('lengths').get();
-        const soldSnapshot = await stockRef.collection('stockSold').get();
         
-        const soldTransactions: StockTransaction[] = soldSnapshot.docs.map(soldDoc => {
-            const data = soldDoc.data();
-            return { 
-                ...data,
-                id: soldDoc.id,
-                bcn: bcn,
-                type: 'deduction',
-                quantityChange: -(Number(data.quantityChange) || 0),
-                createdAt: data.createdAt || new Date().toISOString(),
-                lengthId: data.parentTransactionId || 'N/A', // Corrected this line
-                status: data.status || 'pending for cutting'
-            } as StockTransaction;
+        // Fetch all cutting tasks to find relevant cuts
+        const cuttingTasksSnapshot = await adminDb.collection('Cutting').get();
+        const allCuttingItems: (CuttingTaskItem & { createdAt: string })[] = [];
+        cuttingTasksSnapshot.forEach(doc => {
+            const task = doc.data() as CuttingTask;
+            task.items.forEach(item => {
+                if (item.bcn === bcn) {
+                    allCuttingItems.push({ ...item, createdAt: task.createdAt });
+                }
+            });
         });
+
+        const soldTransactions: StockTransaction[] = allCuttingItems.map(cut => ({
+            id: `${cut.orderId}-${cut.stockAddedId}`, // Create a synthetic ID
+            bcn: cut.bcn,
+            type: 'deduction',
+            quantityChange: -cut.quantityAllocated,
+            orderId: cut.orderId,
+            createdAt: cut.createdAt,
+            createdBy: 'Cutting Module',
+            status: cut.status,
+            lengthId: cut.stockAddedId,
+        } as StockTransaction));
 
         const addedTransactionsPromises = addedSnapshot.docs.map(async (doc) => {
             const data = doc.data();
-            const cutHistorySnapshot = await doc.ref.collection('stockSold').get();
-            const cutHistory = cutHistorySnapshot.docs.map(cutDoc => ({
-                ...cutDoc.data(),
-                id: cutDoc.id,
-                type: 'deduction',
-                quantityChange: -(Number(cutDoc.data().quantityChange) || 0),
-                createdAt: cutDoc.data().createdAt || new Date().toISOString()
-            } as StockTransaction));
+            const lengthId = doc.id;
+            
+            // Filter the cutting items to get the history for this specific roll
+            const cutHistory: StockTransaction[] = allCuttingItems
+                .filter(item => item.stockAddedId === lengthId)
+                .map(cut => ({
+                    id: `${cut.orderId}-${cut.stockAddedId}`,
+                    type: 'deduction',
+                    quantityChange: -cut.quantityAllocated,
+                    createdAt: cut.createdAt,
+                    orderId: cut.orderId,
+                } as StockTransaction))
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
             return { 
                 ...data,
