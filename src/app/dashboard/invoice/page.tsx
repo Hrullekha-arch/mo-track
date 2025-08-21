@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -12,7 +13,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon, Code } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon, Code, CheckCircle, XCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,59 +73,18 @@ function GenerateInvoiceDialog({
   creator: { id: string, name: string } | null;
 }) {
   const [isGenerating, setIsGenerating] = React.useState(false);
-  const [isTallyDialogOpen, setIsTallyDialogOpen] = React.useState(false);
   const [isStockMismatchOpen, setIsStockMismatchOpen] = React.useState(false);
   const [mismatchedItems, setMismatchedItems] = React.useState<MismatchItem[]>([]);
-  const [tallyBillNo, setTallyBillNo] = React.useState('');
   const [generatedInvoice, setGeneratedInvoice] = React.useState<Invoice | null>(null);
+  const [tallySyncResult, setTallySyncResult] = React.useState<{ success: boolean; message: string; voucherNumber?: string; } | null>(null);
+
   const { toast } = useToast();
-
-  const handlePreVoucherCheck = async () => {
-    if (!creator) return;
-    setIsGenerating(true);
-    const mismatches: MismatchItem[] = [];
-    const allItems = batches.flatMap(b => b.items);
-
-    for (const item of allItems) {
-        const crmRes = await getFirestoreStockQuantity(item.bcn);
-        const tallyRes = await getStockFromTally(item.bcn);
-        
-        if (!crmRes.success || !tallyRes.success) {
-            toast({ variant: 'destructive', title: 'Verification Error', description: `Could not verify stock for ${item.itemName}. CRM: ${crmRes.message}, Tally: ${tallyRes.message}` });
-            setIsGenerating(false);
-            return;
-        }
-
-        const crmQty = crmRes.quantity ?? 0;
-        const tallyQty = tallyRes.quantity ?? 0;
-        
-        if (crmQty !== tallyQty) {
-          mismatches.push({ 
-              itemName: item.itemName, 
-              crmQty, 
-              tallyQty, 
-              errorType: 'mismatch',
-              difference: crmQty - tallyQty
-          });
-        }
-    }
-    
-    setIsGenerating(false);
-
-    if (mismatches.length > 0) {
-      setMismatchedItems(mismatches);
-      setIsStockMismatchOpen(true);
-    } else {
-      setIsTallyDialogOpen(true);
-    }
-  };
-
-  const handleFinalGenerate = async () => {
+  
+  const handleFinalGenerate = React.useCallback(async () => {
     if (!creator) {
         toast({ variant: 'destructive', title: 'Error', description: 'You must be logged in to perform this action.' });
         return;
     }
-    setIsTallyDialogOpen(false);
     setIsStockMismatchOpen(false); 
     setIsGenerating(true);
     
@@ -172,7 +132,6 @@ function GenerateInvoiceDialog({
         const newInvoice: Omit<Invoice, 'id'> = {
             invoiceNo: newInvoiceNumberStr,
             orderId: primaryOrder.id,
-            tallyBillNo: tallyBillNo || undefined,
             customer: {
                 name: primaryOrder.customerName,
                 phone: primaryOrder.customerPhone,
@@ -200,8 +159,8 @@ function GenerateInvoiceDialog({
             const stockId = item.bcn.replace(/\//g, '-');
             const stockRef = doc(db, 'stocks', stockId);
             batch.update(stockRef, {
-                quantity: FieldValue.increment(-item.quantityAllocated), // Actual
-                reservedQty: FieldValue.increment(-item.quantityAllocated), // Reserved
+                availableQty: FieldValue.increment(-item.quantityAllocated), // Reduce available
+                reservedQty: FieldValue.increment(-item.quantityAllocated), // Reduce reserved
                 cutQty: FieldValue.increment(item.quantityAllocated),
             });
 
@@ -240,7 +199,7 @@ function GenerateInvoiceDialog({
 
         batches.forEach(b => {
             const batchRef = doc(db, "invoiceBatches", b.id);
-            batch.update(batchRef, { status: "invoiced", tallyBillNo: tallyBillNo || null, invoiceId: newInvoiceRef.id });
+            batch.update(batchRef, { status: "invoiced", invoiceId: newInvoiceRef.id });
         });
 
         const allOrderFabricNames = (primaryOrder.fabricDetails || []).map(f => f.fabricName);
@@ -265,23 +224,24 @@ function GenerateInvoiceDialog({
         }
         
         await batch.commit();
-
-        toast({ title: "Invoice Generated!", description: `Invoice ${String(newInvoiceNumber)} has been created and sent for cutting.`});
         
         const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id };
-        setGeneratedInvoice(fullInvoiceData);
         
         try {
             const tallyResult = await sendInvoiceToTally(fullInvoiceData);
-            if(tallyResult.success) {
-                toast({ title: "Tally Sync Success!", description: tallyResult.message });
+            if(tallyResult.success && tallyResult.voucherNumber) {
+                // Update the invoice with the voucher number
+                const invoiceRefToUpdate = doc(db, "invoices", newInvoiceRef.id);
+                await updateDoc(invoiceRefToUpdate, { tallyVoucherNo: tallyResult.voucherNumber });
+                setGeneratedInvoice({ ...fullInvoiceData, tallyVoucherNo: tallyResult.voucherNumber });
             } else {
-                 toast({ variant: 'destructive', title: 'Tally Sync Failed', description: tallyResult.message });
+                 setGeneratedInvoice(fullInvoiceData); // Still show invoice even if Tally fails
             }
+            setTallySyncResult(tallyResult); // Open the result dialog
         } catch (tallyError: any) {
-             toast({ variant: 'destructive', title: 'Tally Sync Error', description: tallyError.message, duration: 7000 });
+             setTallySyncResult({ success: false, message: tallyError.message });
+             setGeneratedInvoice(fullInvoiceData);
         }
-
 
     } catch (error) {
         console.error("Error finalizing invoice:", error);
@@ -289,8 +249,48 @@ function GenerateInvoiceDialog({
     } finally {
         setIsGenerating(false);
     }
-  }
+  }, [creator, toast, batches, orders]);
   
+  const handlePreVoucherCheck = React.useCallback(async () => {
+    if (!creator) return;
+    setIsGenerating(true);
+    const mismatches: MismatchItem[] = [];
+    const allItems = batches.flatMap(b => b.items);
+
+    for (const item of allItems) {
+        const crmRes = await getFirestoreStockQuantity(item.bcn);
+        const tallyRes = await getStockFromTally(item.bcn);
+        
+        if (!crmRes.success || !tallyRes.success) {
+            toast({ variant: 'destructive', title: 'Verification Error', description: `Could not verify stock for ${item.itemName}. CRM: ${crmRes.message}, Tally: ${tallyRes.message}` });
+            setIsGenerating(false);
+            return;
+        }
+
+        const crmQty = crmRes.quantity ?? 0;
+        const tallyQty = tallyRes.quantity ?? 0;
+        
+        if (crmQty !== tallyQty) {
+          mismatches.push({ 
+              itemName: item.itemName, 
+              crmQty, 
+              tallyQty, 
+              errorType: 'mismatch',
+              difference: crmQty - tallyQty
+          });
+        }
+    }
+    
+    if (mismatches.length > 0) {
+      setMismatchedItems(mismatches);
+      setIsStockMismatchOpen(true);
+      setIsGenerating(false);
+    } else {
+      // If stock matches, proceed directly to generating the invoice and Tally voucher.
+      await handleFinalGenerate();
+    }
+  }, [creator, batches, handleFinalGenerate, toast]);
+
   const handlePrint = () => {
     const printContent = document.getElementById('printable-invoice-content');
     if (!printContent) return;
@@ -308,9 +308,15 @@ function GenerateInvoiceDialog({
     }, 250);
   };
 
+  const resetAndClose = () => {
+    setGeneratedInvoice(null);
+    setTallySyncResult(null);
+    onClose();
+  }
+
   return (
     <>
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen && !tallySyncResult} onOpenChange={onClose}>
         <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
             <DialogHeader>
                 <DialogTitle>Generate Invoice</DialogTitle>
@@ -331,34 +337,31 @@ function GenerateInvoiceDialog({
             </DialogFooter>
         </DialogContent>
     </Dialog>
-     <AlertDialog open={isTallyDialogOpen} onOpenChange={setIsTallyDialogOpen}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>Enter Tally Bill No.</AlertDialogTitle>
-                <AlertDialogDescription>
-                    Please enter the Tally Bill number for this invoice. This is optional.
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="py-4">
-                <Label htmlFor="tally-bill-no" className="sr-only">Tally Bill No.</Label>
-                <Input
-                    id="tally-bill-no"
-                    value={tallyBillNo}
-                    onChange={(e) => setTallyBillNo(e.target.value)}
-                    placeholder="Optional Tally Bill No..."
-                />
-            </div>
-            <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleFinalGenerate}>Submit</AlertDialogAction>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-    </AlertDialog>
     <StockMismatchDialog
       isOpen={isStockMismatchOpen}
       onClose={() => setIsStockMismatchOpen(false)}
       mismatchedItems={mismatchedItems}
     />
+     <AlertDialog open={!!tallySyncResult} onOpenChange={() => resetAndClose()}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                    {tallySyncResult?.success ? <CheckCircle className="text-green-500"/> : <XCircle className="text-destructive"/>}
+                    Tally Sync {tallySyncResult?.success ? "Successful" : "Failed"}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                    {tallySyncResult?.message}
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="py-2">
+                <p className="text-sm font-semibold">Tally Voucher No:</p>
+                <p className="text-lg font-mono p-2 bg-muted rounded-md">{tallySyncResult?.voucherNumber || "Not available"}</p>
+            </div>
+            <AlertDialogFooter>
+                <AlertDialogAction onClick={() => resetAndClose()}>Close</AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
     </>
   )
 }
@@ -464,11 +467,12 @@ function InvoiceTable({
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => {
-        const status = row.getValue("status") as string;
+        const status = row.original.status;
         const tallyBillNo = row.original.tallyBillNo;
-        const variant = status === 'pending' ? 'secondary' : 'default';
-        const color = status === 'pending' ? '' : 'bg-green-600';
-        return <Badge variant={variant} className={color}>{tallyBillNo ? `${status}: ${tallyBillNo}` : status}</Badge>;
+        const variant = status === 'pendingInvoice' ? 'secondary' : 'default';
+        const color = status === 'pendingInvoice' ? '' : 'bg-green-600';
+        const text = status === 'pendingInvoice' ? 'Pending for Invoice' : `Invoiced: ${tallyBillNo || ''}`;
+        return <Badge variant={variant} className={color}>{text}</Badge>;
       }
     },
     {
@@ -504,7 +508,7 @@ function InvoiceTable({
 
   const selectedBatches = table.getFilteredSelectedRowModel().rows.map(row => row.original);
   const selectedOrders = orders.filter(order => selectedBatches.some(batch => batch.orderId === order.id));
-  const canGenerate = selectedBatches.length > 0 && selectedBatches.every(b => b.status === 'pending');
+  const canGenerate = selectedBatches.length > 0 && selectedBatches.every(b => b.status === 'pendingInvoice');
 
   return (
     <>
@@ -634,7 +638,7 @@ export default function InvoicePage() {
 
     const unsubscribeBatches = onSnapshot(batchesQuery, (snapshot) => {
         const batchesData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as InvoiceBatch));
-        setActiveBatches(batchesData.filter(b => b.status === 'pending'));
+        setActiveBatches(batchesData.filter(b => b.status === 'pendingInvoice'));
         setAllBatches(batchesData);
     }, (error) => {
       console.error("Error fetching invoice batches:", error);
