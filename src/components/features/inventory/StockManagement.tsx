@@ -253,7 +253,7 @@ export function StockManagement() {
                                 ) : stockAddedTransactions.length > 0 ? (
                                     stockAddedTransactions.map(tx => (
                                         <Collapsible key={tx.id} asChild>
-                                          <tbody>
+                                          <React.Fragment>
                                             <TableRow>
                                                 <TableCell>
                                                     <CollapsibleTrigger asChild>
@@ -269,13 +269,13 @@ export function StockManagement() {
                                                 <TableCell>{tx.poNumber || 'N/A'}</TableCell>
                                             </TableRow>
                                             <CollapsibleContent asChild>
-                                                <tr>
-                                                    <td colSpan={6}>
+                                                <TableRow>
+                                                    <TableCell colSpan={6}>
                                                         <CutHistoryView history={(tx as any).cutHistory} />
-                                                    </td>
-                                                </tr>
+                                                    </TableCell>
+                                                </TableRow>
                                             </CollapsibleContent>
-                                          </tbody>
+                                          </React.Fragment>
                                         </Collapsible>
                                     ))
                                 ) : (
