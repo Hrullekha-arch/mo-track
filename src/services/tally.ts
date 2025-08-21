@@ -266,8 +266,8 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             <STATENAME>${stateName}</STATENAME>
             <PLACEOFSUPPLY>${stateName}</PLACEOFSUPPLY>
             <NARRATION>${narration}</NARRATION>
-            ${inventoryEntries}
             ${partyLedgerEntry}
+            ${inventoryEntries}
             ${cgstLedgerEntry}
             ${sgstLedgerEntry}
             ${roundOffLedgerEntry}
