@@ -228,52 +228,49 @@ export async function revertStockAdditionAction(
 }
 
 export async function getStockTransactions(bcn: string): Promise<StockTransaction[]> {
-  try {
-    const stockRef = adminDb.collection('stocks').doc(bcn);
-
-    // Fetch added rolls from the 'lengths' subcollection
-    const addedSnapshot = await stockRef.collection('lengths').get();
-
-    // Fetch sold transactions from the 'stockSold' subcollection within each length
-    const soldTransactions: StockTransaction[] = [];
-    for (const lengthDoc of addedSnapshot.docs) {
-        const soldSnapshot = await lengthDoc.ref.collection('stockSold').get();
-        soldSnapshot.forEach(soldDoc => {
-            const data = soldDoc.data();
-            soldTransactions.push({ 
-                ...data,
-                id: soldDoc.id,
-                bcn: bcn,
-                lengthId: lengthDoc.id, // Add reference to the roll it was cut from
-                type: 'deduction',
-                quantityChange: -(Number(data.quantityChange) || 0),
-                createdAt: data.createdAt || new Date().toISOString(),
-            } as StockTransaction);
-        });
+    try {
+      const stockRef = adminDb.collection('stocks').doc(bcn);
+  
+      // Fetch added rolls from the 'lengths' subcollection
+      const addedSnapshot = await stockRef.collection('lengths').get();
+  
+      // Fetch sold transactions from the 'stockSold' subcollection
+      const soldSnapshot = await stockRef.collection('stockSold').get();
+      
+      const soldTransactions: StockTransaction[] = soldSnapshot.docs.map(soldDoc => {
+          const data = soldDoc.data();
+          return { 
+              ...data,
+              id: soldDoc.id,
+              bcn: bcn,
+              type: 'deduction',
+              quantityChange: -(Number(data.quantityChange) || 0),
+              createdAt: data.createdAt || new Date().toISOString(),
+          } as StockTransaction;
+      });
+  
+      // Build "added" transactions from the length documents themselves
+      const addedTransactions = addedSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return { 
+          ...data,
+          id: doc.id,
+          bcn: bcn,
+          type: 'addition',
+          quantityChange: Number(data.quantity) || 0,
+          createdAt: data.lastUpdatedAt || new Date().toISOString(),
+        } as StockTransaction;
+      });
+  
+      // Merge & sort
+      const allTransactions = [...addedTransactions, ...soldTransactions];
+      allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  
+      return JSON.parse(JSON.stringify(allTransactions));
+    } catch (error) {
+      console.error(`Error fetching transactions for stock ${bcn}:`, error);
+      return [];
     }
-
-    // Build "added" transactions from the length documents themselves
-    const addedTransactions = addedSnapshot.docs.map(doc => {
-      const data = doc.data();
-      return { 
-        ...data,
-        id: doc.id,
-        bcn: bcn,
-        type: 'addition',
-        quantityChange: Number(data.quantity) || 0,
-        createdAt: data.lastUpdatedAt || new Date().toISOString(),
-      } as StockTransaction;
-    });
-
-    // Merge & sort
-    const allTransactions = [...addedTransactions, ...soldTransactions];
-    allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-    return JSON.parse(JSON.stringify(allTransactions));
-  } catch (error) {
-    console.error(`Error fetching transactions for stock ${bcn}:`, error);
-    return [];
-  }
 }
 
 
