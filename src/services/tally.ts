@@ -444,7 +444,7 @@ export async function getFirestoreStockQuantity(itemName: string): Promise<{ suc
             const quantity = docSnap.data()?.quantity || 0;
             return { success: true, quantity: quantity, message: 'Success' };
         }
-        return { success: true, quantity: 0, message: 'Stock not found in Firestore.' };
+        return { success: false, quantity: 0, message: `Stock item ${itemName} not found in Firestore.` };
     } catch (error: any) {
         return { success: false, quantity: null, message: error.message };
     }
