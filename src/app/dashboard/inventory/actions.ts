@@ -232,14 +232,15 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
         const stockRef = adminDb.collection('stocks').doc(bcn);
         const addedSnapshot = await stockRef.collection('lengths').get();
         
-        // Fetch all cutting tasks to find relevant cuts
-        const cuttingTasksSnapshot = await adminDb.collection('Cutting').get();
-        const allCuttingItems: (CuttingTaskItem & { createdAt: string; orderId: string; salesman: string })[] = [];
+        // Fetch all cutting tasks to find relevant cuts for this BCN
+        const cuttingTasksSnapshot = await adminDb.collection('Cutting').where('items', 'array-contains-any', [{bcn: bcn}]).get();
+
+        const allCuttingItemsForBcn: (CuttingTaskItem & { createdAt: string; orderId: string; salesman: string })[] = [];
         cuttingTasksSnapshot.forEach(doc => {
             const task = doc.data() as CuttingTask;
             task.items.forEach(item => {
                 if (item.bcn === bcn) {
-                    allCuttingItems.push({ 
+                    allCuttingItemsForBcn.push({ 
                         ...item, 
                         createdAt: task.createdAt, 
                         orderId: task.orderId,
@@ -249,8 +250,8 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
             });
         });
 
-        const soldTransactions: StockTransaction[] = allCuttingItems.map(cut => ({
-            id: `${cut.orderId}-${cut.stockAddedId}`, // Create a synthetic ID
+        const soldTransactions: StockTransaction[] = allCuttingItemsForBcn.map(cut => ({
+            id: `${cut.orderId}-${cut.stockAddedId}`,
             bcn: cut.bcn,
             type: 'deduction',
             quantityChange: -cut.quantityAllocated,
@@ -267,7 +268,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
             const lengthId = doc.id;
             
             // Filter the cutting items to get the history for this specific roll
-            const cutHistory: StockTransaction[] = allCuttingItems
+            const cutHistory: StockTransaction[] = allCuttingItemsForBcn
                 .filter(item => item.stockAddedId === lengthId)
                 .map(cut => ({
                     id: `${cut.orderId}-${cut.stockAddedId}`,
@@ -286,6 +287,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
                 type: 'addition',
                 quantityChange: Number(data.quantity) || 0,
                 createdAt: data.lastUpdatedAt || new Date().toISOString(),
+                salesman: data.salesman || 'N/A',
                 cutHistory: cutHistory,
             } as StockTransaction;
         });
@@ -365,10 +367,6 @@ export async function updateStockBatchAction(
 export async function getStockDetails(bcn: string) {
     try {
         const stockRef = adminDb.collection('stocks').doc(bcn);
-        const lengthsSnapshot = await stockRef.collection('lengths').get();
-        const cutHistorySnapshot = await stockRef.collectionGroup('cutHistory').orderBy('timestamp', 'desc').get();
-        const reservedQtySnapshot = await stockRef.collectionGroup('reservedQty').get();
-
         const stockDoc = await stockRef.get();
         if (!stockDoc.exists) {
             return { success: false, message: "Stock BCN not found" };
@@ -376,15 +374,12 @@ export async function getStockDetails(bcn: string) {
 
         const stock = { id: stockDoc.id, ...stockDoc.data() } as Stock;
         
-        const availableLengths = lengthsSnapshot.docs.map(doc => {
-            const data = doc.data();
-            return { length: data.quantity, transactionId: doc.id };
-        });
+        // Correctly fetch transactions using the already fixed function
+        const transactions = await getStockTransactions(bcn);
 
-        const transactions = [
-            ...cutHistorySnapshot.docs.map(d => d.data()),
-            ...reservedQtySnapshot.docs.map(d => d.data())
-        ];
+        const availableLengths = transactions
+            .filter(tx => tx.type === 'addition')
+            .map(tx => ({ length: tx.quantityChange, transactionId: tx.id }));
         
         return {
             success: true,
