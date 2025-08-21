@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -12,7 +13,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon, Code, CheckCircle } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon, Code, CheckCircle, XCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc, where, orderBy, limit, FieldValue } from "firebase/firestore";
+import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc, where, orderBy, limit, FieldValue, increment } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format, isWithinInterval } from "date-fns";
@@ -109,7 +110,7 @@ function GenerateInvoiceDialog({
             const qty = item.quantityAllocated;
             const rate = item.rate;
             const amount = qty * rate;
-            const discountAmount = 0;
+            const discountAmount = amount * ((item.discountPercent || 0) / 100);
             const taxableValue = amount - discountAmount;
             const cgst = taxableValue * 0.025;
             const sgst = taxableValue * 0.025;
@@ -152,32 +153,56 @@ function GenerateInvoiceDialog({
             createdBy: creator.name,
         };
         batch.set(newInvoiceRef, newInvoice);
+        
+        const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id };
+        const tallyResult = await sendInvoiceToTally(fullInvoiceData);
+        
+        // --- STOCK DEDUCTION LOGIC ---
+        if (tallyResult.success) {
+            for (const item of allItems) {
+                const stockId = item.bcn.replace(/\//g, '-');
+                const stockRef = doc(db, 'stocks', stockId);
 
-        // Update stock: reduce actual and reserved quantities
-        for (const item of allItems) {
-            const stockId = item.bcn.replace(/\//g, '-');
-            const stockRef = doc(db, 'stocks', stockId);
-            batch.update(stockRef, {
-                availableQty: FieldValue.increment(-item.quantityAllocated), // Reduce available
-                reservedQty: FieldValue.increment(-item.quantityAllocated), // Reduce reserved
-                cutQty: FieldValue.increment(item.quantityAllocated),
-            });
+                // Decrement master physical quantity and reservedQty, increment cutQty
+                batch.update(stockRef, {
+                    quantity: increment(-item.quantityAllocated),
+                    reservedQty: increment(-item.quantityAllocated),
+                    cutQty: increment(item.quantityAllocated),
+                });
+                
+                // Also update the specific length document
+                if (item.stockAddedId) {
+                    const lengthRef = doc(db, 'stocks', stockId, 'lengths', item.stockAddedId);
+                    batch.update(lengthRef, {
+                        reservedQty: increment(-item.quantityAllocated),
+                        cutQty: increment(item.quantityAllocated),
+                    });
+                }
 
-            // Log stock transaction for cut
-            const transactionRef = doc(collection(stockRef, 'stockSold'));
-            const transaction: Omit<StockTransaction, 'id'> = {
-                stockId: stockId,
-                bcn: item.bcn,
-                type: 'deduction',
-                quantityChange: -item.quantityAllocated,
-                orderId: primaryOrder.id,
-                createdAt: new Date().toISOString(),
-                createdBy: creator.name,
-                status: 'cut'
-            };
-            batch.set(transactionRef, transaction);
+                // Log stock transaction for cut
+                const transactionRef = doc(collection(stockRef, 'stockSold'));
+                const transaction: Omit<StockTransaction, 'id'> = {
+                    stockId: stockId,
+                    bcn: item.bcn,
+                    type: 'deduction',
+                    quantityChange: -item.quantityAllocated,
+                    orderId: primaryOrder.id,
+                    createdAt: new Date().toISOString(),
+                    createdBy: creator.name,
+                    status: 'cut'
+                };
+                batch.set(transactionRef, transaction);
+            }
+             // Update the invoice with the voucher number
+            if(tallyResult.voucherNumber) {
+                const invoiceRefToUpdate = doc(db, "invoices", newInvoiceRef.id);
+                batch.update(invoiceRefToUpdate, { tallyVoucherNo: tallyResult.voucherNumber });
+                setGeneratedInvoice({ ...fullInvoiceData, tallyVoucherNo: tallyResult.voucherNumber });
+            }
+        } else {
+             setGeneratedInvoice(fullInvoiceData); // Still show invoice even if Tally fails
         }
-
+        
         const newCuttingTaskRef = doc(collection(db, "Cutting"));
         const newCuttingTask: Omit<CuttingTask, 'id'> = {
             invoiceId: newInvoiceRef.id,
@@ -198,7 +223,7 @@ function GenerateInvoiceDialog({
 
         batches.forEach(b => {
             const batchRef = doc(db, "invoiceBatches", b.id);
-            batch.update(batchRef, { status: "invoiced", invoiceId: newInvoiceRef.id });
+            batch.update(batchRef, { status: "invoiced", invoiceId: newInvoiceRef.id, tallyBillNo: tallyResult.voucherNumber });
         });
 
         const allOrderFabricNames = (primaryOrder.fabricDetails || []).map(f => f.fabricName);
@@ -223,24 +248,7 @@ function GenerateInvoiceDialog({
         }
         
         await batch.commit();
-        
-        const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id };
-        
-        try {
-            const tallyResult = await sendInvoiceToTally(fullInvoiceData);
-            if(tallyResult.success && tallyResult.voucherNumber) {
-                // Update the invoice with the voucher number
-                const invoiceRefToUpdate = doc(db, "invoices", newInvoiceRef.id);
-                await updateDoc(invoiceRefToUpdate, { tallyVoucherNo: tallyResult.voucherNumber });
-                setGeneratedInvoice({ ...fullInvoiceData, tallyVoucherNo: tallyResult.voucherNumber });
-            } else {
-                 setGeneratedInvoice(fullInvoiceData); // Still show invoice even if Tally fails
-            }
-            setTallySyncResult(tallyResult); // Open the result dialog
-        } catch (tallyError: any) {
-             setTallySyncResult({ success: false, message: tallyError.message });
-             setGeneratedInvoice(fullInvoiceData);
-        }
+        setTallySyncResult(tallyResult); // Open the result dialog
 
     } catch (error) {
         console.error("Error finalizing invoice:", error);
@@ -345,7 +353,7 @@ function GenerateInvoiceDialog({
         <AlertDialogContent>
             <AlertDialogHeader>
                 <AlertDialogTitle className="flex items-center gap-2">
-                    {tallySyncResult?.success ? <CheckCircle className="text-green-500"/> : <X className="text-destructive"/>}
+                    {tallySyncResult?.success ? <CheckCircle className="text-green-500"/> : <XCircle className="text-destructive"/>}
                     Tally Sync {tallySyncResult?.success ? "Successful" : "Failed"}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
@@ -454,7 +462,9 @@ function InvoiceTable({
       header: "Invoice Amount",
       cell: ({ row }) => {
         const subtotal = row.original.items.reduce((sum, item) => {
-          return sum + (item.quantityAllocated * item.rate);
+          const amount = item.quantityAllocated * item.rate;
+          const discountAmount = amount * ((item.discountPercent || 0) / 100);
+          return sum + (amount - discountAmount);
         }, 0);
         const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
         const totalAmount = subtotal + tax;
@@ -682,5 +692,3 @@ export default function InvoicePage() {
     </div>
   )
 }
-
-    

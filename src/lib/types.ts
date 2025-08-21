@@ -90,6 +90,8 @@ export interface FabricDetail {
     type?: string;
     panels?: string;
     status?: 'pending for po' | 'po generated' | 'in stock' | 'allocated';
+    rate?: number; // Added rate from quotation
+    discountPercent?: number; // Added discount from quotation
 }
 
 export interface FurnitureDetail {
@@ -361,6 +363,7 @@ export interface DealProduct {
     info2?: string;
     stitchingType?: "in" | "out";
     file?: any;
+    rate?: number; // Added from another request, seems useful
 }
 
 export interface DeliveryInstallationItem {
@@ -532,6 +535,7 @@ export interface InvoiceBatchItem {
     bcn: string;
     quantityAllocated: number;
     rate: number;
+    discountPercent?: number; // Added field
     originalLength?: number;
     stockAddedId?: string;
     stockSoldId?: string;
