@@ -112,7 +112,7 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
         <STOCKITEM NAME="${escapedItemName}" ACTION="Create">
           <NAME>${escapedItemName}</NAME>
           <PARENT>Products</PARENT>
-          <BASEUNITS>Nos</BASEUNITS>
+          <BASEUNITS>mtr</BASEUNITS>
         </STOCKITEM>
       </TALLYMESSAGE>
     </DATA>
@@ -167,7 +167,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
         const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
         const gstRate = taxDetail?.gst ?? 5; 
         const halfGst = gstRate / 2;
-        const unit = 'mtr'; // Set unit to mtr as requested
+        const unit = stockDetail?.unit || 'mtr';
 
         const ledgerName = `Haryana Sale @ ${gstRate}%`;
 
@@ -371,7 +371,7 @@ export async function sendInvoiceToTally(
   const voucherXml = await buildSalesVoucherXML(invoice);
   
   // Save XML before sending for better debugging
-  await adminDb.collection('invoices').doc(invoice.id).update({ tallySalesXml: voucherXml });
+  await adminDb.collection('invoices').doc(invoice.id).set({ tallySalesXml: voucherXml }, { merge: true });
   
   const voucherResult = await createIfNeeded(voucherXml);
 
