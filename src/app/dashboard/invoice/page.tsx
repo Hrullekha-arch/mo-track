@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -157,19 +158,26 @@ function GenerateInvoiceDialog({
         const tallyResult = await sendInvoiceToTally(fullInvoiceData);
         
         // --- STOCK DEDUCTION LOGIC ---
-        // This logic runs ONLY IF Tally sync is successful.
         if (tallyResult.success) {
             for (const item of allItems) {
                 const stockId = item.bcn.replace(/\//g, '-');
                 const stockRef = doc(db, 'stocks', stockId);
-                
-                // Decrement master quantity, availableQty, and reservedQty
+
+                // Decrement master physical quantity and reservedQty, increment cutQty
                 batch.update(stockRef, {
                     quantity: increment(-item.quantityAllocated),
-                    availableQty: increment(-item.quantityAllocated),
                     reservedQty: increment(-item.quantityAllocated),
                     cutQty: increment(item.quantityAllocated),
                 });
+                
+                // Also update the specific length document
+                if (item.stockAddedId) {
+                    const lengthRef = doc(db, 'stocks', stockId, 'lengths', item.stockAddedId);
+                    batch.update(lengthRef, {
+                        reservedQty: increment(-item.quantityAllocated),
+                        cutQty: increment(item.quantityAllocated),
+                    });
+                }
 
                 // Log stock transaction for cut
                 const transactionRef = doc(collection(stockRef, 'stockSold'));
