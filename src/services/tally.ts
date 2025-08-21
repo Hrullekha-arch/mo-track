@@ -1,7 +1,7 @@
 
 'use server';
 
-import { Invoice, Stock, TaxDetail } from '@/lib/types';
+import { Invoice, Stock, TaxDetail, User } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
 import xml2js from 'xml2js';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -16,7 +16,6 @@ function escapeXml(unsafe: string): string {
       case '<': return '&lt;';
       case '>': return '&gt;';
       case '&': return '&amp;';
-      case '\'': return '&apos;';
       case '"': return '&quot;';
       default: return c;
     }
@@ -126,7 +125,19 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
 
     const date = format(new Date(), 'yyyyMMdd');
     const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
-    const narration = escapeXml(`Sale of items for order ${invoice.orderId}`);
+    
+    // Fetch salesman details for reference and narration
+    let salesmanRefText = invoice.salesPerson;
+    const orderDoc = await adminDb.collection('orders').doc(invoice.orderId).get();
+    if (orderDoc.exists() && orderDoc.data()?.representativeId) {
+        const salesmanDoc = await adminDb.collection('users').doc(orderDoc.data()?.representativeId).get();
+        if (salesmanDoc.exists()) {
+            const salesmanData = salesmanDoc.data() as User;
+            salesmanRefText = `${salesmanData.name} (${salesmanData.salesmanCode || 'N/A'})`;
+        }
+    }
+    
+    const narration = escapeXml(`Sale for Order ${invoice.orderId}. Salesman: ${salesmanRefText}`);
     const stateName = "Haryana"; 
 
     // Pre-fetch all necessary stock and tax details
@@ -153,8 +164,9 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     for (const item of invoice.items) {
         const stockDetail = stockDetailsMap.get(item.bcn);
         const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
-        const gstRate = taxDetail?.gst ?? 12; // Default to 12% if not found
+        const gstRate = taxDetail?.gst ?? 5; // Default to 5% if not found
         const halfGst = gstRate / 2;
+        const unit = stockDetail?.unit?.toLowerCase() || 'mtr';
 
         const ledgerName = `Haryana Sale @ ${gstRate}%`;
 
@@ -166,16 +178,16 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             <ALLINVENTORYENTRIES.LIST>
               <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
               <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <RATE>${fmt(rate)}/pcs</RATE>
+              <RATE>${fmt(rate)}/${unit}</RATE>
               <AMOUNT>${fmt(lineAmount)}</AMOUNT>
-              <ACTUALQTY>${qty} pcs</ACTUALQTY>
-              <BILLEDQTY>${qty} pcs</BILLEDQTY>
+              <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
+              <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
               <BATCHALLOCATIONS.LIST>
                 <GODOWNNAME>Mo</GODOWNNAME>
                 <BATCHNAME>Primary Batch</BATCHNAME>
                 <AMOUNT>${fmt(lineAmount)}</AMOUNT>
-                <ACTUALQTY>${qty} pcs</ACTUALQTY>
-                <BILLEDQTY>${qty} pcs</BILLEDQTY>
+                <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
+                <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
               </BATCHALLOCATIONS.LIST>
               <ACCOUNTINGALLOCATIONS.LIST>
                 <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
@@ -192,11 +204,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                 <GSTRATEDUTYHEAD>SGST/UTGST</GSTRATEDUTYHEAD>
                 <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
                 <GSTRATE>${halfGst}</GSTRATE>
-              </RATEDETAILS.LIST>
-              <RATEDETAILS.LIST>
-                <GSTRATEDUTYHEAD>IGST</GSTRATEDUTYHEAD>
-                <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
-                <GSTRATE>${gstRate}</GSTRATE>
               </RATEDETAILS.LIST>
             </ALLINVENTORYENTRIES.LIST>`;
     }
@@ -251,9 +258,9 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
           <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
             <DATE>${date}</DATE>
             <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+            <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
             <ISINVOICE>Yes</ISINVOICE>
-            <NUMBERINGSTYLE>Auto Retain</NUMBERINGSTYLE>
-            <REFERENCE>${invoice.invoiceNo}</REFERENCE>
+            <REFERENCE>${escapeXml(salesmanRefText)}</REFERENCE>
             <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
             <PARTYNAME>${partyLedgerName}</PARTYNAME>
             <STATENAME>${stateName}</STATENAME>
