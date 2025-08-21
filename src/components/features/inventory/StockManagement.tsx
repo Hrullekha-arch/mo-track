@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -240,8 +239,8 @@ export function StockManagement() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="w-10"></TableHead>
-                                    <TableHead>Roll ID</TableHead>
-                                    <TableHead>Roll Length</TableHead>
+                                    <TableHead>Full Length</TableHead>
+                                    <TableHead>Length ID</TableHead>
                                     <TableHead>Available</TableHead>
                                     <TableHead>Reserved</TableHead>
                                     <TableHead>PO</TableHead>
@@ -262,8 +261,8 @@ export function StockManagement() {
                                                         </Button>
                                                     </CollapsibleTrigger>
                                                 </TableCell>
-                                                <TableCell>{tx.id}</TableCell>
                                                 <TableCell>{`${(tx as any).quantity.toFixed(2)} Mtr`}</TableCell>
+                                                <TableCell className="text-xs font-mono">{tx.id}</TableCell>
                                                 <TableCell className="font-semibold text-green-600">{`${(tx as any).availableQty.toFixed(2)}`}</TableCell>
                                                 <TableCell className="font-semibold text-destructive">{`${(tx as any).reservedQty.toFixed(2)}`}</TableCell>
                                                 <TableCell>{tx.poNumber || 'N/A'}</TableCell>
@@ -296,3 +295,4 @@ export function StockManagement() {
     </Card>
   );
 }
+
