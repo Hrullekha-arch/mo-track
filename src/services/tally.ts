@@ -1,3 +1,4 @@
+
 'use server';
 
 import { Invoice, Stock, TaxDetail } from '@/lib/types';
@@ -123,7 +124,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     const money = (n: number) => (Math.round(n * 100) / 100);
     const fmt = (n: number) => money(n).toFixed(2);
 
-    const date = format(new Date(invoice.createdAt), 'yyyyMMdd');
+    const date = format(new Date(), 'yyyyMMdd');
     const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
     const narration = escapeXml(`Sale of items for order ${invoice.orderId}`);
     const stateName = "Haryana"; 
