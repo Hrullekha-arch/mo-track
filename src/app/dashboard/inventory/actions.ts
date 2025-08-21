@@ -233,7 +233,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
         const addedSnapshot = await stockRef.collection('lengths').get();
         
         // Fetch all cutting tasks to find relevant cuts for this BCN
-        const cuttingTasksSnapshot = await adminDb.collection('Cutting').where('items', 'array-contains-any', [{bcn: bcn}]).get();
+        const cuttingTasksSnapshot = await adminDb.collection('Cutting').get();
 
         const allCuttingItemsForBcn: (CuttingTaskItem & { createdAt: string; orderId: string; salesman: string })[] = [];
         cuttingTasksSnapshot.forEach(doc => {
