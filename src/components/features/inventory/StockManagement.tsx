@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -254,29 +253,29 @@ export function StockManagement() {
                                 ) : stockAddedTransactions.length > 0 ? (
                                     stockAddedTransactions.map(tx => (
                                         <Collapsible key={tx.id} asChild>
-                                            <>
-                                                <TableRow>
-                                                    <TableCell>
-                                                        <CollapsibleTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="h-6 w-6">
-                                                                <ChevronRight className="h-4 w-4 transition-transform data-[state=open]:rotate-90" />
-                                                            </Button>
-                                                        </CollapsibleTrigger>
-                                                    </TableCell>
-                                                    <TableCell>{tx.id}</TableCell>
-                                                    <TableCell>{`${(tx as any).quantity.toFixed(2)} Mtr`}</TableCell>
-                                                    <TableCell className="font-semibold text-green-600">{`${(tx as any).availableQty.toFixed(2)}`}</TableCell>
-                                                    <TableCell className="font-semibold text-destructive">{`${(tx as any).reservedQty.toFixed(2)}`}</TableCell>
-                                                    <TableCell>{tx.poNumber || 'N/A'}</TableCell>
-                                                </TableRow>
-                                                <CollapsibleContent asChild>
-                                                    <tr>
-                                                        <td colSpan={6}>
-                                                            <CutHistoryView history={(tx as any).cutHistory} />
-                                                        </td>
-                                                    </tr>
-                                                </CollapsibleContent>
-                                            </>
+                                          <tbody>
+                                            <TableRow>
+                                                <TableCell>
+                                                    <CollapsibleTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-6 w-6">
+                                                            <ChevronRight className="h-4 w-4 transition-transform data-[state=open]:rotate-90" />
+                                                        </Button>
+                                                    </CollapsibleTrigger>
+                                                </TableCell>
+                                                <TableCell>{tx.id}</TableCell>
+                                                <TableCell>{`${(tx as any).quantity.toFixed(2)} Mtr`}</TableCell>
+                                                <TableCell className="font-semibold text-green-600">{`${(tx as any).availableQty.toFixed(2)}`}</TableCell>
+                                                <TableCell className="font-semibold text-destructive">{`${(tx as any).reservedQty.toFixed(2)}`}</TableCell>
+                                                <TableCell>{tx.poNumber || 'N/A'}</TableCell>
+                                            </TableRow>
+                                            <CollapsibleContent asChild>
+                                                <tr>
+                                                    <td colSpan={6}>
+                                                        <CutHistoryView history={(tx as any).cutHistory} />
+                                                    </td>
+                                                </tr>
+                                            </CollapsibleContent>
+                                          </tbody>
                                         </Collapsible>
                                     ))
                                 ) : (
