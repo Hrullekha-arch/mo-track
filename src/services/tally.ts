@@ -54,25 +54,49 @@ function extractVoucherNumber(xml: string): string | undefined {
 
 // ---------------- XML Builders ----------------
 
-export async function buildLedgerCreateXML(customerName: string, customerPhone: string): Promise<string> {
+export async function buildLedgerCreateXML(customerName: string, customerPhone: string, state: string = 'Haryana'): Promise<string> {
   const ledgerName = escapeXml(`${customerName}-${customerPhone}`);
+  const escapedState = escapeXml(state);
+  const escapedPhone = escapeXml(customerPhone);
+  
   return `
 <ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
-  <BODY>
-    <DESC>
-      <STATICVARIABLES><SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY></STATICVARIABLES>
-    </DESC>
-    <DATA>
-      <TALLYMESSAGE>
-        <LEDGER NAME="${ledgerName}" ACTION="Create">
-          <NAME>${ledgerName}</NAME>
-          <PARENT>Sundry Debtors</PARENT>
-          <ISBILLWISEON>Yes</ISBILLWISEON>
-        </LEDGER>
-      </TALLYMESSAGE>
-    </DATA>
-  </BODY>
+ <HEADER>
+  <TALLYREQUEST>Import Data</TALLYREQUEST>
+ </HEADER>
+ <BODY>
+  <IMPORTDATA>
+   <REQUESTDESC>
+    <REPORTNAME>All Masters</REPORTNAME>
+    <STATICVARIABLES>
+     <SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY>
+    </STATICVARIABLES>
+   </REQUESTDESC>
+   <REQUESTDATA>
+    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+     <LEDGER NAME="${ledgerName}" ACTION="Create">
+      <NAME>${ledgerName}</NAME>
+      <PARENT>Sundry Debtors</PARENT>
+      <ISBILLWISEON>No</ISBILLWISEON>
+      <ISCOSTCENTRESON>No</ISCOSTCENTRESON>
+      <AFFECTSSTOCK>No</AFFECTSSTOCK>
+      <USEFORVAT>No</USEFORVAT>
+      <TAXCLASSIFICATIONNAME/>
+      <COUNTRYNAME>India</COUNTRYNAME>
+      <LEDSTATENAME>${escapedState}</LEDSTATENAME>
+      <PINCODE/>
+      <EMAIL/>
+      <PHONENUMBER>${escapedPhone}</PHONENUMBER>
+      <INCOMETAXNUMBER/>
+      <SALESTAXNUMBER/>
+      <GSTREGISTRATIONTYPE>Unregistered/Consumer</GSTREGISTRATIONTYPE>
+      <ISBILLWISEPROVISIONAL>No</ISBILLWISEPROVISIONAL>
+      <OPENINGBALANCE>0</OPENINGBALANCE>
+     </LEDGER>
+    </TALLYMESSAGE>
+   </REQUESTDATA>
+  </IMPORTDATA>
+ </BODY>
 </ENVELOPE>`.trim();
 }
 
