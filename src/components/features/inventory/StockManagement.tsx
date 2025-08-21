@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -238,7 +239,6 @@ export function StockManagement() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="w-10"></TableHead>
                                     <TableHead>Full Length</TableHead>
                                     <TableHead>Length ID</TableHead>
                                     <TableHead>Available</TableHead>
@@ -248,38 +248,40 @@ export function StockManagement() {
                             </TableHeader>
                             <TableBody>
                                 {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={6} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
+                                    <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
                                 ) : stockAddedTransactions.length > 0 ? (
                                     stockAddedTransactions.map(tx => (
-                                        <Collapsible key={tx.id} asChild>
-                                          <React.Fragment>
-                                            <TableRow>
-                                                <TableCell>
+                                      <Collapsible asChild key={tx.id}>
+                                        <React.Fragment>
+                                          <TableRow>
+                                            <TableCell className="font-semibold">
+                                                <div className="flex items-center gap-2">
                                                     <CollapsibleTrigger asChild>
-                                                        <Button variant="ghost" size="icon" className="h-6 w-6">
+                                                         <Button variant="ghost" size="icon" className="h-6 w-6">
                                                             <ChevronRight className="h-4 w-4 transition-transform data-[state=open]:rotate-90" />
                                                         </Button>
                                                     </CollapsibleTrigger>
+                                                    <span>{`${(tx as any).quantity.toFixed(2)} Mtr`}</span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="text-xs font-mono">{tx.id}</TableCell>
+                                            <TableCell className="font-semibold text-green-600">{`${(tx as any).availableQty.toFixed(2)}`}</TableCell>
+                                            <TableCell className="font-semibold text-destructive">{`${(tx as any).reservedQty.toFixed(2)}`}</TableCell>
+                                            <TableCell>{tx.poNumber || 'N/A'}</TableCell>
+                                          </TableRow>
+                                          <CollapsibleContent asChild>
+                                             <TableRow>
+                                                <TableCell colSpan={5} className="p-0">
+                                                    <CutHistoryView history={(tx as any).cutHistory} />
                                                 </TableCell>
-                                                <TableCell>{`${(tx as any).quantity.toFixed(2)} Mtr`}</TableCell>
-                                                <TableCell className="text-xs font-mono">{tx.id}</TableCell>
-                                                <TableCell className="font-semibold text-green-600">{`${(tx as any).availableQty.toFixed(2)}`}</TableCell>
-                                                <TableCell className="font-semibold text-destructive">{`${(tx as any).reservedQty.toFixed(2)}`}</TableCell>
-                                                <TableCell>{tx.poNumber || 'N/A'}</TableCell>
-                                            </TableRow>
-                                            <CollapsibleContent asChild>
-                                                <TableRow>
-                                                    <TableCell colSpan={6}>
-                                                        <CutHistoryView history={(tx as any).cutHistory} />
-                                                    </TableCell>
-                                                </TableRow>
-                                            </CollapsibleContent>
-                                          </React.Fragment>
-                                        </Collapsible>
+                                             </TableRow>
+                                          </CollapsibleContent>
+                                        </React.Fragment>
+                                      </Collapsible>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="h-24 text-center">
+                                        <TableCell colSpan={5} className="h-24 text-center">
                                             No purchase data available.
                                         </TableCell>
                                     </TableRow>
@@ -295,4 +297,3 @@ export function StockManagement() {
     </Card>
   );
 }
-
