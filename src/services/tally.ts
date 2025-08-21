@@ -445,3 +445,5 @@ export async function getFirestoreStockQuantity(itemName: string): Promise<{ suc
         return { success: false, quantity: null, message: error.message };
     }
 }
+
+    

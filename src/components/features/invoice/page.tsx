@@ -55,6 +55,7 @@ interface MismatchItem {
   tallyQty: number;
   requiredQty?: number;
   errorType: 'mismatch' | 'insufficient';
+  difference: number;
 }
 
 function GenerateInvoiceDialog({
@@ -85,8 +86,8 @@ function GenerateInvoiceDialog({
     const allItems = batches.flatMap(b => b.items);
 
     for (const item of allItems) {
-        const crmRes = await getFirestoreStockQuantity(item.itemName);
-        const tallyRes = await getStockFromTally(item.itemName);
+        const crmRes = await getFirestoreStockQuantity(item.bcn);
+        const tallyRes = await getStockFromTally(item.bcn);
         
         if (!crmRes.success || !tallyRes.success) {
             toast({ variant: 'destructive', title: 'Verification Error', description: `Could not verify stock for ${item.itemName}. CRM: ${crmRes.message}, Tally: ${tallyRes.message}` });
@@ -96,12 +97,15 @@ function GenerateInvoiceDialog({
 
         const crmQty = crmRes.quantity ?? 0;
         const tallyQty = tallyRes.quantity ?? 0;
-        const requiredQty = item.quantityAllocated;
         
-        if (tallyQty < requiredQty) {
-          mismatches.push({ itemName: item.itemName, crmQty, tallyQty, requiredQty, errorType: 'insufficient' });
-        } else if (crmQty > tallyQty) {
-          mismatches.push({ itemName: item.itemName, crmQty, tallyQty, errorType: 'mismatch' });
+        if (crmQty !== tallyQty) {
+          mismatches.push({ 
+              itemName: item.itemName, 
+              crmQty, 
+              tallyQty, 
+              errorType: 'mismatch',
+              difference: crmQty - tallyQty
+          });
         }
     }
     
@@ -353,10 +357,6 @@ function GenerateInvoiceDialog({
     <StockMismatchDialog
       isOpen={isStockMismatchOpen}
       onClose={() => setIsStockMismatchOpen(false)}
-      onConfirm={() => {
-        setIsStockMismatchOpen(false);
-        setIsTallyDialogOpen(true);
-      }}
       mismatchedItems={mismatchedItems}
     />
     </>
@@ -619,3 +619,5 @@ function InvoiceTable({
     </>
   )
 }
+
+    
