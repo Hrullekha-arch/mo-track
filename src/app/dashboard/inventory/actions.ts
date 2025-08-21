@@ -234,12 +234,17 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
         
         // Fetch all cutting tasks to find relevant cuts
         const cuttingTasksSnapshot = await adminDb.collection('Cutting').get();
-        const allCuttingItems: (CuttingTaskItem & { createdAt: string })[] = [];
+        const allCuttingItems: (CuttingTaskItem & { createdAt: string; orderId: string; salesman: string })[] = [];
         cuttingTasksSnapshot.forEach(doc => {
             const task = doc.data() as CuttingTask;
             task.items.forEach(item => {
                 if (item.bcn === bcn) {
-                    allCuttingItems.push({ ...item, createdAt: task.createdAt });
+                    allCuttingItems.push({ 
+                        ...item, 
+                        createdAt: task.createdAt, 
+                        orderId: task.orderId,
+                        salesman: task.salesPerson
+                    });
                 }
             });
         });
@@ -254,6 +259,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
             createdBy: 'Cutting Module',
             status: cut.status,
             lengthId: cut.stockAddedId,
+            salesman: cut.salesman,
         } as StockTransaction));
 
         const addedTransactionsPromises = addedSnapshot.docs.map(async (doc) => {
@@ -269,6 +275,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
                     quantityChange: -cut.quantityAllocated,
                     createdAt: cut.createdAt,
                     orderId: cut.orderId,
+                    salesman: cut.salesman
                 } as StockTransaction))
                 .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 

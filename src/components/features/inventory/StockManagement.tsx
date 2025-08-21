@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -53,6 +54,7 @@ const CutHistoryView = ({ history }: { history: StockTransaction[] | undefined }
                         <TableHead className="h-8 text-xs">Date</TableHead>
                         <TableHead className="h-8 text-xs text-right">Qty Cut</TableHead>
                         <TableHead className="h-8 text-xs">Order ID</TableHead>
+                        <TableHead className="h-8 text-xs">Salesman</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -61,6 +63,7 @@ const CutHistoryView = ({ history }: { history: StockTransaction[] | undefined }
                             <TableCell className="py-1 text-xs">{format(new Date(cut.createdAt), 'dd/MM/yy')}</TableCell>
                             <TableCell className="py-1 text-xs text-right font-mono text-destructive">{Math.abs(cut.quantityChange).toFixed(2)}</TableCell>
                             <TableCell className="py-1 text-xs">{cut.orderId}</TableCell>
+                            <TableCell className="py-1 text-xs">{cut.salesman}</TableCell>
                         </TableRow>
                     ))}
                 </TableBody>
@@ -244,44 +247,48 @@ export function StockManagement() {
                                     <TableHead>Available</TableHead>
                                     <TableHead>Reserved</TableHead>
                                     <TableHead>PO</TableHead>
+                                    <TableHead>Salesman</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
+                                    <TableRow><TableCell colSpan={6} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
                                 ) : stockAddedTransactions.length > 0 ? (
                                     stockAddedTransactions.map(tx => (
-                                      <Collapsible asChild key={tx.id}>
-                                        <React.Fragment>
-                                          <TableRow>
-                                            <TableCell className="font-semibold">
-                                                <div className="flex items-center gap-2">
+                                      <React.Fragment key={tx.id}>
+                                      <Collapsible asChild>
+                                          <>
+                                            <TableRow>
+                                                <TableCell className="font-semibold">
+                                                  <div className="flex items-center gap-2">
                                                     <CollapsibleTrigger asChild>
-                                                         <Button variant="ghost" size="icon" className="h-6 w-6">
-                                                            <ChevronRight className="h-4 w-4 transition-transform data-[state=open]:rotate-90" />
-                                                        </Button>
+                                                      <Button variant="ghost" size="icon" className="h-6 w-6">
+                                                        <ChevronRight className="h-4 w-4 transition-transform data-[state=open]:rotate-90" />
+                                                      </Button>
                                                     </CollapsibleTrigger>
                                                     <span>{`${(tx as any).quantity.toFixed(2)} Mtr`}</span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="text-xs font-mono">{tx.id}</TableCell>
-                                            <TableCell className="font-semibold text-green-600">{`${(tx as any).availableQty.toFixed(2)}`}</TableCell>
-                                            <TableCell className="font-semibold text-destructive">{`${(tx as any).reservedQty.toFixed(2)}`}</TableCell>
-                                            <TableCell>{tx.poNumber || 'N/A'}</TableCell>
-                                          </TableRow>
-                                          <CollapsibleContent asChild>
-                                             <TableRow>
-                                                <TableCell colSpan={5} className="p-0">
-                                                    <CutHistoryView history={(tx as any).cutHistory} />
+                                                  </div>
                                                 </TableCell>
-                                             </TableRow>
-                                          </CollapsibleContent>
-                                        </React.Fragment>
+                                                <TableCell className="text-xs font-mono">{tx.id}</TableCell>
+                                                <TableCell className="font-semibold text-green-600">{`${(tx as any).availableQty.toFixed(2)}`}</TableCell>
+                                                <TableCell className="font-semibold text-destructive">{`${(tx as any).reservedQty.toFixed(2)}`}</TableCell>
+                                                <TableCell>{tx.poNumber || 'N/A'}</TableCell>
+                                                <TableCell>{tx.salesman || 'N/A'}</TableCell>
+                                            </TableRow>
+                                            <CollapsibleContent asChild>
+                                              <TableRow>
+                                                <TableCell colSpan={6} className="p-0">
+                                                  <CutHistoryView history={(tx as any).cutHistory} />
+                                                </TableCell>
+                                              </TableRow>
+                                            </CollapsibleContent>
+                                          </>
                                       </Collapsible>
+                                    </React.Fragment>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="h-24 text-center">
+                                        <TableCell colSpan={6} className="h-24 text-center">
                                             No purchase data available.
                                         </TableCell>
                                     </TableRow>
