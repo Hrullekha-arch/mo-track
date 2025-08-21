@@ -6,7 +6,7 @@ import { useEffect, useState, useRef, useCallback, Suspense } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info, Package, DollarSign, History, Pencil, Warehouse, Tag, Barcode, GitCommitHorizontal, GitBranchPlus, ChevronsUpDown } from "lucide-react";
+import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info, Package, DollarSign, History, Pencil, Warehouse, Tag, Barcode, GitCommitHorizontal, GitBranchPlus, ChevronsUpDown, Building, BadgePercent } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { completePmsProcess } from "./actions";
@@ -96,18 +96,20 @@ const StockDetailDisplay = ({ stockDetails, onUpdate }: { stockDetails: StockDet
                 <p className="text-sm text-muted-foreground">{stock.itemName}</p>
             </div>
             <div className="grid grid-cols-2 gap-4 text-sm p-3 border rounded-lg bg-muted/50">
-                <p className="flex items-center gap-2"><Package className="h-4 w-4 text-muted-foreground" /><strong>Qty:</strong> {stock.quantity.toFixed(2)}</p>
-                <p className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-muted-foreground" /><strong>MRP:</strong> ₹{stock.mrp}</p>
+                <p className="flex items-center gap-2"><Package className="h-4 w-4 text-muted-foreground" /><strong>Qty:</strong> {stock.quantity?.toFixed(2) || '0.00'}</p>
+                <p className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-muted-foreground" /><strong>MRP:</strong> ₹{stock.mrp || 0}</p>
                 <p className="flex items-center gap-2"><Warehouse className="h-4 w-4 text-muted-foreground" /><strong>Rack:</strong> {stock.rack || 'N/A'}</p>
                 <p className="flex items-center gap-2"><Tag className="h-4 w-4 text-muted-foreground" /><strong>Category:</strong> {stock.category}</p>
+                <p className="flex items-center gap-2"><Building className="h-4 w-4 text-muted-foreground" /><strong>Vendor:</strong> {stock.vendorName || 'N/A'}</p>
+                <p className="flex items-center gap-2"><BadgePercent className="h-4 w-4 text-muted-foreground" /><strong>HSN/Tax:</strong> {stock.hsnCode || 'N/A'} / {stock.tax || 0}%</p>
             </div>
 
             <div>
                 <h4 className="font-semibold mb-2 text-sm">Available Lengths/Rolls</h4>
                 <div className="flex flex-wrap gap-2">
                     {availableLengths && availableLengths.length > 0 ? availableLengths.map((len, idx) => (
-                        <Badge key={idx} variant="secondary">{len.length.toFixed(2)}</Badge>
-                    )) : <p className="text-xs text-muted-foreground">No specific lengths available.</p>}
+                        <Badge key={idx} variant="secondary" title={len.transactionId}>{len.length.toFixed(2)}</Badge>
+                    )) : <p className="text-xs text-muted-foreground">No specific rolls available.</p>}
                 </div>
             </div>
 

@@ -305,13 +305,19 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
 }
 
 
-export async function getAvailableStockLengths(bcn: string): Promise<{ success: boolean; message: string; lengths?: Stock[] }> {
+export async function getAvailableStockLengths(bcn: string): Promise<{ success: boolean; message: string; lengths?: { length: number; transactionId: string }[] }> {
     try {
         const lengthsSnapshot = await adminDb.collection('stocks').doc(bcn).collection('lengths').get();
         
-        const availableLengths = lengthsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data()} as Stock)).filter(s => s.availableQty > 0);
+        const availableLengths: { length: number; transactionId: string; }[] = [];
+        lengthsSnapshot.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.availableQty > 0) {
+                 availableLengths.push({ length: data.availableQty, transactionId: doc.id });
+            }
+        });
 
-        return { success: true, message: 'Lengths fetched.', lengths: JSON.parse(JSON.stringify(availableLengths.sort((a,b) => a.availableQty - b.availableQty))) };
+        return { success: true, message: 'Lengths fetched.', lengths: JSON.parse(JSON.stringify(availableLengths.sort((a,b) => a.length - b.length))) };
 
     } catch (error: any) {
         console.error("Error fetching available stock lengths:", error);
@@ -376,10 +382,13 @@ export async function getStockDetails(bcn: string) {
         
         // Correctly fetch transactions using the already fixed function
         const transactions = await getStockTransactions(bcn);
-
-        const availableLengths = transactions
-            .filter(tx => tx.type === 'addition')
-            .map(tx => ({ length: tx.quantityChange, transactionId: tx.id }));
+        
+        // Correctly get available lengths from the lengths subcollection
+        const lengthsSnapshot = await stockRef.collection('lengths').get();
+        const availableLengths = lengthsSnapshot.docs
+            .map(doc => ({ length: doc.data().availableQty, transactionId: doc.id }))
+            .filter(l => l.length > 0)
+            .sort((a,b) => a.length - b.length);
         
         return {
             success: true,
