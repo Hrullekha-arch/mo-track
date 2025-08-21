@@ -2,10 +2,10 @@
 
 'use server';
 
-import { Invoice, Stock, TaxDetail, User } from '@/lib/types';
+import { Invoice, Stock, TaxDetail, User, InvoiceBatch } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
 import xml2js from 'xml2js';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { format } from 'date-fns';
 
 // ---------------- Helpers ----------------
@@ -347,6 +347,15 @@ export async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<strin
     const xml = await httpPostXml(filterXml);
     const voucherNo = extractVoucherNumber(xml);
     if (voucherNo) {
+      // Find the associated InvoiceBatch and update it as well
+      const q = query(collection(db, "invoiceBatches"), where("invoiceId", "==", invoice.id));
+      const querySnapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      querySnapshot.forEach(docSnap => {
+          batch.update(docSnap.ref, { tallyBillNo: voucherNo });
+      });
+      await batch.commit();
+
       await adminDb.collection('invoices').doc(invoice.id).update({ tallyVoucherNo: voucherNo });
       return voucherNo;
     }

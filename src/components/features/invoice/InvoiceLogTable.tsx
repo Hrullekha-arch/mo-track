@@ -95,6 +95,7 @@ export function InvoiceLogTable() {
           checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
           onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
           aria-label="Select all"
+          disabled={table.getPreFilteredRowModel().rows.every(row => !!row.original.tallyVoucherNo)}
         />
       ),
       cell: ({ row }) => (
@@ -102,6 +103,7 @@ export function InvoiceLogTable() {
           checked={row.getIsSelected()}
           onCheckedChange={(value) => row.toggleSelected(!!value)}
           aria-label="Select row"
+          disabled={!!row.original.tallyVoucherNo}
         />
       ),
       enableSorting: false,
@@ -172,6 +174,9 @@ export function InvoiceLogTable() {
     },
   });
 
+  const selectedRows = table.getFilteredSelectedRowModel().rows;
+  const canSync = selectedRows.length > 0 && selectedRows.every(row => !row.original.tallyVoucherNo);
+
   return (
     <Card>
         <CardHeader>
@@ -226,7 +231,7 @@ export function InvoiceLogTable() {
                 </div>
                  <Button 
                     onClick={handleGenerateTallyInvoice}
-                    disabled={isSyncing || table.getFilteredSelectedRowModel().rows.length === 0}
+                    disabled={isSyncing || !canSync}
                  >
                     {isSyncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
                     Generate Tally Invoice
