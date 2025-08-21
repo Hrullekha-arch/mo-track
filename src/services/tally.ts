@@ -167,7 +167,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
         const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
         const gstRate = taxDetail?.gst ?? 5; 
         const halfGst = gstRate / 2;
-        const unit = stockDetail?.unit?.toLowerCase() || 'mtr';
+        const unit = 'mtr'; // Set unit to mtr as requested
 
         const ledgerName = `Haryana Sale @ ${gstRate}%`;
 
@@ -266,8 +266,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             <STATENAME>${stateName}</STATENAME>
             <PLACEOFSUPPLY>${stateName}</PLACEOFSUPPLY>
             <NARRATION>${narration}</NARRATION>
-            <ISDELETED>No</ISDELETED>
-            <ISOPTIONAL>No</ISOPTIONAL>
             ${inventoryEntries}
             ${partyLedgerEntry}
             ${cgstLedgerEntry}
