@@ -10,7 +10,7 @@ import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Stock, StockTransaction } from "@/lib/types";
 import { searchStockByBcn, getStockTransactions, getStockById } from "@/app/dashboard/inventory/actions";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, PlusCircle, RefreshCw, Trash2, Tag, Warehouse, BadgePercent, Building } from "lucide-react";
+import { Loader2, PlusCircle, RefreshCw, Trash2, Tag, Warehouse, BadgePercent, Building, ChevronDown, ChevronRight } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -21,6 +21,9 @@ import * as z from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 const updateStockSchema = z.object({
     poNo: z.string().min(1, "PO Number is required."),
@@ -38,6 +41,34 @@ function UpdateStockDialog({ stock, onStockUpdated }: { stock: Stock, onStockUpd
         <Button disabled>Update Stock (Disabled)</Button>
     )
 }
+
+const CutHistoryView = ({ history }: { history: StockTransaction[] | undefined }) => {
+    if (!history || history.length === 0) {
+        return <p className="text-xs text-muted-foreground px-4 py-2">No cuts from this roll.</p>;
+    }
+    return (
+        <div className="p-2 bg-muted/50">
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead className="h-8 text-xs">Date</TableHead>
+                        <TableHead className="h-8 text-xs text-right">Qty Cut</TableHead>
+                        <TableHead className="h-8 text-xs">Order ID</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {history.map(cut => (
+                        <TableRow key={cut.id}>
+                            <TableCell className="py-1 text-xs">{format(new Date(cut.createdAt), 'dd/MM/yy')}</TableCell>
+                            <TableCell className="py-1 text-xs text-right font-mono text-destructive">{Math.abs(cut.quantityChange).toFixed(2)}</TableCell>
+                            <TableCell className="py-1 text-xs">{cut.orderId}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        </div>
+    );
+};
 
 export function StockManagement() {
   const [bcnOptions, setBcnOptions] = React.useState<ComboboxOption[]>([]);
@@ -176,23 +207,25 @@ export function StockManagement() {
                                     <TableHead>Qty</TableHead>
                                     <TableHead>Order ID</TableHead>
                                     <TableHead>Length ID</TableHead>
+                                    <TableHead>Status</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                  {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
                                 ) : stockSoldTransactions.length > 0 ? (
                                     stockSoldTransactions.map(tx => (
                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
-                                            <TableCell>{Math.abs(tx.quantityChange).toFixed(2)}</TableCell>
+                                            <TableCell className="font-mono">{Math.abs(tx.quantityChange).toFixed(2)}</TableCell>
                                             <TableCell>{tx.orderId}</TableCell>
                                             <TableCell className="text-xs font-mono">{tx.lengthId || 'N/A'}</TableCell>
+                                            <TableCell><Badge variant={tx.status === 'cut' ? 'default' : 'secondary'} className={cn(tx.status === 'cut' && 'bg-green-600')}>{tx.status || 'pending for cutting'}</Badge></TableCell>
                                         </TableRow>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={4} className="h-24 text-center">
+                                        <TableCell colSpan={5} className="h-24 text-center">
                                             No sold data available.
                                         </TableCell>
                                     </TableRow>
@@ -207,33 +240,48 @@ export function StockManagement() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead>Date</TableHead>
+                                    <TableHead className="w-10"></TableHead>
                                     <TableHead>Roll ID</TableHead>
                                     <TableHead>Roll Length</TableHead>
-                                    <TableHead>Available Qty</TableHead>
-                                    <TableHead>Reserved Qty</TableHead>
-                                    <TableHead>Salesman</TableHead>
-                                    <TableHead>PO Number</TableHead>
+                                    <TableHead>Available</TableHead>
+                                    <TableHead>Reserved</TableHead>
+                                    <TableHead>PO</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={7} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
+                                    <TableRow><TableCell colSpan={6} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
                                 ) : stockAddedTransactions.length > 0 ? (
                                     stockAddedTransactions.map(tx => (
-                                         <TableRow key={tx.id}>
-                                            <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
-                                            <TableCell>{tx.id}</TableCell>
-                                            <TableCell>{`${(tx as any).quantity.toFixed(2)} Mtr`}</TableCell>
-                                            <TableCell className="font-semibold text-green-600">{`${(tx as any).availableQty.toFixed(2)} Mtr`}</TableCell>
-                                            <TableCell className="font-semibold text-destructive">{`${(tx as any).reservedQty.toFixed(2)} Mtr`}</TableCell>
-                                            <TableCell>{tx.salesman || 'N/A'}</TableCell>
-                                            <TableCell>{tx.poNumber || 'N/A'}</TableCell>
-                                         </TableRow>
+                                        <Collapsible key={tx.id} asChild>
+                                            <>
+                                                <TableRow>
+                                                    <TableCell>
+                                                        <CollapsibleTrigger asChild>
+                                                            <Button variant="ghost" size="icon" className="h-6 w-6">
+                                                                <ChevronRight className="h-4 w-4 transition-transform data-[state=open]:rotate-90" />
+                                                            </Button>
+                                                        </CollapsibleTrigger>
+                                                    </TableCell>
+                                                    <TableCell>{tx.id}</TableCell>
+                                                    <TableCell>{`${(tx as any).quantity.toFixed(2)} Mtr`}</TableCell>
+                                                    <TableCell className="font-semibold text-green-600">{`${(tx as any).availableQty.toFixed(2)}`}</TableCell>
+                                                    <TableCell className="font-semibold text-destructive">{`${(tx as any).reservedQty.toFixed(2)}`}</TableCell>
+                                                    <TableCell>{tx.poNumber || 'N/A'}</TableCell>
+                                                </TableRow>
+                                                <CollapsibleContent asChild>
+                                                    <tr>
+                                                        <td colSpan={6}>
+                                                            <CutHistoryView history={(tx as any).cutHistory} />
+                                                        </td>
+                                                    </tr>
+                                                </CollapsibleContent>
+                                            </>
+                                        </Collapsible>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={7} className="h-24 text-center">
+                                        <TableCell colSpan={6} className="h-24 text-center">
                                             No purchase data available.
                                         </TableCell>
                                     </TableRow>

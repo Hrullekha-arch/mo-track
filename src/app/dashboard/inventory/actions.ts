@@ -229,44 +229,55 @@ export async function revertStockAdditionAction(
 
 export async function getStockTransactions(bcn: string): Promise<StockTransaction[]> {
     try {
-      const stockRef = adminDb.collection('stocks').doc(bcn);
+        const stockRef = adminDb.collection('stocks').doc(bcn);
+        const addedSnapshot = await stockRef.collection('lengths').get();
+        const soldSnapshot = await stockRef.collection('stockSold').get();
+        
+        const soldTransactions: StockTransaction[] = soldSnapshot.docs.map(soldDoc => {
+            const data = soldDoc.data();
+            return { 
+                ...data,
+                id: soldDoc.id,
+                bcn: bcn,
+                type: 'deduction',
+                quantityChange: -(Number(data.quantityChange) || 0),
+                createdAt: data.createdAt || new Date().toISOString(),
+                lengthId: data.parentTransactionId || 'N/A', // Corrected this line
+                status: data.status || 'pending for cutting'
+            } as StockTransaction;
+        });
+
+        const addedTransactionsPromises = addedSnapshot.docs.map(async (doc) => {
+            const data = doc.data();
+            const cutHistorySnapshot = await doc.ref.collection('stockSold').get();
+            const cutHistory = cutHistorySnapshot.docs.map(cutDoc => ({
+                ...cutDoc.data(),
+                id: cutDoc.id,
+                type: 'deduction',
+                quantityChange: -(Number(cutDoc.data().quantityChange) || 0),
+                createdAt: cutDoc.data().createdAt || new Date().toISOString()
+            } as StockTransaction));
+
+            return { 
+                ...data,
+                id: doc.id,
+                bcn: bcn,
+                type: 'addition',
+                quantityChange: Number(data.quantity) || 0,
+                createdAt: data.lastUpdatedAt || new Date().toISOString(),
+                cutHistory: cutHistory,
+            } as StockTransaction;
+        });
   
-      const addedSnapshot = await stockRef.collection('lengths').get();
+        const addedTransactions = await Promise.all(addedTransactionsPromises);
   
-      const soldSnapshot = await stockRef.collection('stockSold').get();
-      
-      const soldTransactions: StockTransaction[] = soldSnapshot.docs.map(soldDoc => {
-          const data = soldDoc.data();
-          return { 
-              ...data,
-              id: soldDoc.id,
-              bcn: bcn,
-              type: 'deduction',
-              quantityChange: -(Number(data.quantityChange) || 0),
-              createdAt: data.createdAt || new Date().toISOString(),
-              lengthId: data.parentTransactionId || 'N/A'
-          } as StockTransaction;
-      });
+        const allTransactions = [...addedTransactions, ...soldTransactions];
+        allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   
-      const addedTransactions = addedSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return { 
-          ...data,
-          id: doc.id,
-          bcn: bcn,
-          type: 'addition',
-          quantityChange: Number(data.quantity) || 0,
-          createdAt: data.lastUpdatedAt || new Date().toISOString(),
-        } as StockTransaction;
-      });
-  
-      const allTransactions = [...addedTransactions, ...soldTransactions];
-      allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  
-      return JSON.parse(JSON.stringify(allTransactions));
+        return JSON.parse(JSON.stringify(allTransactions));
     } catch (error) {
-      console.error(`Error fetching transactions for stock ${bcn}:`, error);
-      return [];
+        console.error(`Error fetching transactions for stock ${bcn}:`, error);
+        return [];
     }
 }
 
