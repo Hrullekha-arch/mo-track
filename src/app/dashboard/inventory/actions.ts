@@ -151,8 +151,8 @@ export async function updateStockQuantityAction(
     let finalStockData: Stock;
     
     try {
-      const lengthId = `Length (${transaction.quantityChange.toFixed(2)} MTR)`;
-      const newLengthRef = stockRef.collection('lengths').doc(lengthId);
+      // Let Firestore generate a unique ID for each new length document
+      const newLengthRef = stockRef.collection('lengths').doc();
 
       await adminDb.runTransaction(async (tx) => {
           const stockDoc = await tx.get(stockRef); // READ FIRST

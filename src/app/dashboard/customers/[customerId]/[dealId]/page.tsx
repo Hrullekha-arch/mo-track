@@ -235,7 +235,7 @@ const cpdRoomSchema = z.object({
 });
 
 const cpdSchema = z.object({
-  representative: z.string().optional(),
+  representative: z.string().min(1, "Representative is required."),
   customerName: z.string().optional(),
   telNo: z.string().optional(),
   date: z.string().optional(),
@@ -440,7 +440,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                                 name="representative"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Representative</FormLabel>
+                                        <FormLabel>Representative*</FormLabel>
                                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                                             <FormControl>
                                                 <SelectTrigger>
@@ -451,6 +451,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                                                 {salesmen.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                                             </SelectContent>
                                         </Select>
+                                        <FormMessage />
                                     </FormItem>
                                 )}
                             />

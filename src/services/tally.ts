@@ -48,7 +48,9 @@ function tallyCreateOk(xml: string): boolean {
 function extractVoucherNumber(xml: string): string | undefined {
   const matches = [...xml.matchAll(/<VOUCHERNUMBER>([^<]+)<\/VOUCHERNUMBER>/g)];
   return matches.length ? matches[matches.length - 1][1] : undefined;
+  
 }
+console.log("Tally voucher fetch response XML:",extractVoucherNumber);
 
 // ---------------- XML Builders ----------------
 
@@ -280,6 +282,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
 
 export async function buildVoucherFilterXML(ledgerName: string, amount: number): Promise<string> {
   const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
+  const date = format(new Date(), 'yyyyMMdd');
   return `
 <ENVELOPE>
   <HEADER>
@@ -304,6 +307,7 @@ export async function buildVoucherFilterXML(ledgerName: string, amount: number):
             <FILTER>FilterByVoucherType</FILTER>
             <FILTER>FilterByLedgerName</FILTER>
             <FILTER>FilterByAmount</FILTER>
+            <FILTER>FilterByDate</FILTER>
           </COLLECTION>
           <SYSTEM TYPE="Formulae" NAME="FilterByVoucherType">
             $VoucherTypeName = $$String:"Sales"
@@ -313,6 +317,9 @@ export async function buildVoucherFilterXML(ledgerName: string, amount: number):
           </SYSTEM>
           <SYSTEM TYPE="Formulae" NAME="FilterByAmount">
             $Amount = ${amountStr}
+          </SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="FilterByDate">
+            $Date = $$Date:${date}
           </SYSTEM>
         </TDLMESSAGE>
       </TDL>
@@ -342,28 +349,38 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | und
   const amount = Number(invoice?.totals?.grandTotal ?? 0);
 
   const filterXml = await buildVoucherFilterXML(escapeXml(ledgerName), amount);
+
   try {
+    console.log("Sending Tally voucher fetch XML:", filterXml);
+
     const xml = await httpPostXml(filterXml);
+
+    console.log("Tally voucher fetch response XML:", xml);
+
     const voucherNo = extractVoucherNumber(xml);
     if (voucherNo) {
-        const batch = writeBatch(db);
-        const invoiceRef = doc(db, "invoices", invoice.id);
-        batch.update(invoiceRef, { tallyVoucherNo: voucherNo });
+      const batch = adminDb.batch(); // FIX: use adminDb.batch()
+      const invoiceRef = adminDb.collection("invoices").doc(invoice.id);
+      batch.update(invoiceRef, { tallyVoucherNo: voucherNo });
 
-        const q = query(collection(db, "invoiceBatches"), where("invoiceId", "==", invoice.id));
-        const querySnapshot = await getDocs(q);
-        querySnapshot.forEach(docSnap => {
-            batch.update(docSnap.ref, { tallyBillNo: voucherNo });
-        });
-        
-        await batch.commit();
+      const batchesSnap = await adminDb
+        .collection("invoiceBatches")
+        .where("invoiceId", "==", invoice.id)
+        .get();
+
+      batchesSnap.forEach(docSnap => {
+        batch.update(docSnap.ref, { tallyBillNo: voucherNo });
+      });
+
+      await batch.commit();
     }
     return voucherNo;
   } catch (e) {
-    console.error('Voucher fetch failed:', e);
+    console.error("Voucher fetch failed:", e);
     return undefined;
   }
 }
+
 
 export async function sendInvoiceToTally(
   invoice: Invoice
@@ -382,19 +399,20 @@ export async function sendInvoiceToTally(
   // 4) Send the creation request
   const voucherResult = await createIfNeeded(voucherXml);
 
-  if (!voucherResult.success) {
-      return { success: false, message: `Tally voucher creation failed: ${voucherResult.message}` };
-  }
-
-  // 5) Fetch the voucher to get its permanent number
+  // 5) Always try to fetch the voucher number, even if creation failed
   const voucherNumber = await fetchAndSaveVoucherNumber(invoice);
 
   return {
-    success: true,
-    message: `Successfully created voucher. Tally No: ${voucherNumber || 'Not found'}`,
-    voucherNumber: voucherNumber,
+    success: voucherResult.success,
+    message:
+      (voucherResult.success
+        ? "Successfully created voucher."
+        : `Tally voucher creation failed: ${voucherResult.message}`) +
+      (voucherNumber ? ` Tally No: ${voucherNumber}` : " Could not fetch voucher number."),
+    voucherNumber,
   };
 }
+
 
 
 export async function getStockFromTally(itemName: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
