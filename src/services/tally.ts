@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { Invoice, Stock, TaxDetail, User, InvoiceBatch } from '@/lib/types';
@@ -164,6 +163,8 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     }
 
     let inventoryEntries = '';
+    let totalTaxableValue = 0;
+
     for (const item of invoice.items) {
         const stockDetail = stockDetailsMap.get(item.bcn);
         const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
@@ -173,12 +174,14 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
 
         const ledgerName = `Haryana Sale @ ${gstRate}%`;
 
-        const qty = Number(item.quantityAllocated || 0);
-        const rate = Number(item.rate || 0);
+        const qty = money(Number(item.quantityAllocated || 0));
+        const rate = money(Number(item.rate || 0));
         const lineAmount = money(rate * qty);
         
-        const discountPercent = item.discountPercent || 0;
+        const discountPercent = money(item.discountPercent || 0);
         const discountAmount = money(lineAmount * (discountPercent / 100));
+        const itemTaxableValue = money(lineAmount - discountAmount);
+        totalTaxableValue += itemTaxableValue;
 
         inventoryEntries += `
             <ALLINVENTORYENTRIES.LIST>
@@ -186,20 +189,20 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
               <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
               <RATE>${fmt(rate)}/${unit}</RATE>
               <DISCOUNT>${fmt(discountPercent)}</DISCOUNT>
-              <AMOUNT>${fmt(lineAmount - discountAmount)}</AMOUNT>
+              <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
               <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
               <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
               <BATCHALLOCATIONS.LIST>
                 <GODOWNNAME>Mo</GODOWNNAME>
                 <BATCHNAME>Primary Batch</BATCHNAME>
-                <AMOUNT>${fmt(lineAmount - discountAmount)}</AMOUNT>
+                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
                 <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
                 <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
               </BATCHALLOCATIONS.LIST>
               <ACCOUNTINGALLOCATIONS.LIST>
                 <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
                 <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                <AMOUNT>${fmt(lineAmount - discountAmount)}</AMOUNT>
+                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
               </ACCOUNTINGALLOCATIONS.LIST>
               <RATEDETAILS.LIST>
                 <GSTRATEDUTYHEAD>CGST</GSTRATEDUTYHEAD>
@@ -214,16 +217,17 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             </ALLINVENTORYENTRIES.LIST>`;
     }
     
-    const grandTotal = invoice.totals.grandTotal;
-    const cgst = invoice.totals.cgst;
-    const sgst = invoice.totals.sgst;
-    const roundOff = invoice.totals.roundOff;
+    const cgst = money(totalTaxableValue * 0.025);
+    const sgst = money(totalTaxableValue * 0.025);
+    const totalAmountBeforeRoundOff = money(totalTaxableValue + cgst + sgst);
+    const roundedTotal = Math.round(totalAmountBeforeRoundOff);
+    const roundOff = money(roundedTotal - totalAmountBeforeRoundOff);
     
     const partyLedgerEntry = `<LEDGERENTRIES.LIST>
             <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
             <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
             <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
-            <AMOUNT>-${fmt(grandTotal)}</AMOUNT>
+            <AMOUNT>-${fmt(roundedTotal)}</AMOUNT>
         </LEDGERENTRIES.LIST>`;
     
     const cgstLedgerEntry = `<LEDGERENTRIES.LIST>
@@ -455,3 +459,5 @@ export async function getFirestoreStockQuantity(itemName: string): Promise<{ suc
         return { success: false, quantity: null, message: error.message };
     }
 }
+
+    
