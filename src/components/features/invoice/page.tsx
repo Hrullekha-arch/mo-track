@@ -462,9 +462,9 @@ function InvoiceTable({
       header: "Invoice Amount",
       cell: ({ row }) => {
         const subtotal = row.original.items.reduce((sum, item) => {
-          const amount = item.quantityAllocated * item.rate;
-          const discountAmount = amount * ((item.discountPercent || 0) / 100);
-          return sum + (amount - discountAmount);
+            const amount = item.quantityAllocated * item.rate;
+            const discountAmount = amount * ((item.discountPercent || 0) / 100);
+            return sum + (amount - discountAmount);
         }, 0);
         const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
         const totalAmount = subtotal + tax;
