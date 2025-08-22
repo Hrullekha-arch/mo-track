@@ -85,8 +85,9 @@ export async function createDealOrderAction(
     const allFabricDetails: FabricDetail[] = quotation.items.map(item => ({
       fabricName: item.collectionBrand,
       quantity: String(item.quantity),
-      // Status is now 'pending for po' by default, allocation will change it
       status: 'pending for po', 
+      rate: item.rate,
+      discountPercent: item.discountPercent || 0,
     }));
     
     const initialMilestones = getMilestonesForOrder(orderType);
