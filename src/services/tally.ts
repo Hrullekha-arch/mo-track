@@ -363,7 +363,7 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | und
 
     const voucherNo = extractVoucherNumber(xml);
     if (voucherNo) {
-      const batch = adminDb.batch(); // FIX: use adminDb.batch()
+      const batch = adminDb.batch();
       const invoiceRef = adminDb.collection("invoices").doc(invoice.id);
       batch.update(invoiceRef, { tallyVoucherNo: voucherNo });
 
@@ -384,6 +384,7 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | und
     return undefined;
   }
 }
+
 
 
 export async function sendInvoiceToTally(
