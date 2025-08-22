@@ -243,6 +243,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     const roundOffLedgerEntry = roundOff !== 0 ? `<LEDGERENTRIES.LIST>
           <LEDGERNAME>Round Off</LEDGERNAME>
           <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
+          <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
         </LEDGERENTRIES.LIST>` : '';
 
     return `
