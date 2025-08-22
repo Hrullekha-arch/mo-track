@@ -51,7 +51,6 @@ function extractVoucherNumber(xml: string): string | undefined {
   return matches.length ? matches[matches.length - 1][1] : undefined;
 }
 
-
 // ---------------- XML Builders ----------------
 
 export async function buildLedgerCreateXML(customerName: string, customerPhone: string, state: string = 'Haryana'): Promise<string> {
@@ -216,7 +215,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
               </RATEDETAILS.LIST>
             </ALLINVENTORYENTRIES.LIST>`;
     }
-    
     const cgst = money(totalTaxableValue * 0.025);
     const sgst = money(totalTaxableValue * 0.025);
     const totalAmountBeforeRoundOff = money(totalTaxableValue + cgst + sgst);
@@ -289,52 +287,83 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
 </ENVELOPE>`.trim();
 }
 
-export async function buildVoucherFilterXML(invoiceNumber: string): Promise<string> {
-    return `
+export async function buildVoucherFilterXML(ledgerName: string, amount: number): Promise<string> {
+  const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
+  const date = format(new Date(), 'yyyyMMdd');
+  return `
 <ENVELOPE>
-    <HEADER>
-        <VERSION>1</VERSION>
-        <TALLYREQUEST>Export</TALLYREQUEST>
-        <TYPE>Data</TYPE>
-        <ID>Voucher</ID>
-    </HEADER>
-    <BODY>
-        <DESC>
-            <STATICVARIABLES>
-                <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-                <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
-                <SVVOUCHERNUMBER>${invoiceNumber}</SVVOUCHERNUMBER>
-            </STATICVARIABLES>
-        </DESC>
-    </BODY>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>VoucherFilter</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="VoucherFilter" ISMODIFY="No">
+            <TYPE>Voucher</TYPE>
+            <NATIVEMETHOD>VoucherNumber</NATIVEMETHOD>
+            <NATIVEMETHOD>VoucherTypeName</NATIVEMETHOD>
+            <NATIVEMETHOD>LedgerName</NATIVEMETHOD>
+            <NATIVEMETHOD>Date</NATIVEMETHOD>
+            <FILTER>FilterByVoucherType</FILTER>
+            <FILTER>FilterByLedgerName</FILTER>
+            <FILTER>FilterByAmount</FILTER>
+            <FILTER>FilterByDate</FILTER>
+          </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="FilterByVoucherType">
+            $VoucherTypeName = $$String:"Sales"
+          </SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="FilterByLedgerName">
+            $LedgerName = $$String:"${ledgerName}"
+          </SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="FilterByAmount">
+            $Amount = ${amountStr}
+          </SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="FilterByDate">
+            $Date = $$Date:${date}
+          </SYSTEM>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
 </ENVELOPE>`.trim();
 }
 
+
 // ---------------- Main ops ----------------
 
-async function createIfNeeded(xml: string): Promise<{ success: boolean; message: string; responseXml: string }> {
+async function createIfNeeded(xml: string): Promise<{ success: boolean; message: string }> {
   try {
-    const resp = await httpPostXml(xml);
-    if (tallyCreateOk(resp)) {
-      return { success: true, message: 'Created/updated successfully in Tally.', responseXml: resp };
-    }
-    const errLine = resp.match(/<LINEERROR>([\s\S]*?)<\/LINEERROR>/)?.[1]?.trim() ?? 'Unknown Tally error.';
-    return { success: false, message: errLine, responseXml: resp };
+    const res = await httpPostXml(xml);
+    const ok = tallyCreateOk(res);
+    return { success: ok, message: res };
   } catch (e: any) {
-    console.error("Tally Communication Error in createIfNeeded:", e);
-    return { success: false, message: `Tally connection failed: ${e?.message || e}`, responseXml: '' };
+    return { success: false, message: e.message };
   }
 }
 
 async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | undefined> {
-  const filterXml = await buildVoucherFilterXML(invoice.invoiceNo);
-  
+  const ledgerName = `${invoice.customer.name}-${invoice.customer.phone}`;
+  const amount = Number(invoice?.totals?.grandTotal ?? 0);
+
+  const filterXml = await buildVoucherFilterXML(escapeXml(ledgerName), amount);
+
   try {
+    console.log("Sending Tally voucher fetch XML:", filterXml);
+
     const xml = await httpPostXml(filterXml);
+
+    console.log("Tally voucher fetch response XML:", xml);
+
     const voucherNo = extractVoucherNumber(xml);
-    
     if (voucherNo) {
-      const batch = adminDb.batch();
+      const batch = adminDb.batch(); // FIX: use adminDb.batch()
       const invoiceRef = adminDb.collection("invoices").doc(invoice.id);
       batch.update(invoiceRef, { tallyVoucherNo: voucherNo });
 
@@ -346,15 +375,12 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | und
       batchesSnap.forEach(docSnap => {
         batch.update(docSnap.ref, { tallyBillNo: voucherNo });
       });
-      
+
       await batch.commit();
-      console.log(`Successfully saved Tally Voucher No: ${voucherNo} for invoice ${invoice.id}`);
-    } else {
-        console.warn(`Could not extract voucher number for invoice ${invoice.invoiceNo} from Tally response.`);
     }
     return voucherNo;
   } catch (e) {
-    console.error(`Voucher fetch failed for invoice ${invoice.invoiceNo}:`, e);
+    console.error("Voucher fetch failed:", e);
     return undefined;
   }
 }
@@ -367,9 +393,10 @@ export async function sendInvoiceToTally(
   await createIfNeeded(
     await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone)
   );
-  
+  console.log("bhej diya")
   // 2) Create the Sales Voucher
   const voucherXml = await buildSalesVoucherXML(invoice);
+  
   
   // Save XML before sending for better debugging
   await adminDb.collection('invoices').doc(invoice.id).set({ tallySalesXml: voucherXml }, { merge: true });
