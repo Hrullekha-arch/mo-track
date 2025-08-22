@@ -29,8 +29,8 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
 
 
 export async function allocateStockToAction(
-    { orderId, bcn, lengthId, itemName, allocatedQty, rate, discountPercent, userId, userName }: 
-    { orderId: string, bcn: string, lengthId: string, itemName: string, allocatedQty: number, rate: number, discountPercent: number, userId: string, userName: string }
+    { orderId, bcn, lengthId, itemName, allocatedQty, rate, userId, userName }: 
+    { orderId: string, bcn: string, lengthId: string, itemName: string, allocatedQty: number, rate: number, userId: string, userName: string }
 ): Promise<{ success: boolean; message: string }> {
     try {
        await adminDb.runTransaction(async (transaction) => {
