@@ -102,7 +102,7 @@ export async function allocateStockToAction(
                     bcn: bcn,
                     quantityAllocated: allocatedQty,
                     rate: rate,
-                    discountPercent: discountPercent,
+                    discountPercent: discountPercent || 0,
                     originalLength: lengthData.quantity, // Save the original length of the roll it came from
                     stockAddedId: lengthId, // Reference to the specific roll document
                 }]
