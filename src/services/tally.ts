@@ -119,26 +119,6 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
 </ENVELOPE>`.trim();
 }
 
-export async function buildVoucherFetchXML(invoiceNo: string): Promise<string> {
-    return `
-    <ENVELOPE>
-        <HEADER>
-            <VERSION>1</VERSION>
-            <TALLYREQUEST>Export</TALLYREQUEST>
-            <TYPE>Data</TYPE>
-            <ID>Voucher</ID>
-        </HEADER>
-        <BODY>
-            <DESC>
-                <STATICVARIABLES>
-                    <SVVOUCHERNUMBER>${invoiceNo}</SVVOUCHERNUMBER>
-                    <SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY>
-                </STATICVARIABLES>
-            </DESC>
-        </BODY>
-    </ENVELOPE>`.trim();
-}
-
 export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     const money = (n: number) => (Math.round(n * 100) / 100);
     const fmt = (n: number) => money(n).toFixed(2);
@@ -298,6 +278,49 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
 </ENVELOPE>`.trim();
 }
 
+export async function buildVoucherFilterXML(ledgerName: string, amount: number): Promise<string> {
+  const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
+  return `
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>VoucherFilter</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="VoucherFilter" ISMODIFY="No">
+            <TYPE>Voucher</TYPE>
+            <NATIVEMETHOD>VoucherNumber</NATIVEMETHOD>
+            <NATIVEMETHOD>VoucherTypeName</NATIVEMETHOD>
+            <NATIVEMETHOD>LedgerName</NATIVEMETHOD>
+            <NATIVEMETHOD>Date</NATIVEMETHOD>
+            <FILTER>FilterByVoucherType</FILTER>
+            <FILTER>FilterByLedgerName</FILTER>
+            <FILTER>FilterByAmount</FILTER>
+          </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="FilterByVoucherType">
+            $VoucherTypeName = $$String:"Sales"
+          </SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="FilterByLedgerName">
+            $LedgerName = $$String:"${ledgerName}"
+          </SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="FilterByAmount">
+            $Amount = ${amountStr}
+          </SYSTEM>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`.trim();
+}
+
 // ---------------- Main ops ----------------
 
 async function createIfNeeded(xml: string): Promise<{ success: boolean; message: string; responseXml: string }> {
@@ -315,31 +338,32 @@ async function createIfNeeded(xml: string): Promise<{ success: boolean; message:
 }
 
 async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | undefined> {
-    try {
-        const fetchXml = await buildVoucherFetchXML(invoice.invoiceNo);
-        const fetchResponseXml = await httpPostXml(fetchXml);
-        const voucherNumber = extractVoucherNumber(fetchResponseXml);
+  const ledgerName = `${invoice.customer.name}-${invoice.customer.phone}`;
+  const amount = Number(invoice?.totals?.grandTotal ?? 0);
+
+  const filterXml = await buildVoucherFilterXML(escapeXml(ledgerName), amount);
+  try {
+    const xml = await httpPostXml(filterXml);
+    const voucherNo = extractVoucherNumber(xml);
+    if (voucherNo) {
+        const batch = writeBatch(db);
+        const invoiceRef = doc(db, "invoices", invoice.id);
+        batch.update(invoiceRef, { tallyVoucherNo: voucherNo });
+
+        const q = query(collection(db, "invoiceBatches"), where("invoiceId", "==", invoice.id));
+        const querySnapshot = await getDocs(q);
+        querySnapshot.forEach(docSnap => {
+            batch.update(docSnap.ref, { tallyBillNo: voucherNo });
+        });
         
-        if (voucherNumber) {
-            const batch = writeBatch(db);
-            const invoiceRef = doc(db, "invoices", invoice.id);
-            batch.update(invoiceRef, { tallyVoucherNo: voucherNumber });
-
-            const q = query(collection(db, "invoiceBatches"), where("invoiceId", "==", invoice.id));
-            const querySnapshot = await getDocs(q);
-            querySnapshot.forEach(docSnap => {
-                batch.update(docSnap.ref, { tallyBillNo: voucherNumber });
-            });
-            
-            await batch.commit();
-        }
-        return voucherNumber;
-    } catch (e) {
-        console.error("Error fetching/saving voucher number:", e);
-        return undefined;
+        await batch.commit();
     }
+    return voucherNo;
+  } catch (e) {
+    console.error('Voucher fetch failed:', e);
+    return undefined;
+  }
 }
-
 
 export async function sendInvoiceToTally(
   invoice: Invoice
@@ -348,7 +372,7 @@ export async function sendInvoiceToTally(
   await createIfNeeded(
     await buildLedgerCreateXML(invoice.customer.name, invoice.customer.phone)
   );
-
+  
   // 2) Create the Sales Voucher XML
   const voucherXml = await buildSalesVoucherXML(invoice);
   
