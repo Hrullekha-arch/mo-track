@@ -3,7 +3,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Order, Stock, StockTransaction, InvoiceBatch, InvoiceBatchItem, O2DStatus } from '@/lib/types';
+import { Order, Stock, StockTransaction, InvoiceBatch, InvoiceBatchItem, O2DStatus, FabricDetail } from '@/lib/types';
 import { FieldValue, Timestamp, doc } from 'firebase-admin/firestore';
 
 
@@ -55,6 +55,9 @@ export async function allocateStockToAction(
                 throw new Error(`Insufficient available stock for ${itemName} on roll ${lengthId}. Available: ${lengthData.availableQty}, Required: ${allocatedQty}`);
             }
 
+            // Find the original fabric detail to get the discount
+            const fabricDetail = orderData.fabricDetails?.find(f => f.fabricName === itemName);
+
             // --- ALL WRITES AFTER ---
             const invoiceBatchRef = adminDb.collection("invoiceBatches").doc();
             const updateTimestamp = new Date().toISOString();
@@ -102,7 +105,7 @@ export async function allocateStockToAction(
                     bcn: bcn,
                     quantityAllocated: allocatedQty,
                     rate: rate,
-                    discountPercent: discountPercent || 0,
+                    discountPercent: fabricDetail?.discountPercent || 0, // Pass the discount here
                     originalLength: lengthData.quantity, // Save the original length of the roll it came from
                     stockAddedId: lengthId, // Reference to the specific roll document
                 }]
