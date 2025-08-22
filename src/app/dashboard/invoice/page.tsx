@@ -110,7 +110,7 @@ function GenerateInvoiceDialog({
             const qty = item.quantityAllocated;
             const rate = item.rate;
             const amount = qty * rate;
-            const discountAmount = 0;
+            const discountAmount = item.discountPercent * amount / 100;
             const taxableValue = amount - discountAmount;
             const cgst = taxableValue * 0.025;
             const sgst = taxableValue * 0.025;
@@ -464,11 +464,21 @@ function InvoiceTable({
         const subtotal = row.original.items.reduce((sum, item) => {
           return sum + (item.quantityAllocated * item.rate);
         }, 0);
-        const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
-        const totalAmount = subtotal + tax;
+      
+        // Do discount first
+        const discountAmount = subtotal * ((row.original.items[0]?.discountPercent || 0) / 100);
+      
+        const netAfterDiscount = subtotal - discountAmount;
+      
+        // GST after discount
+        const tax = netAfterDiscount * 0.05; // 5% total tax
+      
+        const totalAmount = netAfterDiscount + tax;
         const roundedAmount = Math.round(totalAmount);
         return `₹${roundedAmount.toFixed(2)}`;
-      },
+      }
+      
+      ,
     },
     {
       accessorKey: "status",

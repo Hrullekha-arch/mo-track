@@ -466,8 +466,10 @@ function InvoiceTable({
             const discountAmount = amount * ((item.discountPercent || 0) / 100);
             return sum + (amount - discountAmount);
         }, 0);
+            const amount = item.quantityAllocated * item.rate;
+            const discountAmount = amount * ((item.discountPercent || 0) / 100);
         const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
-        const totalAmount = subtotal + tax;
+        const totalAmount = subtotal + tax - discountAmount;
         const roundedAmount = Math.round(totalAmount);
         return `₹${roundedAmount.toFixed(2)}`;
       },
