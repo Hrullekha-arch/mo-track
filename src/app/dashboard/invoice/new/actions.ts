@@ -86,7 +86,7 @@ export async function createDealOrderAction(
       fabricName: item.collectionBrand,
       quantity: String(item.quantity),
       status: 'pending for po', 
-      rate: item.rate,
+      rate: item.rate || 0,
       discountPercent: item.discountPercent || 0,
     }));
     
