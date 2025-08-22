@@ -119,6 +119,26 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
 </ENVELOPE>`.trim();
 }
 
+export async function buildVoucherFetchXML(invoiceNo: string): Promise<string> {
+    return `
+    <ENVELOPE>
+        <HEADER>
+            <VERSION>1</VERSION>
+            <TALLYREQUEST>Export</TALLYREQUEST>
+            <TYPE>Data</TYPE>
+            <ID>Voucher</ID>
+        </HEADER>
+        <BODY>
+            <DESC>
+                <STATICVARIABLES>
+                    <SVVOUCHERNUMBER>${invoiceNo}</SVVOUCHERNUMBER>
+                    <SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY>
+                </STATICVARIABLES>
+            </DESC>
+        </BODY>
+    </ENVELOPE>`.trim();
+}
+
 export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     const money = (n: number) => (Math.round(n * 100) / 100);
     const fmt = (n: number) => money(n).toFixed(2);
@@ -294,6 +314,33 @@ async function createIfNeeded(xml: string): Promise<{ success: boolean; message:
   }
 }
 
+async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | undefined> {
+    try {
+        const fetchXml = await buildVoucherFetchXML(invoice.invoiceNo);
+        const fetchResponseXml = await httpPostXml(fetchXml);
+        const voucherNumber = extractVoucherNumber(fetchResponseXml);
+        
+        if (voucherNumber) {
+            const batch = writeBatch(db);
+            const invoiceRef = doc(db, "invoices", invoice.id);
+            batch.update(invoiceRef, { tallyVoucherNo: voucherNumber });
+
+            const q = query(collection(db, "invoiceBatches"), where("invoiceId", "==", invoice.id));
+            const querySnapshot = await getDocs(q);
+            querySnapshot.forEach(docSnap => {
+                batch.update(docSnap.ref, { tallyBillNo: voucherNumber });
+            });
+            
+            await batch.commit();
+        }
+        return voucherNumber;
+    } catch (e) {
+        console.error("Error fetching/saving voucher number:", e);
+        return undefined;
+    }
+}
+
+
 export async function sendInvoiceToTally(
   invoice: Invoice
 ): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
@@ -311,41 +358,16 @@ export async function sendInvoiceToTally(
   // 4) Send the creation request
   const voucherResult = await createIfNeeded(voucherXml);
 
-  // 5) Extract the voucher number from the creation response
-  const voucherNumber = voucherResult.success ? extractVoucherNumber(voucherResult.responseXml) : undefined;
-  
-  // 6) If we got a voucher number, update Firestore documents
-  if (voucherNumber) {
-    try {
-      const batch = writeBatch(db);
-      
-      const invoiceRef = doc(db, "invoices", invoice.id);
-      batch.update(invoiceRef, { tallyVoucherNo: voucherNumber });
-
-      const q = query(collection(db, "invoiceBatches"), where("invoiceId", "==", invoice.id));
-      const querySnapshot = await getDocs(q);
-      querySnapshot.forEach(docSnap => {
-          batch.update(docSnap.ref, { tallyBillNo: voucherNumber });
-      });
-      
-      await batch.commit();
-
-    } catch (dbError) {
-      console.error("Firestore update failed after Tally sync:", dbError);
-      // Return success because Tally part worked, but add a warning.
-      return {
-        success: true,
-        message: `Voucher created in Tally (${voucherNumber}), but failed to update Firestore. Please check logs.`,
-        voucherNumber: voucherNumber,
-      };
-    }
+  if (!voucherResult.success) {
+      return { success: false, message: `Tally voucher creation failed: ${voucherResult.message}` };
   }
 
+  // 5) Fetch the voucher to get its permanent number
+  const voucherNumber = await fetchAndSaveVoucherNumber(invoice);
+
   return {
-    success: voucherResult.success,
-    message: voucherResult.success
-      ? `Successfully created voucher in Tally.`
-      : `Tally error: ${voucherResult.message}`,
+    success: true,
+    message: `Successfully created voucher. Tally No: ${voucherNumber || 'Not found'}`,
     voucherNumber: voucherNumber,
   };
 }
@@ -412,6 +434,3 @@ export async function getFirestoreStockQuantity(itemName: string): Promise<{ suc
         return { success: false, quantity: null, message: error.message };
     }
 }
-    
-
-    
