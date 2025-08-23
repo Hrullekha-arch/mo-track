@@ -448,7 +448,7 @@ export async function sendInvoiceToTally(
 
 
 
-export async function getStockFromTally(itemName: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
+export async function getStockFromTally(bcn: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
   const xml = `
     <ENVELOPE>
       <HEADER>
@@ -456,7 +456,7 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
         <TALLYREQUEST>Export</TALLYREQUEST>
         <TYPE>Object</TYPE>
         <SUBTYPE>StockItem</SUBTYPE>
-        <ID TYPE="Name">${escapeXml(itemName)}</ID>
+        <ID TYPE="Name">${escapeXml(bcn)}</ID>
       </HEADER>
       <BODY>
         <DESC>
@@ -486,7 +486,7 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
     return { success: true, quantity: 0, message: 'Stock item not found in Tally or has no balance.' };
 
   } catch (error: any) {
-    console.error(`Tally stock fetch error for ${itemName}:`, error.message);
+    console.error(`Tally stock fetch error for ${bcn}:`, error.message);
     return { success: false, quantity: null, message: `Tally stock fetch error: ${error.message}` };
   }
 }
