@@ -170,7 +170,8 @@ function GenerateInvoiceDialog({
         batch.set(newInvoiceRef, newInvoice);
         
         const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id };
-        const tallyResult = await sendInvoiceToTally(fullInvoiceData);
+        const plainInvoiceData = JSON.parse(JSON.stringify(fullInvoiceData));
+        const tallyResult = await sendInvoiceToTally(plainInvoiceData);
 
           console.log("📤 Voucher Fetch Request sent for invoice:", fullInvoiceData.id);
           console.log("📥 Voucher Fetch Response from Tally:", tallyResult);
@@ -481,7 +482,7 @@ function InvoiceTable({
       ),
       cell: ({ row }) => {
          const createdAt = row.original.createdAt;
-         const date = createdAt.toDate ? createdAt.toDate() : new Date(createdAt);
+         const date = new Date(createdAt);
          return format(date, "dd/MM/yyyy HH:mm");
       }
     },
