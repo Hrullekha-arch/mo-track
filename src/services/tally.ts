@@ -145,7 +145,7 @@ async function buildStockItemCreateXML(itemName: string): Promise<string> {
 }
 
 
-async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
+export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
   const money = (n: number) => (Math.round(n * 100) / 100);
   const fmt = (n: number) => money(n).toFixed(2);
 
@@ -412,7 +412,7 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | und
 
 // --- (keeping sendInvoiceToTally, getStockFromTally, getFirestoreStockQuantity as in your code) --
 
-async function sendInvoiceToTally(
+export async function sendInvoiceToTally(
   invoice: Invoice
 ): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
   // 1) Ensure Ledger exists for the customer
@@ -451,7 +451,7 @@ async function sendInvoiceToTally(
 
 
 
-async function getStockFromTally(itemName: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
+export async function getStockFromTally(itemName: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
   const xml = `
     <ENVELOPE>
       <HEADER>
@@ -498,12 +498,12 @@ async function getStockFromTally(itemName: string): Promise<{ success: boolean, 
   }
 }
 
-async function getFirestoreStockQuantity(itemName: string): Promise<{ success: boolean; quantity: number | null; message: string; }> {
+export async function getFirestoreStockQuantity(itemName: string): Promise<{ success: boolean; quantity: number | null; message: string; }> {
     try {
         const stockId = itemName.replace(/\//g, '-');
         const stockRef = adminDb.collection('stocks').doc(stockId);
         const docSnap = await stockRef.get();
-        if (docSnap.exists) {
+        if (docSnap.exists()) {
             const quantity = docSnap.data()?.quantity || 0;
             return { success: true, quantity: quantity, message: 'Success' };
         }
