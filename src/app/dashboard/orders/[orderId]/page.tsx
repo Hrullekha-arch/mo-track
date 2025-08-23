@@ -1,20 +1,19 @@
 
-
 "use client";
 
 import { useState, useEffect, use, useMemo } from 'react';
-import { doc, onSnapshot, updateDoc, collection, getDoc, query, where, getDocs, limit } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, collection, getDoc, query, where, getDocs, limit, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest, InvoiceBatch } from "@/lib/types";
+import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest, InvoiceBatch, Invoice } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from 'next/link';
-import { Separator } from '@/components/ui/separator';
+import { Separator } from "@/components/ui/separator";
 import { MilestoneProgress } from '@/components/features/order-management/MilestoneProgress';
 import { useAuth } from '@/context/AuthContext';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from "@/hooks/use-toast";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { getStockById, getStockTransactions } from '@/app/dashboard/inventory/actions';
 import { allocateStockToAction, getAvailableStockLengths, getOrderAllocations } from './actions';
@@ -219,8 +218,8 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
 
             const prQuery = query(collection(db, 'purchaseRequests'), where("dealId", "==", orderCrmNo));
             const poPromise = getDocs(prQuery);
-
-            const invoiceQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', orderId), where('status', '==', 'invoiced'));
+            
+            const invoiceQuery = query(collection(db, 'invoices'), where('orderId', '==', orderId));
             const invoicePromise = getDocs(invoiceQuery);
 
             const [stock, lengthsSnapshot, poSnaps, invoiceSnaps] = await Promise.all([
@@ -244,13 +243,13 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
 
             const requiredQty = parseFloat((item as any).quantity || '0');
 
-            const invoicedBatch = invoiceSnaps.docs.find(doc => {
-                const batch = doc.data() as InvoiceBatch;
-                return batch.items.some(batchItem => batchItem.itemName === itemName);
-            })?.data() as InvoiceBatch | undefined;
+            const matchedInvoice = invoiceSnaps.docs.find(d => {
+                const invoice = d.data() as Invoice;
+                return invoice.items.some(invItem => invItem.bcn === bcn);
+            });
 
-            if (invoicedBatch) {
-                setStatus({ text: `Invoice Generated: ${invoicedBatch.tallyBillNo || ''}`, variant: 'default', tallyBillNo: invoicedBatch.tallyBillNo });
+            if (matchedInvoice) {
+                 setStatus({ text: `Invoice Generated: ${matchedInvoice.data().tallyVoucherNo || ''}`, variant: 'default', tallyBillNo: matchedInvoice.data().tallyVoucherNo });
             } else if (totalReservedForOrder >= requiredQty) {
                 setStatus({ text: 'Pending for Invoice', variant: 'outline' });
             } else if ((stock?.availableQty || 0) >= (requiredQty - totalReservedForOrder)) {
