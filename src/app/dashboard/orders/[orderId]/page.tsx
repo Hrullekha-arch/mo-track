@@ -218,11 +218,13 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             const lengthsCollectionRef = collection(stockRef, 'lengths');
             const lengthsSnapshotPromise = getDocs(lengthsCollectionRef);
 
-            const poPromise = getDoc(doc(db, 'purchaseRequests', orderCrmNo));
+            const prQuery = query(collection(db, 'purchaseRequests'), where("dealId", "==", orderCrmNo));
+            const poPromise = getDocs(prQuery);
+
             const invoiceQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', orderId));
             const invoicePromise = getDocs(invoiceQuery);
 
-            const [stock, lengthsSnapshot, poSnap, invoiceSnaps] = await Promise.all([
+            const [stock, lengthsSnapshot, poSnaps, invoiceSnaps] = await Promise.all([
                 stockPromise,
                 lengthsSnapshotPromise,
                 poPromise,
@@ -255,11 +257,17 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             } else if ((stock?.availableQty || 0) >= (requiredQty - totalReservedForOrder)) {
                 setStatus({ text: 'In Stock', variant: 'default' });
             } else {
-                const poData = poSnap.exists() ? poSnap.data() as PurchaseRequest : null;
-                const poItem = poData?.fabricDetails?.find(pi => pi.fabricName === itemName);
-                if (poItem?.poNumber) {
-                    setStatus({ text: 'PO Generated', variant: 'outline', poNumber: poItem.poNumber });
-                } else {
+                let poFound = false;
+                for (const poDoc of poSnaps.docs) {
+                    const poData = poDoc.data() as PurchaseRequest;
+                    const poItem = poData.fabricDetails?.find(pi => pi.fabricName === itemName);
+                    if (poItem?.poNumber) {
+                        setStatus({ text: 'PO Generated', variant: 'outline', poNumber: poItem.poNumber });
+                        poFound = true;
+                        break;
+                    }
+                }
+                if (!poFound) {
                     setStatus({ text: 'Pending for PO', variant: 'destructive' });
                 }
             }

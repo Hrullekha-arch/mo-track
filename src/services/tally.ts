@@ -135,8 +135,8 @@ async function buildLedgerCreateXML(customerName: string, customerPhone: string,
 </ENVELOPE>`.trim();
 }
 
-async function buildStockItemCreateXML(itemName: string): Promise<string> {
-  const escapedItemName = escapeXml(itemName);
+async function buildStockItemCreateXML(bcn: string): Promise<string> {
+  const escapedItemName = escapeXml(bcn);
   return `
 <ENVELOPE>
   <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
@@ -448,7 +448,7 @@ export async function sendInvoiceToTally(
 
 
 
-export async function getStockFromTally(itemName: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
+export async function getStockFromTally(bcn: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
   const xml = `
     <ENVELOPE>
       <HEADER>
@@ -456,7 +456,7 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
         <TALLYREQUEST>Export</TALLYREQUEST>
         <TYPE>Object</TYPE>
         <SUBTYPE>StockItem</SUBTYPE>
-        <ID TYPE="Name">${escapeXml(itemName)}</ID>
+        <ID TYPE="Name">${escapeXml(bcn)}</ID>
       </HEADER>
       <BODY>
         <DESC>
@@ -474,7 +474,7 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
     </ENVELOPE>`;
   try {
     const responseXml = await httpPostXml(xml);
-    console.log(`Tally response for ${itemName}:`, responseXml);
+    console.log(`Tally response for ${bcn}:`, responseXml);
     const parsed = await xml2js.parseStringPromise(responseXml, { explicitArray: false, trim: true });
     
     // Updated path to navigate the parsed object correctly
@@ -490,7 +490,7 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
     return { success: true, quantity: 0, message: 'Stock item not found in Tally or has no balance.' };
 
   } catch (error: any) {
-    console.error(`Tally stock fetch error for ${itemName}:`, error.message);
+    console.error(`Tally stock fetch error for ${bcn}:`, error.message);
     return { success: false, quantity: null, message: `Tally stock fetch error: ${error.message}` };
   }
 }
