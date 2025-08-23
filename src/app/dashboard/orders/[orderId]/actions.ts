@@ -37,11 +37,25 @@ export async function allocateStockToAction(
         const stockRef = adminDb.collection('stocks').doc(bcn);
         const lengthRef = stockRef.collection('lengths').doc(lengthId);
         const orderRef = adminDb.collection('orders').doc(orderId);
-  
+        const invoiceBatchesRef = adminDb.collection("invoiceBatches");
+        const tenMinutesAgo = new Timestamp(Timestamp.now().seconds - 600, 0);
+
         // --- ALL READS FIRST ---
-        const stockDoc = await transaction.get(stockRef);
-        const lengthDoc = await transaction.get(lengthRef);
-        const orderDoc = await transaction.get(orderRef);
+        const reads = [
+            transaction.get(stockRef),
+            transaction.get(lengthRef),
+            transaction.get(orderRef),
+            transaction.get(
+                invoiceBatchesRef
+                    .where("orderId", "==", orderId)
+                    .where("status", "==", "pendingInvoice")
+                    .where("createdAt", ">", tenMinutesAgo)
+                    .orderBy("createdAt", "desc")
+                    .limit(1)
+            )
+        ];
+        
+        const [stockDoc, lengthDoc, orderDoc, recentBatchesSnap] = await Promise.all(reads);
   
         if (!stockDoc.exists) throw new Error(`Stock item ${bcn} not found.`);
         if (!lengthDoc.exists) throw new Error(`Stock length/roll ${lengthId} not found.`);
@@ -95,29 +109,12 @@ export async function allocateStockToAction(
         transaction.update(orderRef, { milestones: updatedMilestones });
   
         // 4. Find or Create Invoice Batch
-        const invoiceBatchesRef = adminDb.collection("invoiceBatches");
-        const recentBatchesQuery = invoiceBatchesRef
-            .where("orderId", "==", orderId)
-            .where("status", "==", "pendingInvoice")
-            .orderBy("createdAt", "desc")
-            .limit(1);
-
-        const recentBatchesSnap = await transaction.get(recentBatchesQuery);
         let targetBatchRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
         let isNewBatch = true;
         
         if (!recentBatchesSnap.empty) {
-            const mostRecentBatch = recentBatchesSnap.docs[0];
-            const mostRecentBatchData = mostRecentBatch.data() as InvoiceBatch;
-            const now = Timestamp.now();
-            const tenMinutesAgo = new Timestamp(now.seconds - 600, now.nanoseconds);
-            
-            if (mostRecentBatchData.createdAt > tenMinutesAgo) {
-                targetBatchRef = mostRecentBatch.ref;
-                isNewBatch = false;
-            } else {
-                 targetBatchRef = invoiceBatchesRef.doc();
-            }
+            targetBatchRef = recentBatchesSnap.docs[0].ref;
+            isNewBatch = false;
         } else {
             targetBatchRef = invoiceBatchesRef.doc();
         }
@@ -215,4 +212,3 @@ export async function debugGetDiscountPercent(orderId: string, bcn: string, leng
     return null;
   }
 }
-
