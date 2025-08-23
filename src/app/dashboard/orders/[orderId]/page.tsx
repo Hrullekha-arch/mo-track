@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, use, useMemo } from 'react';
@@ -212,7 +213,6 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             const stockId = bcn.replace(/\//g, '-');
             const stockPromise = getStockById(stockId);
             
-            // New logic to fetch reserved quantities from the stock item's subcollection
             const stockRef = doc(db, 'stocks', stockId);
             const lengthsCollectionRef = collection(stockRef, 'lengths');
             const lengthsSnapshotPromise = getDocs(lengthsCollectionRef);
@@ -220,7 +220,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             const prQuery = query(collection(db, 'purchaseRequests'), where("dealId", "==", orderCrmNo));
             const poPromise = getDocs(prQuery);
 
-            const invoiceQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', orderId));
+            const invoiceQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', orderId), where('status', '==', 'invoiced'));
             const invoicePromise = getDocs(invoiceQuery);
 
             const [stock, lengthsSnapshot, poSnaps, invoiceSnaps] = await Promise.all([
@@ -246,7 +246,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
 
             const invoicedBatch = invoiceSnaps.docs.find(doc => {
                 const batch = doc.data() as InvoiceBatch;
-                return batch.status === 'invoiced' && batch.items.some(batchItem => batchItem.itemName === itemName);
+                return batch.items.some(batchItem => batchItem.itemName === itemName);
             })?.data() as InvoiceBatch | undefined;
 
             if (invoicedBatch) {
