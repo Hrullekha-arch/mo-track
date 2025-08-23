@@ -569,7 +569,10 @@ function InvoiceTable({
   };
   
   const handleConfirmCombine = async () => {
-      const result = await combineInvoiceBatchesAction(selectedBatches);
+      // The Firestore Timestamp object is not a "plain" object and cannot be passed to a Server Action.
+      // We must serialize it first.
+      const plainBatches = JSON.parse(JSON.stringify(selectedBatches));
+      const result = await combineInvoiceBatchesAction(plainBatches);
       if(result.success) {
           toast({ title: 'Success', description: result.message });
           table.resetRowSelection();
