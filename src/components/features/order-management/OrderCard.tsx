@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -64,6 +64,26 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const isReadyForDelivery = !!currentOrder.milestones.find(m => m.id === 5)?.completed;
 
   const isOrderComplete = currentOrder.milestones.every(m => m.completed) && (!!currentOrder.feedbackRating || !!currentOrder.customerFeedbackRating || !!currentOrder.bypassedOtp);
+  
+  const checkCuttingStatus = useCallback(async (orderId: string) => {
+    const cuttingQuery = query(collection(db, "Cutting"), where("orderId", "==", orderId), where("status", "==", "Completed"));
+    const cuttingSnapshot = await getDocs(cuttingQuery);
+    return !cuttingSnapshot.empty;
+  }, []);
+
+  // Effect to check cutting status and update milestone if needed
+  useEffect(() => {
+    const sentToStitchingMilestone = currentOrder.milestones.find(m => m.id === 3);
+    if (sentToStitchingMilestone && !sentToStitchingMilestone.completed) {
+      checkCuttingStatus(currentOrder.id).then(isCuttingComplete => {
+        if (isCuttingComplete) {
+          // If cutting is complete, update the milestone automatically
+          handleMilestoneChange(3, true);
+        }
+      });
+    }
+  }, [currentOrder.id, currentOrder.milestones, checkCuttingStatus]);
+
 
   const handleShowMaterial = async () => {
     setIsMaterialDialogOpen(true);

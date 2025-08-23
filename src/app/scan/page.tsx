@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { completePmsProcess } from "./actions";
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Order, Stock, StockTransaction } from "@/lib/types";
+import { Order, Stock, StockTransaction, CuttingTask } from "@/lib/types";
 import { getStockDetails, updateStockBatchAction } from "../dashboard/inventory/actions";
 import { Separator } from "@/components/ui/separator";
 import { doc, updateDoc, getDoc, collection, query, where, getDocs, writeBatch, limit } from "firebase/firestore";
@@ -213,6 +213,7 @@ function UniversalScanner() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const { toast } = useToast();
+    const { user } = useAuth();
     const scannerContainerId = "scanner-container";
     const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
@@ -224,10 +225,9 @@ function UniversalScanner() {
     const taskId = searchParams.get('taskId');
     const targetBcn = searchParams.get('bcn');
     const targetLength = searchParams.get('originalLength');
-    const orderId = searchParams.get('orderId'); // For verifyCut
 
      const handleScanSuccess = useCallback(async (decodedText: string, decodedResult: any) => {
-        if (isProcessing) return;
+        if (isProcessing || !user) return;
         setIsProcessing(true);
         
         try {
@@ -260,99 +260,53 @@ function UniversalScanner() {
                 const scannedLength = Number.parseFloat(scannedLengthStr);
                 const expectedLength = Number.parseFloat(String(targetLength ?? ''));
           
-                // Strict match on BCN + near-equal length
                 if (scannedBcn === targetBcn && Number.isFinite(scannedLength) && Math.abs(scannedLength - expectedLength) < 0.01) {
-                  const batch = writeBatch(db);
-          
-                  // 1) Load Cutting task
-                  const taskRef = doc(db, 'Cutting', taskId!);
-                  const taskDoc = await getDoc(taskRef);
-                  if (!taskDoc.exists()) {
-                    result = { status: 'error', message: 'Cutting task not found.' };
-                    break;
-                  }
-          
-                  const taskData = taskDoc.data() as any;
-          
-                  // 2) Update task items + overall status
-                  const updatedItems = (taskData.items ?? []).map((item: any) =>
-                    item?.bcn === targetBcn ? { ...item, status: 'cut' } : item
-                  );
-                  const allCut = updatedItems.length > 0 && updatedItems.every((i: any) => i?.status === 'cut');
-                  batch.update(taskRef, { items: updatedItems, status: allCut ? 'Completed' : 'In Progress' });
-          
-                  // 3) Get orderId (prefer task.orderId; else from the matching item)
-                  const orderIdFromTask = taskData?.orderId;
-                  const orderIdFromItem = (updatedItems.find((i: any) => i?.bcn === targetBcn) ?? {}).orderId;
-                  const orderId = orderIdFromTask || orderIdFromItem;
-          
-                  // 4) Update stockSold status -> 'cut' (only if we have an orderId)
-                  if (orderId) {
-                    const stockId = targetBcn.trim().replace(/\//g, '-');
-                    const stockRef = doc(db, 'stocks', stockId);
-          
-                    // Find the roll by numeric length
-                    const stockAddedQ = query(
-                      collection(stockRef, 'stockAdded'),
-                      where('lengths', 'array-contains', Number(expectedLength)),
-                      limit(1)
-                    );
-                    const stockAddedSnap = await getDocs(stockAddedQ);
-          
-                    if (!stockAddedSnap.empty) {
-                      const stockAddedDoc = stockAddedSnap.docs[0];
-          
-                      // Primary query (may require composite index on (orderId ==, status ==))
-                      let stockSoldSnap: any;
-                      try {
-                        const stockSoldQ = query(
-                          collection(stockAddedDoc.ref, 'stockSold'),
-                          where('orderId', '==', orderId),
-                          where('status', '==', 'pending for cutting'),
-                          limit(1)
-                        );
-                        stockSoldSnap = await getDocs(stockSoldQ);
-                      } catch (e) {
-                        console.error('Composite index missing for (orderId,status) on stockSold? Falling back.', e);
-                      }
-          
-                      if (!stockSoldSnap || stockSoldSnap.empty) {
-                        // Fallback: query by orderId only, then filter in-memory
-                        const fbQ = query(
-                          collection(stockAddedDoc.ref, 'stockSold'),
-                          where('orderId', '==', orderId),
-                          limit(10)
-                        );
-                        const fbSnap = await getDocs(fbQ);
-                        const pending = fbSnap.docs.find(d => (d.data()?.status ?? '') === 'pending for cutting');
-                        if (pending) {
-                          batch.update(pending.ref, { status: 'cut' });
-                        } else {
-                          console.warn('No stockSold doc in "pending for cutting" for orderId:', orderId);
-                        }
-                      } else {
-                        const stockSoldDoc = stockSoldSnap.docs[0];
-                        batch.update(stockSoldDoc.ref, { status: 'cut' });
-                      }
-                    } else {
-                      console.warn('No stockAdded doc matched lengths:', expectedLength, 'for stockId:', stockId);
+                    const batch = writeBatch(db);
+                    
+                    const taskRef = doc(db, 'Cutting', taskId!);
+                    const taskDoc = await getDoc(taskRef);
+                    if (!taskDoc.exists()) {
+                        result = { status: 'error', message: 'Cutting task not found.' };
+                        break;
                     }
-                  } else {
-                    console.warn('orderId not found on task or item; skipping stockSold update.');
-                  }
-          
-                  // 5) Commit
-                  await batch.commit();
-          
-                  result = {
-                    status: 'success',
-                    message: `Verified cut for ${targetBcn} from roll of length ${targetLength}.`,
-                  };
+                    
+                    const taskData = taskDoc.data() as CuttingTask;
+                    const updatedItems = taskData.items.map(item =>
+                        item.bcn === targetBcn ? { ...item, status: 'cut' } : item
+                    );
+                    const allCut = updatedItems.every(i => i.status === 'cut');
+
+                    batch.update(taskRef, { 
+                        items: updatedItems,
+                        status: allCut ? 'Completed' : 'In Progress'
+                    });
+
+                    // If all items are cut, also update the main order milestone
+                    if (allCut) {
+                        const orderRef = doc(db, 'orders', taskData.orderId);
+                        const orderSnap = await getDoc(orderRef);
+                        if (orderSnap.exists()) {
+                            const orderData = orderSnap.data() as Order;
+                            const updatedMilestones = orderData.milestones.map(m =>
+                                m.id === 3 // Sent to Stitching milestone
+                                ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: user.name }
+                                : m
+                            );
+                            batch.update(orderRef, { milestones: updatedMilestones });
+                        }
+                    }
+
+                    await batch.commit();
+
+                    result = {
+                        status: 'success',
+                        message: `Verified cut for ${targetBcn} from roll of length ${targetLength}. ${allCut ? 'This completes the cutting task.' : ''}`,
+                    };
                 } else {
-                  result = {
-                    status: 'error',
-                    message: `Incorrect Barcode. Expected ${targetBcn}|${targetLength}, scanned ${decodedText}.`,
-                  };
+                    result = {
+                        status: 'error',
+                        message: `Incorrect Barcode. Expected ${targetBcn}|${targetLength}, scanned ${decodedText}.`,
+                    };
                 }
                 break;
               }
@@ -366,7 +320,7 @@ function UniversalScanner() {
             console.error(err);
             setScanResult({ status: 'error', message: err?.message || 'Unexpected error.' });
           }
-    }, [action, isProcessing, targetBcn, taskId, targetLength, orderId]);
+    }, [action, isProcessing, targetBcn, taskId, targetLength, user]);
 
     const startScanner = useCallback(() => {
         if (!html5QrCodeRef.current || html5QrCodeRef.current.isScanning) {
