@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
@@ -14,7 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { AssignInstallerDialog } from "./AssignInstallerDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
-import { doc, updateDoc, deleteDoc, getDoc, query, where, getDocs, collection, arrayUnion } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, getDoc, query, where, getDocs, collection, arrayUnion, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { AssignCrmDialog } from "./AssignCrmDialog";
@@ -64,66 +63,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const isReadyForDelivery = !!currentOrder.milestones.find(m => m.id === 5)?.completed;
 
   const isOrderComplete = currentOrder.milestones.every(m => m.completed) && (!!currentOrder.feedbackRating || !!currentOrder.customerFeedbackRating || !!currentOrder.bypassedOtp);
-  
-  const checkCuttingStatus = useCallback(async (orderId: string) => {
-    const cuttingQuery = query(collection(db, "Cutting"), where("orderId", "==", orderId), where("status", "==", "Completed"));
-    const cuttingSnapshot = await getDocs(cuttingQuery);
-    return !cuttingSnapshot.empty;
-  }, []);
-
-  // Effect to check cutting status and update milestone if needed
-  useEffect(() => {
-    const sentToStitchingMilestone = currentOrder.milestones.find(m => m.id === 3);
-    if (sentToStitchingMilestone && !sentToStitchingMilestone.completed) {
-      checkCuttingStatus(currentOrder.id).then(isCuttingComplete => {
-        if (isCuttingComplete) {
-          // If cutting is complete, update the milestone automatically
-          handleMilestoneChange(3, true);
-        }
-      });
-    }
-  }, [currentOrder.id, currentOrder.milestones, checkCuttingStatus]);
-
-
-  const handleShowMaterial = async () => {
-    setIsMaterialDialogOpen(true);
-    setMaterialLoading(true);
-    try {
-        const purchaseRequestRef = doc(db, "purchaseRequests", currentOrder.crmOrderNo);
-        const purchaseRequestSnap = await getDoc(purchaseRequestRef);
-
-        if (purchaseRequestSnap.exists()) {
-            const prData = purchaseRequestSnap.data() as PurchaseRequest;
-            const fabricDetails = (prData.fabricDetails || [])
-                .filter(f => f.fabricName)
-                .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
-            
-            setMaterialDetails({ fabricDetails });
-        } else {
-            // If no PR, use details from the order itself
-            const fabricDetails = (currentOrder.fabricDetails || []).map(f => ({
-                name: f.fabricName,
-                quantity: f.quantity,
-                unit: 'Mtr'
-            }));
-             setMaterialDetails({ fabricDetails });
-        }
-    } catch (e) {
-        console.error("Error fetching material details: ", e);
-        toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch material details.' });
-    } finally {
-        setMaterialLoading(false);
-    }
-  };
-
-  // Permissions Logic
-  const canAssignCrm = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
-  const canAssignInstaller = ((role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && isReadyForDelivery) && !isOrderComplete;
-  const canSchedule = (role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && !isOrderComplete;
-  const canEditMilestones = (role === 'admin' || role === 'employee') && !isOrderComplete;
-  const canSendMessage = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
-  const canDeleteOrder = role === 'admin';
-
 
   const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
     if (!canEditMilestones) {
@@ -198,7 +137,74 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
       toast({ variant: "destructive", title: "Failed to update milestone." });
     }
   };
-  
+
+  // Real-time listener for Cutting collection
+  useEffect(() => {
+    if (!currentOrder?.id) return;
+
+    const cuttingQuery = query(collection(db, "Cutting"), where("orderId", "==", currentOrder.id));
+
+    const unsubscribe = onSnapshot(cuttingQuery, (snapshot) => {
+        if (snapshot.empty) return; // No cutting task for this order yet
+
+        // Check if all cutting docs for this order are completed
+        const allCompleted = snapshot.docs.every(doc => doc.data().status === "Completed");
+
+        // Only mark milestone if not already done
+        const milestone3 = currentOrder.milestones.find(m => m.id === 3);
+        if (allCompleted && !milestone3?.completed) {
+            console.log(`Cutting for order ${currentOrder.id} is complete. Updating milestone.`);
+            handleMilestoneChange(3, true);
+        }
+    });
+
+    return () => unsubscribe();
+    // handleMilestoneChange is a dependency, but adding it can cause loops.
+    // We can disable the eslint warning because the logic within only runs if the state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOrder.id, currentOrder.milestones]);
+
+
+  const handleShowMaterial = async () => {
+    setIsMaterialDialogOpen(true);
+    setMaterialLoading(true);
+    try {
+        const purchaseRequestRef = doc(db, "purchaseRequests", currentOrder.crmOrderNo);
+        const purchaseRequestSnap = await getDoc(purchaseRequestRef);
+
+        if (purchaseRequestSnap.exists()) {
+            const prData = purchaseRequestSnap.data() as PurchaseRequest;
+            const fabricDetails = (prData.fabricDetails || [])
+                .filter(f => f.fabricName)
+                .map(f => ({ name: f.fabricName, quantity: f.quantity, unit: 'Mtr' }));
+            
+            setMaterialDetails({ fabricDetails });
+        } else {
+            // If no PR, use details from the order itself
+            const fabricDetails = (currentOrder.fabricDetails || []).map(f => ({
+                name: f.fabricName,
+                quantity: f.quantity,
+                unit: 'Mtr'
+            }));
+             setMaterialDetails({ fabricDetails });
+        }
+    } catch (e) {
+        console.error("Error fetching material details: ", e);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch material details.' });
+    } finally {
+        setMaterialLoading(false);
+    }
+  };
+
+  // Permissions Logic
+  const canAssignCrm = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
+  const canAssignInstaller = ((role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && isReadyForDelivery) && !isOrderComplete;
+  const canSchedule = (role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && !isOrderComplete;
+  const canEditMilestones = (role === 'admin' || role === 'employee') && !isOrderComplete;
+  const canSendMessage = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
+  const canDeleteOrder = role === 'admin';
+
+
   const handleAssignInstaller = async (installerId: string) => {
     try {
       const orderRef = doc(db, "orders", currentOrder.id);
