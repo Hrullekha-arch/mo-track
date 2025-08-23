@@ -458,8 +458,14 @@ function InvoiceTable({
       accessorKey: "orderId",
       header: "Order No",
       cell: ({ row }) => {
-        const orderId = row.getValue("orderId") as string;
-        return orderId.replace("MOTRACK-", "");
+        const batch = row.original;
+        const orderId = batch.orderId;
+        return (
+          <div className="flex items-center gap-1">
+            {batch.isCombined && <Combine className="h-4 w-4 text-muted-foreground" title="Combined Invoice" />}
+            <span>{orderId.replace("MOTRACK-", "")}</span>
+          </div>
+        );
       }
     },
     {

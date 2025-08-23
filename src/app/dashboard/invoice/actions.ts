@@ -1,9 +1,10 @@
 
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
 import { InvoiceBatch, InvoiceBatchItem } from '@/lib/types';
-import admin from 'firebase-admin';
+import admin from "firebase-admin";
 
 
 export async function combineInvoiceBatchesAction(
@@ -39,12 +40,13 @@ export async function combineInvoiceBatchesAction(
       createdAt: admin.firestore.Timestamp.now(),
       status: 'pendingInvoice',
       items: combinedItems,
+      isCombined: true,
     };
     firestoreBatch.set(newBatchRef, newCombinedBatch);
 
     // 3. Delete the old batches
     batchesToCombine.forEach((batch) => {
-      const batchRef = adminDb.collection('invoiceBatches').doc(batch.id);
+      const batchRef = adminDb.collection("invoiceBatches").doc(batch.id);
       firestoreBatch.delete(batchRef);
     });
 

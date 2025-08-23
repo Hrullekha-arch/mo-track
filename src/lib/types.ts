@@ -547,10 +547,11 @@ export interface InvoiceBatch {
     customerName: string;
     customerPhone: string;
     createdAt: Timestamp;
-    status: 'pending' | 'invoiced';
+    status: 'pendingInvoice' | 'invoiced';
     items: InvoiceBatchItem[];
     tallyBillNo?: string | null;
     invoiceId?: string;
+    isCombined?: boolean;
 }
 
 export interface Invoice {
