@@ -10,7 +10,7 @@ import { format } from 'date-fns';
 
 // ---------------- Helpers ----------------
 
-console.log("tally.ts file loaded"); // Added for debugging
+console.log("tally.ts file loaded"); 
 
 function escapeXml(unsafe: string): string {
   if (typeof unsafe !== 'string') return '';
@@ -66,10 +66,20 @@ async function extractVoucherNumber(xml: string): Promise<string | undefined> {
     const vouchers = parsed?.ENVELOPE?.BODY?.DATA?.COLLECTION?.VOUCHER;
 
     if (!vouchers) return undefined;
+    
+    // Handle case where one or more vouchers are returned
     const voucherArray = Array.isArray(vouchers) ? vouchers : [vouchers];
-    const lastVoucher = voucherArray[voucherArray.length - 1];
+    
+    if (voucherArray.length === 0) return undefined;
 
-    return lastVoucher?.VOUCHERNUMBER?.trim() || undefined;
+    // Find the highest voucher number from the results
+    const voucherNumbers = voucherArray.map(v => parseInt(v?.VOUCHERNUMBER?.trim() || '0', 10)).filter(n => !isNaN(n));
+    
+    if (voucherNumbers.length === 0) return undefined;
+
+    const maxVoucherNumber = Math.max(...voucherNumbers);
+    
+    return String(maxVoucherNumber);
   } catch (err) {
     console.error("Parse error while extracting voucher:", err);
     return undefined;
@@ -146,7 +156,7 @@ async function buildStockItemCreateXML(itemName: string): Promise<string> {
 }
 
 
-export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
+export async function buildSalesVoucherXML(invoice: Invoice): Promise<{xml: string, roundedTotal: number, partyLedgerName: string, date: string}> {
     const money = (n: number) => (Math.round(n * 100) / 100);
     const fmt = (n: number) => money(n).toFixed(2);
     
@@ -230,16 +240,6 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
                 <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
                 <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
               </ACCOUNTINGALLOCATIONS.LIST>
-              <RATEDETAILS.LIST>
-                <GSTRATEDUTYHEAD>CGST</GSTRATEDUTYHEAD>
-                <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
-                <GSTRATE>${halfGst}</GSTRATE>
-              </RATEDETAILS.LIST>
-              <RATEDETAILS.LIST>
-                <GSTRATEDUTYHEAD>SGST/UTGST</GSTRATEDUTYHEAD>
-                <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
-                <GSTRATE>${halfGst}</GSTRATE>
-              </RATEDETAILS.LIST>
             </ALLINVENTORYENTRIES.LIST>`;
     }
     const cgst = money(totalTaxableValue * 0.025);
@@ -259,23 +259,21 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
             <LEDGERNAME>Output CGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(cgst)}</AMOUNT>
-            <VATEXPAMOUNT>${fmt(cgst)}</VATEXPAMOUNT>
         </LEDGERENTRIES.LIST>`;
   
     const sgstLedgerEntry = `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output SGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(sgst)}</AMOUNT>
-            <VATEXPAMOUNT>${fmt(sgst)}</VATEXPAMOUNT>
         </LEDGERENTRIES.LIST>`;
         
     const roundOffLedgerEntry = roundOff !== 0 ? `<LEDGERENTRIES.LIST>
           <LEDGERNAME>Round Off</LEDGERNAME>
-          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-          <AMOUNT>${fmt(roundOff)}</AMOUNT>
+          <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
+          <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
         </LEDGERENTRIES.LIST>` : '';
   
-    return `
+    const xml = `
   <ENVELOPE>
   <HEADER>
     <TALLYREQUEST>Import Data</TALLYREQUEST>
@@ -312,17 +310,19 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
     </IMPORTDATA>
   </BODY>
   </ENVELOPE>`.trim();
-  }
+
+  return { xml, roundedTotal, partyLedgerName, date };
+}
 
 // --- (---------------------------------------------------)-----
-async function buildVoucherFilterXML(invoiceNo: string): Promise<string> {
+async function buildVoucherFilterXML(ledgerName: string, amount: number, date: string): Promise<string> {
   return `
 <ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
     <TYPE>Collection</TYPE>
-    <ID>VoucherFilterByInvoiceNo</ID>
+    <ID>VoucherFilter</ID>
   </HEADER>
   <BODY>
     <DESC>
@@ -331,18 +331,26 @@ async function buildVoucherFilterXML(invoiceNo: string): Promise<string> {
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
-          <COLLECTION NAME="VoucherFilterByInvoiceNo" ISMODIFY="No">
+          <COLLECTION NAME="VoucherFilter" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
-            <NATIVEMETHOD>VoucherNumber</NATIVEMETHOD>
+            <FETCH>VoucherNumber</FETCH>
             <FILTER>FilterByVoucherType</FILTER>
-            <FILTER>FilterByInvoiceNo</FILTER>
+            <FILTER>FilterByLedgerName</FILTER>
+            <FILTER>FilterByAmount</FILTER>
+            <FILTER>FilterByDate</FILTER>
           </COLLECTION>
           <SYSTEM TYPE="Formulae" NAME="FilterByVoucherType">
             $VoucherTypeName = $$String:"Sales"
           </SYSTEM>
-          <SYSTEM TYPE="Formulae" NAME="FilterByInvoiceNo">
-            $VoucherNumber = $$String:"${invoiceNo}"
+          <SYSTEM TYPE="Formulae" NAME="FilterByLedgerName">
+            $LedgerName = $$String:"${escapeXml(ledgerName)}"
           </SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="FilterByAmount">
+            $Amount = ${amount}
+          </SYSTEM>
+            <SYSTEM TYPE="Formulae" NAME="FilterByDate">
+                $Date = $$Date:"${date}"
+            </SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -352,7 +360,7 @@ async function buildVoucherFilterXML(invoiceNo: string): Promise<string> {
 
 // ---------------- Main ops ----------------
 
-async function createIfNeeded(xml: string): Promise<{ success: boolean; message: string }> {
+export async function createIfNeeded(xml: string): Promise<{ success: boolean; message: string }> {
   try {
     const res = await httpPostXml(xml);
     const ok = tallyCreateOk(res);
@@ -362,8 +370,8 @@ async function createIfNeeded(xml: string): Promise<{ success: boolean; message:
   }
 }
 
-async function fetchAndSaveVoucherNumber(invoice: Invoice, invoiceNo: string): Promise<string | undefined> {
-  const filterXml = await buildVoucherFilterXML(invoiceNo);
+async function fetchAndSaveVoucherNumber(invoice: Invoice, ledgerName: string, amount: number, date: string): Promise<string | undefined> {
+  const filterXml = await buildVoucherFilterXML(ledgerName, amount, date);
 
   console.log("=============================================");
   console.log("📤 Voucher Fetch Request XML (sending to Tally):");
@@ -407,7 +415,7 @@ export async function sendInvoiceToTally(
   );
   
   // 2) Create the Sales Voucher
-  const voucherXml = await buildSalesVoucherXML(invoice);
+  const { xml: voucherXml, roundedTotal, partyLedgerName, date } = await buildSalesVoucherXML(invoice);
   
   
   // Save XML before sending for better debugging
@@ -423,8 +431,8 @@ export async function sendInvoiceToTally(
   }
 
   // 3) On successful creation, fetch the voucher number
-  await new Promise(resolve => setTimeout(resolve, 10000)); // Small delay to allow Tally to process
-  const voucherNumber = await fetchAndSaveVoucherNumber(invoice, invoice.invoiceNo);
+  await new Promise(resolve => setTimeout(resolve, 5000)); // Small delay to allow Tally to process
+  const voucherNumber = await fetchAndSaveVoucherNumber(invoice, partyLedgerName, roundedTotal, date);
   
   return {
     success: true,
@@ -455,21 +463,17 @@ export async function getStockFromTally(itemName: string): Promise<{ success: bo
           <FETCHLIST>
                 <FETCH>Name</FETCH>
                 <FETCH>ClosingBalance</FETCH>
-                <FETCH>BilledQty</FETCH>
-                <FETCH>ClosingQty</FETCH>
           </FETCHLIST>
         </DESC>
       </BODY>
     </ENVELOPE>`;
   try {
     const responseXml = await httpPostXml(xml);
-    console.log(`Tally response for ${itemName}:`, responseXml);
     const parsed = await xml2js.parseStringPromise(responseXml, { explicitArray: false, trim: true });
     
-    // Updated path to navigate the parsed object correctly
-    const closingBalanceNode = parsed?.ENVELOPE?.BODY?.DATA?.TALLYMESSAGE?.STOCKITEM?.CLOSINGBALANCE?._;
+    const closingBalanceNode = parsed?.ENVELOPE?.BODY?.DATA?.TALLYMESSAGE?.STOCKITEM?.CLOSINGBALANCE;
     
-    if (closingBalanceNode && typeof closingBalanceNode === 'string') {
+    if (typeof closingBalanceNode === 'string') {
         const balanceText = closingBalanceNode;
         const match = balanceText.match(/^(-?\d+(\.\d+)?)/);
         const quantity = match ? parseFloat(match[1]) : 0;
