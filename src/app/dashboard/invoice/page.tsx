@@ -13,7 +13,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon, Code, CheckCircle, XCircle } from "lucide-react";
+import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, PlusCircle, Search, X, CalendarIcon, Code, CheckCircle, XCircle, Combine } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +48,7 @@ import { sendInvoiceToTally, buildSalesVoucherXML, getFirestoreStockQuantity, ge
 import Link from "next/link";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StockMismatchDialog } from "@/components/features/invoice/StockMismatchDialog";
+import { combineInvoiceBatchesAction } from "./actions";
 
 
 interface MismatchItem {
@@ -289,7 +290,14 @@ function GenerateInvoiceDialog({
         const tallyRes = await getStockFromTally(item.bcn);
         
         if (!crmRes.success || !tallyRes.success) {
-            toast({ variant: 'destructive', title: 'Verification Error', description: `Could not verify stock for ${item.itemName}. CRM: ${crmRes.message}, Tally: ${tallyRes.message}` });
+            setMismatchedItems([{ 
+                itemName: `Could not verify stock for ${item.bcn}.`,
+                crmQty: 0,
+                tallyQty: 0,
+                errorType: 'mismatch',
+                difference: 0
+            }]);
+            setIsStockMismatchOpen(true);
             setIsGenerating(false);
             return;
         }
@@ -299,7 +307,7 @@ function GenerateInvoiceDialog({
         
         if (crmQty !== tallyQty) {
           mismatches.push({ 
-              itemName: item.itemName, 
+              itemName: item.bcn, 
               crmQty, 
               tallyQty, 
               errorType: 'mismatch',
@@ -313,7 +321,6 @@ function GenerateInvoiceDialog({
       setIsStockMismatchOpen(true);
       setIsGenerating(false);
     } else {
-      // If stock matches, proceed directly to generating the invoice and Tally voucher.
       await handleFinalGenerate();
     }
   }, [creator, batches, handleFinalGenerate, toast]);
@@ -409,7 +416,10 @@ function InvoiceTable({
     const [isGenerateDialogOpen, setIsGenerateDialogOpen] = React.useState(false);
     const [isViewInvoiceOpen, setIsViewInvoiceOpen] = React.useState(false);
     const [selectedBatchForView, setSelectedBatchForView] = React.useState<InvoiceBatch | null>(null);
+    const [isCombineDialogOpen, setIsCombineDialogOpen] = React.useState(false);
+
     const { user } = useAuth();
+    const { toast } = useToast();
 
     const handleViewClick = (batch: InvoiceBatch) => {
         setSelectedBatchForView(batch);
@@ -482,18 +492,13 @@ function InvoiceTable({
       header: "Invoice Amount",
       cell: ({ row }) => {
         const subtotal = row.original.items.reduce((sum, item) => {
-          return sum + (item.quantityAllocated * item.rate);
+          const amount = item.quantityAllocated * item.rate;
+          const discountAmount = amount * ((item.discountPercent || 0) / 100);
+          return sum + (amount - discountAmount);
         }, 0);
       
-        // Do discount first
-        const discountAmount = subtotal * ((row.original.items[0]?.discountPercent || 0) / 100);
-      
-        const netAfterDiscount = subtotal - discountAmount;
-      
-        // GST after discount
-        const tax = netAfterDiscount * 0.05; // 5% total tax
-      
-        const totalAmount = netAfterDiscount + tax;
+        const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
+        const totalAmount = subtotal + tax;
         const roundedAmount = Math.round(totalAmount);
         return `₹${roundedAmount.toFixed(2)}`;
       }
@@ -546,6 +551,33 @@ function InvoiceTable({
   const selectedBatches = table.getFilteredSelectedRowModel().rows.map(row => row.original);
   const selectedOrders = orders.filter(order => selectedBatches.some(batch => batch.orderId === order.id));
   const canGenerate = selectedBatches.length > 0 && selectedBatches.every(b => b.status === 'pendingInvoice');
+  const canCombine = selectedBatches.length > 1;
+
+  const handleCombineClick = () => {
+    if (!canCombine) return;
+
+    const firstOrderId = selectedBatches[0].orderId;
+    if (selectedBatches.some(b => b.orderId !== firstOrderId)) {
+        toast({
+            variant: "destructive",
+            title: "Cannot Combine",
+            description: "You can only combine invoices that belong to the same order."
+        });
+        return;
+    }
+    setIsCombineDialogOpen(true);
+  };
+  
+  const handleConfirmCombine = async () => {
+      const result = await combineInvoiceBatchesAction(selectedBatches);
+      if(result.success) {
+          toast({ title: 'Success', description: result.message });
+          table.resetRowSelection();
+      } else {
+          toast({ variant: 'destructive', title: 'Error', description: result.message });
+      }
+      setIsCombineDialogOpen(false);
+  }
 
   return (
     <>
@@ -597,13 +629,23 @@ function InvoiceTable({
                     {table.getFilteredRowModel().rows.length} row(s) selected.
                 </div>
                 {view === 'active' && (
-                  <Button 
-                    onClick={() => setIsGenerateDialogOpen(true)}
-                    disabled={!canGenerate}
-                  >
-                    <FileText className="mr-2 h-4 w-4" />
-                    Generate
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      onClick={handleCombineClick}
+                      disabled={!canCombine}
+                      variant="outline"
+                    >
+                      <Combine className="mr-2 h-4 w-4" />
+                      Combine Invoice
+                    </Button>
+                    <Button 
+                      onClick={() => setIsGenerateDialogOpen(true)}
+                      disabled={!canGenerate}
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      Generate
+                    </Button>
+                  </div>
                 )}
                 <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>Previous</Button>
                 <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next</Button>
@@ -657,6 +699,20 @@ function InvoiceTable({
                 </DialogContent>
             </Dialog>
         )}
+        <AlertDialog open={isCombineDialogOpen} onOpenChange={setIsCombineDialogOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will combine the {selectedBatches.length} selected invoice batches into a single batch. This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleConfirmCombine}>Combine</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     </>
   )
 }
