@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { Invoice, Stock, TaxDetail, User, InvoiceBatch } from '@/lib/types';
@@ -270,8 +271,8 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
       
   const roundOffLedgerEntry = roundOff !== 0 ? `<LEDGERENTRIES.LIST>
         <LEDGERNAME>Round Off</LEDGERNAME>
-        <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
-        <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+        <AMOUNT>${fmt(roundOff)}</AMOUNT>
       </LEDGERENTRIES.LIST>` : '';
 
   return `
