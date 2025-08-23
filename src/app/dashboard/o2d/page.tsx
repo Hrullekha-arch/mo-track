@@ -2,10 +2,10 @@
 
 "use client";
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X, Eye, EyeOff, Sparkles, UserCheck, PackageSearch, FileText, BadgePercent, PhoneCall } from 'lucide-react';
-import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, getDoc, arrayRemove } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, getDoc, arrayRemove, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, O2DStep, O2DStatus, OrderType } from "@/lib/types";
 import { Skeleton } from '@/components/ui/skeleton';
@@ -13,7 +13,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
+import { cn } from "@/lib/utils";
 import { addDays, addHours, addMinutes, isPast, format, formatDistanceToNow, isSameDay, differenceInMinutes } from 'date-fns';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -299,7 +299,8 @@ export default function O2DPage() {
     const [revertingStepInfo, setRevertingStepInfo] = useState<{orderId: string, stepId: number, milestone: O2DStatus} | null>(null);
     const [filterDate, setFilterDate] = useState<Date | undefined>();
     const [confirmOrder, setConfirmOrder] = useState<Order | null>(null);
-    const [followUpOrder, setFollowUpOrder] = useState<O2DViewItem | null>(null);
+    const [followUpOrder, setFollowUpOrder] = useState<Order | null>(null);
+
 
     const { user, role, designation } = useAuth();
     const { toast } = useToast();
@@ -317,6 +318,36 @@ export default function O2DPage() {
             });
             
             setAllOrders(ordersData);
+            
+            // Automation: Check orders for "Stitching Done"
+            ordersData.forEach(async (order) => {
+                const stitchingDone = order.milestones.find(m => m.id === 4)?.completed;
+                if (stitchingDone && order.dealId) {
+                    const o2dQuery = query(collection(db, 'o2d'), where("dealId", "==", order.dealId));
+                    const o2dSnapshot = await getDocs(o2dQuery);
+                    if (!o2dSnapshot.empty) {
+                        const o2dDoc = o2dSnapshot.docs[0];
+                        const o2dData = o2dDoc.data() as O2DProcess;
+                        const productionMilestone = (o2dData.milestones || []).find(m => m.stepId === 8);
+                        
+                        if (!productionMilestone) {
+                            const newMilestone: O2DStatus = {
+                                stepId: 8, // Production
+                                status: 'completed',
+                                completedAt: new Date().toISOString(),
+                                completedBy: "System (Stitching Complete)",
+                                remarks: "Automatically completed when stitching was marked as done.",
+                                selection: "Done"
+                            };
+                            await updateDoc(o2dDoc.ref, {
+                                milestones: arrayUnion(newMilestone)
+                            });
+                        }
+                    }
+                }
+            });
+
+
             setLoading(false);
         });
         return () => unsubscribe();
@@ -357,12 +388,20 @@ export default function O2DPage() {
     };
 
     const handleFollowUp = async () => {
-        if (!followUpOrder || !user || !followUpOrder.orderId) return;
+        if (!followUpOrder || !user) return;
 
-        const o2dDocId = followUpOrder.dealDocId;
+        const o2dQuery = query(collection(db, 'o2d'), where('dealId', '==', followUpOrder.dealId));
+        const o2dDocs = await getDocs(o2dQuery);
+
+        if (o2dDocs.empty) {
+            toast({ variant: "destructive", title: "O2D Document not found" });
+            setFollowUpOrder(null);
+            return;
+        }
+        const o2dDocId = o2dDocs.docs[0].id;
         
         try {
-            const result = await setBalanceFollowUp(followUpOrder.orderId, o2dDocId, user.name);
+            const result = await setBalanceFollowUp(followUpOrder.id, o2dDocId, user.name);
             if (result.success) {
                 toast({ title: "Follow-up Step Completed", description: result.message });
             } else {
@@ -554,12 +593,7 @@ export default function O2DPage() {
                             )}
                              {isFollowUpStep && (
                                 <AlertDialogTrigger asChild>
-                                <Button size="sm" className="mt-2" onClick={() => {
-                                    setFollowUpOrder({ 
-                                        dealDocId: order.id, 
-                                        orderId: order.id
-                                     } as any);
-                                }}>
+                                <Button size="sm" className="mt-2" onClick={() => setFollowUpOrder(order)}>
                                     <PhoneCall className="mr-2 h-4 w-4"/>
                                     Follow Up
                                 </Button>
@@ -699,4 +733,3 @@ export default function O2DPage() {
         </AlertDialog>
     );
 }
-
