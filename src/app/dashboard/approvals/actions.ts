@@ -14,14 +14,12 @@ export async function approveOrderAndCreatePurchaseRequest(
     try {
         const orderRef = adminDb.collection('orders').doc(orderId);
         
-        // We need the order data to proceed with other actions
         const orderSnap = await orderRef.get();
         if (!orderSnap.exists) {
             return { success: false, message: "Order not found." };
         }
         const orderData = orderSnap.data() as Order;
         
-        // Use a batch for all subsequent writes
         const batch = adminDb.batch();
 
         // 1. Update the root Order status with approver details
@@ -44,19 +42,27 @@ export async function approveOrderAndCreatePurchaseRequest(
             }
         }
 
-        // 3. New Stock Check and PR Logic
-        let purchaseMessage = "";
-        const allItemsInOrder = orderData.fabricDetails || [];
-        const checkedBcns = new Set<string>(); // To avoid redundant checks for the same BCN
-
-        for (const item of allItemsInOrder) {
-            const bcn = item.fabricName;
-            if (!bcn || checkedBcns.has(bcn)) {
-                continue; // Already processed this BCN or item is invalid
+        // 3. Aggregate quantities for each unique BCN in the current order
+        const aggregatedItems = new Map<string, { totalQuantity: number, itemDetail: FabricDetail }>();
+        (orderData.fabricDetails || []).forEach(item => {
+            if (!item.fabricName) return;
+            const existing = aggregatedItems.get(item.fabricName);
+            if (existing) {
+                existing.totalQuantity += parseFloat(item.quantity);
+            } else {
+                aggregatedItems.set(item.fabricName, {
+                    totalQuantity: parseFloat(item.quantity),
+                    itemDetail: item
+                });
             }
-            checkedBcns.add(bcn);
+        });
 
-            // Find all orders that have this unallocated item
+
+        // 4. New Stock Check and PR Logic for aggregated items
+        let purchaseMessage = "";
+        
+        for (const [bcn, { totalQuantity, itemDetail }] of aggregatedItems.entries()) {
+             // Find all orders that have this unallocated item
             const unallocatedOrdersSnapshot = await adminDb.collection('orders')
                 .where('fabricDetails', 'array-contains', { fabricName: bcn, status: 'pending for po' })
                 .get();
@@ -72,10 +78,8 @@ export async function approveOrderAndCreatePurchaseRequest(
                     });
                 });
             } else {
-                 // If no other orders have this item pending, demand is just from the current order.
-                 totalUnallocatedDemand = parseFloat(item.quantity);
+                 totalUnallocatedDemand = totalQuantity;
             }
-            
 
             // Fetch current available stock
             const stockId = bcn.replace(/\//g, '-');
@@ -92,17 +96,16 @@ export async function approveOrderAndCreatePurchaseRequest(
                     { stepId: 2, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
                 ];
                 
-                // Use a combination of order ID and BCN for a more unique PR ID
                 const prDocId = `${orderData.crmOrderNo}-${bcn.replace(/\s+/g, '-')}`;
                 const prRef = adminDb.collection('purchaseRequests').doc(prDocId);
 
                 const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-                    dealId: orderData.crmOrderNo, // Reference the triggering order
+                    dealId: orderData.crmOrderNo,
                     customerName: orderData.customerName,
-                    promiseDeliveryDate: new Date().toISOString(), // Placeholder
+                    promiseDeliveryDate: new Date().toISOString(),
                     salesman: orderData.salesPerson,
                     type: 'fabric',
-                    fabricDetails: [{ ...item, quantity: String(requiredQty) }], // Only the item that needs purchase
+                    fabricDetails: [{ ...itemDetail, quantity: String(requiredQty) }],
                     createdAt: new Date().toISOString(),
                     createdBy: approver,
                     milestones: initialMilestones,
@@ -116,7 +119,6 @@ export async function approveOrderAndCreatePurchaseRequest(
         }
         
         if (!purchaseMessage) {
-            // AUTOMATION: If no items to purchase, all stock is available. Mark material receiving as complete.
             const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
             const o2dSnapshot = await o2dQuery.get();
             if (!o2dSnapshot.empty) {
@@ -135,7 +137,6 @@ export async function approveOrderAndCreatePurchaseRequest(
             }
         }
         
-        // AUTOMATION: Mark "Balance Payment Follow Up" as complete (since order is approved)
         if (orderData.dealId) {
             const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
             const o2dSnapshot = await o2dQuery.get();
@@ -171,20 +172,17 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
         
         const batch = adminDb.batch();
 
-        // 1. Mark payment as confirmed in the Order
         batch.update(orderRef, {
             paymentConfirmed: true,
             balanceFollowUp: false,
         });
 
-        // We need order data to find the O2D document
         const orderDoc = await orderRef.get();
         if (!orderDoc.exists) {
              throw new Error("Order not found after update.");
         }
         const orderData = orderDoc.data() as Order;
 
-        // 2. Now, find the associated O2D process and mark step 11 as complete.
         if (orderData.dealId) {
             const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
             const o2dSnapshot = await o2dQuery.get();
@@ -222,7 +220,6 @@ export async function approveQuotationAction(
   try {
     const batch = adminDb.batch();
 
-    // 1. Update quotation status
     const quotationRef = adminDb
       .collection('customers')
       .doc(quotation.customerId)
@@ -234,7 +231,6 @@ export async function approveQuotationAction(
       status: 'Approved',
     });
 
-    // 2. Add to approvedQuotations collection for logging/history
     const approvedQuotationRef = adminDb.collection('approvedQuotations').doc(quotation.id);
     batch.set(approvedQuotationRef, {
       ...quotation,
@@ -243,7 +239,6 @@ export async function approveQuotationAction(
       approvedBy: approver,
     });
     
-    // 3. Update O2D Process
     const dealsSnapshot = await adminDb.collection('customers').doc(quotation.customerId).collection('deals').doc(quotation.dealId).get();
     const dealData = dealsSnapshot.data();
     if (dealData?.dealId) {

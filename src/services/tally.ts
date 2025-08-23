@@ -448,7 +448,7 @@ export async function sendInvoiceToTally(
 
 
 
-export async function getStockFromTally(bcn: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
+export async function getStockFromTally(itemName: string): Promise<{ success: boolean, quantity: number | null, message: string }> {
   const xml = `
     <ENVELOPE>
       <HEADER>
@@ -456,7 +456,7 @@ export async function getStockFromTally(bcn: string): Promise<{ success: boolean
         <TALLYREQUEST>Export</TALLYREQUEST>
         <TYPE>Object</TYPE>
         <SUBTYPE>StockItem</SUBTYPE>
-        <ID TYPE="Name">${escapeXml(bcn)}</ID>
+        <ID TYPE="Name">${escapeXml(itemName)}</ID>
       </HEADER>
       <BODY>
         <DESC>
@@ -466,17 +466,21 @@ export async function getStockFromTally(bcn: string): Promise<{ success: boolean
           <FETCHLIST>
                 <FETCH>Name</FETCH>
                 <FETCH>ClosingBalance</FETCH>
+                <FETCH>BilledQty</FETCH>
+                <FETCH>ClosingQty</FETCH>
           </FETCHLIST>
         </DESC>
       </BODY>
     </ENVELOPE>`;
   try {
     const responseXml = await httpPostXml(xml);
+    console.log(`Tally response for ${itemName}:`, responseXml);
     const parsed = await xml2js.parseStringPromise(responseXml, { explicitArray: false, trim: true });
     
-    const closingBalanceNode = parsed?.ENVELOPE?.BODY?.DATA?.TALLYMESSAGE?.STOCKITEM?.CLOSINGBALANCE;
+    // Updated path to navigate the parsed object correctly
+    const closingBalanceNode = parsed?.ENVELOPE?.BODY?.DATA?.TALLYMESSAGE?.STOCKITEM?.CLOSINGBALANCE?._;
     
-    if (typeof closingBalanceNode === 'string') {
+    if (closingBalanceNode && typeof closingBalanceNode === 'string') {
         const balanceText = closingBalanceNode;
         const match = balanceText.match(/^(-?\d+(\.\d+)?)/);
         const quantity = match ? parseFloat(match[1]) : 0;
@@ -486,7 +490,7 @@ export async function getStockFromTally(bcn: string): Promise<{ success: boolean
     return { success: true, quantity: 0, message: 'Stock item not found in Tally or has no balance.' };
 
   } catch (error: any) {
-    console.error(`Tally stock fetch error for ${bcn}:`, error.message);
+    console.error(`Tally stock fetch error for ${itemName}:`, error.message);
     return { success: false, quantity: null, message: `Tally stock fetch error: ${error.message}` };
   }
 }
