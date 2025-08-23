@@ -38,21 +38,21 @@ export async function allocateStockToAction(
         const lengthRef = stockRef.collection('lengths').doc(lengthId);
         const orderRef = adminDb.collection('orders').doc(orderId);
         const invoiceBatchesRef = adminDb.collection("invoiceBatches");
-        const tenMinutesAgo = new Timestamp(Timestamp.now().seconds - 600, 0);
-
+        
         // --- ALL READS FIRST ---
+        // Query for the most recent pending batch for this order.
+        // We will check the timestamp after fetching.
+        const recentBatchesQuery = invoiceBatchesRef
+                .where("orderId", "==", orderId)
+                .where("status", "==", "pendingInvoice")
+                .orderBy("createdAt", "desc")
+                .limit(1);
+
         const reads = [
             transaction.get(stockRef),
             transaction.get(lengthRef),
             transaction.get(orderRef),
-            transaction.get(
-                invoiceBatchesRef
-                    .where("orderId", "==", orderId)
-                    .where("status", "==", "pendingInvoice")
-                    .where("createdAt", ">", tenMinutesAgo)
-                    .orderBy("createdAt", "desc")
-                    .limit(1)
-            )
+            transaction.get(recentBatchesQuery) // Read the query result
         ];
         
         const [stockDoc, lengthDoc, orderDoc, recentBatchesSnap] = await Promise.all(reads);
@@ -108,13 +108,22 @@ export async function allocateStockToAction(
         });
         transaction.update(orderRef, { milestones: updatedMilestones });
   
-        // 4. Find or Create Invoice Batch
+        // 4. Find or Create Invoice Batch (Logic based on reads)
         let targetBatchRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
         let isNewBatch = true;
         
         if (!recentBatchesSnap.empty) {
-            targetBatchRef = recentBatchesSnap.docs[0].ref;
-            isNewBatch = false;
+            const lastBatchDoc = recentBatchesSnap.docs[0];
+            const lastBatchTimestamp = (lastBatchDoc.data().createdAt as Timestamp).toDate();
+            const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+            
+            // Check if the last batch is within the 10-minute window
+            if (lastBatchTimestamp > tenMinutesAgo) {
+                targetBatchRef = lastBatchDoc.ref;
+                isNewBatch = false;
+            } else {
+                 targetBatchRef = invoiceBatchesRef.doc();
+            }
         } else {
             targetBatchRef = invoiceBatchesRef.doc();
         }
