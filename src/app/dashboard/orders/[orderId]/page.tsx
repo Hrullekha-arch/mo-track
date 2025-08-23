@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, use, useMemo } from 'react';
 import { doc, onSnapshot, updateDoc, collection, getDoc, query, where, getDocs, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest, InvoiceBatch } from "@/lib/types";
@@ -306,10 +306,28 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
 
 
 function AllocateOrderTable({ order, onAllocationSuccess, refreshKey }: { order: Order, onAllocationSuccess: () => void, refreshKey: number }) {
-    const items: OrderItem[] = [
-        ...(order.fabricDetails || []).map(d => ({ ...d, type: 'Fabric' as const })),
-        ...(order.furnitureDetails || []).map(d => ({ ...d, type: 'Furniture' as const }))
-    ];
+    
+    const aggregatedItems = useMemo(() => {
+        const allItems: OrderItem[] = [
+            ...(order.fabricDetails || []).map(d => ({ ...d, type: 'Fabric' as const })),
+            ...(order.furnitureDetails || []).map(d => ({ ...d, type: 'Furniture' as const }))
+        ];
+
+        const itemMap = new Map<string, OrderItem & { quantity: string }>();
+
+        for (const item of allItems) {
+            const bcn = (item as any).fabricName || (item as any).furnitureName;
+            if (!bcn) continue;
+
+            if (itemMap.has(bcn)) {
+                const existing = itemMap.get(bcn)!;
+                existing.quantity = (parseFloat(existing.quantity) + parseFloat((item as any).quantity)).toString();
+            } else {
+                itemMap.set(bcn, { ...item });
+            }
+        }
+        return Array.from(itemMap.values());
+    }, [order]);
 
     return (
         <Card>
@@ -332,8 +350,8 @@ function AllocateOrderTable({ order, onAllocationSuccess, refreshKey }: { order:
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {items.length > 0 ? items.map((item, index) => (
-                                <OrderItemRow key={index} item={item} index={index} order={order} orderId={order.id} orderCrmNo={order.crmOrderNo} onAllocationSuccess={onAllocationSuccess} refreshKey={refreshKey} />
+                            {aggregatedItems.length > 0 ? aggregatedItems.map((item, index) => (
+                                <OrderItemRow key={(item as any).fabricName || index} item={item} index={index} order={order} orderId={order.id} orderCrmNo={order.crmOrderNo} onAllocationSuccess={onAllocationSuccess} refreshKey={refreshKey} />
                             )) : (
                                 <TableRow>
                                     <TableCell colSpan={7} className="h-24 text-center">No items found in this order.</TableCell>
@@ -481,3 +499,4 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
         </div>
     );
 }
+
