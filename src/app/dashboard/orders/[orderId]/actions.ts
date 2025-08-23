@@ -45,7 +45,7 @@ export async function allocateStockToAction(
         const recentBatchesQuery = invoiceBatchesRef
                 .where("orderId", "==", orderId)
                 .where("status", "==", "pendingInvoice")
-                .orderBy("createdAt", "desc")
+                .orderBy("createdAt", "asc") // Corrected to ascending to match the index
                 .limit(1);
 
         const reads = [
