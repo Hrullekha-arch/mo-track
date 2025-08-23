@@ -58,7 +58,7 @@ interface MismatchItem {
   errorType: 'mismatch' | 'insufficient';
   difference: number;
 }
-
+ 
 function GenerateInvoiceDialog({
   isOpen,
   onClose,
@@ -100,6 +100,7 @@ function GenerateInvoiceDialog({
             const lastInvoiceNo = parseInt(lastInvoiceSnap.docs[0].data().invoiceNo, 10);
             if (!isNaN(lastInvoiceNo)) {
                 newInvoiceNumber = lastInvoiceNo + 1;
+                
             }
         }
         
@@ -111,7 +112,7 @@ function GenerateInvoiceDialog({
             const qty = item.quantityAllocated;
             const rate = item.rate;
             const amount = qty * rate;
-            const discountAmount = amount * ((item.discountPercent || 0) / 100);
+            const discountAmount = item.discountPercent * amount / 100;
             const taxableValue = amount - discountAmount;
             const cgst = taxableValue * 0.025;
             const sgst = taxableValue * 0.025;
@@ -272,7 +273,15 @@ function GenerateInvoiceDialog({
         const tallyRes = await getStockFromTally(item.bcn);
         
         if (!crmRes.success || !tallyRes.success) {
-            toast({ variant: 'destructive', title: 'Verification Error', description: `Could not verify stock for ${item.itemName}. CRM: ${crmRes.message}, Tally: ${tallyRes.message}` });
+            // Instead of a toast, show the dialog with the error
+            setMismatchedItems([{ 
+                itemName: `Could not verify stock for ${item.itemName}.`,
+                crmQty: 0,
+                tallyQty: 0,
+                errorType: 'mismatch',
+                difference: 0
+            }]);
+            setIsStockMismatchOpen(true);
             setIsGenerating(false);
             return;
         }

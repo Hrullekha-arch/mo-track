@@ -333,7 +333,10 @@ async function buildVoucherFilterXML(ledgerName: string, amount: number, date: s
         <TDLMESSAGE>
           <COLLECTION NAME="VoucherFilter" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
-            <FETCH>VoucherNumber</FETCH>
+            <NATIVEMETHOD>VoucherNumber</NATIVEMETHOD>
+            <NATIVEMETHOD>VoucherTypeName</NATIVEMETHOD>
+            <NATIVEMETHOD>LedgerName</NATIVEMETHOD>
+            <NATIVEMETHOD>Date</NATIVEMETHOD>
             <FILTER>FilterByVoucherType</FILTER>
             <FILTER>FilterByLedgerName</FILTER>
             <FILTER>FilterByAmount</FILTER>
@@ -493,7 +496,7 @@ export async function getFirestoreStockQuantity(itemName: string): Promise<{ suc
         const stockId = itemName.replace(/\//g, '-');
         const stockRef = adminDb.collection('stocks').doc(stockId);
         const docSnap = await stockRef.get();
-        if (docSnap.exists()) {
+        if (docSnap.exists) {
             const quantity = docSnap.data()?.quantity || 0;
             return { success: true, quantity: quantity, message: 'Success' };
         }
