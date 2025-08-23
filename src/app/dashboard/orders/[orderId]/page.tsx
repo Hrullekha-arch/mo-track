@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, use, useMemo } from 'react';
@@ -7,9 +6,9 @@ import { doc, onSnapshot, updateDoc, collection, getDoc, query, where, getDocs, 
 import { db } from "@/lib/firebase";
 import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest, InvoiceBatch } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from '@/components/ui/skeleton';
+import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2 } from "lucide-react";
-import { Button } from '@/components/ui/button';
+import { Button } from "@/components/ui/button";
 import Link from 'next/link';
 import { Separator } from '@/components/ui/separator';
 import { MilestoneProgress } from '@/components/features/order-management/MilestoneProgress';
@@ -304,7 +303,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             <TableCell>
                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 
                  <Badge variant={status.variant} className={status.text.includes('Invoice Generated') ? 'bg-green-600' : ''}>
-                    {status.text}
+                    {status.text} {status.poNumber && `: ${status.poNumber}`}
                  </Badge>
                 }
             </TableCell>
@@ -507,4 +506,3 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
         </div>
     );
 }
-
