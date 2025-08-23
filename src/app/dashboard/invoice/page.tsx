@@ -481,9 +481,11 @@ function InvoiceTable({
         </Button>
       ),
       cell: ({ row }) => {
-         const createdAt = row.original.createdAt;
-         const date = new Date(createdAt);
-         return format(date, "dd/MM/yyyy HH:mm");
+         const createdAt = row.original.createdAt as any;
+         if (createdAt?.toDate) { // Check if it's a Firestore Timestamp
+            return format(createdAt.toDate(), "dd/MM/yyyy HH:mm");
+         }
+         return format(new Date(createdAt), "dd/MM/yyyy HH:mm");
       }
     },
     {
