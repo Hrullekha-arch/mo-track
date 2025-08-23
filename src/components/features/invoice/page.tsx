@@ -58,7 +58,7 @@ interface MismatchItem {
   errorType: 'mismatch' | 'insufficient';
   difference: number;
 }
- console.log("this")
+
 function GenerateInvoiceDialog({
   isOpen,
   onClose,
@@ -72,7 +72,6 @@ function GenerateInvoiceDialog({
   orders: Order[];
   creator: { id: string, name: string } | null;
 }) {
-  console.log("📌 GenerateInvoiceDialog mounted with props:", { isOpen, batches, orders, creator });
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isStockMismatchOpen, setIsStockMismatchOpen] = React.useState(false);
   const [mismatchedItems, setMismatchedItems] = React.useState<MismatchItem[]>([]);
@@ -82,11 +81,6 @@ function GenerateInvoiceDialog({
   const { toast } = useToast();
   
   const handleFinalGenerate = React.useCallback(async () => {
-    console.log("⚡ handleFinalGenerate started...");
-    console.log("👤 Creator:", creator);
-    console.log("📦 Orders:", orders);
-    console.log("📦 Batches:", batches);
-
     if (!creator) {
         toast({ variant: 'destructive', title: 'Error', description: 'You must be logged in to perform this action.' });
         return;
@@ -104,15 +98,12 @@ function GenerateInvoiceDialog({
         let newInvoiceNumber = 1001;
         if (!lastInvoiceSnap.empty) {
             const lastInvoiceNo = parseInt(lastInvoiceSnap.docs[0].data().invoiceNo, 10);
-            console.log("🔎 Last invoice snapshot:", lastInvoiceSnap.docs.map(d => d.data()));
             if (!isNaN(lastInvoiceNo)) {
                 newInvoiceNumber = lastInvoiceNo + 1;
-                
             }
         }
         
         const newInvoiceNumberStr = String(newInvoiceNumber);
-        console.log("🆕 New Invoice Number:", newInvoiceNumberStr);
 
         const allItems = batches.flatMap(b => b.items);
 
@@ -120,7 +111,7 @@ function GenerateInvoiceDialog({
             const qty = item.quantityAllocated;
             const rate = item.rate;
             const amount = qty * rate;
-            const discountAmount = item.discountPercent * amount / 100;
+            const discountAmount = amount * ((item.discountPercent || 0) / 100);
             const taxableValue = amount - discountAmount;
             const cgst = taxableValue * 0.025;
             const sgst = taxableValue * 0.025;
@@ -163,19 +154,11 @@ function GenerateInvoiceDialog({
             createdBy: creator.name,
             
         };
-        console.log("🧾 Totals calculated:", totals);
-        console.log("💰 Net Amount:", netAmount, " Rounded:", roundedAmount, " RoundOff:", roundOff);
 
         batch.set(newInvoiceRef, newInvoice);
         
         const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id };
         const tallyResult = await sendInvoiceToTally(fullInvoiceData);
-
-          console.log("📤 Voucher Fetch Request sent for invoice:", fullInvoiceData.id);
-          console.log("📥 Voucher Fetch Response from Tally:", tallyResult);
-          console.log("🔎 Voucher Number fetched:", tallyResult?.voucherNumber);
-
-
         
         // --- STOCK DEDUCTION LOGIC ---
         if (tallyResult.success) {
@@ -482,9 +465,9 @@ function InvoiceTable({
       header: "Invoice Amount",
       cell: ({ row }) => {
         const subtotal = row.original.items.reduce((sum, item) => {
-            const amount = item.quantityAllocated * item.rate;
-            const discountAmount = amount * ((item.discountPercent || 0) / 100);
-            return sum + (amount - discountAmount);
+          const amount = item.quantityAllocated * item.rate;
+          const discountAmount = amount * ((item.discountPercent || 0) / 100);
+          return sum + (amount - discountAmount);
         }, 0);
       
         const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
@@ -492,6 +475,8 @@ function InvoiceTable({
         const roundedAmount = Math.round(totalAmount);
         return `₹${roundedAmount.toFixed(2)}`;
       }
+      
+      ,
     },
     {
       accessorKey: "status",
