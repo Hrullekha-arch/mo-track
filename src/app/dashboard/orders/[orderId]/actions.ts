@@ -62,7 +62,6 @@ export async function allocateStockToAction(
         const discountPercent = fabricDetailItem?.discountPercent || 0;
   
         // --- ALL WRITES AFTER ---
-        const invoiceBatchRef = adminDb.collection("invoiceBatches").doc();
         const updateTimestamp = new Date().toISOString();
   
         // 1. Update stock quantities
@@ -95,25 +94,60 @@ export async function allocateStockToAction(
         });
         transaction.update(orderRef, { milestones: updatedMilestones });
   
-        // 4. Create invoice batch for this allocated item
-        const newInvoiceBatch: InvoiceBatch = {
-          id: invoiceBatchRef.id,
-          orderId: orderId,
-          customerName: orderData.customerName,
-          customerPhone: orderData.customerPhone,
-          createdAt: Timestamp.fromDate(new Date()),
-          status: 'pendingInvoice',
-          items: [{
+        // 4. Find or Create Invoice Batch
+        const invoiceBatchesRef = adminDb.collection("invoiceBatches");
+        const recentBatchesQuery = invoiceBatchesRef
+            .where("orderId", "==", orderId)
+            .where("status", "==", "pendingInvoice")
+            .orderBy("createdAt", "desc")
+            .limit(1);
+
+        const recentBatchesSnap = await transaction.get(recentBatchesQuery);
+        let targetBatchRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
+        let isNewBatch = true;
+        
+        if (!recentBatchesSnap.empty) {
+            const mostRecentBatch = recentBatchesSnap.docs[0];
+            const mostRecentBatchData = mostRecentBatch.data() as InvoiceBatch;
+            const now = Timestamp.now();
+            const tenMinutesAgo = new Timestamp(now.seconds - 600, now.nanoseconds);
+            
+            if (mostRecentBatchData.createdAt > tenMinutesAgo) {
+                targetBatchRef = mostRecentBatch.ref;
+                isNewBatch = false;
+            } else {
+                 targetBatchRef = invoiceBatchesRef.doc();
+            }
+        } else {
+            targetBatchRef = invoiceBatchesRef.doc();
+        }
+
+        const newItem: InvoiceBatchItem = {
             itemName: itemName,
             bcn: bcn,
             quantityAllocated: allocatedQty,
             rate: rate,
             discountPercent: discountPercent,
-            originalLength: lengthData.quantity, // roll's original length
-            stockAddedId: lengthId, // reference to specific roll
-          }]
+            originalLength: lengthData.quantity,
+            stockAddedId: lengthId,
         };
-        transaction.set(invoiceBatchRef, newInvoiceBatch);
+
+        if (isNewBatch) {
+            const newInvoiceBatch: InvoiceBatch = {
+                id: targetBatchRef.id,
+                orderId: orderId,
+                customerName: orderData.customerName,
+                customerPhone: orderData.customerPhone,
+                createdAt: Timestamp.now(),
+                status: 'pendingInvoice',
+                items: [newItem]
+            };
+            transaction.set(targetBatchRef, newInvoiceBatch);
+        } else {
+            transaction.update(targetBatchRef, {
+                items: FieldValue.arrayUnion(newItem)
+            });
+        }
       });
   
       return { success: true, message: 'Stock reserved successfully and sent for invoicing.' };
@@ -181,3 +215,4 @@ export async function debugGetDiscountPercent(orderId: string, bcn: string, leng
     return null;
   }
 }
+
