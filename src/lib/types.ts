@@ -1,7 +1,7 @@
 
 
 import { ComboboxOption } from "@/components/ui/combobox";
-import { Timestamp } from "firebase/firestore";
+import { Timestamp as AdminTimestamp } from "firebase-admin/firestore";
 
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
@@ -546,7 +546,7 @@ export interface InvoiceBatch {
     orderId: string;
     customerName: string;
     customerPhone: string;
-    createdAt: Timestamp;
+    createdAt: AdminTimestamp;
     status: 'pendingInvoice' | 'invoiced';
     items: InvoiceBatchItem[];
     tallyBillNo?: string | null;
@@ -616,3 +616,5 @@ export interface TaxDetail {
 
 
 export { type ComboboxOption };
+
+    
