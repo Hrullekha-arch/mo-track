@@ -208,26 +208,24 @@ export function StockManagement() {
                                     <TableHead>Date</TableHead>
                                     <TableHead>Qty</TableHead>
                                     <TableHead>Order ID</TableHead>
-                                    <TableHead>Length ID</TableHead>
                                     <TableHead>Status</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                  {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
+                                    <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow>
                                 ) : stockSoldTransactions.length > 0 ? (
                                     stockSoldTransactions.map(tx => (
                                         <TableRow key={tx.id}>
                                             <TableCell>{new Date(tx.createdAt).toLocaleDateString()}</TableCell>
                                             <TableCell className="font-mono">{Math.abs(tx.quantityChange).toFixed(2)}</TableCell>
                                             <TableCell>{tx.orderId}</TableCell>
-                                            <TableCell className="text-xs font-mono">{tx.lengthId || 'N/A'}</TableCell>
                                             <TableCell><Badge variant={tx.status === 'cut' ? 'default' : 'secondary'} className={cn(tx.status === 'cut' && 'bg-green-600')}>{tx.status || 'pending for cutting'}</Badge></TableCell>
                                         </TableRow>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="h-24 text-center">
+                                        <TableCell colSpan={4} className="h-24 text-center">
                                             No sold data available.
                                         </TableCell>
                                     </TableRow>
@@ -243,7 +241,6 @@ export function StockManagement() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Full Length</TableHead>
-                                    <TableHead>Length ID</TableHead>
                                     <TableHead>Available</TableHead>
                                     <TableHead>Reserved</TableHead>
                                     <TableHead>PO</TableHead>
@@ -252,7 +249,7 @@ export function StockManagement() {
                             </TableHeader>
                             <TableBody>
                                 {isLoadingDetails ? (
-                                    <TableRow><TableCell colSpan={6} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
+                                    <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin" /></TableCell></TableRow> 
                                 ) : stockAddedTransactions.length > 0 ? (
                                     stockAddedTransactions.map(tx => (
                                       <React.Fragment key={tx.id}>
@@ -269,7 +266,6 @@ export function StockManagement() {
                                                     <span>{`${(tx as any).quantity.toFixed(2)} Mtr`}</span>
                                                   </div>
                                                 </TableCell>
-                                                <TableCell className="text-xs font-mono">{tx.id}</TableCell>
                                                 <TableCell className="font-semibold text-green-600">{`${(tx as any).availableQty.toFixed(2)}`}</TableCell>
                                                 <TableCell className="font-semibold text-destructive">{`${(tx as any).reservedQty.toFixed(2)}`}</TableCell>
                                                 <TableCell>{tx.poNumber || 'N/A'}</TableCell>
@@ -277,7 +273,7 @@ export function StockManagement() {
                                             </TableRow>
                                             <CollapsibleContent asChild>
                                               <TableRow>
-                                                <TableCell colSpan={6} className="p-0">
+                                                <TableCell colSpan={5} className="p-0">
                                                   <CutHistoryView history={(tx as any).cutHistory} />
                                                 </TableCell>
                                               </TableRow>
@@ -288,7 +284,7 @@ export function StockManagement() {
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="h-24 text-center">
+                                        <TableCell colSpan={5} className="h-24 text-center">
                                             No purchase data available.
                                         </TableCell>
                                     </TableRow>
