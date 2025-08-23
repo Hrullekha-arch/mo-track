@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -273,9 +272,8 @@ function GenerateInvoiceDialog({
         const tallyRes = await getStockFromTally(item.bcn);
         
         if (!crmRes.success || !tallyRes.success) {
-            // Instead of a toast, show the dialog with the error
             setMismatchedItems([{ 
-                itemName: `Could not verify stock for ${item.itemName}.`,
+                itemName: `Could not verify stock for ${item.bcn}.`,
                 crmQty: 0,
                 tallyQty: 0,
                 errorType: 'mismatch',
@@ -291,7 +289,7 @@ function GenerateInvoiceDialog({
         
         if (crmQty !== tallyQty) {
           mismatches.push({ 
-              itemName: item.itemName, 
+              itemName: item.bcn, 
               crmQty, 
               tallyQty, 
               errorType: 'mismatch',
@@ -305,7 +303,6 @@ function GenerateInvoiceDialog({
       setIsStockMismatchOpen(true);
       setIsGenerating(false);
     } else {
-      // If stock matches, proceed directly to generating the invoice and Tally voucher.
       await handleFinalGenerate();
     }
   }, [creator, batches, handleFinalGenerate, toast]);
@@ -492,7 +489,7 @@ function InvoiceTable({
       header: "Status",
       cell: ({ row }) => {
         const status = row.original.status;
-        const tallyBillNo = row.original.tallyBillNo;
+        const tallyBillNo = row.original.tallyVoucherNo;
         const variant = status === 'pendingInvoice' ? 'secondary' : 'default';
         const color = status === 'pendingInvoice' ? '' : 'bg-green-600';
         const text = status === 'pendingInvoice' ? 'Pending for Invoice' : `Invoiced: ${tallyBillNo || ''}`;

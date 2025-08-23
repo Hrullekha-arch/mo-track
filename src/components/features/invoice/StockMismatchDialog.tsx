@@ -46,15 +46,15 @@ export function StockMismatchDialog({ isOpen, onClose, mismatchedItems }: StockM
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead>Item Bcn / Name</TableHead>
+                        <TableHead>Item BCN</TableHead>
                         <TableHead className="text-right">CRM Stock</TableHead>
                         <TableHead className="text-right">Tally Stock</TableHead>
                         <TableHead className="text-right">Difference</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {mismatchedItems.map(item => (
-                        <TableRow key={item.itemName}>
+                    {mismatchedItems.map((item, index) => (
+                        <TableRow key={`${item.itemName}-${index}`}>
                             <TableCell className="font-medium">{item.itemName}</TableCell>
                             <TableCell className="text-right font-semibold">{item.crmQty.toFixed(2)}</TableCell>
                             <TableCell className="text-right font-semibold">{item.tallyQty.toFixed(2)}</TableCell>
