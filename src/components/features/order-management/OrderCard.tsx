@@ -64,19 +64,16 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
   const isOrderComplete = currentOrder.milestones.every(m => m.completed) && (!!currentOrder.feedbackRating || !!currentOrder.customerFeedbackRating || !!currentOrder.bypassedOtp);
 
-  const handleMilestoneChange = async (milestoneId: number, completed: boolean) => {
-    if (!canEditMilestones) {
-        toast({ variant: "destructive", title: "Permission Denied", description: "You are not authorized to change milestones." });
+  const handleMilestoneChange = useCallback(async (milestoneId: number, completed: boolean) => {
+    if (!user) {
+        toast({ variant: "destructive", title: "Not authenticated."});
         return;
     }
-    
-    // Employees can only tick up to 'Ready for Delivery'
+
     if (role === 'employee' && milestoneId > 5) {
         toast({ variant: "destructive", title: "Permission Denied", description: "This milestone is updated by installers." });
         return;
     }
-
-    // Employees cannot revert milestones
     if (role === 'employee' && !completed && currentOrder.milestones.find(m => m.id === milestoneId)?.completed) {
         toast({ variant: "destructive", title: "Permission Denied", description: "You are not authorized to revert milestones." });
         return;
@@ -88,7 +85,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         m.id === milestoneId ? { ...m, completed, completedAt: completed ? new Date().toISOString() : null, completedBy: completed ? user?.name : null, location: null } : m
       );
       
-      // If un-checking a milestone, un-check all subsequent milestones
       if (!completed) {
           const milestoneIndex = updatedMilestones.findIndex(m => m.id === milestoneId);
           if (milestoneIndex !== -1) {
@@ -100,20 +96,17 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
       const updatePayload: any = { milestones: updatedMilestones };
 
-      // Generate OTP when order is first received
       if (milestoneId === 1 && completed && !currentOrder.otp) {
         updatePayload.otp = Math.floor(1000 + Math.random() * 9000).toString();
-        toast({ title: `Order ${currentOrder.id} Acknowledged`, description: `Generated OTP: ${updatePayload.otp}` });
       }
       
-      // Update O2D when "Stitching Done" is completed
       if (milestoneId === 4 && completed && currentOrder.dealId) {
         const o2dQuery = query(collection(db, "o2d"), where("dealId", "==", currentOrder.dealId));
         const o2dSnapshot = await getDocs(o2dQuery);
         if (!o2dSnapshot.empty) {
             const o2dDocRef = o2dSnapshot.docs[0].ref;
             const fullKitingMilestone: O2DStatus = {
-                stepId: 9, // 'Full Kiting'
+                stepId: 9,
                 status: 'completed',
                 completedAt: new Date().toISOString(),
                 completedBy: user?.name || "System",
@@ -123,7 +116,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             await updateDoc(o2dDocRef, {
                 milestones: arrayUnion(fullKitingMilestone)
             });
-             toast({ title: "O2D Step Automated", description: `Full Kiting marked as done for deal ${currentOrder.dealId}.` });
         }
       }
 
@@ -136,33 +128,26 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
       console.error("Error updating milestone: ", error);
       toast({ variant: "destructive", title: "Failed to update milestone." });
     }
-  };
+  }, [currentOrder, onUpdate, role, toast, user]);
 
-  // Real-time listener for Cutting collection
   useEffect(() => {
     if (!currentOrder?.id) return;
 
     const cuttingQuery = query(collection(db, "Cutting"), where("orderId", "==", currentOrder.id));
 
     const unsubscribe = onSnapshot(cuttingQuery, (snapshot) => {
-        if (snapshot.empty) return; // No cutting task for this order yet
+        if (snapshot.empty) return;
 
-        // Check if all cutting docs for this order are completed
         const allCompleted = snapshot.docs.every(doc => doc.data().status === "Completed");
 
-        // Only mark milestone if not already done
         const milestone3 = currentOrder.milestones.find(m => m.id === 3);
         if (allCompleted && !milestone3?.completed) {
-            console.log(`Cutting for order ${currentOrder.id} is complete. Updating milestone.`);
             handleMilestoneChange(3, true);
         }
     });
 
     return () => unsubscribe();
-    // handleMilestoneChange is a dependency, but adding it can cause loops.
-    // We can disable the eslint warning because the logic within only runs if the state changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentOrder.id, currentOrder.milestones]);
+  }, [currentOrder.id, currentOrder.milestones, handleMilestoneChange]);
 
 
   const handleShowMaterial = async () => {
@@ -180,7 +165,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             
             setMaterialDetails({ fabricDetails });
         } else {
-            // If no PR, use details from the order itself
             const fabricDetails = (currentOrder.fabricDetails || []).map(f => ({
                 name: f.fabricName,
                 quantity: f.quantity,
@@ -196,7 +180,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     }
   };
 
-  // Permissions Logic
   const canAssignCrm = (role === 'admin' || user?.designation === 'PC') && !isOrderComplete;
   const canAssignInstaller = ((role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && isReadyForDelivery) && !isOrderComplete;
   const canSchedule = (role === 'admin' || user?.designation === 'PC' || user?.designation === 'CRM') && !isOrderComplete;
@@ -245,14 +228,13 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
       const updatedOrder = { ...currentOrder, milestones: updatedMilestones };
       await updateDoc(orderRef, { milestones: updatedMilestones });
 
-      // Find the O2D document and update it
       if (currentOrder.dealId) {
         const o2dQuery = query(collection(db, "o2d"), where("dealId", "==", currentOrder.dealId));
         const o2dSnapshot = await getDocs(o2dQuery);
         if (!o2dSnapshot.empty) {
           const o2dDocRef = o2dSnapshot.docs[0].ref;
           const scheduleMilestone: O2DStatus = {
-            stepId: 12, // 'Installation/Delivery Schedule'
+            stepId: 12,
             status: 'completed',
             completedAt: new Date().toISOString(),
             completedBy: user?.name || "System",
@@ -284,7 +266,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         title: "Order Deleted",
         description: `${currentOrder.id} has been permanently deleted.`,
       });
-      // The onSnapshot listener in the parent component will handle UI updates.
     } catch (error) {
       console.error("Error deleting order:", error);
       toast({
@@ -319,7 +300,6 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    // This is a simulated refresh for user experience.
     setTimeout(() => {
         setIsRefreshing(false);
         toast({title: "Data is up to date."});
