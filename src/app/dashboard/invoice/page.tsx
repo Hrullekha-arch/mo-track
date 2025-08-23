@@ -58,7 +58,7 @@ interface MismatchItem {
   errorType: 'mismatch' | 'insufficient';
   difference: number;
 }
-
+ console.log("this")
 function GenerateInvoiceDialog({
   isOpen,
   onClose,
@@ -72,6 +72,7 @@ function GenerateInvoiceDialog({
   orders: Order[];
   creator: { id: string, name: string } | null;
 }) {
+  console.log("📌 GenerateInvoiceDialog mounted with props:", { isOpen, batches, orders, creator });
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isStockMismatchOpen, setIsStockMismatchOpen] = React.useState(false);
   const [mismatchedItems, setMismatchedItems] = React.useState<MismatchItem[]>([]);
@@ -81,6 +82,11 @@ function GenerateInvoiceDialog({
   const { toast } = useToast();
   
   const handleFinalGenerate = React.useCallback(async () => {
+    console.log("⚡ handleFinalGenerate started...");
+    console.log("👤 Creator:", creator);
+    console.log("📦 Orders:", orders);
+    console.log("📦 Batches:", batches);
+
     if (!creator) {
         toast({ variant: 'destructive', title: 'Error', description: 'You must be logged in to perform this action.' });
         return;
@@ -98,12 +104,16 @@ function GenerateInvoiceDialog({
         let newInvoiceNumber = 1001;
         if (!lastInvoiceSnap.empty) {
             const lastInvoiceNo = parseInt(lastInvoiceSnap.docs[0].data().invoiceNo, 10);
+            console.log("🔎 Last invoice snapshot:", lastInvoiceSnap.docs.map(d => d.data()));
             if (!isNaN(lastInvoiceNo)) {
                 newInvoiceNumber = lastInvoiceNo + 1;
+                
             }
         }
         
         const newInvoiceNumberStr = String(newInvoiceNumber);
+        console.log("🆕 New Invoice Number:", newInvoiceNumberStr);
+
         const allItems = batches.flatMap(b => b.items);
 
         const totals = allItems.reduce((acc, item) => {
@@ -151,11 +161,21 @@ function GenerateInvoiceDialog({
             },
             createdAt: new Date().toISOString(),
             createdBy: creator.name,
+            
         };
+        console.log("🧾 Totals calculated:", totals);
+        console.log("💰 Net Amount:", netAmount, " Rounded:", roundedAmount, " RoundOff:", roundOff);
+
         batch.set(newInvoiceRef, newInvoice);
         
         const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id };
         const tallyResult = await sendInvoiceToTally(fullInvoiceData);
+
+          console.log("📤 Voucher Fetch Request sent for invoice:", fullInvoiceData.id);
+          console.log("📥 Voucher Fetch Response from Tally:", tallyResult);
+          console.log("🔎 Voucher Number fetched:", tallyResult?.voucherNumber);
+
+
         
         // --- STOCK DEDUCTION LOGIC ---
         if (tallyResult.success) {

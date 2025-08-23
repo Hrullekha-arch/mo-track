@@ -9,6 +9,8 @@ import { format } from 'date-fns';
 
 // ---------------- Helpers ----------------
 
+console.log("log is working")
+
 function escapeXml(unsafe: string): string {
   if (typeof unsafe !== 'string') return '';
   return unsafe.replace(/[<>&'"]/g, c => {
@@ -24,17 +26,28 @@ function escapeXml(unsafe: string): string {
 
 function getEnvTallyUrl(): string {
   const url = process.env.TALLY_SERVER_URL;
+  console.log("tally url",url)
   if (!url) throw new Error('TALLY_SERVER_URL is not set');
   return url;
 }
 
 async function httpPostXml(xml: string): Promise<string> {
+  console.log("=============================================");
+  console.log("📤 Sending XML to Tally:");
+  console.log(xml);
+  console.log("=============================================");
+
   const res = await fetch(getEnvTallyUrl(), {
     method: 'POST',
     headers: { 'Content-Type': 'text/xml' },
     body: xml,
   });
   const text = await res.text();
+
+  console.log("📥 Response from Tally:");
+  console.log(text);
+  console.log("=============================================");
+
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}: ${res.statusText} -> ${text.slice(0, 300)}`);
   }
@@ -45,10 +58,21 @@ function tallyCreateOk(xml: string): boolean {
   return /<CREATED>1<\/CREATED>/.test(xml) || /<ALTERED>1<\/ALTERED>/.test(xml);
 }
 
-function extractVoucherNumber(xml: string): string | undefined {
-  console.log("Tally voucher fetch response XML:", xml);
-  const matches = [...xml.matchAll(/<VOUCHERNUMBER>([^<]+)<\/VOUCHERNUMBER>/g)];
-  return matches.length ? matches[matches.length - 1][1] : undefined;
+// --- safer: extract voucher number ---
+async function extractVoucherNumber(xml: string): Promise<string | undefined> {
+  try {
+    const parsed = await xml2js.parseStringPromise(xml, { explicitArray: false, trim: true });
+    const vouchers = parsed?.ENVELOPE?.BODY?.DATA?.COLLECTION?.VOUCHER;
+
+    if (!vouchers) return undefined;
+    const voucherArray = Array.isArray(vouchers) ? vouchers : [vouchers];
+    const lastVoucher = voucherArray[voucherArray.length - 1];
+
+    return lastVoucher?.VOUCHERNUMBER?.trim() || undefined;
+  } catch (err) {
+    console.error("Parse error while extracting voucher:", err);
+    return undefined;
+  }
 }
 
 // ---------------- XML Builders ----------------
@@ -120,173 +144,177 @@ export async function buildStockItemCreateXML(itemName: string): Promise<string>
 </ENVELOPE>`.trim();
 }
 
+// --- (keeping your buildSalesVoucherXML unchanged) ---
+
 export async function buildSalesVoucherXML(invoice: Invoice): Promise<string> {
-    const money = (n: number) => (Math.round(n * 100) / 100);
-    const fmt = (n: number) => money(n).toFixed(2);
+  const money = (n: number) => (Math.round(n * 100) / 100);
+  const fmt = (n: number) => money(n).toFixed(2);
 
-    const date = format(new Date(), 'yyyyMMdd');
-    const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
-    
-    let salesmanRefText = invoice.salesPerson;
-    const orderDoc = await adminDb.collection('orders').doc(invoice.orderId).get();
-    if (orderDoc.exists && orderDoc.data()?.representativeId) {
-        const salesmanDoc = await adminDb.collection('users').doc(orderDoc.data()?.representativeId).get();
-        if (salesmanDoc.exists) {
-            const salesmanData = salesmanDoc.data() as User;
-            salesmanRefText = `${salesmanData.name} (${salesmanData.salesmanCode || 'N/A'})`;
-        }
-    }
-    
-    const totalQty = invoice.items.reduce((sum, item) => sum + item.quantityAllocated, 0);
-    const firstItemName = invoice.items[0]?.bcn || 'items';
-    const narration = escapeXml(`Sale of ${totalQty} mtr of Stock Item ${firstItemName}`);
-    const stateName = "Haryana"; 
+  const date = format(new Date(), 'yyyyMMdd');
+  const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
+  
+  let salesmanRefText = invoice.salesPerson;
+  const orderDoc = await adminDb.collection('orders').doc(invoice.orderId).get();
+  if (orderDoc.exists && orderDoc.data()?.representativeId) {
+      const salesmanDoc = await adminDb.collection('users').doc(orderDoc.data()?.representativeId).get();
+      if (salesmanDoc.exists) {
+          const salesmanData = salesmanDoc.data() as User;
+          salesmanRefText = `${salesmanData.name} (${salesmanData.salesmanCode || 'N/A'})`;
+      }
+  }
+  
+  const totalQty = invoice.items.reduce((sum, item) => sum + item.quantityAllocated, 0);
+  const firstItemName = invoice.items[0]?.bcn || 'items';
+  const narration = escapeXml(`Sale of ${totalQty} mtr of Stock Item ${firstItemName}`);
+  const stateName = "Haryana"; 
 
-    const uniqueBcns = [...new Set(invoice.items.map(item => item.bcn))];
-    const stockDetailsMap = new Map<string, Stock>();
-    const taxDetailsMap = new Map<string, TaxDetail>();
+  const uniqueBcns = [...new Set(invoice.items.map(item => item.bcn))];
+  const stockDetailsMap = new Map<string, Stock>();
+  const taxDetailsMap = new Map<string, TaxDetail>();
 
-    for (const bcn of uniqueBcns) {
-        const stockId = bcn.replace(/\//g, '-');
-        const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
-        if (stockDoc.exists) {
-            const stockData = stockDoc.data() as Stock;
-            stockDetailsMap.set(bcn, stockData);
-            if (stockData.hsnCode) {
-                const taxDoc = await adminDb.collection('taxDetails').doc(stockData.hsnCode).get();
-                if (taxDoc.exists) {
-                    taxDetailsMap.set(stockData.hsnCode, taxDoc.data() as TaxDetail);
-                }
-            }
-        }
-    }
+  for (const bcn of uniqueBcns) {
+      await createIfNeeded(await buildStockItemCreateXML(bcn));
+      const stockId = bcn.replace(/\//g, '-');
+      const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
+      if (stockDoc.exists) {
+          const stockData = stockDoc.data() as Stock;
+          stockDetailsMap.set(bcn, stockData);
+          if (stockData.hsnCode) {
+              const taxDoc = await adminDb.collection('taxDetails').doc(stockData.hsnCode).get();
+              if (taxDoc.exists) {
+                  taxDetailsMap.set(stockData.hsnCode, taxDoc.data() as TaxDetail);
+              }
+          }
+      }
+  }
 
-    let inventoryEntries = '';
-    let totalTaxableValue = 0;
+  let inventoryEntries = '';
+  let totalTaxableValue = 0;
 
-    for (const item of invoice.items) {
-        const stockDetail = stockDetailsMap.get(item.bcn);
-        const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
-        const gstRate = taxDetail?.gst ?? 5; 
-        const halfGst = gstRate / 2;
-        const unit = stockDetail?.unit || 'mtr';
+  for (const item of invoice.items) {
+      const stockDetail = stockDetailsMap.get(item.bcn);
+      const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
+      const gstRate = taxDetail?.gst ?? 5; 
+      const halfGst = gstRate / 2;
+      const unit = stockDetail?.unit || 'mtr';
 
-        const ledgerName = `Haryana Sale @ ${gstRate}%`;
+      const ledgerName = `Haryana Sale @ ${gstRate}%`;
 
-        const qty = money(Number(item.quantityAllocated || 0));
-        const rate = money(Number(item.rate || 0));
-        const lineAmount = money(rate * qty);
-        
-        const discountPercent = money(item.discountPercent || 0);
-        const discountAmount = money(lineAmount * (discountPercent / 100));
-        const itemTaxableValue = money(lineAmount - discountAmount);
-        totalTaxableValue += itemTaxableValue;
+      const qty = money(Number(item.quantityAllocated || 0));
+      const rate = money(Number(item.rate || 0));
+      const lineAmount = money(rate * qty);
+      
+      const discountPercent = money(item.discountPercent || 0);
+      const discountAmount = money(lineAmount * (discountPercent / 100));
+      const itemTaxableValue = money(lineAmount - discountAmount);
+      totalTaxableValue += itemTaxableValue;
 
-        inventoryEntries += `
-            <ALLINVENTORYENTRIES.LIST>
-              <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
-              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <RATE>${fmt(rate)}/${unit}</RATE>
-              <DISCOUNT>${fmt(discountPercent)}</DISCOUNT>
+      inventoryEntries += `
+          <ALLINVENTORYENTRIES.LIST>
+            <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <RATE>${fmt(rate)}/${unit}</RATE>
+            <DISCOUNT>${fmt(discountPercent)}</DISCOUNT>
+            <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+            <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
+            <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
+            <BATCHALLOCATIONS.LIST>
+              <GODOWNNAME>Mo</GODOWNNAME>
+              <BATCHNAME>Primary Batch</BATCHNAME>
               <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
               <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
               <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
-              <BATCHALLOCATIONS.LIST>
-                <GODOWNNAME>Mo</GODOWNNAME>
-                <BATCHNAME>Primary Batch</BATCHNAME>
-                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-                <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
-                <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
-              </BATCHALLOCATIONS.LIST>
-              <ACCOUNTINGALLOCATIONS.LIST>
-                <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
-                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-              </ACCOUNTINGALLOCATIONS.LIST>
-              <RATEDETAILS.LIST>
-                <GSTRATEDUTYHEAD>CGST</GSTRATEDUTYHEAD>
-                <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
-                <GSTRATE>${halfGst}</GSTRATE>
-              </RATEDETAILS.LIST>
-              <RATEDETAILS.LIST>
-                <GSTRATEDUTYHEAD>SGST/UTGST</GSTRATEDUTYHEAD>
-                <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
-                <GSTRATE>${halfGst}</GSTRATE>
-              </RATEDETAILS.LIST>
-            </ALLINVENTORYENTRIES.LIST>`;
-    }
-    const cgst = money(totalTaxableValue * 0.025);
-    const sgst = money(totalTaxableValue * 0.025);
-    const totalAmountBeforeRoundOff = money(totalTaxableValue + cgst + sgst);
-    const roundedTotal = Math.round(totalAmountBeforeRoundOff);
-    const roundOff = money(roundedTotal - totalAmountBeforeRoundOff);
-    
-    const partyLedgerEntry = `<LEDGERENTRIES.LIST>
-            <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-            <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
-            <AMOUNT>-${fmt(roundedTotal)}</AMOUNT>
-        </LEDGERENTRIES.LIST>`;
-    
-    const cgstLedgerEntry = `<LEDGERENTRIES.LIST>
-            <LEDGERNAME>Output CGST</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-            <AMOUNT>${fmt(cgst)}</AMOUNT>
-            <VATEXPAMOUNT>${fmt(cgst)}</VATEXPAMOUNT>
-        </LEDGERENTRIES.LIST>`;
+            </BATCHALLOCATIONS.LIST>
+            <ACCOUNTINGALLOCATIONS.LIST>
+              <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+            </ACCOUNTINGALLOCATIONS.LIST>
+            <RATEDETAILS.LIST>
+              <GSTRATEDUTYHEAD>CGST</GSTRATEDUTYHEAD>
+              <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
+              <GSTRATE>${halfGst}</GSTRATE>
+            </RATEDETAILS.LIST>
+            <RATEDETAILS.LIST>
+              <GSTRATEDUTYHEAD>SGST/UTGST</GSTRATEDUTYHEAD>
+              <GSTRATEVALUATIONTYPE>Based on Value</GSTRATEVALUATIONTYPE>
+              <GSTRATE>${halfGst}</GSTRATE>
+            </RATEDETAILS.LIST>
+          </ALLINVENTORYENTRIES.LIST>`;
+  }
+  const cgst = money(totalTaxableValue * 0.025);
+  const sgst = money(totalTaxableValue * 0.025);
+  const totalAmountBeforeRoundOff = money(totalTaxableValue + cgst + sgst);
+  const roundedTotal = Math.round(totalAmountBeforeRoundOff);
+  const roundOff = money(roundedTotal - totalAmountBeforeRoundOff);
+  
+  const partyLedgerEntry = `<LEDGERENTRIES.LIST>
+          <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+          <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+          <AMOUNT>-${fmt(roundedTotal)}</AMOUNT>
+      </LEDGERENTRIES.LIST>`;
+  
+  const cgstLedgerEntry = `<LEDGERENTRIES.LIST>
+          <LEDGERNAME>Output CGST</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>${fmt(cgst)}</AMOUNT>
+          <VATEXPAMOUNT>${fmt(cgst)}</VATEXPAMOUNT>
+      </LEDGERENTRIES.LIST>`;
 
-    const sgstLedgerEntry = `<LEDGERENTRIES.LIST>
-            <LEDGERNAME>Output SGST</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-            <AMOUNT>${fmt(sgst)}</AMOUNT>
-            <VATEXPAMOUNT>${fmt(sgst)}</VATEXPAMOUNT>
-        </LEDGERENTRIES.LIST>`;
-        
-    const roundOffLedgerEntry = roundOff !== 0 ? `<LEDGERENTRIES.LIST>
-          <LEDGERNAME>Round Off</LEDGERNAME>
-          <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
-          <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
-        </LEDGERENTRIES.LIST>` : '';
+  const sgstLedgerEntry = `<LEDGERENTRIES.LIST>
+          <LEDGERNAME>Output SGST</LEDGERNAME>
+          <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+          <AMOUNT>${fmt(sgst)}</AMOUNT>
+          <VATEXPAMOUNT>${fmt(sgst)}</VATEXPAMOUNT>
+      </LEDGERENTRIES.LIST>`;
+      
+  const roundOffLedgerEntry = roundOff !== 0 ? `<LEDGERENTRIES.LIST>
+        <LEDGERNAME>Round Off</LEDGERNAME>
+        <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
+        <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
+      </LEDGERENTRIES.LIST>` : '';
 
-    return `
+  return `
 <ENVELOPE>
-  <HEADER>
-    <TALLYREQUEST>Import Data</TALLYREQUEST>
-  </HEADER>
-  <BODY>
-    <IMPORTDATA>
-      <REQUESTDESC>
-        <REPORTNAME>Vouchers</REPORTNAME>
-        <STATICVARIABLES>
-          <SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY>
-        </STATICVARIABLES>
-      </REQUESTDESC>
-      <REQUESTDATA>
-        <TALLYMESSAGE xmlns:UDF="TallyUDF">
-          <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
-            <DATE>${date}</DATE>
-            <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
-            <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
-            <REFERENCE>${escapeXml(salesmanRefText)}</REFERENCE>
-            <ISINVOICE>Yes</ISINVOICE>
-            <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
-            <PARTYNAME>${partyLedgerName}</PARTYNAME>
-            <STATENAME>${stateName}</STATENAME>
-            <PLACEOFSUPPLY>${stateName}</PLACEOFSUPPLY>
-            <NARRATION>${narration}</NARRATION>
-            ${partyLedgerEntry}
-            ${inventoryEntries}
-            ${cgstLedgerEntry}
-            ${sgstLedgerEntry}
-            ${roundOffLedgerEntry}
-          </VOUCHER>
-        </TALLYMESSAGE>
-      </REQUESTDATA>
-    </IMPORTDATA>
-  </BODY>
+<HEADER>
+  <TALLYREQUEST>Import Data</TALLYREQUEST>
+</HEADER>
+<BODY>
+  <IMPORTDATA>
+    <REQUESTDESC>
+      <REPORTNAME>Vouchers</REPORTNAME>
+      <STATICVARIABLES>
+        <SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY>
+      </STATICVARIABLES>
+    </REQUESTDESC>
+    <REQUESTDATA>
+      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
+          <DATE>${date}</DATE>
+          <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+          <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
+          <REFERENCE>${escapeXml(salesmanRefText)}</REFERENCE>
+          <ISINVOICE>Yes</ISINVOICE>
+          <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
+          <PARTYNAME>${partyLedgerName}</PARTYNAME>
+          <STATENAME>${stateName}</STATENAME>
+          <PLACEOFSUPPLY>${stateName}</PLACEOFSUPPLY>
+          <NARRATION>${narration}</NARRATION>
+          ${partyLedgerEntry}
+          ${inventoryEntries}
+          ${cgstLedgerEntry}
+          ${sgstLedgerEntry}
+          ${roundOffLedgerEntry}
+        </VOUCHER>
+      </TALLYMESSAGE>
+    </REQUESTDATA>
+  </IMPORTDATA>
+</BODY>
 </ENVELOPE>`.trim();
 }
 
+// --- (---------------------------------------------------)-----
 export async function buildVoucherFilterXML(ledgerName: string, amount: number): Promise<string> {
   const amountStr = (Math.round(amount * 100) / 100).toFixed(2);
   const date = format(new Date(), 'yyyyMMdd');
@@ -323,7 +351,7 @@ export async function buildVoucherFilterXML(ledgerName: string, amount: number):
             $LedgerName = $$String:"${ledgerName}"
           </SYSTEM>
           <SYSTEM TYPE="Formulae" NAME="FilterByAmount">
-            $Amount = ${amountStr}
+            ABS($Amount) = ${amountStr}
           </SYSTEM>
           <SYSTEM TYPE="Formulae" NAME="FilterByDate">
             $Date = $$Date:${date}
@@ -334,7 +362,6 @@ export async function buildVoucherFilterXML(ledgerName: string, amount: number):
   </BODY>
 </ENVELOPE>`.trim();
 }
-
 
 // ---------------- Main ops ----------------
 
@@ -351,41 +378,40 @@ async function createIfNeeded(xml: string): Promise<{ success: boolean; message:
 async function fetchAndSaveVoucherNumber(invoice: Invoice): Promise<string | undefined> {
   const ledgerName = `${invoice.customer.name}-${invoice.customer.phone}`;
   const amount = Number(invoice?.totals?.grandTotal ?? 0);
-
   const filterXml = await buildVoucherFilterXML(escapeXml(ledgerName), amount);
 
-  try {
-    console.log("Sending Tally voucher fetch XML:", filterXml);
+  console.log("=============================================");
+  console.log("📤 Voucher Fetch Request XML (sending to Tally):");
+  console.log(filterXml);
+  console.log("=============================================");
 
+  let voucherNo: string | undefined;
+  for (let attempt = 0; attempt < 3 && !voucherNo; attempt++) {
+    await new Promise(r => setTimeout(r, 5000));
     const xml = await httpPostXml(filterXml);
 
-    console.log("Tally voucher fetch response XML:", xml);
+    console.log(`📥 Attempt ${attempt + 1}: Voucher Fetch Response XML (from Tally):`);
+    console.log(xml);
+    console.log("=============================================");
 
-    const voucherNo = extractVoucherNumber(xml);
-    if (voucherNo) {
-      const batch = adminDb.batch();
-      const invoiceRef = adminDb.collection("invoices").doc(invoice.id);
-      batch.update(invoiceRef, { tallyVoucherNo: voucherNo });
-
-      const batchesSnap = await adminDb
-        .collection("invoiceBatches")
-        .where("invoiceId", "==", invoice.id)
-        .get();
-
-      batchesSnap.forEach(docSnap => {
-        batch.update(docSnap.ref, { tallyBillNo: voucherNo });
-      });
-
-      await batch.commit();
-    }
-    return voucherNo;
-  } catch (e) {
-    console.error("Voucher fetch failed:", e);
-    return undefined;
+    voucherNo = await extractVoucherNumber(xml);
+    console.log(`🔎 Attempt ${attempt + 1}: Extracted Voucher No =`, voucherNo);
   }
+
+  if (voucherNo) {
+    const batch = adminDb.batch();
+    batch.update(adminDb.collection("invoices").doc(invoice.id), { tallyVoucherNo: voucherNo });
+    const batchesSnap = await adminDb.collection("invoiceBatches").where("invoiceId", "==", invoice.id).get();
+    batchesSnap.forEach(docSnap => batch.update(docSnap.ref, { tallyBillNo: voucherNo }));
+    await batch.commit();
+  } else {
+    console.error(`❌ Failed to fetch voucher number for invoice ${invoice.id} after 3 attempts.`);
+  }
+
+  return voucherNo;
 }
 
-
+// --- (keeping sendInvoiceToTally, getStockFromTally, getFirestoreStockQuantity as in your code) --
 
 export async function sendInvoiceToTally(
   invoice: Invoice
@@ -412,7 +438,7 @@ export async function sendInvoiceToTally(
   }
 
   // 3) On successful creation, fetch the voucher number
-  await new Promise(resolve => setTimeout(resolve, 2000)); // Small delay to allow Tally to process
+  await new Promise(resolve => setTimeout(resolve, 10000)); // Small delay to allow Tally to process
   const voucherNumber = await fetchAndSaveVoucherNumber(invoice);
   
   return {
@@ -487,5 +513,3 @@ export async function getFirestoreStockQuantity(itemName: string): Promise<{ suc
         return { success: false, quantity: null, message: error.message };
     }
 }
-
-    
