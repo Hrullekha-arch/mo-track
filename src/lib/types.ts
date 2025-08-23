@@ -546,7 +546,7 @@ export interface InvoiceBatch {
     orderId: string;
     customerName: string;
     customerPhone: string;
-    createdAt: AdminTimestamp;
+    createdAt: string; // Changed to string
     status: 'pendingInvoice' | 'invoiced';
     items: InvoiceBatchItem[];
     tallyBillNo?: string | null;
@@ -617,4 +617,3 @@ export interface TaxDetail {
 
 export { type ComboboxOption };
 
-    

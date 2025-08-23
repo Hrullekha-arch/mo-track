@@ -37,7 +37,7 @@ export async function combineInvoiceBatchesAction(
       orderId: firstBatch.orderId,
       customerName: firstBatch.customerName,
       customerPhone: firstBatch.customerPhone,
-      createdAt: admin.firestore.Timestamp.now(),
+      createdAt: new Date().toISOString(),
       status: 'pendingInvoice',
       items: combinedItems,
       isCombined: true,
