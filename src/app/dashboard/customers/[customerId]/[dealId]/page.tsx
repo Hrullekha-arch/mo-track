@@ -2824,6 +2824,7 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                                     <TableRow>
                                         <TableHead>Item</TableHead>
                                         <TableHead>Type</TableHead>
+                                        <TableHead>Fabric Type</TableHead>
                                         <TableHead>Qty</TableHead>
                                         <TableHead>Rate</TableHead>
                                         <TableHead>Dis%</TableHead>
@@ -2836,6 +2837,7 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                                             <TableRow>
                                                 <TableCell>{item.itemName}</TableCell>
                                                 <TableCell>{item.type}</TableCell>
+                                                <TableCell>{item.fabricType || 'N/A'}</TableCell>
                                                 <TableCell>{item.qty}</TableCell>
                                                 <TableCell>{item.rate}</TableCell>
                                                 <TableCell>{item.dis}</TableCell>
@@ -3053,4 +3055,5 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
 
 
     
+
 
