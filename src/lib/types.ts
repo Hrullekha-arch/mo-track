@@ -440,6 +440,16 @@ export interface Dimension {
     advanceDetails?: AdvanceDetail[];
 }
 
+export interface StitchDimension {
+    id: string;
+    vas?: string;
+    lengths?: string;
+    width?: string;
+    operation?: string;
+    noOfPanels?: string;
+    remark?: string;
+}
+
 export interface CpdItem {
   itemName: string;
   type: string;
@@ -450,6 +460,8 @@ export interface CpdItem {
   amount?: string;
   hasDimension?: boolean;
   dimensions?: Dimension[];
+  hasStitchDimension?: boolean;
+  stitchDimensions?: StitchDimension[];
 }
 
 export interface CpdRoom {
@@ -546,7 +558,7 @@ export interface InvoiceBatch {
     orderId: string;
     customerName: string;
     customerPhone: string;
-    createdAt: string; // Changed to string
+    createdAt: string; // ISO string now
     status: 'pendingInvoice' | 'invoiced';
     items: InvoiceBatchItem[];
     tallyBillNo?: string | null;
@@ -616,4 +628,3 @@ export interface TaxDetail {
 
 
 export { type ComboboxOption };
-

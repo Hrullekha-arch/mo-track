@@ -8,7 +8,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, CpdItem } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, CpdItem, StitchDimension } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -217,6 +217,16 @@ const dimensionSchema = z.object({
   advanceDetails: z.array(advanceDetailSchema).optional(),
 });
 
+const stitchDimensionSchema = z.object({
+    id: z.string().optional(),
+    vas: z.string().optional(),
+    lengths: z.string().optional(),
+    width: z.string().optional(),
+    operation: z.string().optional(),
+    noOfPanels: z.string().optional(),
+    remark: z.string().optional(),
+});
+
 const cpdItemSchema = z.object({
   itemName: z.string().min(1, "Item Name (BCN) is required."),
   type: z.string().min(1, "Type is required."),
@@ -227,6 +237,8 @@ const cpdItemSchema = z.object({
   amount: z.string().optional().default('0'),
   hasDimension: z.boolean().optional(),
   dimensions: z.array(dimensionSchema).optional(),
+  hasStitchDimension: z.boolean().optional(),
+  stitchDimensions: z.array(stitchDimensionSchema).optional(),
 });
 
 const cpdRoomSchema = z.object({
@@ -632,6 +644,8 @@ function RoomFields({ roomIndex, onRemoveRoom, roomOptions, productTypeOptions, 
 function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, openAddOptionDialog }: { roomIndex: number, itemIndex: number, onRemoveItem: () => void, productTypeOptions: ComboboxOption[], openAddOptionDialog: (field: 'room' | 'type', onSave: (value: string) => void) => void }) {
     const { control, watch, setValue } = useFormContext<CpdFormValues>();
     const hasDimension = watch(`rooms.${roomIndex}.items.${itemIndex}.hasDimension`);
+    const hasStitchDimension = watch(`rooms.${roomIndex}.items.${itemIndex}.hasStitchDimension`);
+
     const { toast } = useToast();
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
     const [isSearchingBcn, setIsSearchingBcn] = useState(false);
@@ -655,16 +669,34 @@ function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, op
         name: `rooms.${roomIndex}.items.${itemIndex}.dimensions`,
     });
 
+     const { fields: stitchDimensionFields, append: appendStitchDimension, remove: removeStitchDimension } = useFieldArray({
+        control,
+        name: `rooms.${roomIndex}.items.${itemIndex}.stitchDimensions`,
+    });
+
     const handleHasDimensionChange = (checked: boolean) => {
         setValue(`rooms.${roomIndex}.items.${itemIndex}.hasDimension`, checked);
         if (checked && dimensionFields.length === 0) {
             appendDimension({ id: new Date().toISOString(), length: '', width: '', type: [], advanceDetails: [] });
         } else if (!checked) {
-            // Optional: clear dimensions when unchecked
             const dimensions = watch(`rooms.${roomIndex}.items.${itemIndex}.dimensions`);
             if (dimensions) {
                 for (let i = dimensions.length - 1; i >= 0; i--) {
                     removeDimension(i);
+                }
+            }
+        }
+    };
+
+    const handleHasStitchDimensionChange = (checked: boolean) => {
+        setValue(`rooms.${roomIndex}.items.${itemIndex}.hasStitchDimension`, checked);
+        if (checked && stitchDimensionFields.length === 0) {
+            appendStitchDimension({ id: new Date().toISOString(), vas: '', lengths: '', width: '', operation: '', noOfPanels: '', remark: '' });
+        } else if (!checked) {
+            const dimensions = watch(`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions`);
+            if (dimensions) {
+                for (let i = dimensions.length - 1; i >= 0; i--) {
+                    removeStitchDimension(i);
                 }
             }
         }
@@ -754,19 +786,32 @@ function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, op
                     <Trash2 className="h-4 w-4" />
                 </Button>
             </div>
-            
-             <FormField
-                control={control}
-                name={`rooms.${roomIndex}.items.${itemIndex}.hasDimension`}
-                render={({ field }) => (
-                    <FormItem className="flex flex-row items-center space-x-2 space-y-0 pt-2">
-                        <FormControl>
-                            <Checkbox checked={field.value} onCheckedChange={handleHasDimensionChange} />
-                        </FormControl>
-                        <FormLabel className="font-medium">Dimension</FormLabel>
-                    </FormItem>
-                )}
-            />
+            <div className="flex items-center space-x-4">
+              <FormField
+                  control={control}
+                  name={`rooms.${roomIndex}.items.${itemIndex}.hasDimension`}
+                  render={({ field }) => (
+                      <FormItem className="flex flex-row items-center space-x-2 space-y-0 pt-2">
+                          <FormControl>
+                              <Checkbox checked={field.value} onCheckedChange={handleHasDimensionChange} />
+                          </FormControl>
+                          <FormLabel className="font-medium">Dimension</FormLabel>
+                      </FormItem>
+                  )}
+              />
+              <FormField
+                  control={control}
+                  name={`rooms.${roomIndex}.items.${itemIndex}.hasStitchDimension`}
+                  render={({ field }) => (
+                      <FormItem className="flex flex-row items-center space-x-2 space-y-0 pt-2">
+                          <FormControl>
+                              <Checkbox checked={field.value} onCheckedChange={handleHasStitchDimensionChange} />
+                          </FormControl>
+                          <FormLabel className="font-medium">Stitch Dimension</FormLabel>
+                      </FormItem>
+                  )}
+              />
+            </div>
 
             {hasDimension && (
                 <div className="pl-4 space-y-3">
@@ -778,6 +823,54 @@ function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, op
                     </Button>
                 </div>
             )}
+             {hasStitchDimension && (
+                <div className="pl-4 space-y-3">
+                    {stitchDimensionFields.map((stitchField, stitchIndex) => (
+                        <StitchDimensionFields key={stitchField.id} roomIndex={roomIndex} itemIndex={itemIndex} stitchDimensionIndex={stitchIndex} onRemoveStitchDimension={() => removeStitchDimension(stitchIndex)} />
+                    ))}
+                    <Button type="button" size="sm" variant="outline" onClick={() => appendStitchDimension({ id: new Date().toISOString(), vas: '', lengths: '', width: '', operation: '', noOfPanels: '', remark: '' })}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Stitch Dimension
+                    </Button>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function StitchDimensionFields({ roomIndex, itemIndex, stitchDimensionIndex, onRemoveStitchDimension }: { roomIndex: number; itemIndex: number; stitchDimensionIndex: number; onRemoveStitchDimension: () => void; }) {
+    const { control } = useFormContext<CpdFormValues>();
+    
+    // In a real app, these would come from a database or constants file.
+    const vasOptions: ComboboxOption[] = [
+        { value: 'stitching', label: 'Stitching' },
+        { value: 'hemming', label: 'Hemming' },
+        { value: 'eyelets', label: 'Eyelets' },
+    ];
+    
+    return (
+        <div className="p-3 border rounded-lg bg-gray-50/50 space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                <FormField
+                    control={control}
+                    name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.vas`}
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel className="text-xs">VAS</FormLabel>
+                            <Combobox options={vasOptions} value={field.value} onSelect={field.onChange} placeholder="Select VAS" />
+                        </FormItem>
+                    )}
+                />
+                 <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.lengths`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Lengths</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                 <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.width`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                 <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.operation`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Operation</FormLabel><FormControl><Input {...field} placeholder="e.g. 1 1/2 + 3 1/2" /></FormControl></FormItem>)} />
+                 <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.noOfPanels`} render={({ field }) => (<FormItem><FormLabel className="text-xs">No Of Panels</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+            </div>
+             <div className="grid grid-cols-1 gap-3 items-end">
+                <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.remark`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
+                <Button type="button" size="icon" variant="ghost" className="text-destructive self-center" onClick={onRemoveStitchDimension}>
+                    <Trash2 className="h-4 w-4" />
+                </Button>
+            </div>
         </div>
     )
 }
