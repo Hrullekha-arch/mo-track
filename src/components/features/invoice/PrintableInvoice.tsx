@@ -36,6 +36,23 @@ const numberToWords = (num: number): string => {
     return str.trim().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
+const parseDateSafe = (dateInput: any): Date => {
+    if (!dateInput) return new Date();
+    if (dateInput instanceof Date) return dateInput;
+    // Handle Firestore Timestamp object which has toDate() method
+    if (typeof dateInput.toDate === 'function') {
+        return dateInput.toDate();
+    }
+    // Handle ISO string
+    if (typeof dateInput === 'string') {
+        const date = new Date(dateInput);
+        if (!isNaN(date.getTime())) {
+            return date;
+        }
+    }
+    return new Date(); // Fallback
+}
+
 
 export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null }: PrintableInvoiceProps) {
     const [stockDetails, setStockDetails] = React.useState<Record<string, Stock>>({});
@@ -139,7 +156,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                     <p style={{ margin: '2px 0' }}>GSTIN: Buyer's PAN No. -</p>
                 </div>
                 <div style={{ width: '38%', border: '1px solid black' }}>
-                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Date</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{format(new Date(primaryBatch.createdAt as string), 'dd/MM/yyyy')}</strong></p></div>
+                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Date</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{format(parseDateSafe(primaryBatch.createdAt), 'dd/MM/yyyy')}</strong></p></div>
                     <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Invoice No</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{preGeneratedInvoiceNo || invoiceDetails?.invoiceNo || 'N/A'}</strong></p></div>
                     <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Architect</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{/* Placeholder */}</strong></p></div>
                     <div style={{ display: 'flex' }}><p style={{width: '50%', margin: '2px 4px'}}>Sales Representative</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{primaryOrder.salesPerson}</strong></p></div>
@@ -230,7 +247,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                         <p style={{ margin: '2px 0', borderBottom: '1px solid black', paddingBottom: '1px' }}>{formatToINR(totals.totalCgst)}</p>
                         <p style={{ margin: '2px 0', borderBottom: '1px solid black', paddingBottom: '1px' }}>{formatToINR(totals.totalSgst)}</p>
                         <p style={{ margin: '2px 0', borderBottom: '1px solid black', paddingBottom: '1px' }}>{formatToINR(roundOff)}</p>
-                        <p style={{ margin: '2px 0', fontWeight: 'bold' }}>{formatToINR(roundedAmount)}</p>
+                        <p style={{ margin: '2px 0', fontWeight: 'bold' }}>{formatToINR(roundedTotal)}</p>
                     </div>
                  </div>
             </footer>
