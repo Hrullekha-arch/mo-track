@@ -247,7 +247,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                         <p style={{ margin: '2px 0', borderBottom: '1px solid black', paddingBottom: '1px' }}>{formatToINR(totals.totalCgst)}</p>
                         <p style={{ margin: '2px 0', borderBottom: '1px solid black', paddingBottom: '1px' }}>{formatToINR(totals.totalSgst)}</p>
                         <p style={{ margin: '2px 0', borderBottom: '1px solid black', paddingBottom: '1px' }}>{formatToINR(roundOff)}</p>
-                        <p style={{ margin: '2px 0', fontWeight: 'bold' }}>{formatToINR(roundedTotal)}</p>
+                        <p style={{ margin: '2px 0', fontWeight: 'bold' }}>{formatToINR(roundedAmount)}</p>
                     </div>
                  </div>
             </footer>
