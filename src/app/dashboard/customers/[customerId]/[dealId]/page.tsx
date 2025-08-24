@@ -73,6 +73,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { collection, onSnapshot, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { roomOptions, vasOptions } from "@/lib/constants";
 
 
 export const deliveryInstallationItemSchema = z.object({
@@ -130,14 +131,6 @@ const productListSchema = z.object({
 
 type ProductFormValues = z.infer<typeof productSchema>;
 type ProductListFormValues = z.infer<typeof productListSchema>;
-
-const initialRoomOptions: ComboboxOption[] = [
-    { value: "kids-room", label: "KIDS ROOM" },
-    { value: "bedroom", label: "BEDROOM" },
-    { value: "master-bedroom", label: "MASTER BEDROOM" },
-    // ... all other room options ...
-    { value: "bed-room-3-wall-1", label: "BED ROOM 3 WALL 1" },
-];
 
 const initialProductTypeOptions: ComboboxOption[] = [
     { value: "fabric", label: "Fabric" },
@@ -379,7 +372,6 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
 
-    const [roomOptions, setRoomOptions] = useState<ComboboxOption[]>(initialRoomOptions);
     const [productTypeOptions, setProductTypeOptions] = useState<ComboboxOption[]>(initialProductTypeOptions);
     const [isAddOptionOpen, setIsAddOptionOpen] = useState(false);
     const [addOptionConfig, setAddOptionConfig] = useState<{ field: 'room' | 'type'; onSave: (value: string) => void } | null>(null);
@@ -392,7 +384,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
     const handleSaveNewOption = (value: string, label: string, field: 'room' | 'type') => {
         const newOption = { value, label: label.toUpperCase() };
         if (field === 'room') {
-            setRoomOptions(prev => [...prev, newOption]);
+            (roomOptions as ComboboxOption[]).push(newOption);
         } else if (field === 'type') {
             setProductTypeOptions(prev => [...prev, newOption]);
         }
@@ -838,14 +830,21 @@ function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, op
 }
 
 function StitchDimensionFields({ roomIndex, itemIndex, stitchDimensionIndex, onRemoveStitchDimension }: { roomIndex: number; itemIndex: number; stitchDimensionIndex: number; onRemoveStitchDimension: () => void; }) {
-    const { control } = useFormContext<CpdFormValues>();
+    const { control, setValue } = useFormContext<CpdFormValues>();
     
-    // In a real app, these would come from a database or constants file.
-    const vasOptions: ComboboxOption[] = [
-        { value: 'stitching', label: 'Stitching' },
-        { value: 'hemming', label: 'Hemming' },
-        { value: 'eyelets', label: 'Eyelets' },
-    ];
+    const handleOperationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { value, selectionStart } = e.target;
+        // Replace standard slash with fraction slash
+        const newValue = value.replace(/\//g, '⁄');
+        setValue(`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.operation`, newValue, { shouldValidate: true });
+        
+        // This is a bit of a trick to maintain cursor position, might not be perfect
+        // But for a simple replacement it often works.
+        setTimeout(() => {
+            e.target.selectionStart = selectionStart;
+            e.target.selectionEnd = selectionStart;
+        }, 0);
+    }
     
     return (
         <div className="p-3 border rounded-lg bg-gray-50/50 space-y-3">
@@ -862,12 +861,27 @@ function StitchDimensionFields({ roomIndex, itemIndex, stitchDimensionIndex, onR
                 />
                  <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.lengths`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Lengths</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                  <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.width`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                 <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.operation`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Operation</FormLabel><FormControl><Input {...field} placeholder="e.g. 1 1/2 + 3 1/2" /></FormControl></FormItem>)} />
+                 <FormField 
+                    control={control} 
+                    name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.operation`} 
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel className="text-xs">Operation</FormLabel>
+                            <FormControl>
+                                <Input 
+                                    {...field}
+                                    onChange={handleOperationChange}
+                                    placeholder="e.g. 1 1/2 + 3 1/2" 
+                                />
+                            </FormControl>
+                        </FormItem>
+                    )} 
+                />
                  <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.noOfPanels`} render={({ field }) => (<FormItem><FormLabel className="text-xs">No Of Panels</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
             </div>
-             <div className="grid grid-cols-1 gap-3 items-end">
-                <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.remark`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
-                <Button type="button" size="icon" variant="ghost" className="text-destructive self-center" onClick={onRemoveStitchDimension}>
+             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+                <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.remark`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Remark</FormLabel><FormControl><Textarea {...field} rows={1} /></FormControl></FormItem>)} />
+                <Button type="button" size="icon" variant="ghost" className="text-destructive" onClick={onRemoveStitchDimension}>
                     <Trash2 className="h-4 w-4" />
                 </Button>
             </div>
@@ -1329,7 +1343,6 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
     const [loading, setLoading] = useState(false);
     const { toast } = useToast();
     const { user } = useAuth();
-    const [roomOptions, setRoomOptions] = useState<ComboboxOption[]>(initialRoomOptions);
     const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
     
     const form = useForm<MeasurementFormValues>({
@@ -1344,8 +1357,7 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
     });
 
     const handleSaveNewRoom = (value: string, label: string) => {
-        const newOption = { value, label: label.toUpperCase() };
-        setRoomOptions(prev => [...prev, newOption]);
+        (roomOptions as ComboboxOption[]).push({ value, label: label.toUpperCase() });
         form.setValue('room', value);
     };
 
@@ -1574,7 +1586,6 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     const [isQuotationDialogOpen, setIsQuotationDialogOpen] = useState(false);
     const [selectedProductsForQuotation, setSelectedProductsForQuotation] = useState<DealProduct[]>([]);
     const [productTypeOptions, setProductTypeOptions] = useState<ComboboxOption[]>(initialProductTypeOptions);
-    const [roomOptions, setRoomOptions] = useState<ComboboxOption[]>(initialRoomOptions);
     const [isAddOptionOpen, setIsAddOptionOpen] = useState(false);
     const [addOptionConfig, setAddOptionConfig] = useState<{ field: 'room' | 'type'; onSave: (value: string) => void } | null>(null);
 
@@ -1586,7 +1597,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     const handleSaveNewOption = (value: string, label: string, field: 'room' | 'type') => {
         const newOption = { value, label: label.toUpperCase() };
         if (field === 'room') {
-            setRoomOptions(prev => [...prev, newOption]);
+            (roomOptions as ComboboxOption[]).push(newOption);
         } else if (field === 'type') {
             setProductTypeOptions(prev => [...prev, newOption]);
         }
