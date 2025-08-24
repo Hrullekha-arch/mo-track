@@ -566,6 +566,7 @@ export interface InvoiceBatch {
     tallyVoucherNo?: string;
     invoiceId?: string;
     isCombined?: boolean;
+    isVas?: boolean; // New field to identify VAS invoices
 }
 
 export interface Invoice {

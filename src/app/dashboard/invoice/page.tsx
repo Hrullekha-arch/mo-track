@@ -410,7 +410,7 @@ function InvoiceTable({
     batches: InvoiceBatch[], 
     orders: Order[], 
     loading: boolean,
-    view: 'active' | 'all'
+    view: 'active' | 'vas' | 'all'
 }) {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
@@ -463,7 +463,7 @@ function InvoiceTable({
         const orderId = batch.orderId;
         return (
           <div className="flex items-center gap-1">
-            {batch.isCombined && <Combine className="h-4 w-4 text-muted-foreground" title="Combined Invoice" />}
+            {batch.isCombined && <Combine className="mr-2 h-4 w-4 text-muted-foreground" title="Combined Invoice" />}
             <span>{orderId.replace("MOTRACK-", "")}</span>
           </div>
         );
@@ -640,7 +640,7 @@ function InvoiceTable({
                     {table.getFilteredSelectedRowModel().rows.length} of{" "}
                     {table.getFilteredRowModel().rows.length} row(s) selected.
                 </div>
-                {view === 'active' && (
+                {view !== 'all' && (
                   <div className="flex items-center gap-2">
                     <Button 
                       onClick={handleCombineClick}
@@ -731,7 +731,7 @@ function InvoiceTable({
 
 export default function InvoicePage() {
   const [activeBatches, setActiveBatches] = React.useState<InvoiceBatch[]>([]);
-  const [allBatches, setAllBatches] = React.useState<InvoiceBatch[]>([]);
+  const [vasBatches, setVasBatches] = React.useState<InvoiceBatch[]>([]);
   const [allOrders, setAllOrders] = React.useState<Order[]>([]);
   const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();
@@ -743,8 +743,10 @@ export default function InvoicePage() {
 
     const unsubscribeBatches = onSnapshot(batchesQuery, (snapshot) => {
         const batchesData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as InvoiceBatch));
-        setActiveBatches(batchesData.filter(b => b.status === 'pendingInvoice'));
-        setAllBatches(batchesData);
+        // Filter for active standard invoices (not VAS)
+        setActiveBatches(batchesData.filter(b => b.status === 'pendingInvoice' && !b.isVas));
+        // Filter for active VAS invoices
+        setVasBatches(batchesData.filter(b => b.status === 'pendingInvoice' && b.isVas));
     }, (error) => {
       console.error("Error fetching invoice batches:", error);
       toast({ variant: "destructive", title: "Error", description: "Could not load invoice data." });
@@ -774,12 +776,16 @@ export default function InvoicePage() {
         </header>
 
         <Tabs defaultValue="active-invoices">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="active-invoices">Active Invoices</TabsTrigger>
+                <TabsTrigger value="vas-invoices">VAS Invoice</TabsTrigger>
                 <TabsTrigger value="tally-log">Tally Log / Invoice History</TabsTrigger>
             </TabsList>
             <TabsContent value="active-invoices" className="mt-4">
                  <InvoiceTable batches={activeBatches} orders={allOrders} loading={loading} view="active" />
+            </TabsContent>
+            <TabsContent value="vas-invoices" className="mt-4">
+                 <InvoiceTable batches={vasBatches} orders={allOrders} loading={loading} view="vas" />
             </TabsContent>
             <TabsContent value="tally-log" className="mt-4">
                 <InvoiceLogTable />

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Customer, Deal, DealProduct, Quotation, VasDetail, Cpd, QuotationItem } from "@/lib/types";
+import { Customer, Deal, DealProduct, Quotation, VasDetail, Cpd, QuotationItem, InvoiceBatch } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, Edit, Check, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +26,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { roomOptions, vasOptions } from "@/lib/constants";
+import { addDoc, collection } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 
 const companyOptions = [{ value: "mo-design", label: "Mo Design" }];
@@ -532,6 +534,28 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
         const quotationResult = await createQuotationAction(customer.id, deal.id, values, totalAmount + vasTotal);
 
         if (quotationResult.success) {
+            // If there are VAS details, create a separate invoice batch for them
+            if (values.vasDetails && values.vasDetails.length > 0) {
+                const vasBatch: Omit<InvoiceBatch, 'id' | 'createdAt'> = {
+                    orderId: `MOTRACK-${quotationResult.quotation?.quotationNo}`, // Use the new quotation number to form an orderId
+                    customerName: customer.name,
+                    customerPhone: customer.mobileNo,
+                    status: 'pendingInvoice',
+                    isVas: true,
+                    items: values.vasDetails.map(vas => ({
+                        itemName: vas.vasName,
+                        bcn: vas.vasName, // Use VAS name as BCN for VAS items
+                        quantityAllocated: Number(vas.quantity),
+                        rate: Number(vas.rate),
+                        discountPercent: 0,
+                    }))
+                };
+                await addDoc(collection(db, "invoiceBatches"), {
+                    ...vasBatch,
+                    createdAt: new Date().toISOString()
+                });
+            }
+
             toast({ title: "Quotation Created", description: "The quotation has been sent for approval." });
             form.reset();
             onSuccess();
