@@ -1,3 +1,5 @@
+
+
 "use client";
 
 import * as React from "react";
@@ -133,6 +135,7 @@ function GenerateInvoiceDialog({
         const newInvoice: Omit<Invoice, 'id'> = {
             invoiceNo: newInvoiceNumberStr,
             orderId: primaryOrder.id,
+            isVas: isVas,
             customer: {
                 name: primaryOrder.customerName,
                 phone: primaryOrder.customerPhone,

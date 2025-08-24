@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -70,7 +71,7 @@ export function InvoiceLogTable() {
 
     for (const invoice of selectedInvoices) {
         try {
-            const result = await sendInvoiceToTally(invoice);
+            const result = await sendInvoiceToTally(invoice, invoice.isVas);
             if (result.success && result.voucherNumber) {
                 const invoiceRef = doc(db, "invoices", invoice.id);
                 await updateDoc(invoiceRef, { tallyVoucherNo: result.voucherNumber });
@@ -113,6 +114,11 @@ export function InvoiceLogTable() {
       accessorKey: "invoiceNo",
       header: "Invoice No",
       cell: ({ row }) => <div className="font-mono">{row.getValue("invoiceNo")}</div>,
+    },
+    {
+      id: "company",
+      header: "Company",
+      cell: ({ row }) => (row.original.isVas ? 'MO SPACE' : 'MO DESIGNS'),
     },
     {
       accessorKey: "createdAt",

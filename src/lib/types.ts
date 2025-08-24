@@ -291,7 +291,6 @@ export interface StockReservation {
 export interface CutRequest {
     id: string; // requestId
     orderId: string;
-    invoiceId: string;
     cutLength: number;
     timestamp: string; // ISO String
     status: 'pending' | 'done' | 'rejected';
@@ -456,7 +455,6 @@ export interface CpdItem {
   qty: string;
   rate?: string;
   dis?: string;
-  gst?: string;
   amount?: string;
   fabricType?: 'Main' | 'Sheer' | 'Lining' | 'Sofa';
   hasDimension?: boolean;
@@ -575,6 +573,7 @@ export interface Invoice {
     orderId: string;
     tallyBillNo?: string;
     tallyVoucherNo?: string;
+    isVas?: boolean;
     customer: {
         name: string;
         phone: string;
