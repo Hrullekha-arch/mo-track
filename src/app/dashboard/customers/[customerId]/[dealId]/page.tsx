@@ -835,16 +835,14 @@ function StitchDimensionFields({ roomIndex, itemIndex, stitchDimensionIndex, onR
     const handleOperationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         let value = e.target.value;
 
-        // Enhanced replacements using Unicode for a better "stacked" look
         const replacements: Record<string, string> = {
             '1/2': '½', '1/4': '¼', '3/4': '¾',
             '1/3': '⅓', '2/3': '⅔', '1/5': '⅕', '2/5': '⅖', '3/5': '⅗', '4/5': '⅘',
             '1/6': '⅙', '5/6': '⅚', '1/8': '⅛', '3/8': '⅜', '5/8': '⅝', '7/8': '⅞'
         };
 
-        // First, replace common whole fractions
         for (const [key, rep] of Object.entries(replacements)) {
-            value = value.replace(new RegExp(`\\b${key}\\b`, 'g'), rep);
+            value = value.replace(new RegExp(key, 'g'), rep);
         }
 
         setValue(`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.operation`, value, { shouldValidate: true });
@@ -2910,7 +2908,7 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
         if (!printWindow) return;
 
         printWindow.document.write('<html><head><title>Print Customer CPD</title>');
-        printWindow.document.write('<style>@media print { body { -webkit-print-color-adjust: exact; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid black; padding: 8px; text-align: left; } thead { display: table-header-group; } tfoot { display: table-footer-group; } tr { page-break-inside: avoid; } }</style>');
+        printWindow.document.write('<style>@media print { body { -webkit-print-color-adjust: exact; font-family: Arial, sans-serif; font-size: 12px; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid black; padding: 6px; text-align: left; } h1, h3, p { margin: 0; padding: 0; } thead { display: table-header-group; } tfoot { display: table-footer-group; } tr { page-break-inside: avoid; } .no-print { display: none; } }</style>');
         printWindow.document.write('</head><body>');
         printWindow.document.write(printContent.innerHTML);
         printWindow.document.write('</body></html>');
@@ -2939,7 +2937,7 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
 
     return (
         <div className="flex-grow overflow-y-auto">
-             <div className="flex justify-end p-4 border-b">
+             <div className="flex justify-end p-4 border-b no-print">
                  <Button onClick={handlePrint}><Printer className="mr-2 h-4 w-4" /> Print</Button>
             </div>
             <div id="printable-customer-cpd-content" className="p-4 bg-white text-black font-sans text-sm">
@@ -3017,3 +3015,6 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
 
     
 
+
+
+    
