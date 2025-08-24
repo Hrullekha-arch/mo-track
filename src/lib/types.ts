@@ -458,6 +458,7 @@ export interface CpdItem {
   dis?: string;
   gst?: string;
   amount?: string;
+  fabricType?: 'Main' | 'Sheer' | 'Lining' | 'Sofa';
   hasDimension?: boolean;
   dimensions?: Dimension[];
   hasStitchDimension?: boolean;
@@ -558,10 +559,11 @@ export interface InvoiceBatch {
     orderId: string;
     customerName: string;
     customerPhone: string;
-    createdAt: string; // ISO string now
+    createdAt: string | AdminTimestamp;
     status: 'pendingInvoice' | 'invoiced';
     items: InvoiceBatchItem[];
     tallyBillNo?: string | null;
+    tallyVoucherNo?: string;
     invoiceId?: string;
     isCombined?: boolean;
 }

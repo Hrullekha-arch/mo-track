@@ -3,12 +3,12 @@
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
-import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormReturn, Controller } from "react-hook-form";
+import { useForm, useFieldArray, FormProvider, useFormContext, Control, UseFormReturn, Controller, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, CpdItem, StitchDimension } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, CpdItem, StitchDimension, TaxDetail } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -71,7 +71,7 @@ import { PrintableQuotationProfessional } from "@/components/features/order-mana
 import { useAuth } from "@/context/AuthContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { collection, onSnapshot, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { roomOptions, vasOptions } from "@/lib/constants";
 
@@ -226,8 +226,8 @@ const cpdItemSchema = z.object({
   qty: z.string().min(1, "Qty is required."),
   rate: z.string().optional().default('0'),
   dis: z.string().optional().default('0'),
-  gst: z.string().optional().default('0'),
   amount: z.string().optional().default('0'),
+  fabricType: z.enum(['Main', 'Sheer', 'Lining', 'Sofa']).optional(),
   hasDimension: z.boolean().optional(),
   dimensions: z.array(dimensionSchema).optional(),
   hasStitchDimension: z.boolean().optional(),
@@ -397,7 +397,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
             customerName: customer.name,
             telNo: customer.mobileNo,
             date: format(new Date(), "yyyy-MM-dd"),
-            rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0', hasDimension: false, dimensions: [] }] }],
+            rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', amount: '0', hasDimension: false, dimensions: [] }] }],
         }
     });
 
@@ -418,7 +418,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                 toast({ title: 'Success', description: 'CPD has been saved.' });
                 form.reset({
                     ...form.getValues(),
-                    rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0', hasDimension: false, dimensions: [] }] }],
+                    rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', amount: '0', hasDimension: false, dimensions: [] }] }],
                 });
                 onCpdAdded();
             } else {
@@ -507,7 +507,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
                             ))}
                         </div>
 
-                         <Button type="button" onClick={() => append({ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0', hasDimension: false, dimensions: [] }] })}>
+                         <Button type="button" onClick={() => append({ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', amount: '0', hasDimension: false, dimensions: [] }] })}>
                             <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
                         </Button>
                         
@@ -537,54 +537,12 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
 }
 
 function RoomFields({ roomIndex, onRemoveRoom, roomOptions, productTypeOptions, openAddOptionDialog }: { roomIndex: number, onRemoveRoom: () => void, roomOptions: ComboboxOption[], productTypeOptions: ComboboxOption[], openAddOptionDialog: (field: 'room' | 'type', onSave: (value: string) => void) => void }) {
-    const { control, watch, setValue } = useFormContext<CpdFormValues>();
+    const { control } = useFormContext<CpdFormValues>();
     
     const { fields, append, remove } = useFieldArray({
         control,
         name: `rooms.${roomIndex}.items`
     });
-    
-    const itemsData = watch(`rooms.${roomIndex}.items`);
-
-    useEffect(() => {
-        itemsData?.forEach((item, itemIndex) => {
-            const qty = parseFloat(item.qty || '0');
-            const rate = parseFloat(item.rate || '0');
-            const dis = parseFloat(item.dis || '0');
-            const gst = parseFloat(item.gst || '0');
-
-            if (!isNaN(qty) && !isNaN(rate)) {
-                const subtotal = qty * rate;
-                const discountAmount = subtotal * (dis / 100);
-                const taxableAmount = subtotal - discountAmount;
-                const gstAmount = taxableAmount * (gst / 100);
-                const finalAmount = taxableAmount + gstAmount;
-                
-                const currentAmount = parseFloat(watch(`rooms.${roomIndex}.items.${itemIndex}.amount`) || '0');
-                if (currentAmount.toFixed(2) !== finalAmount.toFixed(2)) {
-                   setValue(`rooms.${roomIndex}.items.${itemIndex}.amount`, finalAmount.toFixed(2));
-                }
-            }
-        });
-    }, [itemsData, roomIndex, setValue, watch]);
-    
-    const { toast } = useToast();
-    const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
-    const [isSearchingBcn, setIsSearchingBcn] = useState(false);
-
-    const handleBcnSearch = async (query: string) => {
-        if (query.length < 2) { setBcnOptions([]); return; }
-        setIsSearchingBcn(true);
-        try {
-            const results = await searchStockByBcn(query);
-            setBcnOptions(results.map(stock => ({ value: stock.bcn || stock.id, label: stock.bcn || stock.id, stockItem: stock })));
-        } catch (error) {
-            console.error("Error searching BCN:", error);
-            toast({ variant: 'destructive', title: 'Search failed' });
-        } finally {
-            setIsSearchingBcn(false);
-        }
-    };
 
     return (
         <Card className="p-4 bg-muted/30">
@@ -626,7 +584,7 @@ function RoomFields({ roomIndex, onRemoveRoom, roomOptions, productTypeOptions, 
                     />
                 ))}
              </div>
-             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({ itemName: '', type: '', qty: '', rate: '0', dis: '0', gst: '0', amount: '0', hasDimension: false, dimensions: [] })}>
+             <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => append({ itemName: '', type: '', qty: '', rate: '0', dis: '0', amount: '0', hasDimension: false, dimensions: [] })}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Add Item
             </Button>
         </Card>
@@ -635,19 +593,51 @@ function RoomFields({ roomIndex, onRemoveRoom, roomOptions, productTypeOptions, 
 
 function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, openAddOptionDialog }: { roomIndex: number, itemIndex: number, onRemoveItem: () => void, productTypeOptions: ComboboxOption[], openAddOptionDialog: (field: 'room' | 'type', onSave: (value: string) => void) => void }) {
     const { control, watch, setValue } = useFormContext<CpdFormValues>();
+    const itemType = watch(`rooms.${roomIndex}.items.${itemIndex}.type`);
     const hasDimension = watch(`rooms.${roomIndex}.items.${itemIndex}.hasDimension`);
     const hasStitchDimension = watch(`rooms.${roomIndex}.items.${itemIndex}.hasStitchDimension`);
 
     const { toast } = useToast();
-    const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
+    const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock, taxDetail?: TaxDetail }[]>([]);
     const [isSearchingBcn, setIsSearchingBcn] = useState(false);
+    
+    // Auto-calculate amount
+    const watchedItem = watch(`rooms.${roomIndex}.items.${itemIndex}`);
+    useEffect(() => {
+        const qty = parseFloat(watchedItem.qty || '0');
+        const rate = parseFloat(watchedItem.rate || '0');
+        const dis = parseFloat(watchedItem.dis || '0');
+        
+        if (!isNaN(qty) && !isNaN(rate)) {
+            const subtotal = qty * rate;
+            const discountAmount = subtotal * (dis / 100);
+            const finalAmount = subtotal - discountAmount;
+            
+            const currentAmount = parseFloat(watch(`rooms.${roomIndex}.items.${itemIndex}.amount`) || '0');
+            if (currentAmount.toFixed(2) !== finalAmount.toFixed(2)) {
+               setValue(`rooms.${roomIndex}.items.${itemIndex}.amount`, finalAmount.toFixed(2));
+            }
+        }
+    }, [watchedItem.qty, watchedItem.rate, watchedItem.dis, roomIndex, itemIndex, setValue, watch]);
+
 
     const handleBcnSearch = async (query: string) => {
         if (query.length < 2) { setBcnOptions([]); return; }
         setIsSearchingBcn(true);
         try {
             const results = await searchStockByBcn(query);
-            setBcnOptions(results.map(stock => ({ value: stock.bcn || stock.id, label: stock.bcn || stock.id, stockItem: stock })));
+            const optionsWithTax = await Promise.all(results.map(async stock => {
+                let taxDetail: TaxDetail | undefined = undefined;
+                if (stock.hsnCode) {
+                    const taxDocRef = doc(db, 'taxDetails', stock.hsnCode);
+                    const taxDocSnap = await getDoc(taxDocRef);
+                    if (taxDocSnap.exists()) {
+                        taxDetail = taxDocSnap.data() as TaxDetail;
+                    }
+                }
+                return { value: stock.bcn || stock.id, label: stock.bcn || stock.id, stockItem: stock, taxDetail };
+            }));
+            setBcnOptions(optionsWithTax);
         } catch (error) {
             console.error("Error searching BCN:", error);
             toast({ variant: 'destructive', title: 'Search failed' });
@@ -697,7 +687,7 @@ function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, op
     return (
         <div className="p-3 border rounded-md bg-background space-y-3">
              <div className="flex items-end gap-2">
-                <div className="grid grid-cols-2 gap-2 flex-grow">
+                <div className="grid grid-cols-3 gap-2 flex-grow">
                      <Controller
                         control={control}
                         name={`rooms.${roomIndex}.items.${itemIndex}.itemName`}
@@ -746,8 +736,29 @@ function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, op
                             </FormItem>
                         )}
                     />
+                    {itemType === 'fabric' && (
+                        <FormField
+                            control={control}
+                            name={`rooms.${roomIndex}.items.${itemIndex}.fabricType`}
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel className="text-xs">Fabric Type</FormLabel>
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl><SelectTrigger><SelectValue placeholder="Select Fabric Type" /></SelectTrigger></FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="Main">Main</SelectItem>
+                                            <SelectItem value="Sheer">Sheer</SelectItem>
+                                            <SelectItem value="Lining">Lining</SelectItem>
+                                            <SelectItem value="Sofa">Sofa</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
                 </div>
-                <div className="grid grid-cols-4 gap-2 flex-grow">
+                <div className="grid grid-cols-3 gap-2 flex-grow">
                      <FormField
                         control={control}
                         name={`rooms.${roomIndex}.items.${itemIndex}.qty`}
@@ -762,11 +773,6 @@ function ItemFields({ roomIndex, itemIndex, onRemoveItem, productTypeOptions, op
                         control={control}
                         name={`rooms.${roomIndex}.items.${itemIndex}.dis`}
                         render={({ field }) => ( <FormItem><FormLabel className="text-xs">Dis%</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
-                    />
-                    <FormField
-                        control={control}
-                        name={`rooms.${roomIndex}.items.${itemIndex}.gst`}
-                        render={({ field }) => ( <FormItem><FormLabel className="text-xs">Gst%</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}
                     />
                 </div>
                 <FormField
@@ -2772,7 +2778,6 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
         let totalQty = 0;
         let grossAmount = 0;
         let totalDiscount = 0;
-        let totalGst = 0;
 
         cpd.rooms.forEach(room => {
             room.items.forEach(item => {
@@ -2780,24 +2785,18 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                 const qty = parseFloat(item.qty || '0');
                 const rate = parseFloat(item.rate || '0');
                 const dis = parseFloat(item.dis || '0');
-                const gst = parseFloat(item.gst || '0');
 
                 totalQty += qty;
                 const subtotal = qty * rate;
                 grossAmount += subtotal;
                 const discountAmount = subtotal * (dis / 100);
                 totalDiscount += discountAmount;
-                const taxableAmount = subtotal - discountAmount;
-                const gstAmount = taxableAmount * (gst / 100);
-                totalGst += gstAmount;
             });
         });
         
-        const netAmount = grossAmount - totalDiscount + totalGst;
-        const cgst = totalGst / 2;
-        const sgst = totalGst / 2;
+        const netAmount = grossAmount - totalDiscount;
 
-        return { totalItems, totalQty, grossAmount, totalDiscount, totalGst, netAmount, cgst, sgst };
+        return { totalItems, totalQty, grossAmount, totalDiscount, netAmount };
     }, [cpd]);
 
     return (
@@ -2828,7 +2827,6 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                                         <TableHead>Qty</TableHead>
                                         <TableHead>Rate</TableHead>
                                         <TableHead>Dis%</TableHead>
-                                        <TableHead>GST%</TableHead>
                                         <TableHead>Amount</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -2841,7 +2839,6 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                                                 <TableCell>{item.qty}</TableCell>
                                                 <TableCell>{item.rate}</TableCell>
                                                 <TableCell>{item.dis}</TableCell>
-                                                <TableCell>{item.gst}</TableCell>
                                                 <TableCell>{Number(item.amount || 0).toFixed(2)}</TableCell>
                                             </TableRow>
                                             {item.hasDimension && item.dimensions && item.dimensions.length > 0 && (
@@ -2910,8 +2907,6 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                         <p><strong>Total Quantity:</strong> {totals.totalQty.toFixed(2)}</p>
                         <p><strong>Gross Amount:</strong> {totals.grossAmount.toFixed(2)}</p>
                         <p><strong>Total Discount:</strong> {totals.totalDiscount.toFixed(2)}</p>
-                        <p><strong>CGST:</strong> {totals.cgst.toFixed(2)}</p>
-                        <p><strong>SGST:</strong> {totals.sgst.toFixed(2)}</p>
                         <p className="col-span-2 font-bold text-sm pt-2 border-t mt-2"><strong>Net Amount:</strong> {totals.netAmount.toFixed(2)}</p>
                     </div>
                 </div>
@@ -3058,3 +3053,4 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
 
 
     
+
