@@ -61,7 +61,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 import { CreateQuotationDialog } from "@/components/features/order-management/CreateQuotationDialog";
 import { Badge } from "@/components/ui/badge";
@@ -2450,6 +2450,7 @@ function CpdTab({ customer, salesmen, deal, onRefresh, quotations }: { customer:
     const [loading, setLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [selectedCpd, setSelectedCpd] = useState<Cpd | null>(null);
+    const [customerCpd, setCustomerCpd] = useState<Cpd | null>(null);
 
     const [isQuotationDialogOpen, setIsQuotationDialogOpen] = useState(false);
     const [selectedProductsForQuotation, setSelectedProductsForQuotation] = useState<ItemDetailValues[]>([]);
@@ -2538,7 +2539,8 @@ function CpdTab({ customer, salesmen, deal, onRefresh, quotations }: { customer:
                                             <TableCell>{cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</TableCell>
                                             <TableCell>{cpd.createdBy}</TableCell>
                                             <TableCell>{salesmen.find(s => s.id === cpd.representative)?.name || 'N/A'}</TableCell>
-                                             <TableCell>
+                                             <TableCell className="space-x-2">
+                                                <Button size="sm" variant="outline" onClick={() => setCustomerCpd(cpd)}>Customer CPD</Button>
                                                 {isQuotationCreated ? (
                                                     <Badge variant="default" className="bg-green-500">Quotation Created</Badge>
                                                 ) : (
@@ -2566,6 +2568,15 @@ function CpdTab({ customer, salesmen, deal, onRefresh, quotations }: { customer:
                         <DialogDescription>A printable view of the Customer Product Details.</DialogDescription>
                     </DialogHeader>
                     {selectedCpd && <PrintableCpd cpd={selectedCpd} customer={customer} deal={deal} salesmen={salesmen} />}
+                </DialogContent>
+            </Dialog>
+            <Dialog open={!!customerCpd} onOpenChange={() => setCustomerCpd(null)}>
+                <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
+                     <DialogHeader>
+                        <DialogTitle>Customer CPD: {customerCpd?.cpdId}</DialogTitle>
+                        <DialogDescription>A simplified, printable view of the Customer Product Details.</DialogDescription>
+                    </DialogHeader>
+                    {customerCpd && <PrintableCustomerCpd cpd={customerCpd} customer={customer} />}
                 </DialogContent>
             </Dialog>
             <CreateQuotationDialog 
@@ -2734,6 +2745,96 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                         <p className="col-span-2 font-bold text-sm pt-2 border-t mt-2"><strong>Net Amount:</strong> {totals.netAmount.toFixed(2)}</p>
                     </div>
                 </div>
+            </div>
+        </div>
+    )
+}
+
+function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer }) {
+    
+    const handlePrint = () => {
+        const printContent = document.getElementById('printable-customer-cpd-content');
+        if (!printContent) return;
+
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) return;
+
+        printWindow.document.write('<html><head><title>Print Customer CPD</title>');
+        printWindow.document.write('<style>@media print { body { -webkit-print-color-adjust: exact; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid black; padding: 8px; text-align: left; } thead { display: table-header-group; } tfoot { display: table-footer-group; } tr { page-break-inside: avoid; } }</style>');
+        printWindow.document.write('</head><body>');
+        printWindow.document.write(printContent.innerHTML);
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        setTimeout(() => {
+            printWindow.focus();
+            printWindow.print();
+            printWindow.close();
+        }, 250);
+    };
+
+    let grandTotal = 0;
+
+    return (
+        <div className="flex-grow overflow-y-auto">
+             <div className="flex justify-end p-4 border-b">
+                 <Button onClick={handlePrint}><Printer className="mr-2 h-4 w-4" /> Print</Button>
+            </div>
+            <div id="printable-customer-cpd-content" className="p-4 bg-white text-black font-sans text-sm">
+                 <div className="flex justify-between items-center mb-4 border-b pb-2">
+                    <Image src="/logo.png" alt="MoTrack Logo" width={120} height={60} data-ai-hint="logo" />
+                    <h1 className="text-xl font-bold text-center">Customer Product Details</h1>
+                 </div>
+                 <div className="grid grid-cols-2 gap-4 mb-4">
+                    <p><strong>Customer:</strong> {customer.name}</p>
+                    <p><strong>Date:</strong> {format(new Date(), 'PPP')}</p>
+                 </div>
+                 <div className="space-y-6">
+                    {cpd.rooms.map((room, roomIndex) => {
+                        const roomTotal = room.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+                        grandTotal += roomTotal;
+                        return (
+                            <div key={roomIndex}>
+                                <h3 className="font-bold bg-gray-200 p-2 rounded-t-md">{room.room?.toUpperCase().replace(/-/g, ' ') || 'General Items'}</h3>
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Item Name</TableHead>
+                                            <TableHead>Type</TableHead>
+                                            <TableHead className="text-right">Qty</TableHead>
+                                            <TableHead className="text-right">Rate</TableHead>
+                                            <TableHead className="text-right">Amount</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {room.items.map((item, itemIndex) => (
+                                            <TableRow key={itemIndex}>
+                                                <TableCell>{item.itemName}</TableCell>
+                                                <TableCell>{item.type}</TableCell>
+                                                <TableCell className="text-right">{item.qty}</TableCell>
+                                                <TableCell className="text-right">{Number(item.rate || 0).toFixed(2)}</TableCell>
+                                                <TableCell className="text-right">{Number(item.amount || 0).toFixed(2)}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                    <TableFooter>
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="text-right font-bold">Room Total</TableCell>
+                                            <TableCell className="text-right font-bold">{roomTotal.toFixed(2)}</TableCell>
+                                        </TableRow>
+                                    </TableFooter>
+                                </Table>
+                            </div>
+                        )
+                    })}
+                 </div>
+                 <div className="mt-8 pt-4 border-t-2 border-gray-600 flex justify-end">
+                     <div className="w-1/3">
+                        <div className="flex justify-between font-bold text-lg">
+                            <span>Grand Total:</span>
+                            <span>{grandTotal.toFixed(2)}</span>
+                        </div>
+                     </div>
+                 </div>
             </div>
         </div>
     )
