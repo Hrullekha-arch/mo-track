@@ -835,6 +835,7 @@ function StitchDimensionFields({ roomIndex, itemIndex, stitchDimensionIndex, onR
     const handleOperationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         let value = e.target.value;
 
+        // Replace common fractions with Unicode characters
         const replacements: Record<string, string> = {
             '1/2': '½', '1/4': '¼', '3/4': '¾',
             '1/3': '⅓', '2/3': '⅔', '1/5': '⅕', '2/5': '⅖', '3/5': '⅗', '4/5': '⅘',
@@ -2731,9 +2732,30 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
         const printWindow = window.open('', '_blank');
         if (!printWindow) return;
 
+        const styles = `
+            <style>
+                @media print {
+                    body { font-family: Arial, sans-serif; font-size: 10px; -webkit-print-color-adjust: exact; }
+                    .no-print { display: none; }
+                    .printable-area { padding: 1rem; }
+                    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 2px solid black; padding-bottom: 0.5rem; }
+                    .header img { width: 120px; height: auto; }
+                    .header h1 { font-size: 24px; font-weight: bold; text-align: center; }
+                    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 2rem; margin-bottom: 1rem; font-size: 12px; }
+                    .room-header { font-weight: bold; background-color: #e5e7eb; padding: 0.5rem; border-radius: 0.375rem 0.375rem 0 0; }
+                    .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem 2rem; font-size: 12px; }
+                    table { width: 100%; border-collapse: collapse; page-break-inside: auto; }
+                    tr { page-break-inside: avoid; page-break-after: auto; }
+                    th, td { border: 1px solid #ccc; padding: 4px; text-align: left; }
+                    thead { display: table-header-group; }
+                    tfoot { display: table-footer-group; }
+                    .stitching-details-grid { display: grid !important; grid-template-columns: repeat(4, 1fr) !important; gap: 0.5rem 1rem !important; }
+                }
+            </style>
+        `;
+
         printWindow.document.write('<html><head><title>Print CPD</title>');
-        // You might want to link an external stylesheet for printing if needed
-        printWindow.document.write('<style>@media print { body { -webkit-print-color-adjust: exact; } table { page-break-inside: auto; } tr { page-break-inside: avoid; page-break-after: auto; } thead { display: table-header-group; } tfoot { display: table-footer-group; } }</style>');
+        printWindow.document.write(styles);
         printWindow.document.write('</head><body>');
         printWindow.document.write(printContent.innerHTML);
         printWindow.document.write('</body></html>');
@@ -2780,15 +2802,15 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
 
     return (
         <div className="flex-grow overflow-y-auto">
-             <div className="flex justify-end p-4 border-b">
+             <div className="flex justify-end p-4 border-b no-print">
                  <Button onClick={handlePrint}><Printer className="mr-2 h-4 w-4" /> Print</Button>
             </div>
-            <div id="printable-cpd-content" className="p-4 bg-white text-black font-sans text-xs">
-                 <div className="flex justify-between items-center mb-4 border-b pb-2">
+            <div id="printable-cpd-content" className="p-4 bg-white text-black font-sans text-xs printable-area">
+                 <div className="header">
                     <Image src="/logo.png" alt="MoTrack Logo" width={120} height={60} data-ai-hint="logo" />
                     <h1 className="text-2xl font-bold text-center">Customer Product Details</h1>
                  </div>
-                <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                <div className="info-grid">
                     <p><strong>CPD No:</strong> {cpd.cpdId}</p>
                     <p><strong>Date:</strong> {cpd.date ? format(new Date(cpd.date), 'PPP') : 'N/A'}</p>
                     <p><strong>Customer:</strong> {cpd.customerName}</p>
@@ -2797,7 +2819,7 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                 <div className="space-y-4">
                     {cpd.rooms.map((room, roomIndex) => (
                         <div key={roomIndex}>
-                            <h3 className="font-bold bg-gray-200 p-2 rounded-t-md">{room.room?.toUpperCase().replace(/-/g, ' ') || 'General Items'}</h3>
+                            <h3 className="room-header">{room.room?.toUpperCase().replace(/-/g, ' ') || 'General Items'}</h3>
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -2860,7 +2882,7 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                                                             <h4 className="font-semibold text-xs mb-1 pl-2">Stitching Details:</h4>
                                                             {item.stitchDimensions.map((dim, dimIndex) => (
                                                                 <div key={dim.id || dimIndex} className="pl-4 pr-2 py-1 border-l-2 ml-2 border-blue-200">
-                                                                     <div className="grid grid-cols-4 gap-x-4 gap-y-1 text-xs">
+                                                                     <div className="stitching-details-grid">
                                                                         <span><strong>VAS:</strong> {dim.vas || 'N/A'}</span>
                                                                         <span><strong>Lengths:</strong> {dim.lengths || 'N/A'}</span>
                                                                         <span><strong>Width:</strong> {dim.width || 'N/A'}</span>
@@ -2883,7 +2905,7 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                 </div>
                  <div className="mt-6 p-4 border-t-2 border-gray-600">
                     <h3 className="text-base font-bold mb-2">Summary</h3>
-                    <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
+                    <div className="summary-grid">
                         <p><strong>Total No of Items:</strong> {totals.totalItems}</p>
                         <p><strong>Total Quantity:</strong> {totals.totalQty.toFixed(2)}</p>
                         <p><strong>Gross Amount:</strong> {totals.grossAmount.toFixed(2)}</p>
@@ -2907,8 +2929,26 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
         const printWindow = window.open('', '_blank');
         if (!printWindow) return;
 
+        const styles = `
+            <style>
+                @media print {
+                    body { -webkit-print-color-adjust: exact; font-family: Arial, sans-serif; font-size: 12px; }
+                    .printable-area { padding: 1rem; }
+                    .no-print { display: none !important; }
+                    table { width: 100%; border-collapse: collapse; page-break-inside: auto; }
+                    tr { page-break-inside: avoid; page-break-after: auto; }
+                    th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+                    thead { display: table-header-group; }
+                    tfoot { display: table-footer-group; }
+                    .room-header { font-weight: bold; background-color: #e5e7eb !important; padding: 0.5rem; }
+                    .text-right { text-align: right; }
+                    .font-bold { font-weight: bold; }
+                }
+            </style>
+        `;
+
         printWindow.document.write('<html><head><title>Print Customer CPD</title>');
-        printWindow.document.write('<style>@media print { body { -webkit-print-color-adjust: exact; font-family: Arial, sans-serif; font-size: 12px; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid black; padding: 6px; text-align: left; } h1, h3, p { margin: 0; padding: 0; } thead { display: table-header-group; } tfoot { display: table-footer-group; } tr { page-break-inside: avoid; } .no-print { display: none; } }</style>');
+        printWindow.document.write(styles);
         printWindow.document.write('</head><body>');
         printWindow.document.write(printContent.innerHTML);
         printWindow.document.write('</body></html>');
@@ -2940,7 +2980,7 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
              <div className="flex justify-end p-4 border-b no-print">
                  <Button onClick={handlePrint}><Printer className="mr-2 h-4 w-4" /> Print</Button>
             </div>
-            <div id="printable-customer-cpd-content" className="p-4 bg-white text-black font-sans text-sm">
+            <div id="printable-customer-cpd-content" className="p-4 bg-white text-black font-sans text-sm printable-area">
                  <div className="flex justify-between items-center mb-4 border-b pb-2">
                     <Image src="/logo.png" alt="MoTrack Logo" width={120} height={60} data-ai-hint="logo" />
                     <h1 className="text-xl font-bold text-center">Customer Product Details</h1>
@@ -2957,7 +2997,7 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
                         
                         return (
                             <div key={roomIndex}>
-                                <h3 className="font-bold bg-gray-200 p-2 rounded-t-md">{room.room?.toUpperCase().replace(/-/g, ' ') || 'General Items'}</h3>
+                                <h3 className="room-header">{room.room?.toUpperCase().replace(/-/g, ' ') || 'General Items'}</h3>
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
