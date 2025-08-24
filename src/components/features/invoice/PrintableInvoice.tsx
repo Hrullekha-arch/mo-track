@@ -139,7 +139,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                     <p style={{ margin: '2px 0' }}>GSTIN: Buyer's PAN No. -</p>
                 </div>
                 <div style={{ width: '38%', border: '1px solid black' }}>
-                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Date</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{format(new Date(primaryBatch.createdAt.toDate()), 'dd/MM/yyyy')}</strong></p></div>
+                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Date</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{format(new Date(primaryBatch.createdAt as string), 'dd/MM/yyyy')}</strong></p></div>
                     <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Invoice No</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{preGeneratedInvoiceNo || invoiceDetails?.invoiceNo || 'N/A'}</strong></p></div>
                     <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Architect</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{/* Placeholder */}</strong></p></div>
                     <div style={{ display: 'flex' }}><p style={{width: '50%', margin: '2px 4px'}}>Sales Representative</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{primaryOrder.salesPerson}</strong></p></div>

@@ -18,6 +18,7 @@ import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, ShieldAlert, Trash2
 import * as XLSX from "xlsx";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
