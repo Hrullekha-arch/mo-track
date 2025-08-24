@@ -63,7 +63,7 @@ import { Label } from "@/components/ui/label";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
-import { CreateQuotationDialog } from "@/components/features/order-management/CreateQuotationDialog";
+import { CreateQuotationDialog, ItemDetailValues } from "@/components/features/order-management/CreateQuotationDialog";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
@@ -833,27 +833,21 @@ function StitchDimensionFields({ roomIndex, itemIndex, stitchDimensionIndex, onR
     const { control, setValue } = useFormContext<CpdFormValues>();
     
     const handleOperationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { value } = e.target;
-        
-        let newValue = value;
-        // Basic replacements first for common fractions
-        const replacements: Record<string, string> = { '1/2': '½', '1/4': '¼', '3/4': '¾' };
+        let value = e.target.value;
+
+        // Enhanced replacements using Unicode for a better "stacked" look
+        const replacements: Record<string, string> = {
+            '1/2': '½', '1/4': '¼', '3/4': '¾',
+            '1/3': '⅓', '2/3': '⅔', '1/5': '⅕', '2/5': '⅖', '3/5': '⅗', '4/5': '⅘',
+            '1/6': '⅙', '5/6': '⅚', '1/8': '⅛', '3/8': '⅜', '5/8': '⅝', '7/8': '⅞'
+        };
+
+        // First, replace common whole fractions
         for (const [key, rep] of Object.entries(replacements)) {
-            newValue = newValue.replace(new RegExp(key, 'g'), rep);
+            value = value.replace(new RegExp(`\\b${key}\\b`, 'g'), rep);
         }
 
-        // More complex regex for any digit/digit to superscript/subscript
-        const superscripts: Record<string, string> = { '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '0': '⁰' };
-        const subscripts: Record<string, string> = { '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉', '0': '₀' };
-
-        // This regex looks for digits, a slash, and then more digits
-        newValue = newValue.replace(/(\d+)\/(\d+)/g, (match, num, den) => {
-            const superNum = [...num].map(char => superscripts[char] || char).join('');
-            const subDen = [...den].map(char => subscripts[char] || char).join('');
-            return `${superNum}⁄${subDen}`; // Using fraction slash
-        });
-        
-        setValue(`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.operation`, newValue, { shouldValidate: true });
+        setValue(`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.operation`, value, { shouldValidate: true });
     }
     
     return (
@@ -1594,7 +1588,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [isQuotationDialogOpen, setIsQuotationDialogOpen] = useState(false);
-    const [selectedProductsForQuotation, setSelectedProductsForQuotation] = useState<DealProduct[]>([]);
+    const [selectedProductsForQuotation, setSelectedProductsForQuotation] = useState<ItemDetailValues[]>([]);
     const [productTypeOptions, setProductTypeOptions] = useState<ComboboxOption[]>(initialProductTypeOptions);
     const [isAddOptionOpen, setIsAddOptionOpen] = useState(false);
     const [addOptionConfig, setAddOptionConfig] = useState<{ field: 'room' | 'type'; onSave: (value: string) => void } | null>(null);
@@ -2554,9 +2548,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   );
 }
 
-interface ItemDetailValues extends DealProduct {
-    rate?: number;
-}
+
 
 // CPD Tab Component
 function CpdTab({ customer, salesmen, deal, onRefresh, quotations }: { customer: Customer, salesmen: User[], deal: Deal, onRefresh: () => void, quotations: Quotation[] }) {
@@ -2568,6 +2560,8 @@ function CpdTab({ customer, salesmen, deal, onRefresh, quotations }: { customer:
 
     const [isQuotationDialogOpen, setIsQuotationDialogOpen] = useState(false);
     const [selectedProductsForQuotation, setSelectedProductsForQuotation] = useState<ItemDetailValues[]>([]);
+    const [initialVasDetails, setInitialVasDetails] = useState<any[]>([]);
+    const [selectedCpdForQuotation, setSelectedCpdForQuotation] = useState<string | undefined>();
 
 
     const fetchCpds = useCallback(async () => {
@@ -2591,6 +2585,8 @@ function CpdTab({ customer, salesmen, deal, onRefresh, quotations }: { customer:
 
     const handleConvertToQuotation = async (cpd: Cpd) => {
         const itemsToConvert: ItemDetailValues[] = [];
+        const vasToConvert: any[] = [];
+        
         for (const room of cpd.rooms) {
             for (const item of room.items) {
                 const stockResults = await searchStockByBcn(item.itemName);
@@ -2598,15 +2594,32 @@ function CpdTab({ customer, salesmen, deal, onRefresh, quotations }: { customer:
                 itemsToConvert.push({
                     id: `${cpd.id}-${item.itemName}`,
                     collectionBrand: item.itemName,
-                    quantity: item.qty,
+                    quantity: parseFloat(item.qty),
                     rate: parseFloat(item.rate || (stockItem?.mrp || '0').toString()),
+                    discountPercent: parseFloat(item.dis || '0'),
                     salesDescription: `${item.itemName} - ${item.type}`,
                     room: room.room,
                     productCategory: item.type,
                 });
+
+                if (item.stitchDimensions) {
+                    for (const sd of item.stitchDimensions) {
+                        if (sd.vas) {
+                             vasToConvert.push({
+                                vasName: sd.vas,
+                                quantity: sd.noOfPanels || '1',
+                                rate: '0', // Default rate, can be edited
+                                room: room.room,
+                            });
+                        }
+                    }
+                }
             }
         }
+        
         setSelectedProductsForQuotation(itemsToConvert);
+        setInitialVasDetails(vasToConvert);
+        setSelectedCpdForQuotation(cpd.id);
         setIsQuotationDialogOpen(true);
     };
 
@@ -2703,7 +2716,9 @@ function CpdTab({ customer, salesmen, deal, onRefresh, quotations }: { customer:
                 deal={deal}
                 customer={customer}
                 initialItems={selectedProductsForQuotation}
+                initialVasDetails={initialVasDetails}
                 cpds={cpds}
+                selectedCpdId={selectedCpdForQuotation}
             />
         </div>
     )
@@ -3001,3 +3016,4 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
 }
 
     
+
