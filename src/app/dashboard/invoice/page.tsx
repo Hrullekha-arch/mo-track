@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -59,7 +58,7 @@ interface MismatchItem {
   errorType: 'mismatch' | 'insufficient';
   difference: number;
 }
- console.log("this")
+ 
 function GenerateInvoiceDialog({
   isOpen,
   onClose,
@@ -73,7 +72,6 @@ function GenerateInvoiceDialog({
   orders: Order[];
   creator: { id: string, name: string } | null;
 }) {
-  console.log("📌 GenerateInvoiceDialog mounted with props:", { isOpen, batches, orders, creator });
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isStockMismatchOpen, setIsStockMismatchOpen] = React.useState(false);
   const [mismatchedItems, setMismatchedItems] = React.useState<MismatchItem[]>([]);
@@ -82,12 +80,7 @@ function GenerateInvoiceDialog({
 
   const { toast } = useToast();
   
-  const handleFinalGenerate = React.useCallback(async () => {
-    console.log("⚡ handleFinalGenerate started...");
-    console.log("👤 Creator:", creator);
-    console.log("📦 Orders:", orders);
-    console.log("📦 Batches:", batches);
-
+  const handleFinalGenerate = React.useCallback(async (isVas: boolean) => {
     if (!creator) {
         toast({ variant: 'destructive', title: 'Error', description: 'You must be logged in to perform this action.' });
         return;
@@ -105,7 +98,6 @@ function GenerateInvoiceDialog({
         let newInvoiceNumber = 1001;
         if (!lastInvoiceSnap.empty) {
             const lastInvoiceNo = parseInt(lastInvoiceSnap.docs[0].data().invoiceNo, 10);
-            console.log("🔎 Last invoice snapshot:", lastInvoiceSnap.docs.map(d => d.data()));
             if (!isNaN(lastInvoiceNo)) {
                 newInvoiceNumber = lastInvoiceNo + 1;
                 
@@ -113,7 +105,6 @@ function GenerateInvoiceDialog({
         }
         
         const newInvoiceNumberStr = String(newInvoiceNumber);
-        console.log("🆕 New Invoice Number:", newInvoiceNumberStr);
 
         const allItems = batches.flatMap(b => b.items);
 
@@ -121,7 +112,7 @@ function GenerateInvoiceDialog({
             const qty = item.quantityAllocated;
             const rate = item.rate;
             const amount = qty * rate;
-            const discountAmount = item.discountPercent * amount / 100;
+            const discountAmount = (item.discountPercent || 0) * amount / 100;
             const taxableValue = amount - discountAmount;
             const cgst = taxableValue * 0.025;
             const sgst = taxableValue * 0.025;
@@ -164,113 +155,104 @@ function GenerateInvoiceDialog({
             createdBy: creator.name,
             
         };
-        console.log("🧾 Totals calculated:", totals);
-        console.log("💰 Net Amount:", netAmount, " Rounded:", roundedAmount, " RoundOff:", roundOff);
 
         batch.set(newInvoiceRef, newInvoice);
         
         const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id };
         const plainInvoiceData = JSON.parse(JSON.stringify(fullInvoiceData));
-        const tallyResult = await sendInvoiceToTally(plainInvoiceData);
-
-          console.log("📤 Voucher Fetch Request sent for invoice:", fullInvoiceData.id);
-          console.log("📥 Voucher Fetch Response from Tally:", tallyResult);
-          console.log("🔎 Voucher Number fetched:", tallyResult?.voucherNumber);
-
-
+        const tallyResult = await sendInvoiceToTally(plainInvoiceData, isVas);
         
-        // --- STOCK DEDUCTION LOGIC ---
         if (tallyResult.success) {
-            for (const item of allItems) {
-                const stockId = item.bcn.replace(/\//g, '-');
-                const stockRef = doc(db, 'stocks', stockId);
+            // --- STOCK DEDUCTION LOGIC (only for non-VAS) ---
+            if (!isVas) {
+                for (const item of allItems) {
+                    const stockId = item.bcn.replace(/\//g, '-');
+                    const stockRef = doc(db, 'stocks', stockId);
 
-                // Decrement master physical quantity and reservedQty, increment cutQty
-                batch.update(stockRef, {
-                    quantity: increment(-item.quantityAllocated),
-                    reservedQty: increment(-item.quantityAllocated),
-                    cutQty: increment(item.quantityAllocated),
-                });
-                
-                // Also update the specific length document
-                if (item.stockAddedId) {
-                    const lengthRef = doc(db, 'stocks', stockId, 'lengths', item.stockAddedId);
-                    batch.update(lengthRef, {
+                    batch.update(stockRef, {
+                        quantity: increment(-item.quantityAllocated),
                         reservedQty: increment(-item.quantityAllocated),
                         cutQty: increment(item.quantityAllocated),
                     });
-                }
+                    
+                    if (item.stockAddedId) {
+                        const lengthRef = doc(db, 'stocks', stockId, 'lengths', item.stockAddedId);
+                        batch.update(lengthRef, {
+                            reservedQty: increment(-item.quantityAllocated),
+                            cutQty: increment(item.quantityAllocated),
+                        });
+                    }
 
-                // Log stock transaction for cut
-                const transactionRef = doc(collection(stockRef, 'stockSold'));
-                const transaction: Omit<StockTransaction, 'id'> = {
-                    stockId: stockId,
-                    bcn: item.bcn,
-                    type: 'deduction',
-                    quantityChange: -item.quantityAllocated,
-                    orderId: primaryOrder.id,
-                    createdAt: new Date().toISOString(),
-                    createdBy: creator.name,
-                    status: 'cut'
-                };
-                batch.set(transactionRef, transaction);
+                    const transactionRef = doc(collection(stockRef, 'stockSold'));
+                    const transaction: Omit<StockTransaction, 'id'> = {
+                        stockId: stockId,
+                        bcn: item.bcn,
+                        type: 'deduction',
+                        quantityChange: -item.quantityAllocated,
+                        orderId: primaryOrder.id,
+                        createdAt: new Date().toISOString(),
+                        createdBy: creator.name,
+                        status: 'cut'
+                    };
+                    batch.set(transactionRef, transaction);
+                }
             }
-             // Update the invoice with the voucher number
+
             if(tallyResult.voucherNumber) {
                 const invoiceRefToUpdate = doc(db, "invoices", newInvoiceRef.id);
                 batch.update(invoiceRefToUpdate, { tallyVoucherNo: tallyResult.voucherNumber });
                 setGeneratedInvoice({ ...fullInvoiceData, tallyVoucherNo: tallyResult.voucherNumber });
             }
         } else {
-             setGeneratedInvoice(fullInvoiceData); // Still show invoice even if Tally fails
+             setGeneratedInvoice(fullInvoiceData); 
         }
         
-        const newCuttingTaskRef = doc(collection(db, "Cutting"));
-        const newCuttingTask: Omit<CuttingTask, 'id'> = {
-            invoiceId: newInvoiceRef.id,
-            orderId: primaryOrder.id,
-            customerName: primaryOrder.customerName,
-            customerPhone: primaryOrder.customerPhone,
-            salesPerson: primaryOrder.salesPerson,
-            items: allItems.map(item => ({ 
-                ...item, 
-                status: 'pending',
-                originalLength: item.originalLength || 0,
-            })),
-            createdAt: new Date().toISOString(),
-            status: "Pending",
-        };
-        batch.set(newCuttingTaskRef, newCuttingTask);
-
+        if (!isVas) {
+            const newCuttingTaskRef = doc(collection(db, "Cutting"));
+            const newCuttingTask: Omit<CuttingTask, 'id'> = {
+                invoiceId: newInvoiceRef.id,
+                orderId: primaryOrder.id,
+                customerName: primaryOrder.customerName,
+                customerPhone: primaryOrder.customerPhone,
+                salesPerson: primaryOrder.salesPerson,
+                items: allItems.map(item => ({ 
+                    ...item, 
+                    status: 'pending',
+                    originalLength: item.originalLength || 0,
+                })),
+                createdAt: new Date().toISOString(),
+                status: "Pending",
+            };
+            batch.set(newCuttingTaskRef, newCuttingTask);
+        }
 
         batches.forEach(b => {
             const batchRef = doc(db, "invoiceBatches", b.id);
             batch.update(batchRef, { status: "invoiced", invoiceId: newInvoiceRef.id });
         });
 
-        const allOrderFabricNames = (primaryOrder.fabricDetails || []).map(f => f.fabricName);
+        if (!isVas) {
+            const allOrderFabricNames = (primaryOrder.fabricDetails || []).map(f => f.fabricName);
+            const allBatchesQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', primaryOrder.id));
+            const allBatchesSnapshot = await getDocs(allBatchesQuery);
+            const allInvoicedItems = allBatchesSnapshot.docs.flatMap(doc => (doc.data() as InvoiceBatch).items.map(item => item.itemName));
+            const currentBatchItems = allItems.map(item => item.itemName);
+            allInvoicedItems.push(...currentBatchItems);
+            const allItemsInvoiced = allOrderFabricNames.every(name => allInvoicedItems.includes(name));
 
-        const allBatchesQuery = query(collection(db, 'invoiceBatches'), where('orderId', '==', primaryOrder.id));
-        const allBatchesSnapshot = await getDocs(allBatchesQuery);
-        const allInvoicedItems = allBatchesSnapshot.docs.flatMap(doc => (doc.data() as InvoiceBatch).items.map(item => item.itemName));
-        
-        const currentBatchItems = allItems.map(item => item.itemName);
-        allInvoicedItems.push(...currentBatchItems);
-
-        const allItemsInvoiced = allOrderFabricNames.every(name => allInvoicedItems.includes(name));
-
-        if (allItemsInvoiced) {
-            const orderRef = doc(db, "orders", primaryOrder.id);
-            const updatedMilestones = primaryOrder.milestones.map(m =>
-                m.id === 3
-                ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: creator.name }
-                : m
-            );
-            batch.update(orderRef, { milestones: updatedMilestones });
+            if (allItemsInvoiced) {
+                const orderRef = doc(db, "orders", primaryOrder.id);
+                const updatedMilestones = primaryOrder.milestones.map(m =>
+                    m.id === 3
+                    ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: creator.name }
+                    : m
+                );
+                batch.update(orderRef, { milestones: updatedMilestones });
+            }
         }
         
         await batch.commit();
-        setTallySyncResult(tallyResult); // Open the result dialog
+        setTallySyncResult(tallyResult); 
 
     } catch (error) {
         console.error("Error finalizing invoice:", error);
@@ -283,6 +265,13 @@ function GenerateInvoiceDialog({
   const handlePreVoucherCheck = React.useCallback(async () => {
     if (!creator) return;
     setIsGenerating(true);
+    const isVasInvoice = batches.length > 0 && batches[0].isVas === true;
+    
+    if (isVasInvoice) {
+        await handleFinalGenerate(true);
+        return;
+    }
+
     const mismatches: MismatchItem[] = [];
     const allItems = batches.flatMap(b => b.items);
 
@@ -322,7 +311,7 @@ function GenerateInvoiceDialog({
       setIsStockMismatchOpen(true);
       setIsGenerating(false);
     } else {
-      await handleFinalGenerate();
+      await handleFinalGenerate(false);
     }
   }, [creator, batches, handleFinalGenerate, toast]);
 
@@ -482,10 +471,9 @@ function InvoiceTable({
       ),
       cell: ({ row }) => {
          const createdAt = row.original.createdAt as any;
-         if (createdAt?.toDate) { // Check if it's a Firestore Timestamp
-            return format(createdAt.toDate(), "dd/MM/yyyy HH:mm");
-         }
-         return format(new Date(createdAt), "dd/MM/yyyy HH:mm");
+         // It's a string from the server action, not a timestamp.
+         const date = new Date(createdAt);
+         return format(date, "dd/MM/yyyy HH:mm");
       }
     },
     {
@@ -519,7 +507,7 @@ function InvoiceTable({
       header: "Status",
       cell: ({ row }) => {
         const status = row.original.status;
-        const tallyBillNo = row.original.tallyBillNo;
+        const tallyBillNo = row.original.tallyVoucherNo;
         const variant = status === 'pendingInvoice' ? 'secondary' : 'default';
         const color = status === 'pendingInvoice' ? '' : 'bg-green-600';
         const text = status === 'pendingInvoice' ? 'Pending for Invoice' : `Invoiced: ${tallyBillNo || ''}`;

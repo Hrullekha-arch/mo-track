@@ -2,7 +2,7 @@
 
 'use server';
 
-import { Invoice, Stock, TaxDetail, User, InvoiceBatch } from '@/lib/types';
+import { Invoice, Stock, TaxDetail, User, InvoiceBatch, VasDetail } from '@/lib/types';
 import { adminDb } from '@/lib/firebase-admin';
 import xml2js from 'xml2js';
 import { doc, updateDoc, collection, getDocs, query, where, writeBatch } from 'firebase/firestore';
@@ -156,12 +156,13 @@ async function buildStockItemCreateXML(bcn: string): Promise<string> {
 }
 
 
-export async function buildSalesVoucherXML(invoice: Invoice): Promise<{xml: string, roundedTotal: number, partyLedgerName: string, date: string}> {
+export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Promise<{xml: string, roundedTotal: number, partyLedgerName: string, date: string}> {
     const money = (n: number) => (Math.round(n * 100) / 100);
     const fmt = (n: number) => money(n).toFixed(2);
     
     const date = format(new Date(), 'yyyyMMdd');
     const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
+    const companyName = isVas ? "MO SPACES PVT.LTD." : "MO Designs Private Limited - (2024-2025)";
     
     let salesmanRefText = invoice.salesPerson;
     const orderDoc = await adminDb.collection('orders').doc(invoice.orderId).get();
@@ -174,39 +175,41 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<{xml: stri
     }
     
     const totalQty = invoice.items.reduce((sum, item) => sum + item.quantityAllocated, 0);
-    const firstItemName = invoice.items[0]?.bcn || 'items';
-    const narration = escapeXml(`Sale of ${totalQty} mtr of Stock Item ${firstItemName}`);
+    const firstItemName = invoice.items[0]?.itemName || 'items';
+    const narration = escapeXml(`Sale of ${isVas ? 'VAS services' : `${totalQty} mtr of ${firstItemName}`}`);
     const stateName = "Haryana"; 
   
     const uniqueBcns = [...new Set(invoice.items.map(item => item.bcn))];
     const stockDetailsMap = new Map<string, Stock>();
     const taxDetailsMap = new Map<string, TaxDetail>();
   
-    for (const bcn of uniqueBcns) {
-        await createIfNeeded(await buildStockItemCreateXML(bcn));
-        const stockId = bcn.replace(/\//g, '-');
-        const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
-        if (stockDoc.exists) {
-            const stockData = stockDoc.data() as Stock;
-            stockDetailsMap.set(bcn, stockData);
-            if (stockData.hsnCode) {
-                const taxDoc = await adminDb.collection('taxDetails').doc(stockData.hsnCode).get();
-                if (taxDoc.exists) {
-                    taxDetailsMap.set(stockData.hsnCode, taxDoc.data() as TaxDetail);
+    if (!isVas) {
+        for (const bcn of uniqueBcns) {
+            await createIfNeeded(await buildStockItemCreateXML(bcn));
+            const stockId = bcn.replace(/\//g, '-');
+            const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
+            if (stockDoc.exists) {
+                const stockData = stockDoc.data() as Stock;
+                stockDetailsMap.set(bcn, stockData);
+                if (stockData.hsnCode) {
+                    const taxDoc = await adminDb.collection('taxDetails').doc(stockData.hsnCode).get();
+                    if (taxDoc.exists) {
+                        taxDetailsMap.set(stockData.hsnCode, taxDoc.data() as TaxDetail);
+                    }
                 }
             }
         }
     }
   
-    let inventoryEntries = '';
+    let entries = '';
     let totalTaxableValue = 0;
   
     for (const item of invoice.items) {
         const stockDetail = stockDetailsMap.get(item.bcn);
         const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
-        const gstRate = taxDetail?.gst ?? 5; 
+        const gstRate = isVas ? 18 : (taxDetail?.gst ?? 5); 
         const halfGst = gstRate / 2;
-        const unit = stockDetail?.unit || 'mtr';
+        const unit = stockDetail?.unit || (isVas ? 'Nos' : 'mtr');
   
         const ledgerName = `Haryana Sale @ ${gstRate}%`;
   
@@ -218,8 +221,16 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<{xml: stri
         const discountAmount = money(lineAmount * (discountPercent / 100));
         const itemTaxableValue = money(lineAmount - discountAmount);
         totalTaxableValue += itemTaxableValue;
-  
-        inventoryEntries += `
+        
+        if (isVas) {
+            entries += `
+            <ALLLEDGERENTRIES.LIST>
+                <LEDGERNAME>${escapeXml(item.itemName)}</LEDGERNAME>
+                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>`;
+        } else {
+             entries += `
             <ALLINVENTORYENTRIES.LIST>
               <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
               <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
@@ -241,9 +252,13 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<{xml: stri
                 <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
               </ACCOUNTINGALLOCATIONS.LIST>
             </ALLINVENTORYENTRIES.LIST>`;
+        }
     }
-    const cgst = money(totalTaxableValue * 0.025);
-    const sgst = money(totalTaxableValue * 0.025);
+
+    const cgstRate = isVas ? 9 : 2.5;
+    const sgstRate = isVas ? 9 : 2.5;
+    const cgst = money(totalTaxableValue * (cgstRate / 100));
+    const sgst = money(totalTaxableValue * (sgstRate / 100));
     const totalAmountBeforeRoundOff = money(totalTaxableValue + cgst + sgst);
     const roundedTotal = Math.round(totalAmountBeforeRoundOff);
     const roundOff = money(roundedTotal - totalAmountBeforeRoundOff);
@@ -283,7 +298,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<{xml: stri
       <REQUESTDESC>
         <REPORTNAME>Vouchers</REPORTNAME>
         <STATICVARIABLES>
-          <SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY>
+          <SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
         </STATICVARIABLES>
       </REQUESTDESC>
       <REQUESTDATA>
@@ -300,7 +315,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<{xml: stri
             <PLACEOFSUPPLY>${stateName}</PLACEOFSUPPLY>
             <NARRATION>${narration}</NARRATION>
             ${partyLedgerEntry}
-            ${inventoryEntries}
+            ${entries}
             ${cgstLedgerEntry}
             ${sgstLedgerEntry}
             ${roundOffLedgerEntry}
@@ -314,8 +329,7 @@ export async function buildSalesVoucherXML(invoice: Invoice): Promise<{xml: stri
   return { xml, roundedTotal, partyLedgerName, date };
 }
 
-// --- (---------------------------------------------------)-----
-async function buildVoucherFilterXML(ledgerName: string, amount: number, date: string): Promise<string> {
+async function buildVoucherFilterXML(ledgerName: string, amount: number, date: string, companyName: string): Promise<string> {
   return `
 <ENVELOPE>
   <HEADER>
@@ -328,6 +342,7 @@ async function buildVoucherFilterXML(ledgerName: string, amount: number, date: s
     <DESC>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -361,9 +376,7 @@ async function buildVoucherFilterXML(ledgerName: string, amount: number, date: s
 </ENVELOPE>`.trim();
 }
 
-// ---------------- Main ops ----------------
-
-export async function createIfNeeded(xml: string): Promise<{ success: boolean; message: string }> {
+async function createIfNeeded(xml: string): Promise<{ success: boolean; message: string }> {
   try {
     const res = await httpPostXml(xml);
     const ok = tallyCreateOk(res);
@@ -373,17 +386,13 @@ export async function createIfNeeded(xml: string): Promise<{ success: boolean; m
   }
 }
 
-async function fetchAndSaveVoucherNumber(invoice: Invoice, ledgerName: string, amount: number, date: string): Promise<string | undefined> {
-  const filterXml = await buildVoucherFilterXML(ledgerName, amount, date);
-
-  console.log("=============================================");
-  console.log("📤 Voucher Fetch Request XML (sending to Tally):");
-  console.log(filterXml);
-  console.log("=============================================");
+async function fetchAndSaveVoucherNumber(invoice: Invoice, ledgerName: string, amount: number, date: string, isVas: boolean): Promise<string | undefined> {
+  const companyName = isVas ? "MO SPACES PVT.LTD." : "MO Designs Private Limited - (2024-2025)";
+  const filterXml = await buildVoucherFilterXML(ledgerName, amount, date, companyName);
 
   let voucherNo: string | undefined;
   for (let attempt = 0; attempt < 3 && !voucherNo; attempt++) {
-    await new Promise(r => setTimeout(r, 5000)); // Delay before trying to fetch
+    await new Promise(r => setTimeout(r, 5000)); 
     const xml = await httpPostXml(filterXml);
 
     console.log(`📥 Attempt ${attempt + 1}: Voucher Fetch Response XML (from Tally):`);
@@ -398,7 +407,7 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice, ledgerName: string, a
     const batch = adminDb.batch();
     batch.update(adminDb.collection("invoices").doc(invoice.id), { tallyVoucherNo: voucherNo });
     const batchesSnap = await adminDb.collection("invoiceBatches").where("invoiceId", "==", invoice.id).get();
-    batchesSnap.forEach(docSnap => batch.update(docSnap.ref, { tallyBillNo: voucherNo }));
+    batchesSnap.forEach(docSnap => batch.update(docSnap.ref, { tallyVoucherNo: voucherNo }));
     await batch.commit();
   } else {
     console.error(`❌ Failed to fetch voucher number for invoice ${invoice.id} after 3 attempts.`);
@@ -407,10 +416,10 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice, ledgerName: string, a
   return voucherNo;
 }
 
-// --- (keeping sendInvoiceToTally, getStockFromTally, getFirestoreStockQuantity as in your code) --
 
 export async function sendInvoiceToTally(
-  invoice: Invoice
+  invoice: Invoice,
+  isVas: boolean = false
 ): Promise<{ success: boolean; message: string; voucherNumber?: string }> {
   // 1) Ensure Ledger exists for the customer
   await createIfNeeded(
@@ -418,10 +427,8 @@ export async function sendInvoiceToTally(
   );
   
   // 2) Create the Sales Voucher
-  const { xml: voucherXml, roundedTotal, partyLedgerName, date } = await buildSalesVoucherXML(invoice);
+  const { xml: voucherXml, roundedTotal, partyLedgerName, date } = await buildSalesVoucherXML(invoice, isVas);
   
-  
-  // Save XML before sending for better debugging
   await adminDb.collection('invoices').doc(invoice.id).set({ tallySalesXml: voucherXml }, { merge: true });
   
   const voucherResult = await createIfNeeded(voucherXml);
@@ -434,8 +441,8 @@ export async function sendInvoiceToTally(
   }
 
   // 3) On successful creation, fetch the voucher number
-  await new Promise(resolve => setTimeout(resolve, 5000)); // Small delay to allow Tally to process
-  const voucherNumber = await fetchAndSaveVoucherNumber(invoice, partyLedgerName, roundedTotal, date);
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  const voucherNumber = await fetchAndSaveVoucherNumber(invoice, partyLedgerName, roundedTotal, date, isVas);
   
   return {
     success: true,

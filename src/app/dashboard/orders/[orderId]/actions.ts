@@ -39,19 +39,17 @@ export async function allocateStockToAction(
         const orderRef = adminDb.collection('orders').doc(orderId);
         const invoiceBatchesRef = adminDb.collection("invoiceBatches");
         
-        // --- ALL READS FIRST ---
-        // Query for the most recent pending batch for this order.
         const recentBatchesQuery = invoiceBatchesRef
                 .where("orderId", "==", orderId)
                 .where("status", "==", "pendingInvoice")
-                .orderBy("createdAt", "desc") // Get the most recent first
+                .orderBy("createdAt", "desc") 
                 .limit(1);
 
         const reads = [
             transaction.get(stockRef),
             transaction.get(lengthRef),
             transaction.get(orderRef),
-            transaction.get(recentBatchesQuery) // Read the query result
+            transaction.get(recentBatchesQuery)
         ];
         
         const [stockDoc, lengthDoc, orderDoc, recentBatchesSnap] = await Promise.all(reads);
@@ -74,10 +72,8 @@ export async function allocateStockToAction(
         const fabricDetailItem = (orderData.fabricDetails || []).find(item => item.fabricName === bcn);
         const discountPercent = fabricDetailItem?.discountPercent || 0;
   
-        // --- ALL WRITES AFTER ---
         const updateTimestamp = new Date().toISOString();
   
-        // 1. Update stock quantities
         transaction.update(stockRef, {
           reservedQty: FieldValue.increment(allocatedQty),
           availableQty: FieldValue.increment(-allocatedQty),
@@ -89,7 +85,6 @@ export async function allocateStockToAction(
           lastUpdatedAt: updateTimestamp
         });
   
-        // 2. Create reservation log
         const reservationRef = lengthRef.collection('reservedQty').doc();
         transaction.set(reservationRef, {
           orderId: orderId,
@@ -98,7 +93,6 @@ export async function allocateStockToAction(
           timestamp: updateTimestamp
         });
   
-        // 3. Update order milestone "Fabric Allocated"
         const updatedMilestones = orderData.milestones.map((m: any) => {
           if (m.id === 2) { // ID for "Fabric Allocated"
             return { ...m, completed: true, completedAt: updateTimestamp, completedBy: userName };
@@ -107,16 +101,14 @@ export async function allocateStockToAction(
         });
         transaction.update(orderRef, { milestones: updatedMilestones });
   
-        // 4. Find or Create Invoice Batch (Logic based on reads)
         let targetBatchRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
         let isNewBatch = true;
         
         if (!recentBatchesSnap.empty) {
             const lastBatchDoc = recentBatchesSnap.docs[0];
-            const lastBatchTimestamp = new Date(lastBatchDoc.data().createdAt); // Directly create Date from ISO string
+            const lastBatchTimestamp = new Date(lastBatchDoc.data().createdAt as string);
             const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
             
-            // Check if the last batch is within the 10-minute window
             if (lastBatchTimestamp > tenMinutesAgo) {
                 targetBatchRef = lastBatchDoc.ref;
                 isNewBatch = false;
