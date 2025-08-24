@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -390,6 +389,23 @@ function GenerateInvoiceDialog({
   )
 }
 
+const parseDateSafe = (dateInput: any): Date | null => {
+    if (!dateInput) return null;
+    if (dateInput instanceof Date) return dateInput;
+    // Handle Firestore Timestamp object which has toDate() method
+    if (typeof dateInput.toDate === 'function') {
+        return dateInput.toDate();
+    }
+    // Handle ISO string
+    if (typeof dateInput === 'string') {
+        const date = new Date(dateInput);
+        if (!isNaN(date.getTime())) {
+            return date;
+        }
+    }
+    return null;
+}
+
 function InvoiceTable({ 
     batches, 
     orders, 
@@ -470,10 +486,8 @@ function InvoiceTable({
         </Button>
       ),
       cell: ({ row }) => {
-         const createdAt = row.original.createdAt as any;
-         // It's a string from the server action, not a timestamp.
-         const date = new Date(createdAt);
-         return format(date, "dd/MM/yyyy HH:mm");
+        const date = parseDateSafe(row.original.createdAt);
+        return date ? format(date, "dd/MM/yyyy HH:mm") : "Invalid Date";
       }
     },
     {
