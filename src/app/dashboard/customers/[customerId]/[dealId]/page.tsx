@@ -833,7 +833,7 @@ function StitchDimensionFields({ roomIndex, itemIndex, stitchDimensionIndex, onR
     const { control, setValue } = useFormContext<CpdFormValues>();
     
     const handleOperationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { value, selectionStart, selectionEnd } = e.target;
+        const { value } = e.target;
         
         let newValue = value;
         // Basic replacements first for common fractions
@@ -848,8 +848,6 @@ function StitchDimensionFields({ roomIndex, itemIndex, stitchDimensionIndex, onR
 
         // This regex looks for digits, a slash, and then more digits
         newValue = newValue.replace(/(\d+)\/(\d+)/g, (match, num, den) => {
-            // Check if it's one of the already replaced common fractions, if so, ignore
-            if (['½', '¼', '¾'].includes(match)) return match;
             const superNum = [...num].map(char => superscripts[char] || char).join('');
             const subDen = [...den].map(char => subscripts[char] || char).join('');
             return `${superNum}⁄${subDen}`; // Using fraction slash
@@ -2836,6 +2834,27 @@ function PrintableCpd({ cpd, customer, deal, salesmen }: { cpd: Cpd, customer: C
                                                                             </ul>
                                                                         </div>
                                                                     )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                             {item.hasStitchDimension && item.stitchDimensions && item.stitchDimensions.length > 0 && (
+                                                <TableRow>
+                                                    <TableCell colSpan={7} className="p-0">
+                                                        <div className="p-2 bg-blue-50">
+                                                            <h4 className="font-semibold text-xs mb-1 pl-2">Stitching Details:</h4>
+                                                            {item.stitchDimensions.map((dim, dimIndex) => (
+                                                                <div key={dim.id || dimIndex} className="pl-4 pr-2 py-1 border-l-2 ml-2 border-blue-200">
+                                                                     <div className="grid grid-cols-4 gap-x-4 gap-y-1 text-xs">
+                                                                        <span><strong>VAS:</strong> {dim.vas || 'N/A'}</span>
+                                                                        <span><strong>Lengths:</strong> {dim.lengths || 'N/A'}</span>
+                                                                        <span><strong>Width:</strong> {dim.width || 'N/A'}</span>
+                                                                        <span><strong>No. of Panels:</strong> {dim.noOfPanels || 'N/A'}</span>
+                                                                        <span className="col-span-2"><strong>Operation:</strong> {dim.operation || 'N/A'}</span>
+                                                                        <span className="col-span-2"><strong>Remark:</strong> {dim.remark || 'N/A'}</span>
+                                                                    </div>
                                                                 </div>
                                                             ))}
                                                         </div>
