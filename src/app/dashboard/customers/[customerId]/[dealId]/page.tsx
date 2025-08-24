@@ -835,39 +835,27 @@ function StitchDimensionFields({ roomIndex, itemIndex, stitchDimensionIndex, onR
     const handleOperationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { value, selectionStart, selectionEnd } = e.target;
         
-        const replacements: Record<string, string> = {
-            '1/2': '½', '1/4': '¼', '3/4': '¾', '1/3': '⅓', '2/3': '⅔',
-            '1/5': '⅕', '2/5': '⅖', '3/5': '⅗', '4/5': '⅘', '1/6': '⅙', '5/6': '⅚',
-            '1/8': '⅛', '3/8': '⅜', '5/8': '⅝', '7/8': '⅞',
-        };
-        const superscripts: Record<string, string> = { '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '0': '⁰' };
-        const subscripts: Record<string, string> = { '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉', '0': '₀' };
-
         let newValue = value;
-        // Replace common fractions first
+        // Basic replacements first for common fractions
+        const replacements: Record<string, string> = { '1/2': '½', '1/4': '¼', '3/4': '¾' };
         for (const [key, rep] of Object.entries(replacements)) {
             newValue = newValue.replace(new RegExp(key, 'g'), rep);
         }
 
-        // Handle custom fractions like 1/16 -> ¹/₁₆
+        // More complex regex for any digit/digit to superscript/subscript
+        const superscripts: Record<string, string> = { '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '0': '⁰' };
+        const subscripts: Record<string, string> = { '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉', '0': '₀' };
+
+        // This regex looks for digits, a slash, and then more digits
         newValue = newValue.replace(/(\d+)\/(\d+)/g, (match, num, den) => {
+            // Check if it's one of the already replaced common fractions, if so, ignore
+            if (['½', '¼', '¾'].includes(match)) return match;
             const superNum = [...num].map(char => superscripts[char] || char).join('');
             const subDen = [...den].map(char => subscripts[char] || char).join('');
-            return `${superNum}⁄${subDen}`;
+            return `${superNum}⁄${subDen}`; // Using fraction slash
         });
         
-        if (newValue !== value) {
-            setValue(`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.operation`, newValue, { shouldValidate: true });
-            
-            // This is a trick to maintain cursor position, might not be perfect
-            setTimeout(() => {
-                const diff = newValue.length - value.length;
-                e.target.selectionStart = (selectionStart || 0) + diff;
-                e.target.selectionEnd = (selectionEnd || 0) + diff;
-            }, 0);
-        } else {
-             setValue(`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.operation`, value, { shouldValidate: true });
-        }
+        setValue(`rooms.${roomIndex}.items.${itemIndex}.stitchDimensions.${stitchDimensionIndex}.operation`, newValue, { shouldValidate: true });
     }
     
     return (
@@ -2900,7 +2888,20 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
         }, 250);
     };
 
-    let grandTotal = 0;
+    const overallTotals = useMemo(() => {
+        let totalItems = 0;
+        let totalQty = 0;
+        let totalAmount = 0;
+
+        cpd.rooms.forEach(room => {
+            room.items.forEach(item => {
+                totalItems += 1;
+                totalQty += Number(item.qty) || 0;
+                totalAmount += Number(item.amount) || 0;
+            });
+        });
+        return { totalItems, totalQty, totalAmount };
+    }, [cpd]);
 
     return (
         <div className="flex-grow overflow-y-auto">
@@ -2918,8 +2919,10 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
                  </div>
                  <div className="space-y-6">
                     {cpd.rooms.map((room, roomIndex) => {
-                        const roomTotal = room.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-                        grandTotal += roomTotal;
+                        const roomTotalAmount = room.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+                        const roomTotalQty = room.items.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+                        const roomTotalItems = room.items.length;
+                        
                         return (
                             <div key={roomIndex}>
                                 <h3 className="font-bold bg-gray-200 p-2 rounded-t-md">{room.room?.toUpperCase().replace(/-/g, ' ') || 'General Items'}</h3>
@@ -2946,8 +2949,10 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
                                     </TableBody>
                                     <TableFooter>
                                         <TableRow>
-                                            <TableCell colSpan={4} className="text-right font-bold">Room Total</TableCell>
-                                            <TableCell className="text-right font-bold">{roomTotal.toFixed(2)}</TableCell>
+                                            <TableCell colSpan={2} className="text-right font-bold">Room Total:</TableCell>
+                                            <TableCell className="text-right font-bold">{roomTotalQty.toFixed(2)}</TableCell>
+                                            <TableCell className="text-right font-bold">(Items: {roomTotalItems})</TableCell>
+                                            <TableCell className="text-right font-bold">{roomTotalAmount.toFixed(2)}</TableCell>
                                         </TableRow>
                                     </TableFooter>
                                 </Table>
@@ -2956,10 +2961,18 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
                     })}
                  </div>
                  <div className="mt-8 pt-4 border-t-2 border-gray-600 flex justify-end">
-                     <div className="w-1/3">
+                     <div className="w-1/2 space-y-2">
                         <div className="flex justify-between font-bold text-lg">
-                            <span>Grand Total:</span>
-                            <span>{grandTotal.toFixed(2)}</span>
+                            <span>Grand Total Items:</span>
+                            <span>{overallTotals.totalItems}</span>
+                        </div>
+                         <div className="flex justify-between font-bold text-lg">
+                            <span>Grand Total Qty:</span>
+                            <span>{overallTotals.totalQty.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-lg">
+                            <span>Grand Total Amount:</span>
+                            <span>{overallTotals.totalAmount.toFixed(2)}</span>
                         </div>
                      </div>
                  </div>
@@ -2967,3 +2980,5 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
         </div>
     )
 }
+
+    
