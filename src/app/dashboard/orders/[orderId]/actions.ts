@@ -41,11 +41,10 @@ export async function allocateStockToAction(
         
         // --- ALL READS FIRST ---
         // Query for the most recent pending batch for this order.
-        // We will check the timestamp after fetching.
         const recentBatchesQuery = invoiceBatchesRef
                 .where("orderId", "==", orderId)
                 .where("status", "==", "pendingInvoice")
-                .orderBy("createdAt", "asc") // Corrected to ascending to match the index
+                .orderBy("createdAt", "desc") // Get the most recent first
                 .limit(1);
 
         const reads = [
@@ -114,7 +113,7 @@ export async function allocateStockToAction(
         
         if (!recentBatchesSnap.empty) {
             const lastBatchDoc = recentBatchesSnap.docs[0];
-            const lastBatchTimestamp = (lastBatchDoc.data().createdAt as Timestamp).toDate();
+            const lastBatchTimestamp = new Date(lastBatchDoc.data().createdAt); // Directly create Date from ISO string
             const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
             
             // Check if the last batch is within the 10-minute window
@@ -139,12 +138,11 @@ export async function allocateStockToAction(
         };
 
         if (isNewBatch) {
-            const newInvoiceBatch: InvoiceBatch = {
-                id: targetBatchRef.id,
+            const newInvoiceBatch: Omit<InvoiceBatch, 'id'> = {
                 orderId: orderId,
                 customerName: orderData.customerName,
                 customerPhone: orderData.customerPhone,
-                createdAt: Timestamp.now(),
+                createdAt: new Date().toISOString(),
                 status: 'pendingInvoice',
                 items: [newItem]
             };
