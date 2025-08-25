@@ -183,19 +183,21 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     const stockDetailsMap = new Map<string, Stock>();
     const taxDetailsMap = new Map<string, TaxDetail>();
   
-    if (!isVas) {
-        for (const bcn of uniqueBcns) {
+    // Pre-fetch all necessary stock and tax details
+    for (const bcn of uniqueBcns) {
+        if (isVas) {
+            // For VAS, ensure the stock item exists under the correct company
             await createIfNeeded(await buildStockItemCreateXML(bcn));
-            const stockId = bcn.replace(/\//g, '-');
-            const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
-            if (stockDoc.exists) {
-                const stockData = stockDoc.data() as Stock;
-                stockDetailsMap.set(bcn, stockData);
-                if (stockData.hsnCode) {
-                    const taxDoc = await adminDb.collection('taxDetails').doc(stockData.hsnCode).get();
-                    if (taxDoc.exists) {
-                        taxDetailsMap.set(stockData.hsnCode, taxDoc.data() as TaxDetail);
-                    }
+        }
+        const stockId = bcn.replace(/\//g, '-');
+        const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
+        if (stockDoc.exists) {
+            const stockData = stockDoc.data() as Stock;
+            stockDetailsMap.set(bcn, stockData);
+            if (stockData.hsnCode) {
+                const taxDoc = await adminDb.collection('taxDetails').doc(stockData.hsnCode).get();
+                if (taxDoc.exists) {
+                    taxDetailsMap.set(stockData.hsnCode, taxDoc.data() as TaxDetail);
                 }
             }
         }
@@ -207,6 +209,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     for (const item of invoice.items) {
         const stockDetail = stockDetailsMap.get(item.bcn);
         const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
+        // VAS items are stock items with a different default GST and unit.
         const gstRate = isVas ? 18 : (taxDetail?.gst ?? 5); 
         const unit = isVas ? 'Pcs' : (stockDetail?.unit || 'mtr');
   
@@ -221,41 +224,32 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
         const itemTaxableValue = money(lineAmount - discountAmount);
         totalTaxableValue += itemTaxableValue;
         
-        if (isVas) {
-            entries += `
-            <LEDGERENTRIES.LIST>
-                <LEDGERNAME>${escapeXml(item.itemName)}</LEDGERNAME>
-                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-            </LEDGERENTRIES.LIST>`;
-        } else {
-             entries += `
-            <ALLINVENTORYENTRIES.LIST>
-              <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
-              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <RATE>${fmt(rate)}/${unit}</RATE>
-              <DISCOUNT>${fmt(discountPercent)}</DISCOUNT>
-              <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-              <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
-              <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
-              <BATCHALLOCATIONS.LIST>
-                <GODOWNNAME>Mo</GODOWNNAME>
-                <BATCHNAME>Primary Batch</BATCHNAME>
-                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-                <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
-                <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
-              </BATCHALLOCATIONS.LIST>
-              <ACCOUNTINGALLOCATIONS.LIST>
-                <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
-                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-              </ACCOUNTINGALLOCATIONS.LIST>
-            </ALLINVENTORYENTRIES.LIST>`;
-        }
+        entries += `
+        <ALLINVENTORYENTRIES.LIST>
+            <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <RATE>${fmt(rate)}/${unit}</RATE>
+            <DISCOUNT>${fmt(discountPercent)}</DISCOUNT>
+            <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+            <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
+            <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
+            <BATCHALLOCATIONS.LIST>
+            <GODOWNNAME>Mo</GODOWNNAME>
+            <BATCHNAME>Primary Batch</BATCHNAME>
+            <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+            <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
+            <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
+            </BATCHALLOCATIONS.LIST>
+            <ACCOUNTINGALLOCATIONS.LIST>
+            <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+            </ACCOUNTINGALLOCATIONS.LIST>
+        </ALLINVENTORYENTRIES.LIST>`;
     }
 
-    const cgstRate = isVas ? 9 : 2.5;
-    const sgstRate = isVas ? 9 : 2.5;
+    const cgstRate = totalTaxableValue > 0 ? (isVas ? 9 : 2.5) : 0;
+    const sgstRate = totalTaxableValue > 0 ? (isVas ? 9 : 2.5) : 0;
     const cgst = money(totalTaxableValue * (cgstRate / 100));
     const sgst = money(totalTaxableValue * (sgstRate / 100));
     const totalAmountBeforeRoundOff = money(totalTaxableValue + cgst + sgst);
@@ -269,17 +263,17 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
             <AMOUNT>-${fmt(roundedTotal)}</AMOUNT>
         </LEDGERENTRIES.LIST>`;
     
-    const cgstLedgerEntry = `<LEDGERENTRIES.LIST>
+    const cgstLedgerEntry = cgst > 0 ? `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output CGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(cgst)}</AMOUNT>
-        </LEDGERENTRIES.LIST>`;
+        </LEDGERENTRIES.LIST>`: '';
   
-    const sgstLedgerEntry = `<LEDGERENTRIES.LIST>
+    const sgstLedgerEntry = sgst > 0 ? `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output SGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(sgst)}</AMOUNT>
-        </LEDGERENTRIES.LIST>`;
+        </LEDGERENTRIES.LIST>`: '';
         
     const roundOffLedgerEntry = roundOff !== 0 ? `<LEDGERENTRIES.LIST>
           <LEDGERNAME>Round Off</LEDGERNAME>
