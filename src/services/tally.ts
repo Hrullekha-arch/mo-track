@@ -135,24 +135,27 @@ async function buildLedgerCreateXML(customerName: string, customerPhone: string,
 </ENVELOPE>`.trim();
 }
 
-async function buildStockItemCreateXML(bcn: string): Promise<string> {
-  const escapedItemName = escapeXml(bcn);
-  return `
-<ENVELOPE>
-  <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
-  <BODY>
-    <DESC><STATICVARIABLES><SVCURRENTCOMPANY>MO Designs Private Limited - (2024-2025)</SVCURRENTCOMPANY></STATICVARIABLES></DESC>
-    <DATA>
-      <TALLYMESSAGE>
-        <STOCKITEM NAME="${escapedItemName}" ACTION="Create">
-          <NAME>${escapedItemName}</NAME>
-          <PARENT>Products</PARENT>
-          <BASEUNITS>mtr</BASEUNITS>
-        </STOCKITEM>
-      </TALLYMESSAGE>
-    </DATA>
-  </BODY>
-</ENVELOPE>`.trim();
+async function buildStockItemCreateXML(bcn: string, isVas: boolean): Promise<string> {
+    const escapedItemName = escapeXml(bcn);
+    const companyName = isVas ? "MO SPACES PVT.LTD." : "MO Designs Private Limited - (2024-2025)";
+    const unit = isVas ? 'Pcs' : 'mtr';
+
+    return `
+  <ENVELOPE>
+    <HEADER><VERSION>1</VERSION><TALLYREQUEST>Import</TALLYREQUEST><TYPE>Data</TYPE><ID>All Masters</ID></HEADER>
+    <BODY>
+      <DESC><STATICVARIABLES><SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY></STATICVARIABLES></DESC>
+      <DATA>
+        <TALLYMESSAGE>
+          <STOCKITEM NAME="${escapedItemName}" ACTION="Create">
+            <NAME>${escapedItemName}</NAME>
+            <PARENT>Products</PARENT>
+            <BASEUNITS>${unit}</BASEUNITS>
+          </STOCKITEM>
+        </TALLYMESSAGE>
+      </DATA>
+    </BODY>
+  </ENVELOPE>`.trim();
 }
 
 
@@ -183,12 +186,11 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     const stockDetailsMap = new Map<string, Stock>();
     const taxDetailsMap = new Map<string, TaxDetail>();
   
-    // Pre-fetch all necessary stock and tax details
+    // Pre-fetch all necessary stock and tax details and ensure items exist in Tally
     for (const bcn of uniqueBcns) {
-        if (isVas) {
-            // For VAS, ensure the stock item exists under the correct company
-            await createIfNeeded(await buildStockItemCreateXML(bcn));
-        }
+        await createIfNeeded(await buildStockItemCreateXML(bcn, isVas));
+        if (isVas) continue; // For VAS, stock details from Firestore are not needed
+        
         const stockId = bcn.replace(/\//g, '-');
         const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
         if (stockDoc.exists) {
@@ -206,46 +208,77 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     let entries = '';
     let totalTaxableValue = 0;
   
-    for (const item of invoice.items) {
-        const stockDetail = stockDetailsMap.get(item.bcn);
-        const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
-        // VAS items are stock items with a different default GST and unit.
-        const gstRate = isVas ? 18 : (taxDetail?.gst ?? 5); 
-        const unit = isVas ? 'Pcs' : (stockDetail?.unit || 'mtr');
-  
-        const ledgerName = isVas ? `Haryana Stitching Services @ ${gstRate}%` : `Haryana Sale @ ${gstRate}%`;
-  
-        const qty = money(Number(item.quantityAllocated || 0));
-        const rate = money(Number(item.rate || 0));
-        const lineAmount = money(rate * qty);
-        
-        const discountPercent = money(item.discountPercent || 0);
-        const discountAmount = money(lineAmount * (discountPercent / 100));
-        const itemTaxableValue = money(lineAmount - discountAmount);
-        totalTaxableValue += itemTaxableValue;
-        
-        entries += `
-        <ALLINVENTORYENTRIES.LIST>
-            <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
-            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-            <RATE>${fmt(rate)}/${unit}</RATE>
-            <DISCOUNT>${fmt(discountPercent)}</DISCOUNT>
-            <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-            <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
-            <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
-            <BATCHALLOCATIONS.LIST>
-            <GODOWNNAME>Mo</GODOWNNAME>
-            <BATCHNAME>Primary Batch</BATCHNAME>
-            <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-            <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
-            <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
-            </BATCHALLOCATIONS.LIST>
-            <ACCOUNTINGALLOCATIONS.LIST>
-            <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-            <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-            </ACCOUNTINGALLOCATIONS.LIST>
-        </ALLINVENTORYENTRIES.LIST>`;
+    if (isVas) {
+        // Handle VAS items as stock items in MO SPACE
+        for (const item of invoice.items) {
+            const gstRate = 18;
+            const ledgerName = `Haryana Stitching Services @ ${gstRate}%`;
+            const unit = 'Pcs';
+      
+            const qty = money(Number(item.quantityAllocated || 0));
+            const rate = money(Number(item.rate || 0));
+            const lineAmount = money(rate * qty);
+            const discountPercent = money(item.discountPercent || 0);
+            const discountAmount = money(lineAmount * (discountPercent / 100));
+            const itemTaxableValue = money(lineAmount - discountAmount);
+            totalTaxableValue += itemTaxableValue;
+            
+            entries += `
+            <ALLINVENTORYENTRIES.LIST>
+                <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
+                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                <RATE>${fmt(rate)}/${unit}</RATE>
+                <DISCOUNT>${fmt(discountPercent)}</DISCOUNT>
+                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+                <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
+                <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
+                <ACCOUNTINGALLOCATIONS.LIST>
+                <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
+                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+                </ACCOUNTINGALLOCATIONS.LIST>
+            </ALLINVENTORYENTRIES.LIST>`;
+        }
+    } else {
+        // Handle normal stock items for MO DESIGNS
+        for (const item of invoice.items) {
+            const stockDetail = stockDetailsMap.get(item.bcn);
+            const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
+            const gstRate = taxDetail?.gst ?? 5; 
+            const unit = stockDetail?.unit || 'mtr';
+            const ledgerName = `Haryana Sale @ ${gstRate}%`;
+      
+            const qty = money(Number(item.quantityAllocated || 0));
+            const rate = money(Number(item.rate || 0));
+            const lineAmount = money(rate * qty);
+            const discountPercent = money(item.discountPercent || 0);
+            const discountAmount = money(lineAmount * (discountPercent / 100));
+            const itemTaxableValue = money(lineAmount - discountAmount);
+            totalTaxableValue += itemTaxableValue;
+            
+            entries += `
+            <ALLINVENTORYENTRIES.LIST>
+                <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
+                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                <RATE>${fmt(rate)}/${unit}</RATE>
+                <DISCOUNT>${fmt(discountPercent)}</DISCOUNT>
+                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+                <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
+                <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
+                <BATCHALLOCATIONS.LIST>
+                <GODOWNNAME>Mo</GODOWNNAME>
+                <BATCHNAME>Primary Batch</BATCHNAME>
+                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+                <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
+                <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
+                </BATCHALLOCATIONS.LIST>
+                <ACCOUNTINGALLOCATIONS.LIST>
+                <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
+                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+                </ACCOUNTINGALLOCATIONS.LIST>
+            </ALLINVENTORYENTRIES.LIST>`;
+        }
     }
 
     const cgstRate = totalTaxableValue > 0 ? (isVas ? 9 : 2.5) : 0;
@@ -299,7 +332,6 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
           <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
             <DATE>${date}</DATE>
             <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
-            <VOUCHERNUMBER>${invoice.invoiceNo}</VOUCHERNUMBER>
             <REFERENCE>${escapeXml(salesmanRefText)}</REFERENCE>
             <ISINVOICE>Yes</ISINVOICE>
             <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
@@ -398,7 +430,7 @@ async function fetchAndSaveVoucherNumber(invoice: Invoice, ledgerName: string, a
 
   if (voucherNo) {
     const batch = adminDb.batch();
-    batch.update(adminDb.collection("invoices").doc(invoice.id), { tallyVoucherNo: voucherNo });
+    batch.update(adminDb.collection("invoices").doc(invoice.id), { tallyVoucherNo: voucherNo, invoiceNo: voucherNo });
     const batchesSnap = await adminDb.collection("invoiceBatches").where("invoiceId", "==", invoice.id).get();
     batchesSnap.forEach(docSnap => batch.update(docSnap.ref, { tallyVoucherNo: voucherNo }));
     await batch.commit();

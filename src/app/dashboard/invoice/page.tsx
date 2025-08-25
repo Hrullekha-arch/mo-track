@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -27,7 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { collection, onSnapshot, query, getDocs, doc, updateDoc, writeBatch, addDoc, where, orderBy, limit, FieldValue, increment } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { format, isWithinInterval } from "date-fns";
+import { format } from "date-fns";
 import { InvoiceBatch, Order, Invoice, CuttingTask, Stock, StockTransaction } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
@@ -43,7 +44,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
-import { sendInvoiceToTally, buildSalesVoucherXML, getFirestoreStockQuantity, getStockFromTally } from "@/services/tally";
+import { sendInvoiceToTally, getFirestoreStockQuantity, getStockFromTally } from "@/services/tally";
 import Link from "next/link";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StockMismatchDialog } from "@/components/features/invoice/StockMismatchDialog";
@@ -92,20 +93,6 @@ function GenerateInvoiceDialog({
         const batch = writeBatch(db);
         const primaryOrder = orders[0];
         
-        const invoicesRef = collection(db, "invoices");
-        const q = query(invoicesRef, orderBy("invoiceNo", "desc"), limit(1));
-        const lastInvoiceSnap = await getDocs(q);
-        let newInvoiceNumber = 1001;
-        if (!lastInvoiceSnap.empty) {
-            const lastInvoiceNo = parseInt(lastInvoiceSnap.docs[0].data().invoiceNo, 10);
-            if (!isNaN(lastInvoiceNo)) {
-                newInvoiceNumber = lastInvoiceNo + 1;
-                
-            }
-        }
-        
-        const newInvoiceNumberStr = String(newInvoiceNumber);
-
         const allItems = batches.flatMap(b => b.items);
 
         const totals = allItems.reduce((acc, item) => {
@@ -114,8 +101,8 @@ function GenerateInvoiceDialog({
             const amount = qty * rate;
             const discountAmount = (item.discountPercent || 0) * amount / 100;
             const taxableValue = amount - discountAmount;
-            const cgst = taxableValue * 0.025;
-            const sgst = taxableValue * 0.025;
+            const cgst = taxableValue * (isVas ? 0.09 : 0.025); // 18% for VAS, 5% for others
+            const sgst = taxableValue * (isVas ? 0.09 : 0.025);
             
             acc.totalAmount += amount;
             acc.totalDiscount += discountAmount;
@@ -131,8 +118,7 @@ function GenerateInvoiceDialog({
         const roundOff = roundedAmount - netAmount;
         
         const newInvoiceRef = doc(collection(db, "invoices"));
-        const newInvoice: Omit<Invoice, 'id'> = {
-            invoiceNo: newInvoiceNumberStr,
+        const newInvoice: Omit<Invoice, 'id' | 'invoiceNo'> = {
             orderId: primaryOrder.id,
             isVas: isVas,
             customer: {
@@ -154,12 +140,12 @@ function GenerateInvoiceDialog({
             },
             createdAt: new Date().toISOString(),
             createdBy: creator.name,
-            
+            invoiceNo: '', // Tally will provide this
         };
 
         batch.set(newInvoiceRef, newInvoice);
         
-        const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id };
+        const fullInvoiceData = { ...newInvoice, id: newInvoiceRef.id, invoiceNo: '' };
         const plainInvoiceData = JSON.parse(JSON.stringify(fullInvoiceData));
         const tallyResult = await sendInvoiceToTally(plainInvoiceData, isVas);
         
@@ -201,8 +187,8 @@ function GenerateInvoiceDialog({
 
             if(tallyResult.voucherNumber) {
                 const invoiceRefToUpdate = doc(db, "invoices", newInvoiceRef.id);
-                batch.update(invoiceRefToUpdate, { tallyVoucherNo: tallyResult.voucherNumber });
-                setGeneratedInvoice({ ...fullInvoiceData, tallyVoucherNo: tallyResult.voucherNumber });
+                batch.update(invoiceRefToUpdate, { tallyVoucherNo: tallyResult.voucherNumber, invoiceNo: tallyResult.voucherNumber });
+                setGeneratedInvoice({ ...fullInvoiceData, tallyVoucherNo: tallyResult.voucherNumber, invoiceNo: tallyResult.voucherNumber });
             }
         } else {
              setGeneratedInvoice(fullInvoiceData); 
@@ -350,7 +336,7 @@ function GenerateInvoiceDialog({
                 </DialogDescription>
             </DialogHeader>
             <div className="flex-grow overflow-y-auto pr-4" id="printable-invoice-content">
-                <PrintableInvoice batches={batches} orders={orders} preGeneratedInvoiceNo={generatedInvoice?.invoiceNo}/>
+                <PrintableInvoice batches={batches} orders={orders} preGeneratedInvoiceNo={generatedInvoice?.tallyVoucherNo}/>
             </div>
             <DialogFooter>
                 <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -391,23 +377,6 @@ function GenerateInvoiceDialog({
   )
 }
 
-const parseDateSafe = (dateInput: any): Date | null => {
-    if (!dateInput) return null;
-    if (dateInput instanceof Date) return dateInput;
-    // Handle Firestore Timestamp object which has toDate() method
-    if (typeof dateInput.toDate === 'function') {
-        return dateInput.toDate();
-    }
-    // Handle ISO string
-    if (typeof dateInput === 'string') {
-        const date = new Date(dateInput);
-        if (!isNaN(date.getTime())) {
-            return date;
-        }
-    }
-    return null;
-}
-
 function InvoiceTable({ 
     batches, 
     orders, 
@@ -417,7 +386,7 @@ function InvoiceTable({
     batches: InvoiceBatch[], 
     orders: Order[], 
     loading: boolean,
-    view: 'active' | 'vas' | 'all'
+    view: 'active' | 'all'
 }) {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
@@ -433,6 +402,23 @@ function InvoiceTable({
         setSelectedBatchForView(batch);
         setIsViewInvoiceOpen(true);
     };
+    
+    const parseDateSafe = (dateInput: any): Date | null => {
+        if (!dateInput) return null;
+        if (dateInput instanceof Date) return dateInput;
+        // Handle Firestore Timestamp object which has toDate() method
+        if (typeof dateInput.toDate === 'function') {
+            return dateInput.toDate();
+        }
+        // Handle ISO string
+        if (typeof dateInput === 'string') {
+            const date = new Date(dateInput);
+            if (!isNaN(date.getTime())) {
+                return date;
+            }
+        }
+        return null;
+    }
 
     const columns: ColumnDef<InvoiceBatch>[] = [
     {
@@ -504,13 +490,16 @@ function InvoiceTable({
       id: 'totalAmount',
       header: "Invoice Amount",
       cell: ({ row }) => {
-        const subtotal = row.original.items.reduce((sum, item) => {
+        const batch = row.original;
+        const isVas = batch.isVas === true;
+        const subtotal = batch.items.reduce((sum, item) => {
           const amount = item.quantityAllocated * item.rate;
           const discountAmount = amount * ((item.discountPercent || 0) / 100);
           return sum + (amount - discountAmount);
         }, 0);
       
-        const tax = subtotal * 0.05; // 5% total tax (2.5% CGST + 2.5% SGST)
+        const taxRate = isVas ? 0.18 : 0.05; // 18% for VAS, 5% for normal
+        const tax = subtotal * taxRate; 
         const totalAmount = subtotal + tax;
         const roundedAmount = Math.round(totalAmount);
         return `₹${roundedAmount.toFixed(2)}`;
@@ -688,6 +677,7 @@ function InvoiceTable({
                         <PrintableInvoice
                             batches={[selectedBatchForView]}
                             orders={orders.filter(o => o.id === selectedBatchForView.orderId)}
+                            preGeneratedInvoiceNo={selectedBatchForView.tallyVoucherNo}
                         />
                     </div>
                     <DialogFooter>
@@ -789,7 +779,7 @@ export default function InvoicePage() {
                  <InvoiceTable batches={activeBatches} orders={allOrders} loading={loading} view="active" />
             </TabsContent>
             <TabsContent value="vas-invoices" className="mt-4">
-                 <InvoiceTable batches={vasBatches} orders={allOrders} loading={loading} view="vas" />
+                 <InvoiceTable batches={vasBatches} orders={allOrders} loading={loading} view="active" />
             </TabsContent>
             <TabsContent value="tally-log" className="mt-4">
                 <InvoiceLogTable />
