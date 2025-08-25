@@ -223,11 +223,11 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
         
         if (isVas) {
             entries += `
-            <ALLLEDGERENTRIES.LIST>
+            <LEDGERENTRIES.LIST>
                 <LEDGERNAME>${escapeXml(item.itemName)}</LEDGERNAME>
                 <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
                 <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-            </ALLLEDGERENTRIES.LIST>`;
+            </LEDGERENTRIES.LIST>`;
         } else {
              entries += `
             <ALLINVENTORYENTRIES.LIST>
