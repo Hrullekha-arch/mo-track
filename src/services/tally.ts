@@ -228,10 +228,10 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
             <ALLINVENTORYENTRIES.LIST>
               <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
               <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <RATE>${fmt(rate)}/Pcs</RATE>
-              <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
               <ACTUALQTY>${qty} Pcs</ACTUALQTY>
               <BILLEDQTY>${qty} Pcs</BILLEDQTY>
+              <RATE>${fmt(rate)}/Pcs</RATE>
+              <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
               <ACCOUNTINGALLOCATIONS.LIST>
                 <LEDGERNAME>${escapeXml(salesLedgerName)}</LEDGERNAME>
                 <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
@@ -284,26 +284,25 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
         }
     }
 
-    const cgstRate = totalTaxableValue > 0 ? (isVas ? 9 : 2.5) : 0;
-    const sgstRate = totalTaxableValue > 0 ? (isVas ? 9 : 2.5) : 0;
+    const cgstRate = isVas ? 9 : 2.5;
+    const sgstRate = isVas ? 9 : 2.5;
     const cgst = money(totalTaxableValue * (cgstRate / 100));
     const sgst = money(totalTaxableValue * (sgstRate / 100));
     const totalAmountBeforeRoundOff = money(totalTaxableValue + cgst + sgst);
     const roundedTotal = Math.round(totalAmountBeforeRoundOff);
     const roundOff = money(roundedTotal - totalAmountBeforeRoundOff);
     
-    // Build ledger entries (Party, CGST, SGST, Round Off)
-    let finalLedgerEntries = `<LEDGERENTRIES.LIST>
+    let partyDebitLedger = `<LEDGERENTRIES.LIST>
             <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
             <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
             <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
             <AMOUNT>-${fmt(roundedTotal)}</AMOUNT>
         </LEDGERENTRIES.LIST>`;
     
-    finalLedgerEntries += ledgerEntries; // Add sales ledgers for non-VAS
+    let taxLedgers = '';
 
     if (cgst > 0) {
-        finalLedgerEntries += `<LEDGERENTRIES.LIST>
+        taxLedgers += `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output CGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(cgst)}</AMOUNT>
@@ -311,7 +310,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     }
   
     if (sgst > 0) {
-        finalLedgerEntries += `<LEDGERENTRIES.LIST>
+        taxLedgers += `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output SGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(sgst)}</AMOUNT>
@@ -319,7 +318,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     }
         
     if (roundOff !== 0) {
-      finalLedgerEntries += `<LEDGERENTRIES.LIST>
+      taxLedgers += `<LEDGERENTRIES.LIST>
           <LEDGERNAME>Round Off</LEDGERNAME>
           <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
           <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
@@ -353,8 +352,10 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
             <STATENAME>${stateName}</STATENAME>
             <PLACEOFSUPPLY>${stateName}</PLACEOFSUPPLY>
             <NARRATION>${narration}</NARRATION>
-            ${finalLedgerEntries}
+            ${partyDebitLedger}
             ${inventoryEntries}
+            ${ledgerEntries}
+            ${taxLedgers}
           </VOUCHER>
         </TALLYMESSAGE>
       </REQUESTDATA>
