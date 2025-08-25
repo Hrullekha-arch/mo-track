@@ -213,7 +213,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
         const gstRate = isVas ? 18 : (taxDetail?.gst ?? 5); 
         const unit = isVas ? 'Pcs' : (stockDetail?.unit || 'mtr');
   
-        const ledgerName = `Haryana Sale @ ${gstRate}%`;
+        const ledgerName = isVas ? `Haryana Stitching Services @ ${gstRate}%` : `Haryana Sale @ ${gstRate}%`;
   
         const qty = money(Number(item.quantityAllocated || 0));
         const rate = money(Number(item.rate || 0));
