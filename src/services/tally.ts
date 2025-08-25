@@ -209,7 +209,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
         const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
         const gstRate = isVas ? 18 : (taxDetail?.gst ?? 5); 
         const halfGst = gstRate / 2;
-        const unit = stockDetail?.unit || (isVas ? 'Nos' : 'mtr');
+        const unit = isVas ? 'Nos' : (stockDetail?.unit || 'mtr');
   
         const ledgerName = `Haryana Sale @ ${gstRate}%`;
   
@@ -285,7 +285,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     const roundOffLedgerEntry = roundOff !== 0 ? `<LEDGERENTRIES.LIST>
           <LEDGERNAME>Round Off</LEDGERNAME>
           <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
-          <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
+          <AMOUNT>-${fmt(Math.abs(roundOff))}</AMOUNT>
         </LEDGERENTRIES.LIST>` : '';
   
     const xml = `

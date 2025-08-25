@@ -1568,11 +1568,11 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
                         <FormField control={addProductForm.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('type', (newValue) => field.onChange(newValue))}><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={productTypeOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN)* <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} onSearch={handleBcnSearch} placeholder="Search by BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="serialNo" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} readOnly /></FormControl> <FormMessage /> </FormItem> )} />
-                        <FormField control={addProductForm.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                        <FormField control={addProductForm.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3" /><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <FormField control={addProductForm.control} name="quantity" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Quantity <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <div className="flex items-center"><FormControl><Input {...field}/></FormControl><Button type="button" variant="ghost" size="icon" className="ml-1"><Calculator className="h-5 w-5"/></Button></div> <FormMessage /> </FormItem>)} />
-                        <FormField control={addProductForm.control} name="remarks" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Remarks <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
+                        <FormField control={addProductForm.control} name="remarks" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Remarks <Info className="h-3 w-3" /></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
                         <FormField control={addProductForm.control} name="room" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Room <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('room', (newValue) => field.onChange(newValue))}><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="noOfPcs" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">No of Pcs <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
                     </div>
@@ -2613,7 +2613,7 @@ function CpdTab({ customer, salesmen, deal, onRefresh, quotations }: { customer:
                              vasToConvert.push({
                                 vasName: sd.vas,
                                 quantity: sd.noOfPanels || '1',
-                                rate: '0', // Default rate, can be edited
+                                rate: item.rate, // Use main item rate for VAS rate
                                 room: room.room,
                             });
                         }
@@ -3055,5 +3055,6 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
 
 
     
+
 
 
