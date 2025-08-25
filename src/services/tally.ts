@@ -166,6 +166,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     const date = format(new Date(), 'yyyyMMdd');
     const partyLedgerName = escapeXml(`${invoice.customer.name}-${invoice.customer.phone}`);
     const companyName = isVas ? "MO SPACES PVT.LTD." : "MO Designs Private Limited - (2024-2025)";
+    const voucherType = isVas ? "Installation / Stitching" : "Sales";
     
     let salesmanRefText = invoice.salesPerson;
     const orderDoc = await adminDb.collection('orders').doc(invoice.orderId).get();
@@ -189,7 +190,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     // Pre-fetch all necessary stock and tax details and ensure items exist in Tally
     for (const bcn of uniqueBcns) {
         await createIfNeeded(await buildStockItemCreateXML(bcn, isVas));
-        if (isVas) continue; // For VAS, stock details from Firestore are not needed
+        if (isVas) continue; 
         
         const stockId = bcn.replace(/\//g, '-');
         const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
@@ -209,36 +210,28 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     let totalTaxableValue = 0;
   
     if (isVas) {
-        // Handle VAS items as stock items in MO SPACE
+        const gstRate = 18;
+        const ledgerName = `Haryana Stitching Services @ ${gstRate}%`;
+
+        let vasTaxableAmount = 0;
         for (const item of invoice.items) {
-            const gstRate = 18;
-            const ledgerName = `Haryana Stitching Services @ ${gstRate}%`;
-            const unit = 'Pcs';
-      
             const qty = money(Number(item.quantityAllocated || 0));
             const rate = money(Number(item.rate || 0));
             const lineAmount = money(rate * qty);
             const discountPercent = money(item.discountPercent || 0);
             const discountAmount = money(lineAmount * (discountPercent / 100));
             const itemTaxableValue = money(lineAmount - discountAmount);
-            totalTaxableValue += itemTaxableValue;
-            
-            entries += `
-            <ALLINVENTORYENTRIES.LIST>
-                <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
-                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                <RATE>${fmt(rate)}/${unit}</RATE>
-                <DISCOUNT>${fmt(discountPercent)}</DISCOUNT>
-                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-                <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
-                <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
-                <ACCOUNTINGALLOCATIONS.LIST>
-                <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
-                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-                </ACCOUNTINGALLOCATIONS.LIST>
-            </ALLINVENTORYENTRIES.LIST>`;
+            vasTaxableAmount += itemTaxableValue;
         }
+
+        entries = `
+        <LEDGERENTRIES.LIST>
+            <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <AMOUNT>${fmt(vasTaxableAmount)}</AMOUNT>
+        </LEDGERENTRIES.LIST>`;
+        totalTaxableValue = vasTaxableAmount;
+
     } else {
         // Handle normal stock items for MO DESIGNS
         for (const item of invoice.items) {
@@ -329,9 +322,9 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
       </REQUESTDESC>
       <REQUESTDATA>
         <TALLYMESSAGE xmlns:UDF="TallyUDF">
-          <VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">
+          <VOUCHER VCHTYPE="${voucherType}" ACTION="Create" OBJVIEW="Invoice Voucher View">
             <DATE>${date}</DATE>
-            <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+            <VOUCHERTYPENAME>${voucherType}</VOUCHERTYPENAME>
             <REFERENCE>${escapeXml(salesmanRefText)}</REFERENCE>
             <ISINVOICE>Yes</ISINVOICE>
             <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
