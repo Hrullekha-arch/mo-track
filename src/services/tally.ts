@@ -137,7 +137,7 @@ async function buildLedgerCreateXML(customerName: string, customerPhone: string,
 async function buildStockItemCreateXML(bcn: string, isVas: boolean): Promise<string> {
     const escapedItemName = escapeXml(bcn);
     const companyName = isVas ? "MO SPACES PVT.LTD." : "MO Designs Private Limited - (2024-2025)";
-    const unit = 'Pcs'; // All VAS items are Pcs now
+    const unit = isVas ? 'Pcs' : 'mtr';
 
     return `
   <ENVELOPE>
@@ -190,7 +190,6 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     for (const bcn of uniqueBcns) {
         await createIfNeeded(await buildStockItemCreateXML(bcn, isVas));
         
-        // No need to fetch stock details for VAS from Firestore, as they are not stock items there
         if (isVas) continue; 
         
         const stockId = bcn.replace(/\//g, '-');
@@ -223,7 +222,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
             const itemTaxableValue = money(lineAmount - discountAmount);
             totalTaxableValue += itemTaxableValue;
 
-            const ledgerName = `Haryana Stitching Services @ ${gstRate}%`;
+            const salesLedgerName = `Haryana Stitching Services @ ${gstRate}%`;
 
             inventoryEntries += `
             <ALLINVENTORYENTRIES.LIST>
@@ -234,7 +233,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
               <ACTUALQTY>${qty} Pcs</ACTUALQTY>
               <BILLEDQTY>${qty} Pcs</BILLEDQTY>
               <ACCOUNTINGALLOCATIONS.LIST>
-                <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
+                <LEDGERNAME>${escapeXml(salesLedgerName)}</LEDGERNAME>
                 <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
                 <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
               </ACCOUNTINGALLOCATIONS.LIST>
@@ -248,7 +247,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
             const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
             const gstRate = taxDetail?.gst ?? 5; 
             const unit = stockDetail?.unit || 'mtr';
-            const ledgerName = `Haryana Sale @ ${gstRate}%`;
+            const salesLedgerName = `Haryana Sale @ ${gstRate}%`;
       
             const qty = money(Number(item.quantityAllocated || 0));
             const rate = money(Number(item.rate || 0));
@@ -258,6 +257,13 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
             const itemTaxableValue = money(lineAmount - discountAmount);
             totalTaxableValue += itemTaxableValue;
             
+            ledgerEntries += `
+            <LEDGERENTRIES.LIST>
+                <LEDGERNAME>${escapeXml(salesLedgerName)}</LEDGERNAME>
+                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+            </LEDGERENTRIES.LIST>`;
+
             inventoryEntries += `
             <ALLINVENTORYENTRIES.LIST>
                 <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
@@ -274,11 +280,6 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
                 <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
                 <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
                 </BATCHALLOCATIONS.LIST>
-                <ACCOUNTINGALLOCATIONS.LIST>
-                <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
-                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
-                </ACCOUNTINGALLOCATIONS.LIST>
             </ALLINVENTORYENTRIES.LIST>`;
         }
     }
@@ -292,15 +293,17 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     const roundOff = money(roundedTotal - totalAmountBeforeRoundOff);
     
     // Build ledger entries (Party, CGST, SGST, Round Off)
-    ledgerEntries += `<LEDGERENTRIES.LIST>
+    let finalLedgerEntries = `<LEDGERENTRIES.LIST>
             <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
             <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
             <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
             <AMOUNT>-${fmt(roundedTotal)}</AMOUNT>
         </LEDGERENTRIES.LIST>`;
     
+    finalLedgerEntries += ledgerEntries; // Add sales ledgers for non-VAS
+
     if (cgst > 0) {
-        ledgerEntries += `<LEDGERENTRIES.LIST>
+        finalLedgerEntries += `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output CGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(cgst)}</AMOUNT>
@@ -308,7 +311,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     }
   
     if (sgst > 0) {
-        ledgerEntries += `<LEDGERENTRIES.LIST>
+        finalLedgerEntries += `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output SGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(sgst)}</AMOUNT>
@@ -316,7 +319,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     }
         
     if (roundOff !== 0) {
-      ledgerEntries += `<LEDGERENTRIES.LIST>
+      finalLedgerEntries += `<LEDGERENTRIES.LIST>
           <LEDGERNAME>Round Off</LEDGERNAME>
           <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
           <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
@@ -350,7 +353,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
             <STATENAME>${stateName}</STATENAME>
             <PLACEOFSUPPLY>${stateName}</PLACEOFSUPPLY>
             <NARRATION>${narration}</NARRATION>
-            ${ledgerEntries}
+            ${finalLedgerEntries}
             ${inventoryEntries}
           </VOUCHER>
         </TALLYMESSAGE>
@@ -391,7 +394,7 @@ async function buildVoucherFilterXML(ledgerName: string, amount: number, date: s
             <FILTER>FilterByDate</FILTER>
           </COLLECTION>
           <SYSTEM TYPE="Formulae" NAME="FilterByVoucherType">
-            $VoucherTypeName = $$String:"Sales"
+            $VoucherTypeName = $$String:"Sales" OR $VoucherTypeName = $$String:"Installation / Stitching"
           </SYSTEM>
           <SYSTEM TYPE="Formulae" NAME="FilterByLedgerName">
             $LedgerName = $$String:"${escapeXml(ledgerName)}"
