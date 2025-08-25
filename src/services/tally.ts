@@ -124,8 +124,7 @@ async function buildLedgerCreateXML(customerName: string, customerPhone: string,
       <INCOMETAXNUMBER/>
       <SALESTAXNUMBER/>
       <GSTREGISTRATIONTYPE>Unregistered/Consumer</GSTREGISTRATIONTYPE>
-      <ISBILLWISEON>No</ISBILLWISEON>
-      <ISBILLWISEPROVISIONAL>No</ISBILLWISEPROVISIONAL>
+      <ISBILLWISEON>No</ISBILLWISEPROVISIONAL>No</ISBILLWISEPROVISIONAL>
       <OPENINGBALANCE>0</OPENINGBALANCE>
      </LEDGER>
     </TALLYMESSAGE>
@@ -138,7 +137,7 @@ async function buildLedgerCreateXML(customerName: string, customerPhone: string,
 async function buildStockItemCreateXML(bcn: string, isVas: boolean): Promise<string> {
     const escapedItemName = escapeXml(bcn);
     const companyName = isVas ? "MO SPACES PVT.LTD." : "MO Designs Private Limited - (2024-2025)";
-    const unit = isVas ? 'Pcs' : 'mtr';
+    const unit = 'Pcs'; // All VAS items are Pcs now
 
     return `
   <ENVELOPE>
@@ -180,16 +179,18 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     
     const totalQty = invoice.items.reduce((sum, item) => sum + item.quantityAllocated, 0);
     const firstItemName = invoice.items[0]?.itemName || 'items';
-    const narration = escapeXml(`Sale of ${isVas ? 'VAS services' : `${totalQty} mtr of ${firstItemName}`}`);
+    const narration = escapeXml(`Sale of ${isVas ? 'stitching services' : `${totalQty} mtr of ${firstItemName}`}`);
     const stateName = "Haryana"; 
   
     const uniqueBcns = [...new Set(invoice.items.map(item => item.bcn))];
     const stockDetailsMap = new Map<string, Stock>();
     const taxDetailsMap = new Map<string, TaxDetail>();
   
-    // Pre-fetch all necessary stock and tax details and ensure items exist in Tally
+    // Pre-fetch all necessary stock/tax details and ensure items exist in Tally
     for (const bcn of uniqueBcns) {
         await createIfNeeded(await buildStockItemCreateXML(bcn, isVas));
+        
+        // No need to fetch stock details for VAS from Firestore, as they are not stock items there
         if (isVas) continue; 
         
         const stockId = bcn.replace(/\//g, '-');
@@ -206,14 +207,13 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
         }
     }
   
-    let entries = '';
+    let inventoryEntries = '';
+    let ledgerEntries = '';
     let totalTaxableValue = 0;
   
     if (isVas) {
-        const gstRate = 18;
-        const ledgerName = `Haryana Stitching Services @ ${gstRate}%`;
-
-        let vasTaxableAmount = 0;
+        const gstRate = 18; // Fixed 18% for VAS
+        
         for (const item of invoice.items) {
             const qty = money(Number(item.quantityAllocated || 0));
             const rate = money(Number(item.rate || 0));
@@ -221,16 +221,25 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
             const discountPercent = money(item.discountPercent || 0);
             const discountAmount = money(lineAmount * (discountPercent / 100));
             const itemTaxableValue = money(lineAmount - discountAmount);
-            vasTaxableAmount += itemTaxableValue;
-        }
+            totalTaxableValue += itemTaxableValue;
 
-        entries = `
-        <LEDGERENTRIES.LIST>
-            <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-            <AMOUNT>${fmt(vasTaxableAmount)}</AMOUNT>
-        </LEDGERENTRIES.LIST>`;
-        totalTaxableValue = vasTaxableAmount;
+            const ledgerName = `Haryana Stitching Services @ ${gstRate}%`;
+
+            inventoryEntries += `
+            <ALLINVENTORYENTRIES.LIST>
+              <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <RATE>${fmt(rate)}/Pcs</RATE>
+              <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+              <ACTUALQTY>${qty} Pcs</ACTUALQTY>
+              <BILLEDQTY>${qty} Pcs</BILLEDQTY>
+              <ACCOUNTINGALLOCATIONS.LIST>
+                <LEDGERNAME>${escapeXml(ledgerName)}</LEDGERNAME>
+                <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
+              </ACCOUNTINGALLOCATIONS.LIST>
+            </ALLINVENTORYENTRIES.LIST>`;
+        }
 
     } else {
         // Handle normal stock items for MO DESIGNS
@@ -249,7 +258,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
             const itemTaxableValue = money(lineAmount - discountAmount);
             totalTaxableValue += itemTaxableValue;
             
-            entries += `
+            inventoryEntries += `
             <ALLINVENTORYENTRIES.LIST>
                 <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
                 <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
@@ -282,30 +291,37 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     const roundedTotal = Math.round(totalAmountBeforeRoundOff);
     const roundOff = money(roundedTotal - totalAmountBeforeRoundOff);
     
-    const partyLedgerEntry = `<LEDGERENTRIES.LIST>
+    // Build ledger entries (Party, CGST, SGST, Round Off)
+    ledgerEntries += `<LEDGERENTRIES.LIST>
             <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
             <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
             <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
             <AMOUNT>-${fmt(roundedTotal)}</AMOUNT>
         </LEDGERENTRIES.LIST>`;
     
-    const cgstLedgerEntry = cgst > 0 ? `<LEDGERENTRIES.LIST>
+    if (cgst > 0) {
+        ledgerEntries += `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output CGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(cgst)}</AMOUNT>
-        </LEDGERENTRIES.LIST>`: '';
+        </LEDGERENTRIES.LIST>`;
+    }
   
-    const sgstLedgerEntry = sgst > 0 ? `<LEDGERENTRIES.LIST>
+    if (sgst > 0) {
+        ledgerEntries += `<LEDGERENTRIES.LIST>
             <LEDGERNAME>Output SGST</LEDGERNAME>
             <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
             <AMOUNT>${fmt(sgst)}</AMOUNT>
-        </LEDGERENTRIES.LIST>`: '';
+        </LEDGERENTRIES.LIST>`;
+    }
         
-    const roundOffLedgerEntry = roundOff !== 0 ? `<LEDGERENTRIES.LIST>
+    if (roundOff !== 0) {
+      ledgerEntries += `<LEDGERENTRIES.LIST>
           <LEDGERNAME>Round Off</LEDGERNAME>
           <ISDEEMEDPOSITIVE>${roundOff > 0 ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
           <AMOUNT>${fmt(Math.abs(roundOff))}</AMOUNT>
-        </LEDGERENTRIES.LIST>` : '';
+        </LEDGERENTRIES.LIST>`;
+    }
   
     const xml = `
   <ENVELOPE>
@@ -329,14 +345,13 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
             <ISINVOICE>Yes</ISINVOICE>
             <PARTYLEDGERNAME>${partyLedgerName}</PARTYLEDGERNAME>
             <PARTYNAME>${partyLedgerName}</PARTYNAME>
+            <BASICBUYERNAME>${partyLedgerName}</BASICBUYERNAME>
+            <PARTYMAILINGNAME>${partyLedgerName}</PARTYMAILINGNAME>
             <STATENAME>${stateName}</STATENAME>
             <PLACEOFSUPPLY>${stateName}</PLACEOFSUPPLY>
             <NARRATION>${narration}</NARRATION>
-            ${partyLedgerEntry}
-            ${entries}
-            ${cgstLedgerEntry}
-            ${sgstLedgerEntry}
-            ${roundOffLedgerEntry}
+            ${ledgerEntries}
+            ${inventoryEntries}
           </VOUCHER>
         </TALLYMESSAGE>
       </REQUESTDATA>
