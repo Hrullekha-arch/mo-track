@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PlusCircle, SlidersHorizontal, Bot, Loader2 } from "lucide-react";
+import { PlusCircle, SlidersHorizontal, Bot, Loader2, Download } from "lucide-react";
 import { OrderCard } from "./OrderCard";
 import { Order, User } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -31,6 +31,28 @@ export function OrdersDashboard() {
   const [filters, setFilters] = useState({ search: '', salesPerson: 'all', installer: 'all' });
   const [activeSummaryFilter, setActiveSummaryFilter] = useState<SummaryFilterType>('totalActive');
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
+  const [installPrompt, setInstallPrompt] = React.useState<Event | null>(null);
+
+   useEffect(() => {
+        const handleBeforeInstallPrompt = (e: Event) => {
+            e.preventDefault();
+            setInstallPrompt(e);
+        };
+
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+        return () => {
+            window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        };
+    }, []);
+
+    const handleInstallClick = () => {
+        if (!installPrompt) return;
+        (installPrompt as any).prompt();
+        (installPrompt as any).userChoice.then(() => {
+            setInstallPrompt(null);
+        });
+    };
 
   const installers = users.filter(u => u.role === 'installer');
   const salesmen = users.filter(u => u.role === 'salesman');
@@ -240,6 +262,11 @@ export function OrdersDashboard() {
           <p className="text-muted-foreground">Manage and track all acknowledged customer orders.</p>
         </div>
         <div className="flex gap-2">
+            {installPrompt && (
+                <Button onClick={handleInstallClick} variant="outline">
+                    <Download className="mr-2 h-4 w-4" /> Install App
+                </Button>
+            )}
             {canManage && (
             <Button onClick={handleGenerateSchedule} disabled={aiLoading}>
                 {aiLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bot className="mr-2 h-4 w-4" />}
