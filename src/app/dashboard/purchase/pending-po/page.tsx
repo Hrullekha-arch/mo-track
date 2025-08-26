@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from "react";
@@ -45,7 +44,7 @@ const createPoSchema = z.object({
   courier: z.string().min(1, "Courier is required."),
   mode: z.enum(['AIR', 'SURFACE'], { required_error: "Mode is required." }),
   purchaseQty: z.number().min(0.01, "Quantity must be greater than 0."),
-  promiseDeliveryDate: z.date().optional(),
+  promiseDeliveryDate: z.date({ required_error: "Promise delivery date is required." }),
 });
 
 type CreatePoFormValues = z.infer<typeof createPoSchema>;
@@ -169,7 +168,7 @@ function CreatePoDialog({
                                 name="promiseDeliveryDate"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Promise Delivery Date</FormLabel>
+                                        <FormLabel>Promise Delivery Date*</FormLabel>
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <FormControl>
