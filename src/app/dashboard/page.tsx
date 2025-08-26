@@ -99,28 +99,38 @@ const SalesmanDashboard = () => {
                         )}
                     </CardContent>
                 </Card>
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><Bell /> Recent Notification</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {/* Placeholder notifications */}
-                        <div className="flex items-start gap-3">
-                            <Avatar className="h-8 w-8"><AvatarFallback><UserCheck /></AvatarFallback></Avatar>
-                            <div>
-                                <p className="text-sm font-medium">Order #MOTRACK-5678 approved</p>
-                                <p className="text-xs text-muted-foreground">Your order for Kavita Singh has been approved by accounts.</p>
+                <div className="space-y-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2"><Bell /> Recent Notification</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            {/* Placeholder notifications */}
+                            <div className="flex items-start gap-3">
+                                <Avatar className="h-8 w-8"><AvatarFallback><UserCheck /></AvatarFallback></Avatar>
+                                <div>
+                                    <p className="text-sm font-medium">Order #MOTRACK-5678 approved</p>
+                                    <p className="text-xs text-muted-foreground">Your order for Kavita Singh has been approved by accounts.</p>
+                                </div>
                             </div>
-                        </div>
-                        <div className="flex items-start gap-3">
-                            <Avatar className="h-8 w-8"><AvatarFallback><CheckCircle /></AvatarFallback></Avatar>
-                            <div>
-                                <p className="text-sm font-medium">Measurement completed</p>
-                                <p className="text-xs text-muted-foreground">Measurement visit for Anoop Aggarwal has been marked as complete.</p>
+                            <div className="flex items-start gap-3">
+                                <Avatar className="h-8 w-8"><AvatarFallback><CheckCircle /></AvatarFallback></Avatar>
+                                <div>
+                                    <p className="text-sm font-medium">Measurement completed</p>
+                                    <p className="text-xs text-muted-foreground">Measurement visit for Anoop Aggarwal has been marked as complete.</p>
+                                </div>
                             </div>
-                        </div>
-                    </CardContent>
-                </Card>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Order Material Status</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {/* This will be the placeholder content */}
+                        </CardContent>
+                    </Card>
+                </div>
             </div>
         </div>
     )
