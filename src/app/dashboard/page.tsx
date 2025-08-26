@@ -148,10 +148,12 @@ const SalesmanDashboard = () => {
                                 Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
                            ) : orders.length > 0 ? (
                                orders.map(order => (
-                                   <div key={`mat-${order.id}`} className="p-3 border rounded-lg">
-                                       <p className="font-semibold text-sm truncate">{order.customerName}</p>
-                                       <p className="text-xs text-muted-foreground mb-2">{order.id}</p>
-                                       <div className="space-y-1">
+                                   <div key={`mat-${order.id}`} className="p-3 border rounded-lg space-y-2">
+                                       <div>
+                                            <p className="font-semibold text-sm truncate">{order.customerName}</p>
+                                            <p className="text-xs text-muted-foreground">{order.id}</p>
+                                       </div>
+                                       <div className="space-y-1.5">
                                            {(order.fabricDetails && order.fabricDetails.length > 0) ? (
                                                order.fabricDetails.map((fabric, index) => (
                                                     <div key={index} className="flex items-center justify-between text-xs">
@@ -160,7 +162,7 @@ const SalesmanDashboard = () => {
                                                     </div>
                                                ))
                                            ) : (
-                                               <p className="text-xs text-muted-foreground">No materials listed for this order.</p>
+                                               <p className="text-xs text-muted-foreground">No materials listed.</p>
                                            )}
                                        </div>
                                    </div>
