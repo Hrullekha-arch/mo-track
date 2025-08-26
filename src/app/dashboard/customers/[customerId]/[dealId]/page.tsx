@@ -382,7 +382,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
     };
 
     const handleSaveNewOption = (value: string, label: string, field: 'room' | 'type') => {
-        const newOption = { value, label: label.toUpperCase() };
+        const newOption = { value, label, label.toUpperCase() };
         if (field === 'room') {
             (roomOptions as ComboboxOption[]).push(newOption);
         } else if (field === 'type') {
@@ -1366,7 +1366,7 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
     });
 
     const handleSaveNewRoom = (value: string, label: string) => {
-        (roomOptions as ComboboxOption[]).push({ value, label: label.toUpperCase() });
+        (roomOptions as ComboboxOption[]).push({ value, label, label.toUpperCase() });
         form.setValue('room', value);
     };
 
@@ -1604,7 +1604,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     };
 
     const handleSaveNewOption = (value: string, label: string, field: 'room' | 'type') => {
-        const newOption = { value, label: label.toUpperCase() };
+        const newOption = { value, label, label.toUpperCase() };
         if (field === 'room') {
             (roomOptions as ComboboxOption[]).push(newOption);
         } else if (field === 'type') {
@@ -3058,3 +3058,6 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
 
 
 
+
+
+    

@@ -379,15 +379,38 @@ export async function addVisitAction(
             status: 'requested', // New status for requested visits
             orderId: visitData.orderId
         };
-
-        await newVisitRef.set(newVisit);
         
+        const batch = adminDb.batch();
+
+        batch.set(newVisitRef, newVisit);
+        
+        // If it's a delivery visit, we might want to update the O2D process.
+        if (visitData.typeOfVisit === 'delivery') {
+            const o2dProcessRef = adminDb.collection('o2d').doc(dealId);
+            const o2dProcessDoc = await o2dProcessRef.get();
+            if (o2dProcessDoc.exists) {
+                 const newMilestone: O2DStatus = {
+                    stepId: 12, // 'Installation/Delivery Schedule'
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: creatorName,
+                    remarks: `Direct delivery visit created for order ${visitData.orderId || 'N/A'}.`,
+                    selection: "Done"
+                };
+                batch.update(o2dProcessRef, {
+                    milestones: FieldValue.arrayUnion(newMilestone)
+                });
+            }
+        }
+        
+        await batch.commit();
+
         const savedVisit: DealVisit = { id: newVisitRef.id, ...newVisit, dueDate: '' };
         
         // Generate a link for the customer to confirm the visit
         const confirmationLink = `https://9000-firebase-studio-1752633993844.cluster-ubrd2huk7jh6otbgyei4h62ope.cloudworkstations.dev}/visit/confirm/${newVisitRef.id}?customerId=${customerId}&dealId=${dealId}`;
 
-        const smsMessage = `Dear ${customerData.name},\n\nPlease confirm your measurement visit from Mo Design Pvt. Ltd. by clicking the link below. You can select your preferred date and time.\n\nLink: ${confirmationLink}\n\nWe look forward to serving you!\n\nWarm regards,\nTeam Mo Design Pvt. Ltd.`;
+        const smsMessage = `Dear ${customerData.name},\n\nPlease confirm your visit from Mo Design Pvt. Ltd. by clicking the link below. You can select your preferred date and time.\n\nLink: ${confirmationLink}\n\nWe look forward to serving you!\n\nWarm regards,\nTeam Mo Design Pvt. Ltd.`;
 
         const smsResult = await sendVisitSms(customerData.mobileNo, smsMessage);
         
@@ -600,3 +623,5 @@ export async function getCpdsForDeal(customerId: string, dealId: string): Promis
         return [];
     }
 }
+
+    
