@@ -382,6 +382,34 @@ export function OrdersTable() {
       },
     },
     {
+        id: "allocatedStatus",
+        header: "Allocated Status",
+        cell: ({ row }) => {
+          const order = row.original;
+          const totalItems = order.fabricDetails?.length || 0;
+          if (totalItems === 0) return <Badge variant="outline">N/A</Badge>;
+      
+          const allocatedItems = order.fabricDetails?.filter(item => item.status === 'allocated').length || 0;
+          const inStockOrAllocatedItems = order.fabricDetails?.filter(item => item.status === 'in stock' || item.status === 'allocated').length || 0;
+      
+          if (allocatedItems === totalItems) {
+            return <Badge className="bg-green-600">Allocated</Badge>;
+          }
+      
+          const allAvailable = inStockOrAllocatedItems === totalItems;
+          const someAvailable = inStockOrAllocatedItems > 0;
+      
+          let badgeClass = "bg-red-500";
+          if (allAvailable) {
+            badgeClass = "bg-green-500";
+          } else if (someAvailable) {
+            badgeClass = "bg-yellow-500 text-black";
+          }
+      
+          return <Badge className={badgeClass}>{`${inStockOrAllocatedItems} / ${totalItems}`}</Badge>;
+        }
+    },
+    {
       accessorKey: "remarks",
       header: ({ column }) => (
         <Button
