@@ -61,7 +61,6 @@ const SalesmanDashboard = () => {
         const quotesQuery = query(collectionGroup(db, 'quotations'), where('representativeId', '==', user.id));
         const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('salesman', '==', user.name));
 
-        const unsubs: (() => void)[] = [];
         let localOrders: Order[] = [];
         let localQuotes: Quotation[] = [];
         let localPrs: PurchaseRequest[] = [];
@@ -106,6 +105,8 @@ const SalesmanDashboard = () => {
 
             setNotifications(allNotifications.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
         };
+        
+        const unsubs: (() => void)[] = [];
 
         const ordersListener = onSnapshot(ordersQuery, (snapshot) => {
             localOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
@@ -185,7 +186,14 @@ const SalesmanDashboard = () => {
             case 'PO Milestone Update':
                 const milestoneConfig = PO_PROCESS_CONFIG.find(p => p.id === notification.data.milestone.stepId);
                 title = milestoneConfig?.step || 'PO Updated';
-                description = `Purchase for order #${notification.data.dealId} has been updated.`;
+                const itemName = notification.data.milestone.itemName;
+                if (itemName) {
+                    const itemDetail = notification.data.fabricDetails?.find((f: any) => f.fabricName === itemName);
+                    const itemQty = itemDetail ? `(${itemDetail.quantity} Mtr)` : '';
+                    description = `"${itemName}" ${itemQty} for order #${notification.data.dealId} has been updated.`;
+                } else {
+                     description = `Purchase for order #${notification.data.dealId} has been updated.`;
+                }
                 icon = <Truck className="text-cyan-500" />;
                 break;
         }
@@ -251,11 +259,11 @@ const SalesmanDashboard = () => {
                             )}
                         </CardContent>
                     </Card>
-                    <Card>
+                     <Card>
                         <CardHeader>
                             <CardTitle>Order Material Status</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-2 max-h-[40vh] overflow-y-auto">
+                        <CardContent className="space-y-4 max-h-[40vh] overflow-y-auto">
                            {loading ? (
                                 Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
                            ) : orders.length > 0 ? (
