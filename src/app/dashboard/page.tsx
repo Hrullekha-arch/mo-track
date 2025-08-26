@@ -2,7 +2,7 @@
 "use client";
 
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
-import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle, PhoneCall, Bell, ListOrdered, UserCheck } from "lucide-react";
+import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle, PhoneCall, Bell, ListOrdered, UserCheck, Dot } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where, collectionGroup, getDocs, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -15,6 +15,7 @@ import { useAuth } from "@/context/AuthContext";
 import { format } from "date-fns";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 interface SummaryCardProps {
     title: string;
@@ -62,6 +63,22 @@ const SalesmanDashboard = () => {
 
         return () => unsubscribe();
     }, [user]);
+
+    const getStatusBadge = (status: string) => {
+        switch (status) {
+            case 'in stock':
+                return <Badge variant="default" className="bg-green-500">In Stock</Badge>;
+            case 'allocated':
+                 return <Badge variant="default" className="bg-blue-500">Allocated</Badge>;
+            case 'po generated':
+                return <Badge variant="secondary">PO Generated</Badge>;
+            case 'pending for po':
+                return <Badge variant="destructive">Pending for PO</Badge>;
+            default:
+                return <Badge variant="outline">{status}</Badge>;
+        }
+    };
+
 
     return (
         <div className="p-4 md:p-6 lg:p-8 space-y-6">
@@ -126,8 +143,31 @@ const SalesmanDashboard = () => {
                         <CardHeader>
                             <CardTitle>Order Material Status</CardTitle>
                         </CardHeader>
-                        <CardContent>
-                            {/* This will be the placeholder content */}
+                        <CardContent className="space-y-4 max-h-80 overflow-y-auto">
+                           {loading ? (
+                                Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
+                           ) : orders.length > 0 ? (
+                               orders.map(order => (
+                                   <div key={`mat-${order.id}`} className="p-3 border rounded-lg">
+                                       <p className="font-semibold text-sm truncate">{order.customerName}</p>
+                                       <p className="text-xs text-muted-foreground mb-2">{order.id}</p>
+                                       <div className="space-y-1">
+                                           {(order.fabricDetails && order.fabricDetails.length > 0) ? (
+                                               order.fabricDetails.map((fabric, index) => (
+                                                    <div key={index} className="flex items-center justify-between text-xs">
+                                                        <span className="flex items-center gap-1.5"><Dot className="text-muted-foreground" /> {fabric.fabricName}</span>
+                                                        {getStatusBadge(fabric.status || 'pending for po')}
+                                                    </div>
+                                               ))
+                                           ) : (
+                                               <p className="text-xs text-muted-foreground">No materials listed for this order.</p>
+                                           )}
+                                       </div>
+                                   </div>
+                               ))
+                           ) : (
+                               <p className="text-center text-sm text-muted-foreground py-4">No material status to show.</p>
+                           )}
                         </CardContent>
                     </Card>
                 </div>
