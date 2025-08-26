@@ -27,6 +27,7 @@ import {
   Sun,
   PanelLeft,
   Factory,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -108,6 +109,28 @@ function SidebarNav({ className }: { className?: string }) {
 function UserProfile() {
     const { user, logout } = useAuth();
     const { theme, setTheme } = useTheme();
+    const [installPrompt, setInstallPrompt] = React.useState<Event | null>(null);
+
+    React.useEffect(() => {
+        const handleBeforeInstallPrompt = (e: Event) => {
+            e.preventDefault();
+            setInstallPrompt(e);
+        };
+
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+        return () => {
+            window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        };
+    }, []);
+
+    const handleInstallClick = () => {
+        if (!installPrompt) return;
+        (installPrompt as any).prompt();
+        (installPrompt as any).userChoice.then(() => {
+            setInstallPrompt(null);
+        });
+    };
 
     return (
         <div className="p-2 mt-auto border-t">
@@ -127,6 +150,12 @@ function UserProfile() {
             <DropdownMenuContent side="right" align="start" className="w-56">
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                 {installPrompt && (
+                    <DropdownMenuItem onClick={handleInstallClick} className="cursor-pointer">
+                        <Download className="mr-2 h-4 w-4" />
+                        <span>Install App</span>
+                    </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="cursor-pointer">
                     <div className="flex items-center justify-between w-full">
                       <div className="flex items-center">
@@ -154,6 +183,28 @@ function UserProfile() {
 function MobileUserMenu() {
     const { user, logout } = useAuth();
     const { theme, setTheme } = useTheme();
+     const [installPrompt, setInstallPrompt] = React.useState<Event | null>(null);
+
+    React.useEffect(() => {
+        const handleBeforeInstallPrompt = (e: Event) => {
+            e.preventDefault();
+            setInstallPrompt(e);
+        };
+
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+        return () => {
+            window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        };
+    }, []);
+
+    const handleInstallClick = () => {
+        if (!installPrompt) return;
+        (installPrompt as any).prompt();
+        (installPrompt as any).userChoice.then(() => {
+            setInstallPrompt(null);
+        });
+    };
 
     return (
         <DropdownMenu>
@@ -168,6 +219,12 @@ function MobileUserMenu() {
             <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>{user?.name}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                {installPrompt && (
+                    <DropdownMenuItem onClick={handleInstallClick} className="cursor-pointer">
+                        <Download className="mr-2 h-4 w-4" />
+                        <span>Install App</span>
+                    </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="cursor-pointer">
                     <div className="flex items-center justify-between w-full">
                         <div className="flex items-center">
