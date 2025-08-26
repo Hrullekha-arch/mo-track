@@ -221,7 +221,7 @@ const SalesmanDashboard = () => {
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2"><ListOrdered /> All Orders And Updates</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-4 max-h-[60vh] overflow-y-auto">
+                    <CardContent className="space-y-4 max-h-[75vh] overflow-y-auto">
                         {loading ? (
                             Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
                         ) : orders.length > 0 ? (
@@ -251,7 +251,7 @@ const SalesmanDashboard = () => {
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2"><Bell /> Recent Notification</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-4 max-h-[60vh] overflow-y-auto">
+                        <CardContent className="space-y-4 max-h-[75vh] overflow-y-auto">
                             {loading ? <Skeleton className="h-24 w-full" /> : (
                                 notifications.length > 0 ? notifications.slice(0, 10).map((n, i) => (
                                     <div key={i}>{renderNotification(n)}</div>
