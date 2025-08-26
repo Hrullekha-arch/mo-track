@@ -3,8 +3,8 @@
 "use client";
 
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
-import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle, PhoneCall, Bell, ListOrdered, UserCheck, Dot } from "lucide-react";
-import { useEffect, useState } from "react";
+import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle, PhoneCall, Bell, ListOrdered, UserCheck, Dot, GitCommitHorizontal, CheckCheckIcon } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
 import { collection, onSnapshot, query, where, collectionGroup, getDocs, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Link from "next/link";
@@ -13,7 +13,7 @@ import { Order, Quotation, PurchaseRequest, InboundRequest, DealVisit, CuttingTa
 import Image from "next/image";
 import { getFollowUpItems } from "./po-tracking/actions";
 import { useAuth } from "@/context/AuthContext";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -49,20 +49,81 @@ function SummaryCard({ title, count, href, icon: Icon, loading }: SummaryCardPro
 const SalesmanDashboard = () => {
     const { user } = useAuth();
     const [orders, setOrders] = useState<Order[]>([]);
+    const [notifications, setNotifications] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (!user) return;
         setLoading(true);
-        const ordersQuery = query(collection(db, 'orders'), where('salesPerson', '==', user.name), orderBy('createdAt', 'desc'));
 
-        const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
+        const ordersQuery = query(collection(db, 'orders'), where('salesPerson', '==', user.name));
+        const quotesQuery = query(collectionGroup(db, 'quotations'), where('representativeId', '==', user.id));
+        const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('salesman', '==', user.name));
+
+        const unsubs: (() => void)[] = [];
+
+        const processNotifications = (newOrders: Order[], newQuotes: Quotation[], newPrs: PurchaseRequest[]) => {
+            const allNotifications: any[] = [];
+            
+            newOrders.forEach(order => {
+                // Main order status
+                if (order.status === 'Approved') {
+                    allNotifications.push({ type: 'Order Approved', data: order, date: order.approvedAt || order.createdAt });
+                }
+                
+                // Milestone updates
+                (order.milestones || []).forEach(m => {
+                    if (m.completed && m.completedAt) {
+                         allNotifications.push({ type: 'Milestone Update', data: { ...order, milestone: m }, date: m.completedAt });
+                    }
+                });
+            });
+
+            newQuotes.forEach(quote => {
+                 if (quote.status === 'Approved') {
+                    allNotifications.push({ type: 'Quotation Approved', data: quote, date: quote.approvedAt || quote.createdAt });
+                }
+                 if (quote.status === 'Pending Approval') {
+                    allNotifications.push({ type: 'Quotation Sent for Approval', data: quote, date: quote.createdAt });
+                }
+            });
+            
+             newPrs.forEach(pr => {
+                if(pr.status === 'Approved') {
+                    allNotifications.push({ type: 'Purchase Request Created', data: pr, date: pr.createdAt });
+                }
+                (pr.poMilestones || []).forEach(m => {
+                     if (m.completedAt) {
+                         allNotifications.push({ type: 'PO Milestone Update', data: { ...pr, milestone: m }, date: m.completedAt });
+                    }
+                })
+            });
+
+            setNotifications(allNotifications.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        };
+
+        const ordersListener = onSnapshot(ordersQuery, (snapshot) => {
             const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
             setOrders(ordersData);
+            processNotifications(ordersData, notifications.filter(n => n.type.includes('Quotation')).map(n => n.data), notifications.filter(n => n.type.includes('Purchase')).map(n => n.data));
             setLoading(false);
         });
+        unsubs.push(ordersListener);
 
-        return () => unsubscribe();
+        const quotesListener = onSnapshot(quotesQuery, (snapshot) => {
+            const quotesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quotation));
+            processNotifications(orders, quotesData, notifications.filter(n => n.type.includes('Purchase')).map(n => n.data));
+        });
+        unsubs.push(quotesListener);
+
+        const prListener = onSnapshot(purchaseRequestsQuery, (snapshot) => {
+            const prsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            processNotifications(orders, notifications.filter(n => n.type.includes('Quotation')).map(n => n.data), prsData);
+        });
+        unsubs.push(prListener);
+
+
+        return () => unsubs.forEach(unsub => unsub());
     }, [user]);
 
     const getStatusBadge = (status: string) => {
@@ -79,7 +140,56 @@ const SalesmanDashboard = () => {
                 return <Badge variant="outline">{status}</Badge>;
         }
     };
+    
+    const renderNotification = (notification: any) => {
+        let title = '';
+        let description = '';
+        let icon = <GitCommitHorizontal />;
 
+        switch(notification.type) {
+            case 'Quotation Sent for Approval':
+                title = "Quotation Submitted";
+                description = `Quotation #${notification.data.quotationNo} for ${notification.data.customerName} is pending approval.`;
+                icon = <FileSignature className="text-blue-500"/>
+                break;
+            case 'Quotation Approved':
+                title = "Quotation Approved!";
+                description = `Quotation #${notification.data.quotationNo} for ${notification.data.customerName} has been approved.`;
+                icon = <CheckCheckIcon className="text-green-500"/>
+                break;
+            case 'Order Approved':
+                title = "Order Approved";
+                description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} has been approved.`;
+                 icon = <CheckCheckIcon className="text-green-500"/>
+                break;
+            case 'Milestone Update':
+                title = notification.data.milestone.name;
+                description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} has been updated.`;
+                icon = <GitCommitHorizontal className="text-purple-500" />
+                break;
+            case 'Purchase Request Created':
+                title = `Purchase Request Created`;
+                description = `Materials for order #${notification.data.dealId} have been requested.`;
+                icon = <ShoppingCart className="text-orange-500" />;
+                break;
+             case 'PO Milestone Update':
+                title = notification.data.milestone.stepName || 'PO Updated';
+                description = `Purchase for order #${notification.data.dealId} has been updated.`;
+                icon = <Truck className="text-cyan-500" />;
+                break;
+        }
+
+        return (
+            <div className="flex items-start gap-4">
+                 <div className="mt-1">{icon}</div>
+                <div>
+                    <p className="text-sm font-medium">{title}</p>
+                    <p className="text-xs text-muted-foreground">{description}</p>
+                    <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(notification.date), { addSuffix: true })}</p>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="p-4 md:p-6 lg:p-8 space-y-6">
@@ -104,8 +214,8 @@ const SalesmanDashboard = () => {
                                         <p className="text-sm text-muted-foreground">{order.id}</p>
                                     </div>
                                     <div className="text-right">
-                                         <Badge variant={order.milestones.every(m => m.completed) ? 'default' : 'secondary'} className={order.milestones.every(m => m.completed) ? 'bg-green-600' : ''}>
-                                            {order.milestones.slice().reverse().find(m => m.completed)?.name || 'Order Received'}
+                                         <Badge variant={order.milestones.every(m => m.completed) ? 'default' : 'secondary'} className={cn('capitalize', order.milestones.every(m => m.completed) ? 'bg-green-600' : '')}>
+                                            {order.milestones.slice().reverse().find(m => m.completed)?.name.toLowerCase() || 'Order Received'}
                                         </Badge>
                                         <p className="text-sm text-muted-foreground mt-1">{format(new Date(order.createdAt), 'dd MMM yyyy')}</p>
                                     </div>
@@ -122,22 +232,12 @@ const SalesmanDashboard = () => {
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2"><Bell /> Recent Notification</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-4">
-                            {/* Placeholder notifications */}
-                            <div className="flex items-start gap-3">
-                                <Avatar className="h-8 w-8"><AvatarFallback><UserCheck /></AvatarFallback></Avatar>
-                                <div>
-                                    <p className="text-sm font-medium">Order #MOTRACK-5678 approved</p>
-                                    <p className="text-xs text-muted-foreground">Your order for Kavita Singh has been approved by accounts.</p>
-                                </div>
-                            </div>
-                            <div className="flex items-start gap-3">
-                                <Avatar className="h-8 w-8"><AvatarFallback><CheckCircle /></AvatarFallback></Avatar>
-                                <div>
-                                    <p className="text-sm font-medium">Measurement completed</p>
-                                    <p className="text-xs text-muted-foreground">Measurement visit for Anoop Aggarwal has been marked as complete.</p>
-                                </div>
-                            </div>
+                        <CardContent className="space-y-4 max-h-[60vh] overflow-y-auto">
+                            {loading ? <Skeleton className="h-24 w-full" /> : (
+                                notifications.length > 0 ? notifications.slice(0, 10).map((n, i) => (
+                                    <div key={i}>{renderNotification(n)}</div>
+                                )) : <p className="text-center text-sm text-muted-foreground py-4">No new notifications.</p>
+                            )}
                         </CardContent>
                     </Card>
                     <Card>
@@ -149,7 +249,7 @@ const SalesmanDashboard = () => {
                                 Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
                            ) : orders.length > 0 ? (
                                orders.map(order => (
-                                   <div key={`mat-${order.id}`} className="p-3 border rounded-lg">
+                                   <Card key={`mat-${order.id}`} className="p-3">
                                        <div className="mb-2">
                                             <p className="font-semibold text-sm">{order.customerName}</p>
                                             <p className="text-xs text-muted-foreground">{order.id}</p>
@@ -157,8 +257,8 @@ const SalesmanDashboard = () => {
                                        <div className="space-y-2">
                                            {(order.fabricDetails && order.fabricDetails.length > 0) ? (
                                                order.fabricDetails.map((fabric, index) => (
-                                                    <div key={index} className="flex items-center justify-between text-sm">
-                                                        <span className="text-muted-foreground">{fabric.fabricName}</span>
+                                                    <div key={index} className="flex items-center justify-between text-xs">
+                                                        <span className="text-muted-foreground max-w-[150px] truncate">{fabric.fabricName}</span>
                                                         {getStatusBadge(fabric.status || 'pending for po')}
                                                     </div>
                                                ))
@@ -166,7 +266,7 @@ const SalesmanDashboard = () => {
                                                <p className="text-xs text-muted-foreground">No materials listed.</p>
                                            )}
                                        </div>
-                                   </div>
+                                   </Card>
                                ))
                            ) : (
                                <p className="text-center text-sm text-muted-foreground py-4">No material status to show.</p>
