@@ -408,14 +408,13 @@ export function OrdersTable() {
       cell: ({ row }) => {
         const order = row.original;
         let status = "NEW";
-        if (order.status === 'Pending Approval') {
+        const lastCompleted = order.milestones.slice().reverse().find(m => m.completed);
+        if (lastCompleted) {
+          status = lastCompleted.name.toUpperCase();
+        } else if (order.status === 'Pending Approval') {
             status = 'PENDING APPROVAL';
-        } else {
-             const lastCompleted = order.milestones.slice().reverse().find(m => m.completed);
-             if (lastCompleted) {
-                status = lastCompleted.name.toUpperCase();
-             }
         }
+        
         return <Badge variant={status === 'PENDING APPROVAL' ? 'destructive' : 'secondary'}>{status}</Badge>;
       }
     },
