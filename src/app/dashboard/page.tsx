@@ -9,7 +9,7 @@ import { collection, onSnapshot, query, where, collectionGroup, getDocs, orderBy
 import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Order, Quotation, PurchaseRequest, InboundRequest, DealVisit, CuttingTask, InvoiceBatch, User } from "@/lib/types";
+import { Order, Quotation, PurchaseRequest, InboundRequest, DealVisit, CuttingTask, InvoiceBatch, User, PurchaseStatus } from "@/lib/types";
 import Image from "next/image";
 import { getFollowUpItems } from "./po-tracking/actions";
 import { useAuth } from "@/context/AuthContext";
@@ -17,6 +17,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { PO_PROCESS_CONFIG } from "@/lib/constants";
 
 interface SummaryCardProps {
     title: string;
@@ -66,12 +67,13 @@ const SalesmanDashboard = () => {
             const allNotifications: any[] = [];
             
             newOrders.forEach(order => {
-                // Main order status
+                if (order.status === 'Pending Approval') {
+                    allNotifications.push({ type: 'Order Pending Approval', data: order, date: order.createdAt });
+                }
                 if (order.status === 'Approved') {
                     allNotifications.push({ type: 'Order Approved', data: order, date: order.approvedAt || order.createdAt });
                 }
                 
-                // Milestone updates
                 (order.milestones || []).forEach(m => {
                     if (m.completed && m.completedAt) {
                          allNotifications.push({ type: 'Milestone Update', data: { ...order, milestone: m }, date: m.completedAt });
@@ -92,7 +94,7 @@ const SalesmanDashboard = () => {
                 if(pr.status === 'Approved') {
                     allNotifications.push({ type: 'Purchase Request Created', data: pr, date: pr.createdAt });
                 }
-                (pr.poMilestones || []).forEach(m => {
+                (pr.poMilestones || []).forEach((m: PurchaseStatus) => {
                      if (m.completedAt) {
                          allNotifications.push({ type: 'PO Milestone Update', data: { ...pr, milestone: m }, date: m.completedAt });
                     }
@@ -124,7 +126,7 @@ const SalesmanDashboard = () => {
 
 
         return () => unsubs.forEach(unsub => unsub());
-    }, [user]);
+    }, [user, orders, notifications]);
 
     const getStatusBadge = (status: string) => {
         switch (status) {
@@ -157,6 +159,11 @@ const SalesmanDashboard = () => {
                 description = `Quotation #${notification.data.quotationNo} for ${notification.data.customerName} has been approved.`;
                 icon = <CheckCheckIcon className="text-green-500"/>
                 break;
+            case 'Order Pending Approval':
+                title = "Order Submitted";
+                description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} is pending approval.`;
+                icon = <FileSignature className="text-blue-500" />
+                break;
             case 'Order Approved':
                 title = "Order Approved";
                 description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} has been approved.`;
@@ -172,8 +179,9 @@ const SalesmanDashboard = () => {
                 description = `Materials for order #${notification.data.dealId} have been requested.`;
                 icon = <ShoppingCart className="text-orange-500" />;
                 break;
-             case 'PO Milestone Update':
-                title = notification.data.milestone.stepName || 'PO Updated';
+            case 'PO Milestone Update':
+                const milestoneConfig = PO_PROCESS_CONFIG.find(p => p.id === notification.data.milestone.stepId);
+                title = milestoneConfig?.step || 'PO Updated';
                 description = `Purchase for order #${notification.data.dealId} has been updated.`;
                 icon = <Truck className="text-cyan-500" />;
                 break;
@@ -342,7 +350,6 @@ const AdminDashboard = () => {
             })
         );
         
-        // Fetch follow-up items separately using the correct server action
         const fetchFollowUpCount = async () => {
             try {
                 const followUpItems = await getFollowUpItems();
@@ -355,7 +362,6 @@ const AdminDashboard = () => {
 
         fetchFollowUpCount();
         
-        // Wait for all initial fetches to complete
         Promise.all(Object.values(queries).map(q => getDocs(q))).finally(() => setLoading(false));
 
         return () => unsubscribes.forEach(unsub => unsub());
