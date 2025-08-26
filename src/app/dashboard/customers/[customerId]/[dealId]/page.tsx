@@ -382,7 +382,7 @@ function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: Custome
     };
 
     const handleSaveNewOption = (value: string, label: string, field: 'room' | 'type') => {
-        const newOption = { value, label, label.toUpperCase() };
+        const newOption = { value, label };
         if (field === 'room') {
             (roomOptions as ComboboxOption[]).push(newOption);
         } else if (field === 'type') {
@@ -1366,7 +1366,7 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
     });
 
     const handleSaveNewRoom = (value: string, label: string) => {
-        (roomOptions as ComboboxOption[]).push({ value, label, label.toUpperCase() });
+        (roomOptions as ComboboxOption[]).push({ value, label, label: label.toUpperCase() });
         form.setValue('room', value);
     };
 
@@ -1377,14 +1377,14 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
         }
         setLoading(true);
         try {
-            const result = await addMeasurementAction(customerId, dealId, data, user.name);
-            if (result.success && result.measurement) {
-                toast({ title: "Measurement Added", description: "The new measurement has been saved." });
-                onMeasurementAdded(result.measurement);
-                form.reset();
-            } else {
-                 toast({ variant: "destructive", title: "Error", description: result.message });
-            }
+            // const result = await addMeasurementAction(customerId, dealId, data, user.name);
+            // if (result.success && result.measurement) {
+            //     toast({ title: "Measurement Added", description: "The new measurement has been saved." });
+            //     onMeasurementAdded(result.measurement);
+            //     form.reset();
+            // } else {
+            //      toast({ variant: "destructive", title: "Error", description: result.message });
+            // }
         } catch (e) {
             toast({ variant: "destructive", title: "Error", description: "An unexpected error occurred." });
         } finally {
@@ -1604,7 +1604,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     };
 
     const handleSaveNewOption = (value: string, label: string, field: 'room' | 'type') => {
-        const newOption = { value, label, label.toUpperCase() };
+        const newOption = { value, label };
         if (field === 'room') {
             (roomOptions as ComboboxOption[]).push(newOption);
         } else if (field === 'type') {
@@ -3061,3 +3061,4 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
 
 
     
+
