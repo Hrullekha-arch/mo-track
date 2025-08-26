@@ -45,7 +45,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 const stockInfo = stockDocs.docs[0]?.data() as Stock | undefined;
                 
                 pendingItems.push({
-                    id: `${request.id}-${itemName}`, // Use request.id which is the Firestore document ID
+                    id: `${requestDoc.id}-${itemName}`, // Use requestDoc.id which is the Firestore document ID
                     orderId: request.dealId,
                     salesman: request.salesman,
                     collectionBrand: itemName, // This is the BCN
@@ -76,6 +76,7 @@ export interface PoCreationData {
     mode: string;
     isNewVendor: boolean;
     item: PendingPoItem;
+    promiseDeliveryDate?: string;
 }
 
 export async function createPurchaseRequestAction(
@@ -89,8 +90,8 @@ export async function createPurchaseRequestAction(
     try {
         const batch = adminDb.batch();
         const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
-        const { item, vendor, courier, mode, isNewVendor } = poData;
-        const purchaseRequestId = item.id; // Use the composite ID
+        const { item, vendor, courier, mode, isNewVendor, promiseDeliveryDate } = poData;
+        const purchaseRequestId = item.id.split('-')[0]; // Extract the original request ID
 
         const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
         const originalRequestDoc = await requestRef.get();
@@ -110,7 +111,7 @@ export async function createPurchaseRequestAction(
                     ...originalItem,
                     poNumber: poNumber,
                     vendorName: vendor,
-                    expectedDeliveryDate: addDays(new Date(), 6).toISOString(), // Set expected delivery date 6 days from now
+                    expectedDeliveryDate: promiseDeliveryDate || addDays(new Date(), 6).toISOString(),
                 };
             }
             return originalItem;
@@ -153,8 +154,8 @@ export async function createPurchaseRequestAction(
             mode: mode,
             fabricDetails: newFabricDetails,
             milestones: FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
-            poMilestones: FieldValue.arrayUnion(poConfirmationMilestone), // Add the auto-completed step
-            promiseDeliveryDate: addDays(new Date(), 6).toISOString(), // Also set it on the root document
+            poMilestones: FieldValue.arrayUnion(poConfirmationMilestone),
+            promiseDeliveryDate: promiseDeliveryDate || addDays(new Date(), 6).toISOString(),
         });
 
         const inboundRef = adminDb.collection('inbounds').doc(poNumber);

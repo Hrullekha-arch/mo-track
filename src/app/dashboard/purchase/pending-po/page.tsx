@@ -11,7 +11,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowLeft, Search, Loader2 } from "lucide-react";
+import { ArrowLeft, Search, Loader2, Calendar as CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -35,12 +35,17 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 const createPoSchema = z.object({
   vendor: z.string().min(1, "Vendor name is required."),
   courier: z.string().min(1, "Courier is required."),
   mode: z.enum(['AIR', 'SURFACE'], { required_error: "Mode is required." }),
   purchaseQty: z.number().min(0.01, "Quantity must be greater than 0."),
+  promiseDeliveryDate: z.date().optional(),
 });
 
 type CreatePoFormValues = z.infer<typeof createPoSchema>;
@@ -74,7 +79,8 @@ function CreatePoDialog({
                 vendor: item.vendorName || '',
                 courier: '',
                 mode: 'SURFACE',
-                purchaseQty: item.neededQty
+                purchaseQty: item.neededQty,
+                promiseDeliveryDate: undefined,
             });
         }
     }, [item, form]);
@@ -95,6 +101,7 @@ function CreatePoDialog({
                     neededQty: values.purchaseQty, // Use the editable purchaseQty
                 },
                 isNewVendor,
+                promiseDeliveryDate: values.promiseDeliveryDate?.toISOString(),
             };
             const result = await createPurchaseRequestAction(poData, creator);
 
@@ -123,7 +130,7 @@ function CreatePoDialog({
                 </DialogHeader>
                  <Form {...form}>
                     <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                             <FormField name="vendor" control={form.control} render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Vendor</FormLabel>
@@ -157,6 +164,45 @@ function CreatePoDialog({
                                     <FormMessage />
                                 </FormItem>
                             )}/>
+                            <FormField
+                                control={form.control}
+                                name="promiseDeliveryDate"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Promise Delivery Date</FormLabel>
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <FormControl>
+                                                    <Button
+                                                        variant={"outline"}
+                                                        className={cn(
+                                                            "w-full pl-3 text-left font-normal",
+                                                            !field.value && "text-muted-foreground"
+                                                        )}
+                                                    >
+                                                        {field.value ? (
+                                                            format(field.value, "PPP")
+                                                        ) : (
+                                                            <span>Pick a date</span>
+                                                        )}
+                                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                    </Button>
+                                                </FormControl>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-auto p-0" align="start">
+                                                <Calendar
+                                                    mode="single"
+                                                    selected={field.value}
+                                                    onSelect={field.onChange}
+                                                    disabled={(date) => date < new Date()}
+                                                    initialFocus
+                                                />
+                                            </PopoverContent>
+                                        </Popover>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
                         </div>
                         
                         <Separator />
@@ -301,7 +347,8 @@ export default function PendingPOPage() {
   const columns: ColumnDef<PendingPoItem>[] = [
     { accessorKey: "orderId", header: "Order ID" },
     { accessorKey: "salesman", header: "Salesman" },
-    { accessorKey: "collectionBrand", header: "Collection/Brand" },
+    { accessorKey: "collectionBrand", header: "BCN" },
+    { accessorKey: "itemName", header: "Item Name" },
     { accessorKey: "serialNo", header: "Serial No" },
     { accessorKey: "neededQty", header: "Order Qty" },
     { accessorKey: "vendorName", header: "Vendor Name" },
