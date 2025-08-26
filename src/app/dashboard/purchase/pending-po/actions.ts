@@ -18,6 +18,7 @@ export interface PendingPoItem {
     vendorName: string;
     neededQty: number;
     stock: number;
+    category: string;
 }
 
 export async function getPendingPoItems(): Promise<PendingPoItem[]> {
@@ -53,6 +54,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                     vendorName: item.vendorName || stockInfo?.vendorName || 'N/A',
                     neededQty: parseFloat(item.quantity),
                     stock: stockInfo?.quantity || 0,
+                    category: stockInfo?.category || 'N/A',
                 });
             }
         }

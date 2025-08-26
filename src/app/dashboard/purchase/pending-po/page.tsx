@@ -175,6 +175,7 @@ function CreatePoDialog({
                                     <div className="col-span-3">
                                         <p className="font-semibold text-primary">{item.collectionBrand}</p>
                                         <p className="text-xs text-muted-foreground">SN: {item.serialNo}</p>
+                                        <p className="text-xs text-muted-foreground capitalize">Category: {item.category}</p>
                                     </div>
                                     <div className="col-span-2 text-right font-bold text-blue-600">{item.stock.toFixed(2)}</div>
                                     <div className="col-span-2 text-right font-bold text-orange-600">{item.neededQty.toFixed(2)}</div>
