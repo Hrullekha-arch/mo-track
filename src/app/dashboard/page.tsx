@@ -62,11 +62,14 @@ const SalesmanDashboard = () => {
         const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('salesman', '==', user.name));
 
         const unsubs: (() => void)[] = [];
+        let localOrders: Order[] = [];
+        let localQuotes: Quotation[] = [];
+        let localPrs: PurchaseRequest[] = [];
 
-        const processNotifications = (newOrders: Order[], newQuotes: Quotation[], newPrs: PurchaseRequest[]) => {
+        const processNotifications = () => {
             const allNotifications: any[] = [];
             
-            newOrders.forEach(order => {
+            localOrders.forEach(order => {
                 if (order.status === 'Pending Approval') {
                     allNotifications.push({ type: 'Order Pending Approval', data: order, date: order.createdAt });
                 }
@@ -81,7 +84,7 @@ const SalesmanDashboard = () => {
                 });
             });
 
-            newQuotes.forEach(quote => {
+            localQuotes.forEach(quote => {
                  if (quote.status === 'Approved') {
                     allNotifications.push({ type: 'Quotation Approved', data: quote, date: quote.approvedAt || quote.createdAt });
                 }
@@ -90,7 +93,7 @@ const SalesmanDashboard = () => {
                 }
             });
             
-             newPrs.forEach(pr => {
+             localPrs.forEach(pr => {
                 if(pr.status === 'Approved') {
                     allNotifications.push({ type: 'Purchase Request Created', data: pr, date: pr.createdAt });
                 }
@@ -105,28 +108,28 @@ const SalesmanDashboard = () => {
         };
 
         const ordersListener = onSnapshot(ordersQuery, (snapshot) => {
-            const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-            setOrders(ordersData);
-            processNotifications(ordersData, notifications.filter(n => n.type.includes('Quotation')).map(n => n.data), notifications.filter(n => n.type.includes('Purchase')).map(n => n.data));
+            localOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+            setOrders(localOrders);
+            processNotifications();
             setLoading(false);
         });
         unsubs.push(ordersListener);
 
         const quotesListener = onSnapshot(quotesQuery, (snapshot) => {
-            const quotesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quotation));
-            processNotifications(orders, quotesData, notifications.filter(n => n.type.includes('Purchase')).map(n => n.data));
+            localQuotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quotation));
+            processNotifications();
         });
         unsubs.push(quotesListener);
 
         const prListener = onSnapshot(purchaseRequestsQuery, (snapshot) => {
-            const prsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-            processNotifications(orders, notifications.filter(n => n.type.includes('Quotation')).map(n => n.data), prsData);
+            localPrs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            processNotifications();
         });
         unsubs.push(prListener);
 
 
         return () => unsubs.forEach(unsub => unsub());
-    }, [user, orders, notifications]);
+    }, [user]);
 
     const getStatusBadge = (status: string) => {
         switch (status) {
