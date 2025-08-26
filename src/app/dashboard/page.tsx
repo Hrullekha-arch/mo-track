@@ -2,7 +2,7 @@
 
 "use client";
 
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle, PhoneCall, Bell, ListOrdered, UserCheck, Dot, GitCommitHorizontal, CheckCheckIcon } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
 import { collection, onSnapshot, query, where, collectionGroup, getDocs, orderBy } from "firebase/firestore";
@@ -257,39 +257,6 @@ const SalesmanDashboard = () => {
                                     <div key={i}>{renderNotification(n)}</div>
                                 )) : <p className="text-center text-sm text-muted-foreground py-4">No new notifications.</p>
                             )}
-                        </CardContent>
-                    </Card>
-                     <Card>
-                        <CardHeader>
-                            <CardTitle>Order Material Status</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4 max-h-[40vh] overflow-y-auto">
-                           {loading ? (
-                                Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
-                           ) : orders.length > 0 ? (
-                               orders.map(order => (
-                                   <Card key={`mat-${order.id}`} className="p-3">
-                                       <div className="mb-2">
-                                            <p className="font-semibold text-sm">{order.customerName}</p>
-                                            <p className="text-xs text-muted-foreground">{order.id}</p>
-                                       </div>
-                                       <div className="space-y-2">
-                                           {(order.fabricDetails && order.fabricDetails.length > 0) ? (
-                                               order.fabricDetails.map((fabric, index) => (
-                                                    <div key={index} className="flex items-center justify-between text-xs">
-                                                        <span className="text-muted-foreground max-w-[150px] truncate">{fabric.fabricName}</span>
-                                                        {getStatusBadge(fabric.status || 'pending for po')}
-                                                    </div>
-                                               ))
-                                           ) : (
-                                               <p className="text-xs text-muted-foreground">No materials listed.</p>
-                                           )}
-                                       </div>
-                                   </Card>
-                               ))
-                           ) : (
-                               <p className="text-center text-sm text-muted-foreground py-4">No material status to show.</p>
-                           )}
                         </CardContent>
                     </Card>
                 </div>
