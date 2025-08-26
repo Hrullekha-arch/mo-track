@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -143,21 +144,21 @@ const SalesmanDashboard = () => {
                         <CardHeader>
                             <CardTitle>Order Material Status</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-4 max-h-80 overflow-y-auto">
+                        <CardContent className="space-y-2 max-h-[40vh] overflow-y-auto">
                            {loading ? (
-                                Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
+                                Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
                            ) : orders.length > 0 ? (
                                orders.map(order => (
-                                   <div key={`mat-${order.id}`} className="p-3 border rounded-lg space-y-2">
-                                       <div>
-                                            <p className="font-semibold text-sm truncate">{order.customerName}</p>
+                                   <div key={`mat-${order.id}`} className="p-3 border rounded-lg">
+                                       <div className="mb-2">
+                                            <p className="font-semibold text-sm">{order.customerName}</p>
                                             <p className="text-xs text-muted-foreground">{order.id}</p>
                                        </div>
-                                       <div className="space-y-1.5">
+                                       <div className="space-y-2">
                                            {(order.fabricDetails && order.fabricDetails.length > 0) ? (
                                                order.fabricDetails.map((fabric, index) => (
-                                                    <div key={index} className="flex items-center justify-between text-xs">
-                                                        <span className="flex items-center gap-1.5"><Dot className="text-muted-foreground" /> {fabric.fabricName}</span>
+                                                    <div key={index} className="flex items-center justify-between text-sm">
+                                                        <span className="text-muted-foreground">{fabric.fabricName}</span>
                                                         {getStatusBadge(fabric.status || 'pending for po')}
                                                     </div>
                                                ))
