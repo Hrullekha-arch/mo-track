@@ -389,12 +389,13 @@ export function OrdersTable() {
           const totalItems = order.fabricDetails?.length || 0;
           if (totalItems === 0) return <Badge variant="outline">N/A</Badge>;
       
-          const allocatedItems = order.fabricDetails?.filter(item => item.status === 'allocated').length || 0;
-          const inStockOrAllocatedItems = order.fabricDetails?.filter(item => item.status === 'in stock' || item.status === 'allocated').length || 0;
-      
-          if (allocatedItems === totalItems) {
+          const allocatedItemsCount = order.fabricDetails?.filter(item => item.status === 'allocated').length || 0;
+          
+          if (allocatedItemsCount === totalItems) {
             return <Badge className="bg-green-600">Allocated</Badge>;
           }
+
+          const inStockOrAllocatedItems = order.fabricDetails?.filter(item => item.status === 'in stock' || item.status === 'allocated').length || 0;
       
           const allAvailable = inStockOrAllocatedItems === totalItems;
           const someAvailable = inStockOrAllocatedItems > 0;
