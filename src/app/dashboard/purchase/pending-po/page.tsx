@@ -164,7 +164,7 @@ function CreatePoDialog({
                         <div>
                              <div className="grid grid-cols-12 px-4 py-2 font-medium text-muted-foreground text-sm">
                                 <div className="col-span-1">#</div>
-                                <div className="col-span-3">BCN/Item Name</div>
+                                <div className="col-span-5">BCN/Item Name</div>
                                 <div className="col-span-2 text-right">Stock Qty</div>
                                 <div className="col-span-2 text-right">Order Qty</div>
                                 <div className="col-span-2 text-right">Purchase Qty</div>
@@ -172,8 +172,9 @@ function CreatePoDialog({
                             <div className="border rounded-md px-4 py-3">
                                  <div className="grid grid-cols-12 items-center">
                                     <div className="col-span-1 font-semibold">1</div>
-                                    <div className="col-span-3">
+                                    <div className="col-span-5">
                                         <p className="font-semibold text-primary">{item.collectionBrand}</p>
+                                        <p className="text-sm text-muted-foreground">{item.itemName}</p>
                                         <p className="text-xs text-muted-foreground">SN: {item.serialNo}</p>
                                         <p className="text-xs text-muted-foreground capitalize">Category: {item.category}</p>
                                     </div>

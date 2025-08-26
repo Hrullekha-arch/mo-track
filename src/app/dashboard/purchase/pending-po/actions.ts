@@ -12,6 +12,7 @@ export interface PendingPoItem {
     orderId: string;
     salesman: string;
     collectionBrand: string;
+    itemName: string; // Descriptive name
     serialNo: string;
     hsnCode: string;
     mrp: number;
@@ -44,10 +45,11 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 const stockInfo = stockDocs.docs[0]?.data() as Stock | undefined;
                 
                 pendingItems.push({
-                    id: `${request.dealId}-${itemName}`,
+                    id: `${request.id}-${itemName}`, // Use request.id which is the Firestore document ID
                     orderId: request.dealId,
                     salesman: request.salesman,
-                    collectionBrand: itemName,
+                    collectionBrand: itemName, // This is the BCN
+                    itemName: stockInfo?.itemName || 'N/A', // This is the descriptive name
                     serialNo: stockInfo?.serialNo || 'N/A',
                     hsnCode: stockInfo?.hsnCode || 'N/A',
                     mrp: stockInfo?.mrp || 0,
