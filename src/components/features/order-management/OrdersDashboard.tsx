@@ -16,6 +16,7 @@ import { NewOrderDialog } from "./NewOrderDialog";
 import { generateInstallationSchedule, GenerateInstallationScheduleInput, GenerateInstallationScheduleOutput } from "@/ai/flows/generate-installation-schedule";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 type SummaryFilterType = 'totalActive' | 'scheduledToday' | 'scheduled' | 'assigned' | 'readyForDelivery' | 'stitched' | 'completed' | 'bypassedOtp';
 
@@ -32,6 +33,7 @@ export function OrdersDashboard() {
   const [activeSummaryFilter, setActiveSummaryFilter] = useState<SummaryFilterType>('totalActive');
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
   const [installPrompt, setInstallPrompt] = React.useState<Event | null>(null);
+  const isMobile = useIsMobile();
 
    useEffect(() => {
         const handleBeforeInstallPrompt = (e: Event) => {
@@ -262,7 +264,7 @@ export function OrdersDashboard() {
           <p className="text-muted-foreground">Manage and track all acknowledged customer orders.</p>
         </div>
         <div className="flex gap-2">
-            {installPrompt && (
+            {installPrompt && isMobile && (
                 <Button onClick={handleInstallClick} variant="outline">
                     <Download className="mr-2 h-4 w-4" /> Install App
                 </Button>
