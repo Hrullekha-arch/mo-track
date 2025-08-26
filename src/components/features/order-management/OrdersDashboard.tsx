@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useMemo, Suspense } from "react";
@@ -18,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 
-type SummaryFilterType = 'totalActive' | 'scheduledToday' | 'scheduled' | 'assigned' | 'readyForDelivery' | 'stitched' | 'completed' | 'bypassedOtp';
+type SummaryFilterType = 'totalActive' | 'scheduledToday' | 'scheduled' | 'assigned' | 'readyForDelivery' | 'stitched' | 'completed' | 'bypassedOtp' | 'readyForAllocation';
 
 export function OrdersDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -115,6 +114,10 @@ export function OrdersDashboard() {
             case 'totalActive':
                 if (isFullyCompleted(order)) return false;
                 break;
+            case 'readyForAllocation':
+                if (!order.fabricDetails || order.fabricDetails.length === 0 || isFullyCompleted(order)) return false;
+                if (!order.fabricDetails.every(item => item.status === 'in stock')) return false;
+                break;
             case 'scheduledToday':
                 const schedDate = scheduledDate(order);
                 if (!schedDate || isFullyCompleted(order)) return false;
@@ -163,6 +166,7 @@ export function OrdersDashboard() {
 
     return {
         totalActive: activeOrders.length,
+        readyForAllocation: activeOrders.filter(o => o.fabricDetails?.every(item => item.status === 'in stock')).length,
         scheduledToday: activeOrders.filter(o => {
             const schedDate = scheduledDate(o);
             if (!schedDate) return false;
@@ -246,12 +250,13 @@ export function OrdersDashboard() {
   const canCreateOrder = role === 'admin' || user?.designation === 'PC';
   const summaryColors = [
       'border-l-4 border-blue-500',
+      'border-l-4 border-green-500',
       'border-l-4 border-cyan-500',
       'border-l-4 border-sky-500',
       'border-l-4 border-indigo-500',
       'border-l-4 border-purple-500',
       'border-l-4 border-fuchsia-500',
-      'border-l-4 border-green-500',
+      'border-l-4 border-slate-500',
       'border-l-4 border-orange-500'
   ];
 
@@ -284,15 +289,16 @@ export function OrdersDashboard() {
         </div>
       </header>
 
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 mb-6">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 mb-6">
         <SummaryBox title="Total Active" value={summary.totalActive} color={summaryColors[0]} isActive={activeSummaryFilter === 'totalActive'} onClick={() => setActiveSummaryFilter('totalActive')} />
-        <SummaryBox title="Scheduled Today" value={summary.scheduledToday} color={summaryColors[1]} isActive={activeSummaryFilter === 'scheduledToday'} onClick={() => setActiveSummaryFilter('scheduledToday')} />
-        <SummaryBox title="Total Scheduled" value={summary.scheduled} color={summaryColors[2]} isActive={activeSummaryFilter === 'scheduled'} onClick={() => setActiveSummaryFilter('scheduled')} />
-        <SummaryBox title="Assigned" value={summary.assigned} color={summaryColors[3]} isActive={activeSummaryFilter === 'assigned'} onClick={() => setActiveSummaryFilter('assigned')} />
-        <SummaryBox title="Ready for Delivery" value={summary.readyForDelivery} color={summaryColors[4]} isActive={activeSummaryFilter === 'readyForDelivery'} onClick={() => setActiveSummaryFilter('readyForDelivery')} />
-        <SummaryBox title="Stitched" value={summary.stitched} color={summaryColors[5]} isActive={activeSummaryFilter === 'stitched'} onClick={() => setActiveSummaryFilter('stitched')} />
-        <SummaryBox title="Total Completed" value={summary.completed} color={summaryColors[6]} isActive={activeSummaryFilter === 'completed'} onClick={() => setActiveSummaryFilter('completed')} />
-        <SummaryBox title="Bypassed OTP" value={summary.bypassedOtp} color={summaryColors[7]} isActive={activeSummaryFilter === 'bypassedOtp'} onClick={() => setActiveSummaryFilter('bypassedOtp')} />
+        <SummaryBox title="Ready for Allocation" value={summary.readyForAllocation} color={summaryColors[1]} isActive={activeSummaryFilter === 'readyForAllocation'} onClick={() => setActiveSummaryFilter('readyForAllocation')} />
+        <SummaryBox title="Scheduled Today" value={summary.scheduledToday} color={summaryColors[2]} isActive={activeSummaryFilter === 'scheduledToday'} onClick={() => setActiveSummaryFilter('scheduledToday')} />
+        <SummaryBox title="Total Scheduled" value={summary.scheduled} color={summaryColors[3]} isActive={activeSummaryFilter === 'scheduled'} onClick={() => setActiveSummaryFilter('scheduled')} />
+        <SummaryBox title="Assigned" value={summary.assigned} color={summaryColors[4]} isActive={activeSummaryFilter === 'assigned'} onClick={() => setActiveSummaryFilter('assigned')} />
+        <SummaryBox title="Ready for Delivery" value={summary.readyForDelivery} color={summaryColors[5]} isActive={activeSummaryFilter === 'readyForDelivery'} onClick={() => setActiveSummaryFilter('readyForDelivery')} />
+        <SummaryBox title="Stitched" value={summary.stitched} color={summaryColors[6]} isActive={activeSummaryFilter === 'stitched'} onClick={() => setActiveSummaryFilter('stitched')} />
+        <SummaryBox title="Completed" value={summary.completed} color={summaryColors[7]} isActive={activeSummaryFilter === 'completed'} onClick={() => setActiveSummaryFilter('completed')} />
+        <SummaryBox title="Bypassed OTP" value={summary.bypassedOtp} color={summaryColors[8]} isActive={activeSummaryFilter === 'bypassedOtp'} onClick={() => setActiveSummaryFilter('bypassedOtp')} />
       </div>
 
       <div className="mb-6 p-4 border rounded-lg bg-card">
@@ -394,16 +400,14 @@ function SummaryBox({ title, value, color, isActive, onClick }: SummaryBoxProps)
         <button
             onClick={onClick}
             className={cn(
-                "bg-card p-4 rounded-lg shadow-sm flex items-center justify-center text-center gap-4 transition-all duration-200 ease-in-out transform hover:scale-105",
+                "bg-card p-4 rounded-lg shadow-sm text-center transition-all duration-200 ease-in-out transform hover:scale-105",
                 "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary",
                 color,
                 isActive ? "ring-2 ring-primary scale-105" : "ring-0"
             )}
         >
-            <div>
-                <p className="text-sm text-muted-foreground">{title}</p>
-                <p className="text-2xl font-bold">{value}</p>
-            </div>
+            <p className="text-sm text-muted-foreground truncate">{title}</p>
+            <p className="text-2xl font-bold">{value}</p>
         </button>
     );
 }

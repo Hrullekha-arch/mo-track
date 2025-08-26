@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
@@ -7,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Order, User, Milestone, PurchaseRequest, FabricDetail, O2DStatus } from "@/lib/types";
-import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2, AlertCircle, ShoppingBag } from "lucide-react";
+import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2, AlertCircle, ShoppingBag, ShoppingCart } from "lucide-react";
 import { MilestoneProgress } from "./MilestoneProgress";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import Link from 'next/link';
 
 
 interface OrderCardProps {
@@ -63,6 +63,22 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const isReadyForDelivery = !!currentOrder.milestones.find(m => m.id === 5)?.completed;
 
   const isOrderComplete = currentOrder.milestones.every(m => m.completed) && (!!currentOrder.feedbackRating || !!currentOrder.customerFeedbackRating || !!currentOrder.bypassedOtp);
+  
+  const stockStatus = useMemo(() => {
+    const items = order.fabricDetails;
+    if (!items || items.length === 0) {
+        return { inStock: 0, total: 0, allInStock: true, partiallyInStock: false };
+    }
+    const total = items.length;
+    const inStock = items.filter(item => item.status === 'in stock').length;
+    return {
+        inStock,
+        total,
+        allInStock: inStock === total,
+        partiallyInStock: inStock > 0 && inStock < total,
+    };
+  }, [order.fabricDetails]);
+
 
   const handleMilestoneChange = useCallback(async (milestoneId: number, completed: boolean) => {
     if (!user) {
@@ -413,9 +429,16 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             </div>
         )}
 
-        <div className={`flex items-center gap-2 font-semibold ${status.color}`}>
-            <TrendingUp className="h-4 w-4" />
-            <span>Status: {lastCompletedMilestone?.name || "Order Received"}</span>
+        <div className="flex items-center justify-between">
+            <div className={`flex items-center gap-2 font-semibold ${status.color}`}>
+                <StatusIcon className="h-5 w-5" />
+                <span>Status: {lastCompletedMilestone?.name || "Order Received"}</span>
+            </div>
+            {stockStatus.total > 0 && (
+                <Badge variant={stockStatus.allInStock ? "default" : stockStatus.partiallyInStock ? "secondary" : "destructive"} className={cn(stockStatus.allInStock && "bg-green-600")}>
+                    Items In Stock: {stockStatus.inStock} / {stockStatus.total}
+                </Badge>
+            )}
         </div>
         
         {hasFeedback && (
@@ -460,8 +483,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <div className={`flex items-center gap-2 font-semibold ${status.color}`}>
-              <StatusIcon className="h-5 w-5" />
-              <span>{status.text}</span>
+              <span></span>
             </div>
              <Button variant="ghost" size="sm" onClick={() => setShowMilestones(!showMilestones)}>
               Milestones
@@ -484,67 +506,60 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
          <div className="text-xs text-muted-foreground">
             Created on {createdAtDate.toLocaleDateString()}
         </div>
-         {(canAssignCrm || canAssignInstaller || canSchedule || canSendMessage) && (
-            <div className="w-full [column-count:2] sm:[column-count:3] lg:[column-count:5] [column-gap:0.5rem] pt-2">
-                <div className="break-inside-avoid mb-2">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button variant="outline" size="sm" className="w-full" onClick={handleShowMaterial}>
-                                <ShoppingBag className="mr-2 h-4 w-4" />
-                                Material
-                            </Button>
-                        </TooltipTrigger>
-                    </Tooltip>
-                </div>
-
-                <div className="break-inside-avoid mb-2">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigningCrm(true)} disabled={!canAssignCrm}>
-                                <Users className="mr-2 h-4 w-4" />
-                                Assign CRM
-                            </Button>
-                        </TooltipTrigger>
-                        {!canAssignCrm && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
-                    </Tooltip>
-                </div>
-
-                <div className="break-inside-avoid mb-2">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)} disabled={!canAssignInstaller}>
-                                <UserIcon className="mr-2 h-4 w-4" />
-                                {assignedInstaller ? "Re-assign" : "Assign"}
-                            </Button>
-                        </TooltipTrigger>
-                        {isOrderComplete ? <TooltipContent><p>Order is complete.</p></TooltipContent> : !isReadyForDelivery && <TooltipContent><p>Mark "Ready for Delivery" to assign.</p></TooltipContent>}
-                        {isReadyForDelivery && !canAssignInstaller && <TooltipContent><p>You don't have permission to assign installers.</p></TooltipContent>}
-                    </Tooltip>
-                </div>
-                
-                <div className="break-inside-avoid mb-2">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)} disabled={!canSchedule}>
-                                <CalendarClock className="mr-2 h-4 w-4" />
-                                Schedule
-                            </Button>
-                        </TooltipTrigger>
-                        {!canSchedule && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
-                    </Tooltip>
-                </div>
-
-                <div className="break-inside-avoid mb-2">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button variant="outline" size="sm" className="w-full" onClick={handleOpenMessageDialog} disabled={!canSendMessage}>
-                                <MessageSquare className="mr-2 h-4 w-4" />
-                                Message
-                            </Button>
-                        </TooltipTrigger>
-                        {!canSendMessage && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
-                    </Tooltip>
-                </div>
+         {(canAssignCrm || canAssignInstaller || canSchedule || canSendMessage || stockStatus.allInStock) && (
+            <div className="w-full grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 pt-2">
+                {stockStatus.allInStock && (
+                     <Button asChild size="sm" className="w-full bg-green-600 hover:bg-green-700">
+                        <Link href={`/dashboard/orders/${order.id}`}>
+                            <ShoppingCart className="mr-2 h-4 w-4"/> Allocate
+                        </Link>
+                    </Button>
+                )}
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="outline" size="sm" className="w-full" onClick={handleShowMaterial}>
+                            <ShoppingBag className="mr-2 h-4 w-4" />
+                            Material
+                        </Button>
+                    </TooltipTrigger>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigningCrm(true)} disabled={!canAssignCrm}>
+                            <Users className="mr-2 h-4 w-4" />
+                            Assign CRM
+                        </Button>
+                    </TooltipTrigger>
+                    {!canAssignCrm && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="outline" size="sm" className="w-full" onClick={() => setIsAssigning(true)} disabled={!canAssignInstaller}>
+                            <UserIcon className="mr-2 h-4 w-4" />
+                            {assignedInstaller ? "Re-assign" : "Assign"}
+                        </Button>
+                    </TooltipTrigger>
+                    {isOrderComplete ? <TooltipContent><p>Order is complete.</p></TooltipContent> : !isReadyForDelivery && <TooltipContent><p>Mark "Ready for Delivery" to assign.</p></TooltipContent>}
+                    {isReadyForDelivery && !canAssignInstaller && <TooltipContent><p>You don't have permission to assign installers.</p></TooltipContent>}
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="outline" size="sm" className="w-full" onClick={() => setIsScheduling(true)} disabled={!canSchedule}>
+                            <CalendarClock className="mr-2 h-4 w-4" />
+                            Schedule
+                        </Button>
+                    </TooltipTrigger>
+                    {!canSchedule && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="outline" size="sm" className="w-full" onClick={handleOpenMessageDialog} disabled={!canSendMessage}>
+                            <MessageSquare className="mr-2 h-4 w-4" />
+                            Message
+                        </Button>
+                    </TooltipTrigger>
+                    {!canSendMessage && <TooltipContent><p>{isOrderComplete ? 'Order is complete' : "You don't have permission."}</p></TooltipContent>}
+                </Tooltip>
             </div>
         )}
       </CardFooter>
