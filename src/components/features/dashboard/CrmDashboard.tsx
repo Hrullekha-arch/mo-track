@@ -5,7 +5,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { collection, onSnapshot, query, where, orderBy, getDocs, Timestamp, collectionGroup, doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, DealVisit, User, Customer, Deal, PurchaseRequest, PurchaseStatus, Quotation } from "@/lib/types";
+import { Order, DealVisit, User, Customer, Deal, PurchaseRequest, PurchaseStatus, Quotation, Milestone } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
 import { format, isToday, formatDistanceToNow } from "date-fns";
@@ -16,9 +16,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Calendar, CheckCircle, Clock, FileSignature, ListOrdered, MessageSquare, Phone, Search, ShoppingCart, Truck } from "lucide-react";
+import { ArrowRight, Calendar, CheckCircle, Clock, FileSignature, GitCommitHorizontal, ListOrdered, MessageSquare, Phone, Search, ShoppingCart, Truck } from "lucide-react";
 import { PO_PROCESS_CONFIG } from "@/lib/constants";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { MilestoneProgress } from "@/components/features/order-management/MilestoneProgress";
 
 interface EnrichedVisit extends DealVisit {
     customerName: string;
@@ -330,8 +332,9 @@ const TodayVisits = () => {
 const AllOrdersAndUpdates = ({ dashboardType, assignedSalesmen }: { dashboardType: 'CRM' | 'PC', assignedSalesmen: string[] }) => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
-     useEffect(() => {
+    useEffect(() => {
         if (dashboardType === 'CRM' && assignedSalesmen.length === 0) {
             setLoading(false);
             setOrders([]);
@@ -352,36 +355,51 @@ const AllOrdersAndUpdates = ({ dashboardType, assignedSalesmen }: { dashboardTyp
     }, [assignedSalesmen, dashboardType]);
 
     return (
-        <Card className="h-full">
-            <CardHeader>
-                <CardTitle>All orders And Updates</CardTitle>
-            </CardHeader>
-            <CardContent>
-                <ScrollArea className="h-[calc(50vh-8rem)]">
-                    <div className="space-y-3">
-                        {loading ? (
-                             Array.from({length: 4}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
-                        ) : orders.length > 0 ? (
-                            orders.map(order => (
-                                <div key={order.id} className="p-3 border rounded-lg flex justify-between items-center">
-                                    <div>
-                                        <p className="font-semibold">{order.customerName}</p>
-                                        <p className="text-sm text-muted-foreground">{order.crmOrderNo} - {order.salesPerson}</p>
-                                    </div>
-                                    <Button asChild variant="ghost" size="icon">
-                                        <Link href={`/dashboard/orders/${order.id}`}>
+        <>
+            <Card className="h-full">
+                <CardHeader>
+                    <CardTitle>All orders And Updates</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <ScrollArea className="h-[calc(50vh-8rem)]">
+                        <div className="space-y-3">
+                            {loading ? (
+                                Array.from({length: 4}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
+                            ) : orders.length > 0 ? (
+                                orders.map(order => (
+                                    <div key={order.id} className="p-3 border rounded-lg flex justify-between items-center">
+                                        <div>
+                                            <p className="font-semibold">{order.customerName}</p>
+                                            <p className="text-sm text-muted-foreground">{order.crmOrderNo} - {order.salesPerson}</p>
+                                        </div>
+                                        <Button variant="ghost" size="icon" onClick={() => setSelectedOrder(order)}>
                                             <ArrowRight className="h-4 w-4" />
-                                        </Link>
-                                    </Button>
-                                </div>
-                            ))
-                        ) : (
-                             <p className="text-sm text-muted-foreground text-center py-8">No orders assigned.</p>
+                                        </Button>
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-sm text-muted-foreground text-center py-8">No orders assigned.</p>
+                            )}
+                        </div>
+                    </ScrollArea>
+                </CardContent>
+            </Card>
+            <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Milestone Progress</DialogTitle>
+                        <DialogDescription>
+                            Current status for order #{selectedOrder?.crmOrderNo}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        {selectedOrder && (
+                            <MilestoneProgress milestones={selectedOrder.milestones} />
                         )}
                     </div>
-                </ScrollArea>
-            </CardContent>
-        </Card>
+                </DialogContent>
+            </Dialog>
+        </>
     );
 };
 
@@ -447,3 +465,4 @@ export default function CrmDashboard({ dashboardType }: { dashboardType: 'CRM' |
         </div>
     );
 }
+
