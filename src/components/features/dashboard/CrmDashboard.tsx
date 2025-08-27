@@ -4,7 +4,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { collection, onSnapshot, query, where, orderBy, getDocs, Timestamp, collectionGroup, doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, DealVisit, User, Customer, Deal } from "@/lib/types";
+import { Order, DealVisit, User, Customer, Deal, PurchaseRequest, PurchaseStatus } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
 import { format, isToday, formatDistanceToNow } from "date-fns";
@@ -15,7 +15,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Calendar, CheckCircle, Clock, FileSignature, ListOrdered, MessageSquare, Phone } from "lucide-react";
+import { ArrowRight, Calendar, CheckCircle, Clock, FileSignature, ListOrdered, MessageSquare, Phone, ShoppingCart, Truck } from "lucide-react";
+import { PO_PROCESS_CONFIG } from "@/lib/constants";
 
 interface EnrichedVisit extends DealVisit {
     customerName: string;
@@ -34,38 +35,120 @@ const OrderUpdatesFeed = ({ assignedSalesmen }: { assignedSalesmen: string[] }) 
             return;
         }
 
-        const ordersQuery = query(collection(db, "orders"), where("salesPerson", "in", assignedSalesmen), orderBy("createdAt", "desc"), where("status", "==", "Approved"));
+        const ordersQuery = query(collection(db, "orders"), where("salesPerson", "in", assignedSalesmen), orderBy("createdAt", "desc"));
+        const purchaseRequestsQuery = query(collection(db, "purchaseRequests"), where("salesman", "in", assignedSalesmen), orderBy("createdAt", "desc"));
 
-        const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
-            const notifications: any[] = [];
-            snapshot.docs.forEach(doc => {
-                const order = doc.data() as Order;
-                notifications.push({
+        const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+            const orderUpdates = snapshot.docs.flatMap(doc => {
+                const order = { id: doc.id, ...doc.data() } as Order;
+                const orderNotifications: any[] = [{
                     type: 'new_order',
                     title: `New Order: ${order.crmOrderNo}`,
                     description: `${order.customerName}`,
                     date: order.createdAt,
                     href: `/dashboard/orders/${order.id}`
-                });
-
+                }];
                 order.milestones.forEach(m => {
                     if (m.completed && m.completedAt) {
-                         notifications.push({
+                         orderNotifications.push({
                             type: 'milestone',
                             title: `Milestone: ${m.name}`,
                             description: `For order ${order.crmOrderNo}`,
                             date: m.completedAt,
-                             href: `/dashboard/orders/${order.id}`
+                            href: `/dashboard/orders/${order.id}`
                         });
                     }
                 });
+                return orderNotifications;
             });
-            setUpdates(notifications.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+            setUpdates(prev => [...prev.filter(p => p.type !== 'new_order' && p.type !== 'milestone'), ...orderUpdates].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
             setLoading(false);
         });
 
-        return () => unsubscribe();
+        const unsubscribePRs = onSnapshot(purchaseRequestsQuery, (snapshot) => {
+            const prUpdates = snapshot.docs.flatMap(doc => {
+                const pr = { id: doc.id, ...doc.data() } as PurchaseRequest;
+                const prNotifications: any[] = [];
+                
+                if (pr.status === 'PO Generated') {
+                    (pr.fabricDetails || []).forEach(item => {
+                        if (item.poNumber) {
+                            prNotifications.push({
+                                type: 'po_generated',
+                                title: `PO Generated: ${item.poNumber}`,
+                                description: `For ${item.fabricName} (${item.quantity} Mtr) in Deal #${pr.dealId}`,
+                                date: pr.createdAt, // Or a more specific date if available
+                                href: `/dashboard/purchase`
+                            });
+                        }
+                    });
+                }
+
+                (pr.poMilestones || []).forEach(m => {
+                    const milestoneConfig = PO_PROCESS_CONFIG.find(p => p.id === m.stepId);
+                     if (m.completedAt && milestoneConfig) {
+                         prNotifications.push({
+                            type: 'po_milestone',
+                            title: `PO: ${milestoneConfig.step}`,
+                            description: `For ${m.itemName || 'item'} in Deal #${pr.dealId}`,
+                            date: m.completedAt,
+                            href: `/dashboard/purchase`
+                        });
+                    }
+                });
+                return prNotifications;
+            });
+             setUpdates(prev => [...prev.filter(p => p.type !== 'po_generated' && p.type !== 'po_milestone'), ...prUpdates].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+             setLoading(false);
+        });
+
+        return () => {
+            unsubscribeOrders();
+            unsubscribePRs();
+        };
     }, [assignedSalesmen]);
+
+    const renderNotification = (notification: any) => {
+        let title = '';
+        let description = '';
+        let icon = <FileSignature />;
+
+        switch(notification.type) {
+            case 'new_order':
+                title = notification.title;
+                description = notification.description;
+                icon = <FileSignature className="text-blue-500"/>
+                break;
+            case 'milestone':
+                title = notification.title;
+                description = notification.description;
+                icon = <CheckCircle className="text-green-500"/>
+                break;
+            case 'po_generated':
+                title = notification.title;
+                description = notification.description;
+                icon = <ShoppingCart className="text-orange-500" />;
+                break;
+            case 'po_milestone':
+                title = notification.title;
+                description = notification.description;
+                icon = <Truck className="text-cyan-500" />;
+                break;
+        }
+
+        return (
+             <Link href={notification.href} key={notification.date + notification.title} className="block hover:bg-muted/50 p-2 rounded-md">
+                <div className="flex items-start gap-3">
+                    <div className="mt-1">{icon}</div>
+                    <div>
+                        <p className="font-semibold text-sm">{title}</p>
+                        <p className="text-xs text-muted-foreground">{description}</p>
+                        <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(notification.date), { addSuffix: true })}</p>
+                    </div>
+                </div>
+            </Link>
+        )
+    }
 
     return (
         <Card className="h-full">
@@ -78,21 +161,7 @@ const OrderUpdatesFeed = ({ assignedSalesmen }: { assignedSalesmen: string[] }) 
                         {loading ? (
                             Array.from({length: 5}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
                         ) : updates.length > 0 ? (
-                            updates.map((update, i) => (
-                                <Link href={update.href} key={i} className="block hover:bg-muted/50 p-2 rounded-md">
-                                    <div className="flex items-start gap-3">
-                                        <div className="mt-1">
-                                            {update.type === 'new_order' && <FileSignature className="h-5 w-5 text-blue-500"/>}
-                                            {update.type === 'milestone' && <CheckCircle className="h-5 w-5 text-green-500"/>}
-                                        </div>
-                                        <div>
-                                            <p className="font-semibold text-sm">{update.title}</p>
-                                            <p className="text-xs text-muted-foreground">{update.description}</p>
-                                            <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(update.date), { addSuffix: true })}</p>
-                                        </div>
-                                    </div>
-                                </Link>
-                            ))
+                            updates.map((update, i) => renderNotification(update))
                         ) : (
                             <p className="text-sm text-muted-foreground text-center py-8">No recent updates.</p>
                         )}
