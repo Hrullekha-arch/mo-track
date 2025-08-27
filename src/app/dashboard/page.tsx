@@ -18,6 +18,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PO_PROCESS_CONFIG } from "@/lib/constants";
+import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
 
 interface SummaryCardProps {
     title: string;
@@ -386,7 +387,7 @@ const AdminDashboard = () => {
 
 
 export default function DashboardPage() {
-    const { role, loading } = useAuth();
+    const { user, loading } = useAuth();
     
     if (loading) {
         return (
@@ -402,7 +403,11 @@ export default function DashboardPage() {
         )
     }
 
-    if (role === 'salesman') {
+    if (user?.designation === 'CRM') {
+        return <CrmDashboard />;
+    }
+
+    if (user?.role === 'salesman') {
         return <SalesmanDashboard />;
     }
 
