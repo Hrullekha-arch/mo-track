@@ -2,12 +2,12 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { collection, onSnapshot, query, where, orderBy, getDocs, Timestamp } from "firebase/firestore";
+import { collection, onSnapshot, query, where, orderBy, getDocs, Timestamp, collectionGroup, doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, DealVisit, User, Customer, Deal } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
-import { format, isToday } from "date-fns";
+import { format, isToday, formatDistanceToNow } from "date-fns";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,7 +44,7 @@ const OrderUpdatesFeed = ({ crmUserId }: { crmUserId: string }) => {
 
                 order.milestones.forEach(m => {
                     if (m.completed && m.completedAt) {
-                        notifications.push({
+                         notifications.push({
                             type: 'milestone',
                             title: `Milestone: ${m.name}`,
                             description: `For order ${order.crmOrderNo}`,
@@ -82,7 +82,7 @@ const OrderUpdatesFeed = ({ crmUserId }: { crmUserId: string }) => {
                                         <div>
                                             <p className="font-semibold text-sm">{update.title}</p>
                                             <p className="text-xs text-muted-foreground">{update.description}</p>
-                                            <p className="text-xs text-muted-foreground">{format(new Date(update.date), "dd MMM, h:mm a")}</p>
+                                            <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(update.date), { addSuffix: true })}</p>
                                         </div>
                                     </div>
                                 </Link>
