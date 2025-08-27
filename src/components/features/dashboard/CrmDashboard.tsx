@@ -4,7 +4,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { collection, onSnapshot, query, where, orderBy, getDocs, Timestamp, collectionGroup, doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, DealVisit, User, Customer, Deal, PurchaseRequest, PurchaseStatus } from "@/lib/types";
+import { Order, DealVisit, User, Customer, Deal, PurchaseRequest, PurchaseStatus, Quotation } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
 import { format, isToday, formatDistanceToNow } from "date-fns";
@@ -15,8 +15,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Calendar, CheckCircle, Clock, FileSignature, ListOrdered, MessageSquare, Phone, ShoppingCart, Truck } from "lucide-react";
+import { ArrowRight, Calendar, CheckCircle, Clock, FileSignature, ListOrdered, MessageSquare, Phone, Search, ShoppingCart, Truck } from "lucide-react";
 import { PO_PROCESS_CONFIG } from "@/lib/constants";
+import { Input } from "@/components/ui/input";
 
 interface EnrichedVisit extends DealVisit {
     customerName: string;
@@ -24,9 +25,10 @@ interface EnrichedVisit extends DealVisit {
     customerPhone: string;
 }
 
-const OrderUpdatesFeed = ({ assignedSalesmen }: { assignedSalesmen: string[] }) => {
+const OrderUpdatesFeed = ({ assignedSalesmen, salesmenUsers }: { assignedSalesmen: string[], salesmenUsers: User[] }) => {
     const [updates, setUpdates] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState("");
 
     useEffect(() => {
         if (assignedSalesmen.length === 0) {
@@ -35,78 +37,109 @@ const OrderUpdatesFeed = ({ assignedSalesmen }: { assignedSalesmen: string[] }) 
             return;
         }
 
+        const salesmenIds = salesmenUsers
+            .filter(u => assignedSalesmen.includes(u.name))
+            .map(u => u.id);
+
+        if (salesmenIds.length === 0) {
+            setLoading(false);
+            setUpdates([]);
+            return;
+        }
+
         const ordersQuery = query(collection(db, "orders"), where("salesPerson", "in", assignedSalesmen), orderBy("createdAt", "desc"));
         const purchaseRequestsQuery = query(collection(db, "purchaseRequests"), where("salesman", "in", assignedSalesmen), orderBy("createdAt", "desc"));
+        const quotesQuery = query(collectionGroup(db, 'quotations'), where('representativeId', 'in', salesmenIds));
 
-        const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-            const orderUpdates = snapshot.docs.flatMap(doc => {
-                const order = { id: doc.id, ...doc.data() } as Order;
-                const orderNotifications: any[] = [{
-                    type: 'new_order',
-                    title: `New Order: ${order.crmOrderNo}`,
-                    description: `${order.customerName}`,
-                    date: order.createdAt,
-                    href: `/dashboard/orders/${order.id}`
-                }];
-                order.milestones.forEach(m => {
+        let localOrders: Order[] = [];
+        let localPrs: PurchaseRequest[] = [];
+        let localQuotes: Quotation[] = [];
+
+        const processNotifications = () => {
+            const allNotifications: any[] = [];
+            
+            localOrders.forEach(order => {
+                if (order.status === 'Pending Approval') {
+                    allNotifications.push({ type: 'Order Pending Approval', data: order, date: order.createdAt });
+                }
+                if (order.status === 'Approved') {
+                    allNotifications.push({ type: 'Order Approved', data: order, date: order.approvedAt || order.createdAt });
+                }
+                
+                (order.milestones || []).forEach(m => {
                     if (m.completed && m.completedAt) {
-                         orderNotifications.push({
-                            type: 'milestone',
-                            title: `Milestone: ${m.name}`,
-                            description: `For order ${order.crmOrderNo}`,
-                            date: m.completedAt,
-                            href: `/dashboard/orders/${order.id}`
-                        });
+                         allNotifications.push({ type: 'Milestone Update', data: { ...order, milestone: m }, date: m.completedAt });
                     }
                 });
-                return orderNotifications;
             });
-            setUpdates(prev => [...prev.filter(p => p.type !== 'new_order' && p.type !== 'milestone'), ...orderUpdates].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+
+            localQuotes.forEach(quote => {
+                 if (quote.status === 'Approved') {
+                    allNotifications.push({ type: 'Quotation Approved', data: quote, date: quote.approvedAt || quote.createdAt });
+                }
+                 if (quote.status === 'Pending Approval') {
+                    allNotifications.push({ type: 'Quotation Sent for Approval', data: quote, date: quote.createdAt });
+                }
+            });
+            
+             localPrs.forEach(pr => {
+                if(pr.status === 'Approved') {
+                    allNotifications.push({ type: 'Purchase Request Created', data: pr, date: pr.createdAt });
+                }
+                (pr.poMilestones || []).forEach((m: PurchaseStatus) => {
+                     if (m.completedAt) {
+                         allNotifications.push({ type: 'PO Milestone Update', data: { ...pr, milestone: m }, date: m.completedAt });
+                    }
+                })
+            });
+
+            setUpdates(allNotifications.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        };
+        
+        const unsubs: (() => void)[] = [];
+
+        const ordersListener = onSnapshot(ordersQuery, (snapshot) => {
+            localOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+            processNotifications();
             setLoading(false);
         });
+        unsubs.push(ordersListener);
 
-        const unsubscribePRs = onSnapshot(purchaseRequestsQuery, (snapshot) => {
-            const prUpdates = snapshot.docs.flatMap(doc => {
-                const pr = { id: doc.id, ...doc.data() } as PurchaseRequest;
-                const prNotifications: any[] = [];
-                
-                if (pr.status === 'PO Generated') {
-                    (pr.fabricDetails || []).forEach(item => {
-                        if (item.poNumber) {
-                            prNotifications.push({
-                                type: 'po_generated',
-                                title: `PO Generated: ${item.poNumber}`,
-                                description: `For ${item.fabricName} (${item.quantity} Mtr) in Deal #${pr.dealId}`,
-                                date: pr.createdAt, // Or a more specific date if available
-                                href: `/dashboard/purchase`
-                            });
-                        }
-                    });
-                }
-
-                (pr.poMilestones || []).forEach(m => {
-                    const milestoneConfig = PO_PROCESS_CONFIG.find(p => p.id === m.stepId);
-                     if (m.completedAt && milestoneConfig) {
-                         prNotifications.push({
-                            type: 'po_milestone',
-                            title: `PO: ${milestoneConfig.step}`,
-                            description: `For ${m.itemName || 'item'} in Deal #${pr.dealId}`,
-                            date: m.completedAt,
-                            href: `/dashboard/purchase`
-                        });
-                    }
-                });
-                return prNotifications;
-            });
-             setUpdates(prev => [...prev.filter(p => p.type !== 'po_generated' && p.type !== 'po_milestone'), ...prUpdates].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-             setLoading(false);
+        const quotesListener = onSnapshot(quotesQuery, (snapshot) => {
+            localQuotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quotation));
+            processNotifications();
         });
+        unsubs.push(quotesListener);
 
-        return () => {
-            unsubscribeOrders();
-            unsubscribePRs();
-        };
-    }, [assignedSalesmen]);
+        const prListener = onSnapshot(purchaseRequestsQuery, (snapshot) => {
+            localPrs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
+            processNotifications();
+        });
+        unsubs.push(prListener);
+
+
+        return () => unsubs.forEach(unsub => unsub());
+    }, [assignedSalesmen, salesmenUsers]);
+
+    const filteredUpdates = useMemo(() => {
+        if (!searchTerm) return updates;
+        const lowercasedFilter = searchTerm.toLowerCase();
+
+        return updates.filter(update => {
+            const customerName = (update.data.customerName || '').toLowerCase();
+            const orderId = (update.data.crmOrderNo || update.data.dealId || '').toLowerCase();
+            const itemName = (update.data.milestone?.itemName || update.data?.items?.[0]?.bcn || '').toLowerCase();
+            const poNumber = (update.data.milestone?.poNumber || '').toLowerCase();
+            
+            return (
+                customerName.includes(lowercasedFilter) ||
+                orderId.includes(lowercasedFilter) ||
+                itemName.includes(lowercasedFilter) ||
+                poNumber.includes(lowercasedFilter)
+            );
+        });
+    }, [updates, searchTerm]);
+
 
     const renderNotification = (notification: any) => {
         let title = '';
@@ -114,30 +147,57 @@ const OrderUpdatesFeed = ({ assignedSalesmen }: { assignedSalesmen: string[] }) 
         let icon = <FileSignature />;
 
         switch(notification.type) {
-            case 'new_order':
-                title = notification.title;
-                description = notification.description;
+            case 'Quotation Sent for Approval':
+                title = "Quotation Submitted";
+                description = `Quotation #${notification.data.quotationNo} for ${notification.data.customerName} is pending approval.`;
                 icon = <FileSignature className="text-blue-500"/>
                 break;
-            case 'milestone':
-                title = notification.title;
-                description = notification.description;
+            case 'Quotation Approved':
+                title = "Quotation Approved!";
+                description = `Quotation #${notification.data.quotationNo} for ${notification.data.customerName} has been approved.`;
                 icon = <CheckCircle className="text-green-500"/>
                 break;
-            case 'po_generated':
-                title = notification.title;
-                description = notification.description;
+            case 'new_order':
+                title = `New Order: ${notification.data.crmOrderNo}`;
+                description = `${notification.data.customerName}`;
+                icon = <FileSignature className="text-blue-500"/>
+                break;
+            case 'Order Pending Approval':
+                title = "Order Submitted";
+                description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} is pending approval.`;
+                icon = <FileSignature className="text-blue-500" />
+                break;
+            case 'Order Approved':
+                title = "Order Approved";
+                description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} has been approved.`;
+                 icon = <CheckCircle className="text-green-500"/>
+                break;
+            case 'Milestone Update':
+                title = `Milestone: ${notification.data.milestone.name}`;
+                description = `For order ${notification.data.crmOrderNo}`;
+                icon = <CheckCircle className="text-green-500" />
+                break;
+            case 'Purchase Request Created':
+                title = `Purchase Request Created`;
+                description = `Materials for deal #${notification.data.dealId} have been requested.`;
                 icon = <ShoppingCart className="text-orange-500" />;
                 break;
-            case 'po_milestone':
-                title = notification.title;
-                description = notification.description;
+            case 'PO Milestone Update':
+                const milestoneConfig = PO_PROCESS_CONFIG.find(p => p.id === notification.data.milestone.stepId);
+                title = `PO: ${milestoneConfig?.step || 'Updated'}`;
+                const itemName = notification.data.milestone.itemName;
+                const poNumber = notification.data.milestone.poNumber;
+                let poDesc = `For ${poNumber ? `PO #${poNumber}`: ''} in Deal #${notification.data.dealId}`;
+                if (itemName) {
+                   poDesc = `For ${itemName} in Deal #${notification.data.dealId}`;
+                }
+                description = poDesc;
                 icon = <Truck className="text-cyan-500" />;
                 break;
         }
 
         return (
-             <Link href={notification.href} key={notification.date + notification.title} className="block hover:bg-muted/50 p-2 rounded-md">
+             <Link href={notification.href || '#'} key={notification.date + notification.title} className="block hover:bg-muted/50 p-2 rounded-md">
                 <div className="flex items-start gap-3">
                     <div className="mt-1">{icon}</div>
                     <div>
@@ -154,14 +214,23 @@ const OrderUpdatesFeed = ({ assignedSalesmen }: { assignedSalesmen: string[] }) 
         <Card className="h-full">
             <CardHeader>
                 <CardTitle>Order and Deal Updates</CardTitle>
+                 <div className="relative pt-2">
+                    <Search className="absolute left-2.5 top-4.5 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                        placeholder="Search by customer, deal or BCN..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-8"
+                    />
+                </div>
             </CardHeader>
             <CardContent>
-                <ScrollArea className="h-[calc(100vh-12rem)]">
+                <ScrollArea className="h-[calc(100vh-14rem)]">
                     <div className="space-y-4">
                         {loading ? (
                             Array.from({length: 5}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
-                        ) : updates.length > 0 ? (
-                            updates.map((update, i) => renderNotification(update))
+                        ) : filteredUpdates.length > 0 ? (
+                            filteredUpdates.map((update, i) => renderNotification(update))
                         ) : (
                             <p className="text-sm text-muted-foreground text-center py-8">No recent updates.</p>
                         )}
@@ -306,20 +375,39 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
 export default function CrmDashboard() {
     const { user } = useAuth();
     const [assignedSalesmen, setAssignedSalesmen] = useState<string[]>([]);
+    const [salesmenUsers, setSalesmenUsers] = useState<User[]>([]);
     const [loadingAssignments, setLoadingAssignments] = useState(true);
     
     useEffect(() => {
         if (!user) return;
         setLoadingAssignments(true);
+
         const assignmentsQuery = query(collection(db, "salesmanCrmAssignments"), where("crmUserId", "==", user.id));
         
-        const unsubscribe = onSnapshot(assignmentsQuery, (snapshot) => {
+        const unsubscribeAssignments = onSnapshot(assignmentsQuery, (snapshot) => {
             const names = snapshot.docs.map(doc => doc.id);
             setAssignedSalesmen(names);
-            setLoadingAssignments(false);
         });
+
+        const salesmenQuery = query(collection(db, "users"), where("role", "==", "salesman"));
+        const unsubscribeSalesmen = onSnapshot(salesmenQuery, (snapshot) => {
+            setSalesmenUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
+        });
+
+        const fetchInitialData = async () => {
+            const assignmentsSnapshot = await getDocs(assignmentsQuery);
+            const salesmenSnapshot = await getDocs(salesmenQuery);
+            setAssignedSalesmen(assignmentsSnapshot.docs.map(doc => doc.id));
+            setSalesmenUsers(salesmenSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
+            setLoadingAssignments(false);
+        };
         
-        return () => unsubscribe();
+        fetchInitialData();
+        
+        return () => {
+            unsubscribeAssignments();
+            unsubscribeSalesmen();
+        };
     }, [user]);
 
     if (!user || loadingAssignments) {
@@ -338,7 +426,7 @@ export default function CrmDashboard() {
                     </div>
                 </div>
                 <div className="lg:col-span-1 h-full">
-                    <OrderUpdatesFeed assignedSalesmen={assignedSalesmen} />
+                    <OrderUpdatesFeed assignedSalesmen={assignedSalesmen} salesmenUsers={salesmenUsers} />
                 </div>
             </div>
         </div>
