@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
@@ -25,13 +26,13 @@ interface EnrichedVisit extends DealVisit {
     customerPhone: string;
 }
 
-const OrderUpdatesFeed = ({ assignedSalesmen, salesmenUsers }: { assignedSalesmen: string[], salesmenUsers: User[] }) => {
+const OrderUpdatesFeed = ({ assignedSalesmen, salesmenUsers, dashboardType }: { assignedSalesmen: string[], salesmenUsers: User[], dashboardType: 'CRM' | 'PC' }) => {
     const [updates, setUpdates] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
 
     useEffect(() => {
-        if (assignedSalesmen.length === 0) {
+        if (dashboardType === 'CRM' && assignedSalesmen.length === 0) {
             setLoading(false);
             setUpdates([]);
             return;
@@ -41,15 +42,23 @@ const OrderUpdatesFeed = ({ assignedSalesmen, salesmenUsers }: { assignedSalesme
             .filter(u => assignedSalesmen.includes(u.name))
             .map(u => u.id);
 
-        if (salesmenIds.length === 0) {
+        if (dashboardType === 'CRM' && salesmenIds.length === 0) {
             setLoading(false);
             setUpdates([]);
             return;
         }
 
-        const ordersQuery = query(collection(db, "orders"), where("salesPerson", "in", assignedSalesmen), orderBy("createdAt", "desc"));
-        const purchaseRequestsQuery = query(collection(db, "purchaseRequests"), where("salesman", "in", assignedSalesmen), orderBy("createdAt", "desc"));
-        const quotesQuery = query(collectionGroup(db, 'quotations'), where('representativeId', 'in', salesmenIds));
+        const ordersQuery = dashboardType === 'PC' 
+            ? query(collection(db, "orders"), orderBy("createdAt", "desc"))
+            : query(collection(db, "orders"), where("salesPerson", "in", assignedSalesmen), orderBy("createdAt", "desc"));
+            
+        const purchaseRequestsQuery = dashboardType === 'PC'
+            ? query(collection(db, "purchaseRequests"), orderBy("createdAt", "desc"))
+            : query(collection(db, "purchaseRequests"), where("salesman", "in", assignedSalesmen), orderBy("createdAt", "desc"));
+
+        const quotesQuery = dashboardType === 'PC'
+            ? query(collectionGroup(db, 'quotations'))
+            : query(collectionGroup(db, 'quotations'), where('representativeId', 'in', salesmenIds));
 
         let localOrders: Order[] = [];
         let localPrs: PurchaseRequest[] = [];
@@ -119,7 +128,7 @@ const OrderUpdatesFeed = ({ assignedSalesmen, salesmenUsers }: { assignedSalesme
 
 
         return () => unsubs.forEach(unsub => unsub());
-    }, [assignedSalesmen, salesmenUsers]);
+    }, [assignedSalesmen, salesmenUsers, dashboardType]);
 
     const filteredUpdates = useMemo(() => {
         if (!searchTerm) return updates;
@@ -318,17 +327,21 @@ const TodayVisits = () => {
     );
 };
 
-const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] }) => {
+const AllOrdersAndUpdates = ({ dashboardType, assignedSalesmen }: { dashboardType: 'CRM' | 'PC', assignedSalesmen: string[] }) => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
 
      useEffect(() => {
-        if (assignedSalesmen.length === 0) {
+        if (dashboardType === 'CRM' && assignedSalesmen.length === 0) {
             setLoading(false);
             setOrders([]);
             return;
         }
-        const ordersQuery = query(collection(db, "orders"), where("salesPerson", "in", assignedSalesmen), orderBy("createdAt", "desc"));
+
+        const ordersQuery = dashboardType === 'PC'
+            ? query(collection(db, "orders"), orderBy("createdAt", "desc"))
+            : query(collection(db, "orders"), where("salesPerson", "in", assignedSalesmen), orderBy("createdAt", "desc"));
+            
         const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
             const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
             setOrders(ordersData);
@@ -336,7 +349,7 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
         });
 
         return () => unsubscribe();
-    }, [assignedSalesmen]);
+    }, [assignedSalesmen, dashboardType]);
 
     return (
         <Card className="h-full">
@@ -372,7 +385,7 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
     );
 };
 
-export default function CrmDashboard() {
+export default function CrmDashboard({ dashboardType }: { dashboardType: 'CRM' | 'PC' }) {
     const { user } = useAuth();
     const [assignedSalesmen, setAssignedSalesmen] = useState<string[]>([]);
     const [salesmenUsers, setSalesmenUsers] = useState<User[]>([]);
@@ -383,32 +396,34 @@ export default function CrmDashboard() {
         setLoadingAssignments(true);
 
         const assignmentsQuery = query(collection(db, "salesmanCrmAssignments"), where("crmUserId", "==", user.id));
-        
-        const unsubscribeAssignments = onSnapshot(assignmentsQuery, (snapshot) => {
-            const names = snapshot.docs.map(doc => doc.id);
-            setAssignedSalesmen(names);
-        });
-
         const salesmenQuery = query(collection(db, "users"), where("role", "==", "salesman"));
-        const unsubscribeSalesmen = onSnapshot(salesmenQuery, (snapshot) => {
-            setSalesmenUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
-        });
 
-        const fetchInitialData = async () => {
+        const fetchCrmData = async () => {
             const assignmentsSnapshot = await getDocs(assignmentsQuery);
+            const names = assignmentsSnapshot.docs.map(doc => doc.id);
+            setAssignedSalesmen(names);
+            
             const salesmenSnapshot = await getDocs(salesmenQuery);
-            setAssignedSalesmen(assignmentsSnapshot.docs.map(doc => doc.id));
             setSalesmenUsers(salesmenSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
             setLoadingAssignments(false);
         };
         
-        fetchInitialData();
-        
-        return () => {
-            unsubscribeAssignments();
-            unsubscribeSalesmen();
+        const fetchPcData = async () => {
+             const salesmenSnapshot = await getDocs(salesmenQuery);
+             setSalesmenUsers(salesmenSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
+             setAssignedSalesmen(salesmenSnapshot.docs.map(doc => doc.data().name as string));
+             setLoadingAssignments(false);
         };
-    }, [user]);
+
+        if (dashboardType === 'CRM') {
+            fetchCrmData();
+        } else if (dashboardType === 'PC') {
+            fetchPcData();
+        } else {
+            setLoadingAssignments(false);
+        }
+
+    }, [user, dashboardType]);
 
     if (!user || loadingAssignments) {
         return <div className="p-4"><p>Loading assignments...</p></div>;
@@ -419,14 +434,14 @@ export default function CrmDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
                 <div className="lg:col-span-2 flex flex-col gap-6">
                     <div className="flex-1">
-                        <AllOrdersAndUpdates assignedSalesmen={assignedSalesmen} />
+                        <AllOrdersAndUpdates dashboardType={dashboardType} assignedSalesmen={assignedSalesmen} />
                     </div>
                     <div className="flex-1">
                         <TodayVisits />
                     </div>
                 </div>
                 <div className="lg:col-span-1 h-full">
-                    <OrderUpdatesFeed assignedSalesmen={assignedSalesmen} salesmenUsers={salesmenUsers} />
+                    <OrderUpdatesFeed dashboardType={dashboardType} assignedSalesmen={assignedSalesmen} salesmenUsers={salesmenUsers} />
                 </div>
             </div>
         </div>

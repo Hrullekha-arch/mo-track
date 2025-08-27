@@ -404,7 +404,11 @@ export default function DashboardPage() {
     }
 
     if (user?.designation === 'CRM') {
-        return <CrmDashboard />;
+        return <CrmDashboard dashboardType="CRM" />;
+    }
+    
+    if (user?.designation === 'PC') {
+        return <CrmDashboard dashboardType="PC" />;
     }
 
     if (user?.role === 'salesman') {
