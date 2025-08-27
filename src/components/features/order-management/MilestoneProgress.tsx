@@ -4,7 +4,7 @@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Milestone, UserRole } from "@/lib/types";
-import { CheckCircle2, Circle, Factory, Milestone as MilestoneIcon, Package, PackageCheck, Rocket, Scissors, Wrench, MapPin } from "lucide-react";
+import { Check, CheckCircle, CheckCircle2, Circle, Factory, Milestone as MilestoneIcon, Package, PackageCheck, Rocket, Scissors, Wrench, MapPin } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
@@ -79,7 +79,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
                       isCompleted ? "bg-accent text-accent-foreground" : isCurrent ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
                     )}
                   >
-                    <Icon className="h-4 w-4" />
+                     {isCompleted ? <CheckCircle className="h-5 w-5" /> : <Icon className="h-4 w-4" />}
                   </div>
                   {index < milestones.length - 1 && (
                     <div className={cn("w-px h-6", isCompleted ? "bg-accent" : "bg-border")}></div>
