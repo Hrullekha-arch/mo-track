@@ -14,7 +14,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, ShieldAlert, Trash2, CalendarIcon, Search, X, PlusCircle } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, ShieldAlert, Trash2, CalendarIcon, Search, X, PlusCircle, Check, Clock } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, deleteDoc, where } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, deleteDoc, where, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, User } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -47,7 +47,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
-import { format, isWithinInterval } from "date-fns";
+import { format, isWithinInterval, addHours, differenceInHours } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
@@ -55,7 +55,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { NewOrderDialog } from "./NewOrderDialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-
+import { setFullKittingTime } from "./actions";
 
 function OrderTableComponent({ data, columns, loading }: { data: Order[], columns: ColumnDef<Order>[], loading: boolean }) {
     const [sorting, setSorting] = React.useState<SortingState>([
@@ -295,6 +295,70 @@ function OrderTableComponent({ data, columns, loading }: { data: Order[], column
     )
 }
 
+function KittingTimePicker({ order }: { order: Order }) {
+    const { toast } = useToast();
+    const sentToStitchingMilestone = order.milestones.find(m => m.id === 3);
+
+    const [kittingDate, setKittingDate] = React.useState<Date | undefined>(
+        order.fullKittingTime ? new Date(order.fullKittingTime) : undefined
+    );
+    const [isLoading, setIsLoading] = React.useState(false);
+
+    const handleDateChange = async (date: Date | undefined) => {
+        if (!date) return;
+        setKittingDate(date);
+        setIsLoading(true);
+
+        const result = await setFullKittingTime(order.id, date.toISOString());
+        if (result.success) {
+            toast({ title: "Kitting Time Saved!" });
+        } else {
+            toast({ variant: 'destructive', title: "Error", description: result.message });
+        }
+        setIsLoading(false);
+    }
+    
+    if (!sentToStitchingMilestone?.completed) {
+        return <span className="text-xs text-muted-foreground">-</span>;
+    }
+
+    const timeSinceStitching = differenceInHours(new Date(), new Date(sentToStitchingMilestone.completedAt!));
+    const isPastGracePeriod = timeSinceStitching > 1;
+
+    let colorClass = "text-foreground";
+    if(order.fullKittingTimeReupdated) {
+        colorClass = "text-orange-500";
+    } else if (order.fullKittingTime && isPastGracePeriod) {
+        colorClass = "text-destructive";
+    }
+
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <Button
+                    variant={"outline"}
+                    className={cn(
+                        "w-[200px] justify-start text-left font-normal",
+                        !kittingDate && "text-muted-foreground",
+                        colorClass
+                    )}
+                >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (kittingDate ? format(kittingDate, "PPP") : <span>Set Time</span>)}
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
+                <Calendar
+                    mode="single"
+                    selected={kittingDate}
+                    onSelect={handleDateChange}
+                    initialFocus
+                />
+            </PopoverContent>
+        </Popover>
+    );
+}
+
 export function OrdersTable() {
   const [orders, setOrders] = React.useState<Order[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -372,6 +436,11 @@ export function OrdersTable() {
             </Link>
         </Button>
       ),
+    },
+    {
+        id: "fullKittingTime",
+        header: "Full Kitting Time",
+        cell: ({ row }) => <KittingTimePicker order={row.original} />,
     },
     {
       id: "noOfItems",
@@ -618,9 +687,6 @@ export function OrdersTable() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
-      {/* NewOrderDialog is not used here anymore, quotations are used instead. But keeping it in case it's needed elsewhere */}
-      {/* <NewOrderDialog isOpen={isNewOrderDialogOpen} onClose={() => setIsNewOrderDialogOpen(false)} /> */}
     </>
   );
 }

@@ -161,6 +161,10 @@ export interface Order {
   // Payment fields
   balanceFollowUp?: boolean;
   paymentConfirmed?: boolean;
+
+  // Full kitting time
+  fullKittingTime?: string;
+  fullKittingTimeReupdated?: boolean;
 }
 
 export interface SalesmanCrmAssignment {
