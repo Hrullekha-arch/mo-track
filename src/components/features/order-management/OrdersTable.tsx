@@ -14,7 +14,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, ShieldAlert, Trash2, CalendarIcon, Search, X, PlusCircle, Check, Clock } from "lucide-react";
+import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, ShieldAlert, Trash2, CalendarIcon, Search, X, PlusCircle, Check, Clock, Loader2 } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import { Button } from "@/components/ui/button";
