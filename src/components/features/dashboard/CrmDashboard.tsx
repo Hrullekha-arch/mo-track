@@ -23,12 +23,18 @@ interface EnrichedVisit extends DealVisit {
     customerPhone: string;
 }
 
-const OrderUpdatesFeed = ({ crmUserId }: { crmUserId: string }) => {
+const OrderUpdatesFeed = ({ assignedSalesmen }: { assignedSalesmen: string[] }) => {
     const [updates, setUpdates] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", crmUserId), orderBy("createdAt", "desc"), where("status", "==", "Approved"));
+        if (assignedSalesmen.length === 0) {
+            setLoading(false);
+            setUpdates([]);
+            return;
+        }
+
+        const ordersQuery = query(collection(db, "orders"), where("salesPerson", "in", assignedSalesmen), orderBy("createdAt", "desc"), where("status", "==", "Approved"));
 
         const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
             const notifications: any[] = [];
@@ -59,7 +65,7 @@ const OrderUpdatesFeed = ({ crmUserId }: { crmUserId: string }) => {
         });
 
         return () => unsubscribe();
-    }, [crmUserId]);
+    }, [assignedSalesmen]);
 
     return (
         <Card className="h-full">
@@ -97,7 +103,7 @@ const OrderUpdatesFeed = ({ crmUserId }: { crmUserId: string }) => {
     );
 };
 
-const TodayVisits = ({ crmUserId }: { crmUserId: string }) => {
+const TodayVisits = () => {
     const [visits, setVisits] = useState<EnrichedVisit[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -140,7 +146,7 @@ const TodayVisits = ({ crmUserId }: { crmUserId: string }) => {
         });
 
         return () => unsubscribe();
-    }, [crmUserId]);
+    }, []);
 
     return (
         <Card className="h-full">
@@ -174,12 +180,17 @@ const TodayVisits = ({ crmUserId }: { crmUserId: string }) => {
     );
 };
 
-const AllOrdersAndUpdates = ({ crmUserId }: { crmUserId: string }) => {
+const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] }) => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
 
      useEffect(() => {
-        const ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", crmUserId), orderBy("createdAt", "desc"));
+        if (assignedSalesmen.length === 0) {
+            setLoading(false);
+            setOrders([]);
+            return;
+        }
+        const ordersQuery = query(collection(db, "orders"), where("salesPerson", "in", assignedSalesmen), orderBy("createdAt", "desc"));
         const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
             const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
             setOrders(ordersData);
@@ -187,7 +198,7 @@ const AllOrdersAndUpdates = ({ crmUserId }: { crmUserId: string }) => {
         });
 
         return () => unsubscribe();
-    }, [crmUserId]);
+    }, [assignedSalesmen]);
 
     return (
         <Card className="h-full">
@@ -225,9 +236,25 @@ const AllOrdersAndUpdates = ({ crmUserId }: { crmUserId: string }) => {
 
 export default function CrmDashboard() {
     const { user } = useAuth();
+    const [assignedSalesmen, setAssignedSalesmen] = useState<string[]>([]);
+    const [loadingAssignments, setLoadingAssignments] = useState(true);
     
-    if (!user) {
-        return <p>Loading user data...</p>;
+    useEffect(() => {
+        if (!user) return;
+        setLoadingAssignments(true);
+        const assignmentsQuery = query(collection(db, "salesmanCrmAssignments"), where("crmUserId", "==", user.id));
+        
+        const unsubscribe = onSnapshot(assignmentsQuery, (snapshot) => {
+            const names = snapshot.docs.map(doc => doc.id);
+            setAssignedSalesmen(names);
+            setLoadingAssignments(false);
+        });
+        
+        return () => unsubscribe();
+    }, [user]);
+
+    if (!user || loadingAssignments) {
+        return <div className="p-4"><p>Loading assignments...</p></div>;
     }
 
     return (
@@ -235,14 +262,14 @@ export default function CrmDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
                 <div className="lg:col-span-2 flex flex-col gap-6">
                     <div className="flex-1">
-                        <AllOrdersAndUpdates crmUserId={user.id} />
+                        <AllOrdersAndUpdates assignedSalesmen={assignedSalesmen} />
                     </div>
                     <div className="flex-1">
-                        <TodayVisits crmUserId={user.id} />
+                        <TodayVisits />
                     </div>
                 </div>
                 <div className="lg:col-span-1 h-full">
-                    <OrderUpdatesFeed crmUserId={user.id} />
+                    <OrderUpdatesFeed assignedSalesmen={assignedSalesmen} />
                 </div>
             </div>
         </div>
