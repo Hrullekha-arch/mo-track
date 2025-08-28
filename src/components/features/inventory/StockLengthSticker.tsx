@@ -8,7 +8,6 @@ import Image from 'next/image';
 interface StockLengthStickerProps {
     bcn: string;
     length: number;
-    mrp: number;
     rack: string;
 }
 
@@ -16,7 +15,7 @@ interface StockLengthStickerProps {
 const STICKER_WIDTH_PX = 272;
 const STICKER_HEIGHT_PX = 188;
 
-export function StockLengthSticker({ bcn, length, mrp, rack }: StockLengthStickerProps) {
+export function StockLengthSticker({ bcn, length, rack }: StockLengthStickerProps) {
     const barcodeRef = useRef<SVGSVGElement>(null);
     // The barcode value should now be a composite of the BCN and the specific length.
     const barcodeValue = `${bcn}|${length.toFixed(2)}`;
@@ -49,17 +48,16 @@ export function StockLengthSticker({ bcn, length, mrp, rack }: StockLengthSticke
                 </div>
                 <div className="text-center">
                     <p className="text-[10px] font-bold leading-tight">MO DESIGN PVT LTD</p>
-                    <p className="text-[9px] leading-tight">Contact number</p>
+                    <p className="text-[9px] leading-tight">9971129532</p>
                 </div>
                 <div style={{ width: '40px', height: '40px', border: '1px solid #333', borderRadius: '50%' }} className="flex flex-col items-center justify-center flex-shrink-0">
                     <span className="text-[9px] leading-none">Rack</span>
-                    <span className="text-sm font-bold leading-none">{rack || 'N/A'}</span>
+                    <span className="text-sm font-bold leading-none">{rack || '___'}</span>
                 </div>
             </div>
 
             {/* Middle Section */}
             <div className='my-1 text-center space-y-1'>
-                <p className="text-xs">MRP: <span className="font-bold">{mrp?.toFixed(2) || 'N/A'}</span></p>
                 <p className="text-xs">BCN: <span className="font-bold">{bcn || 'N/A'}</span></p>
             </div>
             
