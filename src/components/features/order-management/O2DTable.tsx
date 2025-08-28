@@ -14,7 +14,8 @@ import {
   SortingState,
   ColumnFiltersState
 } from "@tanstack/react-table";
-import { ArrowUpDown, CheckCircle, Clock, MoreHorizontal, Link as LinkIcon, PhoneCall } from "lucide-react";
+import { ArrowUpDown, CheckCircle, Clock, MoreHorizontal, Link as LinkIcon, PhoneCall, Download } from "lucide-react";
+import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -263,6 +264,49 @@ export function O2DTable() {
         setFollowUpOrder(null);
     }
   };
+  
+    const handleExport = () => {
+        toast({
+            title: "Export Started",
+            description: "Generating O2D status report..."
+        });
+
+        const dataToExport = table.getFilteredRowModel().rows.map(row => {
+            const item = row.original;
+            const flatData: Record<string, any> = {
+                "Deal ID": item.dealId,
+                "Order ID": item.orderId || "N/A",
+                "Customer Name": item.customerName,
+                "Sales Person": item.salesPerson,
+                "Deal Created At": format(new Date(item.dealCreatedAt), 'dd/MM/yyyy'),
+                "Current Status": item.status.text,
+                "Next Step": item.nextStatus?.text || "Completed",
+                "Next Step Due": item.nextStatus ? format(item.nextStatus.expectedDate, 'dd/MM/yyyy') : "N/A",
+            };
+
+            // Add each milestone status
+            O2D_PROCESS_CONFIG.forEach(step => {
+                const historyItem = item.history.find(h => h.stepName === step.step);
+                flatData[`${step.id}. ${step.step} (Status)`] = historyItem ? historyItem.status : 'Pending';
+                flatData[`${step.id}. ${step.step} (Date)`] = historyItem ? format(new Date(historyItem.timestamp), 'dd/MM/yyyy HH:mm') : '';
+                flatData[`${step.id}. ${step.step} (By)`] = historyItem ? historyItem.user : '';
+            });
+
+            return flatData;
+        });
+
+        if (dataToExport.length === 0) {
+            toast({ variant: "destructive", title: "No data to export" });
+            return;
+        }
+
+        const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "O2D Status");
+        XLSX.writeFile(workbook, `motrack_o2d_status_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+        toast({ title: "Export Complete!", description: "Your O2D status report has been downloaded." });
+    };
 
 
   const columns: ColumnDef<O2DViewItem>[] = [
@@ -362,7 +406,7 @@ export function O2DTable() {
         <CardDescription>A detailed view of all deals from creation to final acknowledgement.</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center py-4">
+        <div className="flex items-center justify-between py-4">
           <Input
             placeholder="Filter by customer, Deal ID or Order ID..."
             value={globalFilter ?? ''}
@@ -371,6 +415,10 @@ export function O2DTable() {
             }
             className="max-w-sm"
           />
+          <Button onClick={handleExport}>
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </Button>
         </div>
         <div className="rounded-md border">
           <Table>
