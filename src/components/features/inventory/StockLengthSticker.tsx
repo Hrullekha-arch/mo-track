@@ -52,7 +52,7 @@ export function StockLengthSticker({ bcn, length, rack }: StockLengthStickerProp
                 </div>
                 <div style={{ width: '40px', height: '40px', border: '1px solid #333', borderRadius: '50%' }} className="flex flex-col items-center justify-center flex-shrink-0">
                     <span className="text-[9px] leading-none">Rack</span>
-                    <span className="text-sm font-bold leading-none">{rack || '___'}</span>
+                    <span className="text-sm font-bold leading-none">{!rack || rack === 'N/A' ? '___' : rack}</span>
                 </div>
             </div>
 
