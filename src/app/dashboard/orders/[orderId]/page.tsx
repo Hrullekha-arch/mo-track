@@ -21,7 +21,7 @@ import { allocateStockToAction, getAvailableStockLengths, getOrderAllocations } 
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { useForm, useFieldArray, FormProvider } from 'react-hook-form';
+import { useForm, useFieldArray, FormProvider } from "react-hook-form";
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -95,7 +95,6 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
         const existingIndex = fields.findIndex(f => f.lengthId === lengthId);
         if (checked) {
             if (existingIndex === -1) {
-                // Initialize with 0, forcing user to input a value or use the input field default
                 append({ lengthId, quantity: 0 }); 
             }
         } else {
