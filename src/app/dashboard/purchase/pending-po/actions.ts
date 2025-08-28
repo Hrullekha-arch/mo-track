@@ -143,7 +143,7 @@ export async function createPurchaseRequestAction(
             stepId: 1, // Step ID for "PO Confirmation" from PO_PROCESS_CONFIG
             status: 'completed',
             completedAt: new Date().toISOString(),
-            completedBy: 'System (Auto)',
+            completedBy: creator.name,
             remarks: `Automatically confirmed upon PO generation for item ${item.collectionBrand}.`
         };
 
