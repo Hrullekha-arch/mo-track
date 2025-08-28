@@ -101,7 +101,17 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
     
     const allItems = batches.flatMap(b => b.items);
 
-    const totals = allItems.reduce((acc, item) => {
+    const consolidatedItems = allItems.reduce((acc, item) => {
+        if (!acc[item.bcn]) {
+            acc[item.bcn] = { ...item, quantityAllocated: 0 };
+        }
+        acc[item.bcn].quantityAllocated += item.quantityAllocated;
+        return acc;
+    }, {} as Record<string, typeof allItems[0]>);
+
+    const consolidatedItemList = Object.values(consolidatedItems);
+
+    const totals = consolidatedItemList.reduce((acc, item) => {
         const qty = item.quantityAllocated;
         const rate = item.rate;
         const amount = qty * rate;
@@ -181,7 +191,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                         </tr>
                     </thead>
                     <tbody>
-                       {allItems.map((item, index) => {
+                       {consolidatedItemList.map((item, index) => {
                            const qty = item.quantityAllocated;
                            const rate = item.rate;
                            const amount = qty * rate;
