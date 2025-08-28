@@ -4,7 +4,7 @@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Milestone, UserRole } from "@/lib/types";
-import { Check, CheckCircle, CheckCircle2, Circle, Factory, Milestone as MilestoneIcon, Package, PackageCheck, Rocket, Scissors, Wrench, MapPin } from "lucide-react";
+import { Check, CheckCircle, Circle, Factory, Milestone as MilestoneIcon, Package, PackageCheck, Rocket, Scissors, Wrench, MapPin, Truck, CalendarCheck, Send, ListOrdered } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
@@ -18,14 +18,14 @@ interface MilestoneProgressProps {
 }
 
 const milestoneIcons: { [key: number]: React.ElementType } = {
-  1: { name: 'Order Received' },
-  2: { name: 'Fabric Allocated' },
-  3: { name: 'Sent to Stitching' },
-  4: { name: 'Stitching Done' },
-  5: { name: 'Ready for Delivery' },
-  6: { name: 'Installation Scheduled' },
-  7: { name: 'Out for Delivery/Installation' },
-  8: { name: 'Installation Done' },
+  1: ListOrdered,
+  2: Package,
+  3: Send,
+  4: Scissors,
+  5: PackageCheck,
+  6: CalendarCheck,
+  7: Truck,
+  8: Wrench,
 };
 
 export function MilestoneProgress({ milestones, onMilestoneChange }: MilestoneProgressProps) {
