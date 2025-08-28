@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import { useState, useEffect, use } from 'react';
@@ -7,36 +5,40 @@ import { doc, onSnapshot, updateDoc, arrayRemove, getDoc, arrayUnion, collection
 import { db } from "@/lib/firebase";
 import { InboundRequest, InboundItem, InboundMilestone, Order, O2DStatus, StockTransaction, PurchaseRequest, O2DProcess, PurchaseStatus } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2, ScanLine } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Skeleton } from "@/components/ui/skeleton";
+import { ArrowLeft, Barcode, CheckCircle, Circle, Ruler, Truck, Warehouse, Weight, ChevronDown, Loader2, Undo2, ScanLine, Printer } from 'lucide-react';
+import { Button } from "@/components/ui/button";
 import Link from 'next/link';
-import { Separator } from '@/components/ui/separator';
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { format } from 'date-fns';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { PO_PROCESS_CONFIG, INBOUND_PROCESS_CONFIG } from '@/lib/constants';
 import { updateStockQuantityAction, revertStockAdditionAction } from '@/app/dashboard/inventory/actions';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { StockLengthSticker } from "@/components/features/inventory/StockLengthSticker";
 
 
-const ItemProcessTimeline = ({ 
-    item, 
+const ItemProcessTimeline = ({
+    item,
     itemIndex,
     request,
     onUpdate,
     onRevert,
-    userRole
-}: { 
+    userRole,
+    onBarcodeClick
+}: {
     item: InboundItem,
     itemIndex: number,
     request: InboundRequest,
     onUpdate: (itemIndex: number, stepId: number) => void,
     onRevert: (itemIndex: number, milestone: InboundMilestone) => void,
-    userRole: string | null
+    userRole: string | null,
+    onBarcodeClick: (item: InboundItem) => void;
 }) => {
     return (
         <div className="pl-4 py-2">
@@ -45,26 +47,36 @@ const ItemProcessTimeline = ({
                     const milestone = item.inboundMilestones?.find(m => m.stepId === step.id);
                     const isCompleted = milestone?.status === 'completed';
                     const Icon = step.icon;
+
+                    const isBarcodeStep = step.id === 3; // ID of the Barcode step
+
                     return (
                         <div key={step.id} className="flex flex-col items-center gap-1">
                             <div className="relative">
-                                <button 
+                                <button
                                     className="flex flex-col items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group"
-                                    onClick={() => onUpdate(itemIndex, step.id)}
-                                    disabled={isCompleted}
+                                    onClick={() => {
+                                        if (isBarcodeStep) {
+                                            onBarcodeClick(item);
+                                        } else {
+                                            onUpdate(itemIndex, step.id);
+                                        }
+                                    }}
+                                    disabled={isCompleted && !isBarcodeStep} // Can always click barcode step to view
                                 >
                                     <div className={cn(
                                         "flex h-10 w-10 items-center justify-center rounded-full border-2 transition-colors",
-                                        isCompleted ? "bg-green-100 border-green-500" : "bg-card border-border group-hover:bg-muted"
+                                        isCompleted ? "bg-green-100 border-green-500" : "bg-card border-border group-hover:bg-muted",
+                                        isBarcodeStep && "cursor-pointer hover:bg-muted"
                                     )}>
                                         <Icon className={cn("h-5 w-5 transition-colors", isCompleted ? "text-green-600" : "text-muted-foreground")} />
                                     </div>
                                 </button>
-                                {isCompleted && userRole === 'admin' && milestone && (
+                                {isCompleted && userRole === 'admin' && (
                                      <AlertDialogTrigger asChild>
-                                        <Button 
-                                            size="icon" 
-                                            variant="ghost" 
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
                                             className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-destructive/10 text-destructive hover:bg-destructive/20"
                                             onClick={() => onRevert(itemIndex, milestone)}
                                         >
@@ -94,6 +106,8 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
     const [loading, setLoading] = useState(true);
     const [updating, setUpdating] = useState<string | null>(null);
     const [revertingMilestone, setRevertingMilestone] = useState<{itemIndex: number, milestone: InboundMilestone} | null>(null);
+    const [printingItem, setPrintingItem] = useState<InboundItem | null>(null);
+
     const { user, role } = useAuth();
     const { toast } = useToast();
 
@@ -320,6 +334,21 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
         }
     };
 
+    const handlePrint = () => {
+        const printContent = document.getElementById('sticker-print-area-inbound');
+        if (!printContent) return;
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) return;
+        printWindow.document.write('<html><head><title>Print Sticker</title></head><body>');
+        printWindow.document.write(printContent.innerHTML);
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        setTimeout(() => {
+            printWindow.focus();
+            printWindow.print();
+        }, 250);
+    };
+
 
     if (loading) {
         return (
@@ -410,13 +439,14 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                                                 </div>
                                             </div>
                                             <CollapsibleContent>
-                                                <ItemProcessTimeline 
-                                                    item={item} 
+                                                <ItemProcessTimeline
+                                                    item={item}
                                                     itemIndex={index}
                                                     request={request}
                                                     onUpdate={handleStatusUpdate}
                                                     onRevert={(itemIndex, milestone) => setRevertingMilestone({itemIndex, milestone})}
                                                     userRole={role}
+                                                    onBarcodeClick={() => setPrintingItem(item)}
                                                 />
                                             </CollapsibleContent>
                                         </Card>
@@ -442,6 +472,31 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 </AlertDialogFooter>
             </AlertDialogContent>
         )}
+        <Dialog open={!!printingItem} onOpenChange={() => setPrintingItem(null)}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Print Sticker</DialogTitle>
+                    <DialogDescription>
+                        Sticker for {printingItem?.itemName} with length {printingItem?.quantity}.
+                    </DialogDescription>
+                </DialogHeader>
+                {printingItem && (
+                    <div id="sticker-print-area-inbound" className="py-4 flex justify-center">
+                    <StockLengthSticker
+                        bcn={printingItem.itemName}
+                        length={parseFloat(printingItem.quantity)}
+                        mrp={0} // MRP is not on the inbound item, would need to fetch from stock master
+                        rack={'N/A'} // Rack is assigned later
+                    />
+                    </div>
+                )}
+                <DialogFooter>
+                    <Button variant="ghost" onClick={() => setPrintingItem(null)}>Cancel</Button>
+                    <Button onClick={handlePrint}>Print</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
         </AlertDialog>
     );
 }
+
