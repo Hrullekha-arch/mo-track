@@ -93,16 +93,21 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
 
     const handleCheckboxChange = (checked: boolean, lengthId: string, availableQty: number) => {
         const existingIndex = fields.findIndex(f => f.lengthId === lengthId);
+
         if (checked) {
             if (existingIndex === -1) {
-                append({ lengthId, quantity: 0 }); 
+                const currentTotal = form.getValues('allocations').reduce((sum, alloc) => sum + (Number(alloc.quantity) || 0), 0);
+                const remainingNeeded = requiredQty - currentTotal;
+                const quantityToAllocate = Math.max(0, Math.min(availableQty, remainingNeeded));
+                
+                append({ lengthId, quantity: quantityToAllocate });
             }
         } else {
             if (existingIndex > -1) {
                 remove(existingIndex);
             }
         }
-    }
+    };
 
     const onSubmit = async (data: AllocationFormValues) => {
         if (!user) return toast({ variant: 'destructive', title: 'Not authenticated'});
