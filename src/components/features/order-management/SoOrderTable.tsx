@@ -85,22 +85,6 @@ export function SoOrderTable({ orders, loading }: { orders: Order[], loading: bo
       accessorKey: "quantity",
       header: "Quantity (Mtr)",
     },
-    {
-      accessorKey: "rate",
-      header: "Rate",
-      cell: ({ row }) => `₹${(row.original.rate || 0).toFixed(2)}`,
-    },
-    {
-        id: 'finalAmount',
-        header: 'Final Amount',
-        cell: ({ row }) => {
-            const item = row.original;
-            const subtotal = (Number(item.quantity) || 0) * (item.rate || 0);
-            const discount = subtotal * ((item.discountPercent || 0) / 100);
-            const final = subtotal - discount;
-            return `₹${final.toFixed(2)}`;
-        }
-    }
   ];
 
   const table = useReactTable({
@@ -120,10 +104,6 @@ export function SoOrderTable({ orders, loading }: { orders: Order[], loading: bo
     toast({ title: "Export Started", description: "Generating Sales Order item report..." });
     const dataToExport = table.getFilteredRowModel().rows.map(row => {
         const item = row.original;
-        const subtotal = (Number(item.quantity) || 0) * (item.rate || 0);
-        const discount = subtotal * ((item.discountPercent || 0) / 100);
-        const finalAmount = subtotal - discount;
-
         return {
             "Order No": item.orderId,
             "Customer Name": item.customerName,
@@ -131,9 +111,6 @@ export function SoOrderTable({ orders, loading }: { orders: Order[], loading: bo
             "Order Date": format(new Date(item.orderDate), 'yyyy-MM-dd'),
             "Item BCN": item.itemName,
             "Quantity (Mtr)": item.quantity,
-            "Rate": item.rate?.toFixed(2),
-            "Discount %": item.discountPercent?.toFixed(2),
-            "Final Amount": finalAmount.toFixed(2),
         };
     });
 
