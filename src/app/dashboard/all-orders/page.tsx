@@ -10,26 +10,28 @@ import { UserManagement } from "@/components/features/user-management/UserManage
 import { O2DTable } from "@/components/features/order-management/O2DTable";
 import { PurchaseRequestTable } from "@/components/features/purchase/PurchaseRequestTable";
 import { PoGenTable } from "@/components/features/purchase/PoGenTable";
-import { InboundTable } from "@/components/features/purchase/InboundTable"; // New import
+import { InboundTable } from "@/components/features/purchase/InboundTable";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest } from "@/lib/types";
+import { PurchaseRequest, Order } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
+import { SoOrderTable } from "@/components/features/order-management/SoOrderTable";
 
 
 export default function AllOrdersPage() {
     const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+    const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
     const { toast } = useToast();
 
     useEffect(() => {
         const requestsQuery = query(collection(db, "purchaseRequests"));
+        const ordersQuery = query(collection(db, "orders"));
 
-        const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
+        const unsubscribeRequests = onSnapshot(requestsQuery, (snapshot) => {
             const requestsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
             setPurchaseRequests(requestsData);
-            setLoading(false);
         }, (error) => {
             console.error("Error fetching purchase requests:", error);
             toast({
@@ -37,10 +39,30 @@ export default function AllOrdersPage() {
                 title: "Error",
                 description: "Could not load purchase request data.",
             });
-            setLoading(false);
         });
 
-        return () => unsubscribe();
+        const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+            const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+            setOrders(ordersData);
+        }, (error) => {
+             console.error("Error fetching orders:", error);
+             toast({
+                variant: "destructive",
+                title: "Error",
+                description: "Could not load order data.",
+            });
+        });
+
+        // Combine loading state logic
+        Promise.all([
+            new Promise(resolve => onSnapshot(requestsQuery, () => resolve(true))),
+            new Promise(resolve => onSnapshot(ordersQuery, () => resolve(true)))
+        ]).then(() => setLoading(false));
+
+        return () => {
+            unsubscribeRequests();
+            unsubscribeOrders();
+        }
     }, [toast]);
     
     return (
@@ -53,6 +75,7 @@ export default function AllOrdersPage() {
                 <ScrollArea className="w-full whitespace-nowrap">
                     <TabsList className="inline-flex h-auto">
                         <TabsTrigger value="all-orders">All Orders</TabsTrigger>
+                        <TabsTrigger value="so-order">SO Order</TabsTrigger>
                         <TabsTrigger value="o2d">O2D</TabsTrigger>
                         <TabsTrigger value="purchase">Purchase</TabsTrigger>
                         <TabsTrigger value="po-gen">Po Gen</TabsTrigger>
@@ -64,6 +87,11 @@ export default function AllOrdersPage() {
                 <TabsContent value="all-orders" className="mt-4">
                      <Suspense fallback={<AllOrdersSkeleton />}>
                         <AllOrdersTable />
+                    </Suspense>
+                </TabsContent>
+                <TabsContent value="so-order" className="mt-4">
+                     <Suspense fallback={<AllOrdersSkeleton />}>
+                        <SoOrderTable orders={orders} loading={loading} />
                     </Suspense>
                 </TabsContent>
                 <TabsContent value="o2d" className="mt-4">
