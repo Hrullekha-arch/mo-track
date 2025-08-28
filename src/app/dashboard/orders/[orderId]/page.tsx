@@ -95,7 +95,8 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
         const existingIndex = fields.findIndex(f => f.lengthId === lengthId);
         if (checked) {
             if (existingIndex === -1) {
-                append({ lengthId, quantity: availableQty });
+                // Initialize with 0, forcing user to input a value or use the input field default
+                append({ lengthId, quantity: 0 }); 
             }
         } else {
             if (existingIndex > -1) {
