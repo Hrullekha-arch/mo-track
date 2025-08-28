@@ -42,7 +42,7 @@ function FollowUpDialog({
     isOpen: boolean; 
     onClose: () => void; 
     item: PoFollowUpItem | null; 
-    onConfirm: (newDate: string | null) => void;
+    onConfirm: (newDate: string | null, setIsSubmitting: React.Dispatch<React.SetStateAction<boolean>>) => void;
 }) {
     const [newDate, setNewDate] = React.useState<Date | undefined>();
     const [sameAsOld, setSameAsOld] = React.useState(false);
@@ -58,7 +58,7 @@ function FollowUpDialog({
     const handleConfirm = () => {
         setIsSubmitting(true);
         const dateToSubmit = sameAsOld ? null : (newDate ? newDate.toISOString() : null);
-        onConfirm(dateToSubmit);
+        onConfirm(dateToSubmit, setIsSubmitting);
     };
     
     if (!item) return null;
@@ -129,7 +129,7 @@ export default function FollowUpPage() {
       fetchData();
   }, [fetchData]);
 
-  const handleConfirmFollowUp = async (newDate: string | null) => {
+  const handleConfirmFollowUp = async (newDate: string | null, setIsSubmitting: React.Dispatch<React.SetStateAction<boolean>>) => {
     if (!selectedItem || !user) return;
     try {
         const result = await updateFollowUpStatus(selectedItem.requestId, selectedItem.itemName, newDate, user.name);
@@ -142,6 +142,8 @@ export default function FollowUpPage() {
         }
     } catch (error) {
         toast({ variant: "destructive", title: "Error", description: "An unexpected server error occurred." });
+    } finally {
+        setIsSubmitting(false); // This will now correctly reset the button's loading state
     }
   };
 
@@ -171,6 +173,7 @@ export default function FollowUpPage() {
     columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
   });
 
   return (
