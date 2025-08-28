@@ -191,6 +191,15 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     const stockDetailsMap = new Map<string, Stock>();
     const taxDetailsMap = new Map<string, TaxDetail>();
   
+    // CONSOLIDATE ITEMS
+    const consolidatedItems = invoice.items.reduce((acc, item) => {
+        if (!acc[item.bcn]) {
+            acc[item.bcn] = { ...item, quantityAllocated: 0 };
+        }
+        acc[item.bcn].quantityAllocated += item.quantityAllocated;
+        return acc;
+    }, {} as Record<string, typeof invoice.items[0]>);
+
     for (const bcn of uniqueBcns) {
         await createIfNeeded(await buildStockItemCreateXML(bcn, isVas));
         
@@ -213,7 +222,7 @@ export async function buildSalesVoucherXML(invoice: Invoice, isVas: boolean): Pr
     let totalCgst = 0;
     let totalSgst = 0;
 
-    for (const item of invoice.items) {
+    for (const item of Object.values(consolidatedItems)) {
         const stockDetail = stockDetailsMap.get(item.bcn);
         const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
         const gstRate = taxDetail?.gst ?? 5; 
