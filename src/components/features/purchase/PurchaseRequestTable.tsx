@@ -50,6 +50,8 @@ import Link from 'next/link';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PoTrackingTimeline } from "@/components/features/purchase/PoTrackingTimeline";
 import { PurchaseProcessTimeline } from "./PurchaseProcessTimeline";
+import { format } from "date-fns";
+import { PURCHASE_PROCESS_CONFIG } from "@/lib/constants";
 
 interface FlattenedPurchaseItem {
     id: string; // Unique ID for the row
@@ -286,7 +288,30 @@ export function PurchaseRequestTable({ tableData, view = "default", timelineType
         description: "Generating Purchase Requests Excel file..."
     });
 
-    const dataToExport = table.getFilteredRowModel().rows.map(row => row.original);
+    const dataToExport = table.getFilteredRowModel().rows.map(row => {
+        const item = row.original;
+        const flatData: Record<string, any> = {
+            "Order ID": item.dealId,
+            "Customer Name": item.customerName,
+            "Item Name": item.itemName,
+            "Quantity": item.quantity,
+            "Type": item.type,
+            "Salesman": item.salesman,
+            "Status": item.status,
+            "PO Number": item.poNumber || '',
+            "Created Date": format(new Date(item.createdAt), 'dd/MM/yyyy HH:mm'),
+        };
+
+        // Add each milestone status
+        PURCHASE_PROCESS_CONFIG.forEach(step => {
+            const historyItem = item.originalRequest.milestones?.find(h => h.stepId === step.id);
+            flatData[`${step.step} - Status`] = historyItem ? historyItem.status : 'Pending';
+            flatData[`${step.step} - Date`] = historyItem ? format(new Date(historyItem.completedAt), 'dd/MM/yyyy HH:mm') : '';
+            flatData[`${step.step} - By`] = historyItem ? historyItem.completedBy : '';
+        });
+
+        return flatData;
+    });
 
     if (dataToExport.length === 0) {
         toast({
@@ -297,21 +322,15 @@ export function PurchaseRequestTable({ tableData, view = "default", timelineType
         return;
     }
     
-    const formattedData = dataToExport.map(item => ({
-        "Order ID": item.dealId,
-        "Customer Name": item.customerName,
-        "Item Name": item.itemName,
-        "Quantity": item.quantity,
-        "Type": item.type,
-        "Salesman": item.salesman,
-        "Status": item.status,
-        "PO Number": item.poNumber || '',
-        "Created Date": new Date(item.createdAt).toLocaleString(),
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(formattedData);
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Purchase Items");
+    
+    // Set column widths
+    const maxLengths = Object.keys(dataToExport[0] || {}).map(key => ({
+        wch: Math.max(key.length, ...dataToExport.map(item => String(item[key] || '').length)) + 2
+    }));
+    worksheet["!cols"] = maxLengths;
     
     XLSX.writeFile(workbook, `motrack_purchase_items_${new Date().toISOString().split('T')[0]}.xlsx`);
 
