@@ -262,13 +262,19 @@ function GenerateInvoiceDialog({
     const mismatches: MismatchItem[] = [];
     const allItems = batches.flatMap(b => b.items);
 
-    for (const item of allItems) {
-        const crmRes = await getFirestoreStockQuantity(item.bcn);
-        const tallyRes = await getStockFromTally(item.bcn);
+    // Consolidate quantities by BCN first
+    const requiredQuantities = allItems.reduce((acc, item) => {
+        acc[item.bcn] = (acc[item.bcn] || 0) + item.quantityAllocated;
+        return acc;
+    }, {} as Record<string, number>);
+
+    for (const bcn in requiredQuantities) {
+        const crmRes = await getFirestoreStockQuantity(bcn);
+        const tallyRes = await getStockFromTally(bcn);
         
         if (!crmRes.success || !tallyRes.success) {
             setMismatchedItems([{ 
-                itemName: `Could not verify stock for ${item.bcn}.`,
+                itemName: `Could not verify stock for ${bcn}.`,
                 crmQty: 0,
                 tallyQty: 0,
                 errorType: 'mismatch',
@@ -284,7 +290,7 @@ function GenerateInvoiceDialog({
         
         if (crmQty !== tallyQty) {
           mismatches.push({ 
-              itemName: item.bcn, 
+              itemName: bcn, 
               crmQty, 
               tallyQty, 
               errorType: 'mismatch',
