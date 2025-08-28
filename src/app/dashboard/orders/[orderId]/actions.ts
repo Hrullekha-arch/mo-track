@@ -52,6 +52,8 @@ export async function allocateStockToAction(
                 .orderBy("createdAt", "desc") 
                 .limit(1);
 
+        // --- READ PHASE ---
+        // 1. Get all base documents.
         const [orderDoc, stockDoc, recentBatchesSnap] = await Promise.all([
             transaction.get(orderRef),
             transaction.get(stockRef),
@@ -60,26 +62,44 @@ export async function allocateStockToAction(
         
         if (!orderDoc.exists) throw new Error("Order not found.");
         if (!stockDoc.exists) throw new Error(`Stock item ${bcn} not found.`);
+
+        // 2. Get all length documents that will be written to.
+        const lengthRefs = allocations.map(alloc => stockRef.collection('lengths').doc(alloc.lengthId));
+        const lengthDocs = await transaction.getAll(...lengthRefs);
+        const lengthDocsMap = new Map(lengthDocs.map(doc => [doc.id, doc]));
+
+        // --- VALIDATION PHASE (NO WRITES) ---
         const orderData = orderDoc.data() as Order;
-
-        const updateTimestamp = new Date().toISOString();
         let totalAllocatedQty = 0;
-        const newInvoiceItems: InvoiceBatchItem[] = [];
-
+        
         for (const allocation of allocations) {
             const { lengthId, quantity } = allocation;
             if (quantity <= 0) continue;
 
-            totalAllocatedQty += quantity;
-            const lengthRef = stockRef.collection('lengths').doc(lengthId);
-            const lengthDoc = await transaction.get(lengthRef);
-
-            if (!lengthDoc.exists) throw new Error(`Stock length/roll ${lengthId} not found.`);
+            const lengthDoc = lengthDocsMap.get(lengthId);
+            if (!lengthDoc || !lengthDoc.exists) {
+                throw new Error(`Stock length/roll ${lengthId} not found.`);
+            }
             
             const lengthData = lengthDoc.data() as Stock;
             if (lengthData.availableQty < quantity) {
                 throw new Error(`Insufficient stock for roll ${lengthId}. Available: ${lengthData.availableQty}, Required: ${quantity}`);
             }
+            totalAllocatedQty += quantity;
+        }
+
+        // --- WRITE PHASE ---
+        const updateTimestamp = new Date().toISOString();
+        const newInvoiceItems: InvoiceBatchItem[] = [];
+
+        // 3. Update each length document and prepare invoice items
+        for (const allocation of allocations) {
+            const { lengthId, quantity } = allocation;
+            if (quantity <= 0) continue;
+
+            const lengthDoc = lengthDocsMap.get(lengthId)!;
+            const lengthRef = lengthDoc.ref;
+            const lengthData = lengthDoc.data() as Stock;
 
             transaction.update(lengthRef, {
                 reservedQty: FieldValue.increment(quantity),
@@ -94,7 +114,7 @@ export async function allocateStockToAction(
                 reservedBy: userName,
                 timestamp: updateTimestamp
             });
-            
+
             const fabricDetailItem = (orderData.fabricDetails || []).find(item => item.fabricName === bcn);
             const discountPercent = fabricDetailItem?.discountPercent || 0;
 
@@ -109,14 +129,14 @@ export async function allocateStockToAction(
             });
         }
         
-        // Update the main stock document once with the total
+        // 4. Update the main stock document once with the total
         transaction.update(stockRef, {
             reservedQty: FieldValue.increment(totalAllocatedQty),
             availableQty: FieldValue.increment(-totalAllocatedQty),
             lastUpdatedAt: updateTimestamp
         });
 
-        // Update order milestone
+        // 5. Update order milestone
         const updatedMilestones = orderData.milestones.map((m: any) => {
           if (m.id === 2) { // ID for "Fabric Allocated"
             return { ...m, completed: true, completedAt: updateTimestamp, completedBy: userName };
@@ -125,7 +145,7 @@ export async function allocateStockToAction(
         });
         transaction.update(orderRef, { milestones: updatedMilestones });
 
-        // Add to invoice batch
+        // 6. Add to invoice batch
         let targetBatchRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
         let isNewBatch = true;
         
