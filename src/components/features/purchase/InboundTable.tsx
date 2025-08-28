@@ -82,12 +82,13 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                             if (completedStepsCount === INBOUND_PROCESS_CONFIG.length) {
                                 statusText = 'Received';
                             } else if (completedStepsCount > 0) {
-                                const lastCompletedStepId = completedMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.createdAt).getTime())[0].stepId;
-                                const lastStepConfig = INBOUND_PROCESS_CONFIG.find(step => step.id === lastCompletedStepId);
+                                // Sort milestones by date to find the most recent one
+                                const lastCompletedMilestone = completedMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())[0];
+                                const lastStepConfig = INBOUND_PROCESS_CONFIG.find(step => step.id === lastCompletedMilestone.stepId);
                                 statusText = lastStepConfig?.name || "In Progress";
                             } else {
                                 // If the inbound doc exists but no milestones, it's pending the first step
-                                statusText = INBOUND_PROCESS_CONFIG[0]?.name || "Pending Receiving";
+                                statusText = INBOUND_PROCESS_CONFIG[0]?.name ? `Pending: ${INBOUND_PROCESS_CONFIG[0].name}` : "Pending Receiving";
                             }
                         }
                     } catch (e) {
