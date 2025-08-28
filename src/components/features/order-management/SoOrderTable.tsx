@@ -91,11 +91,6 @@ export function SoOrderTable({ orders, loading }: { orders: Order[], loading: bo
       cell: ({ row }) => `₹${(row.original.rate || 0).toFixed(2)}`,
     },
     {
-      accessorKey: "discountPercent",
-      header: "Discount",
-      cell: ({ row }) => `${(row.original.discountPercent || 0).toFixed(2)}%`,
-    },
-    {
         id: 'finalAmount',
         header: 'Final Amount',
         cell: ({ row }) => {
