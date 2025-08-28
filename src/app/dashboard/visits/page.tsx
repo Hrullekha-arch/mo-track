@@ -424,7 +424,7 @@ export default function AllVisitsPage() {
   };
 
   const handleShareClick = (visit: EnrichedDealVisit) => {
-    const baseURL = "https://6000-firebase-studio-1752633993844.cluster-ubrd2huk7jh6otbgyei4h62ope.cloudworkstations.dev";
+    const baseURL = "https://mo-track-yerq.vercel.app";
     const link = `${baseURL}/visit/confirm/${visit.id}?customerId=${visit.customerId}&dealId=${visit.dealDocId}`;
     setShareableLink(link);
   };
