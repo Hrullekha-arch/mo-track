@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, use, useMemo } from 'react';
@@ -32,8 +33,10 @@ import { Input } from '@/components/ui/input';
 type OrderItem = (FabricDetail | FurnitureDetail) & { type: 'Fabric' | 'Furniture' };
 
 const allocationSchema = z.object({
-    quantityToAllocate: z.number().positive("Quantity must be greater than 0."),
-    selectedLengthId: z.string().min(1, "You must select a roll to allocate from."),
+  allocations: z.array(z.object({
+    lengthId: z.string(),
+    quantity: z.number().positive("Quantity must be a positive number."),
+  })).min(1, "You must select at least one roll to allocate from.")
 });
 
 type AllocationFormValues = z.infer<typeof allocationSchema>;
@@ -48,13 +51,26 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
     const { toast } = useToast();
     const { user } = useAuth();
     
+    const requiredQty = parseFloat((item as any).quantity || '0');
+    
     const form = useForm<AllocationFormValues>({
         resolver: zodResolver(allocationSchema),
         defaultValues: {
-            quantityToAllocate: parseFloat((item as any).quantity || '0'),
-            selectedLengthId: '',
+            allocations: [],
         }
     });
+    
+    const { control, handleSubmit, watch } = form;
+    const { fields, append, remove } = useFieldArray({
+        control,
+        name: "allocations"
+    });
+    
+    const watchedAllocations = watch("allocations");
+    const totalAllocated = useMemo(() => {
+        return watchedAllocations.reduce((sum, alloc) => sum + (Number(alloc.quantity) || 0), 0);
+    }, [watchedAllocations]);
+
 
     useEffect(() => {
         if (isOpen) {
@@ -69,19 +85,40 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
                 setLoadingLengths(false);
             };
             fetchLengths();
+        } else {
+            // Reset form when dialog closes
+            form.reset({ allocations: [] });
         }
-    }, [isOpen, stock.id, toast]);
+    }, [isOpen, stock.id, toast, form]);
+
+    const handleCheckboxChange = (checked: boolean, lengthId: string, availableQty: number) => {
+        const existingIndex = fields.findIndex(f => f.lengthId === lengthId);
+        if (checked) {
+            if (existingIndex === -1) {
+                append({ lengthId, quantity: availableQty });
+            }
+        } else {
+            if (existingIndex > -1) {
+                remove(existingIndex);
+            }
+        }
+    }
 
     const onSubmit = async (data: AllocationFormValues) => {
         if (!user) return toast({ variant: 'destructive', title: 'Not authenticated'});
+
+        if (Math.abs(totalAllocated - requiredQty) > 0.01) { // Using a tolerance for float comparison
+             toast({ variant: 'destructive', title: 'Quantity Mismatch', description: `You must allocate exactly ${requiredQty}. You have allocated ${totalAllocated}.` });
+             return;
+        }
+
         setIsSubmitting(true);
         try {
             const result = await allocateStockToAction({
                 orderId,
                 bcn: stock.bcn,
-                lengthId: data.selectedLengthId,
+                allocations: data.allocations,
                 itemName: stock.itemName,
-                allocatedQty: data.quantityToAllocate,
                 rate: stock.mrp || 0,
                 userId: user.id,
                 userName: user.name,
@@ -106,84 +143,95 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
             <DialogTrigger asChild>
                 <Button variant="outline" size="sm">Allocate</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle>Allocate Stock</DialogTitle>
                     <DialogDescription>
-                        Reserve stock for <strong>{stock.bcn}</strong>. Required: {(item as any).quantity}
+                        Reserve stock for <strong>{stock.bcn}</strong>. Required: {requiredQty.toFixed(2)}
                     </DialogDescription>
                 </DialogHeader>
-                <div className="py-4">
-                     <Form {...form}>
-                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                                <FormField
-                                    control={form.control}
-                                    name="selectedLengthId"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <Label>Available Rolls/Lengths</Label>
-                                            <FormControl>
-                                                <div className="flex flex-wrap gap-2 pt-2">
-                                                    {loadingLengths ? <Loader2 className="animate-spin" /> :
-                                                        availableLengths.length > 0 ? availableLengths.map(len => (
-                                                            <Button
-                                                                key={len.transactionId}
-                                                                type="button"
-                                                                variant={field.value === len.transactionId ? "default" : "outline"}
-                                                                onClick={() => field.onChange(len.transactionId)}
-                                                            >
-                                                                {len.length.toFixed(2)}
-                                                            </Button>
-                                                        )) : <p className="text-xs text-muted-foreground">No specific rolls available.</p>
-                                                    }
-                                                </div>
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="quantityToAllocate"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <Label>Quantity to Reserve</Label>
-                                            <FormControl>
-                                                <Input 
-                                                    type="number"
-                                                    {...field}
-                                                    onChange={e => field.onChange(parseFloat(e.target.value) || 0)}
+                <FormProvider {...form}>
+                    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+                        <div className="space-y-2">
+                             <Label>Available Rolls/Lengths</Label>
+                              {loadingLengths ? <Loader2 className="animate-spin" /> :
+                                availableLengths.length > 0 ? (
+                                    <div className="max-h-48 overflow-y-auto space-y-2 p-2 border rounded-md">
+                                    {availableLengths.map((len, index) => (
+                                        <div key={len.transactionId} className="flex items-center gap-4 p-2 rounded-md bg-muted/50">
+                                            <Checkbox 
+                                                id={`check-${len.transactionId}`}
+                                                checked={fields.some(f => f.lengthId === len.transactionId)}
+                                                onCheckedChange={(checked) => handleCheckboxChange(!!checked, len.transactionId, len.length)}
+                                            />
+                                            <Label htmlFor={`check-${len.transactionId}`} className="flex-grow">
+                                                Roll with {len.length.toFixed(2)} available
+                                            </Label>
+                                            {fields.some(f => f.lengthId === len.transactionId) && (
+                                                <FormField 
+                                                    control={control}
+                                                    name={`allocations.${fields.findIndex(f => f.lengthId === len.transactionId)}.quantity`}
+                                                    render={({ field }) => (
+                                                        <Input 
+                                                            type="number" 
+                                                            className="w-24 h-8"
+                                                            step="0.01"
+                                                            max={len.length}
+                                                            {...field}
+                                                            onChange={e => field.onChange(parseFloat(e.target.value) || 0)}
+                                                        />
+                                                    )}
                                                 />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <DialogFooter className="pt-4">
-                                     <AlertDialog>
-                                        <AlertDialogTrigger asChild>
-                                            <Button type="button" disabled={isSubmitting}>
-                                                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                                Reserve Stock
-                                            </Button>
-                                        </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                            <AlertDialogHeader>
-                                                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                                <AlertDialogDescription>
-                                                    This will reserve {form.getValues('quantityToAllocate')} units from available stock. This action can be reversed if the order is cancelled before invoicing.
-                                                </AlertDialogDescription>
-                                            </AlertDialogHeader>
-                                            <AlertDialogFooter>
-                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                <AlertDialogAction onClick={form.handleSubmit(onSubmit)}>Continue</AlertDialogAction>
-                                            </AlertDialogFooter>
-                                        </AlertDialogContent>
-                                    </AlertDialog>
-                                </DialogFooter>
-                            </form>
-                        </Form>
-                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                    </div>
+                                ) : <p className="text-xs text-muted-foreground">No specific rolls available.</p>
+                            }
+                        </div>
+
+                         <div className="p-3 bg-muted rounded-md text-sm">
+                            <div className="flex justify-between">
+                                <span>Required:</span>
+                                <span className="font-bold">{requiredQty.toFixed(2)}</span>
+                            </div>
+                             <div className="flex justify-between">
+                                <span>Allocated:</span>
+                                <span className="font-bold">{totalAllocated.toFixed(2)}</span>
+                            </div>
+                            <Separator className="my-2"/>
+                            <div className="flex justify-between font-bold">
+                                <span>Remaining:</span>
+                                <span className={totalAllocated > requiredQty ? 'text-destructive' : 'text-green-600'}>
+                                    {(requiredQty - totalAllocated).toFixed(2)}
+                                </span>
+                            </div>
+                        </div>
+
+                        <DialogFooter className="pt-4">
+                             <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button type="button" disabled={isSubmitting || Math.abs(totalAllocated - requiredQty) > 0.01}>
+                                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                        Reserve Stock
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            This will reserve {totalAllocated.toFixed(2)} units from the selected rolls. This action can be reversed if the order is cancelled before invoicing.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction onClick={handleSubmit(onSubmit)}>Continue</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        </DialogFooter>
+                    </form>
+                </FormProvider>
             </DialogContent>
         </Dialog>
     )
