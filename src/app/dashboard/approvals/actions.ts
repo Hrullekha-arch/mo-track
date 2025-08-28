@@ -92,8 +92,8 @@ export async function approveOrderAndCreatePurchaseRequest(
                 const requiredQty = totalUnallocatedDemand - availableQty;
 
                 const initialMilestones: PurchaseStatus[] = [
-                    { stepId: 1, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
-                    { stepId: 2, status: 'completed', completedAt: new Date().toISOString(), completedBy: 'System (Order Approved)', remarks: 'Automatically completed on order approval.' },
+                    { stepId: 1, status: 'completed', completedAt: new Date().toISOString(), completedBy: approver.name, remarks: 'Automatically completed on order approval.' },
+                    { stepId: 2, status: 'completed', completedAt: new Date().toISOString(), completedBy: approver.name, remarks: 'Automatically completed on order approval.' },
                 ];
                 
                 const prDocId = `${orderData.crmOrderNo}-${bcn.replace(/\s+/g, '-')}`;
