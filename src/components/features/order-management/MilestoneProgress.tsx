@@ -18,14 +18,14 @@ interface MilestoneProgressProps {
 }
 
 const milestoneIcons: { [key: number]: React.ElementType } = {
-  1: MilestoneIcon,
-  2: Factory,
-  3: Scissors,
-  4: CheckCircle2,
-  5: PackageCheck,
-  6: Wrench,
-  7: Rocket,
-  8: Package,
+  1: { name: 'Order Received' },
+  2: { name: 'Fabric Allocated' },
+  3: { name: 'Sent to Stitching' },
+  4: { name: 'Stitching Done' },
+  5: { name: 'Ready for Delivery' },
+  6: { name: 'Installation Scheduled' },
+  7: { name: 'Out for Delivery/Installation' },
+  8: { name: 'Installation Done' },
 };
 
 export function MilestoneProgress({ milestones, onMilestoneChange }: MilestoneProgressProps) {
@@ -49,7 +49,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
     <TooltipProvider>
       <div className="space-y-1">
         <div className="w-full bg-muted rounded-full h-2.5 mb-4">
-            <div className="bg-accent h-2.5 rounded-full" style={{ width: `${progressPercentage}%` }}></div>
+            <div className="bg-green-500 h-2.5 rounded-full" style={{ width: `${progressPercentage}%` }}></div>
         </div>
         <ul className="space-y-4">
           {milestones.map((milestone, index) => {
@@ -76,18 +76,18 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
                   <div
                     className={cn(
                       "flex h-8 w-8 items-center justify-center rounded-full",
-                      isCompleted ? "bg-accent text-accent-foreground" : isCurrent ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                      isCompleted ? "bg-green-500 text-white" : isCurrent ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
                     )}
                   >
                      {isCompleted ? <CheckCircle className="h-5 w-5" /> : <Icon className="h-4 w-4" />}
                   </div>
                   {index < milestones.length - 1 && (
-                    <div className={cn("w-px h-6", isCompleted ? "bg-accent" : "bg-border")}></div>
+                    <div className={cn("w-px h-6", isCompleted ? "bg-green-500" : "bg-border")}></div>
                   )}
                 </div>
                 <div className="pt-1 flex-grow">
                   <div className="flex items-center justify-between">
-                    <p className={cn("font-medium", isCompleted ? "text-accent" : isCurrent ? "text-primary" : "text-muted-foreground")}>
+                    <p className={cn("font-medium", isCompleted ? "text-green-600" : isCurrent ? "text-primary" : "text-muted-foreground")}>
                       {milestone.name}
                     </p>
                     {isEditable && onMilestoneChange && (
@@ -123,7 +123,7 @@ export function MilestoneProgress({ milestones, onMilestoneChange }: MilestonePr
                      <Tooltip>
                         <TooltipTrigger asChild>
                            <div className="flex items-center gap-2">
-                             <p className="text-xs text-muted-foreground">
+                             <p className={cn("text-xs", isCompleted ? "text-green-600" : "text-muted-foreground")}>
                                 Completed on {new Date(milestone.completedAt).toLocaleString()}
                               </p>
                               {milestone.location && (
