@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -19,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PO_PROCESS_CONFIG } from "@/lib/constants";
 import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
+import { AccountsDashboard } from "@/components/features/dashboard/AccountsDashboard";
 
 interface SummaryCardProps {
     title: string;
@@ -413,6 +413,10 @@ export default function DashboardPage() {
 
     if (user?.role === 'salesman') {
         return <SalesmanDashboard />;
+    }
+
+    if (user?.role === 'Accounts') {
+        return <AccountsDashboard />;
     }
 
     return <AdminDashboard />;
