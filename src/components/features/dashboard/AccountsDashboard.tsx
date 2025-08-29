@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where, orderBy, limit, collectionGroup, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, Quotation, Invoice, User } from "@/lib/types";
+import { Order, Quotation, Invoice, User, InvoiceBatch } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -116,7 +116,7 @@ export function AccountsDashboard() {
 
                 setRecentActivity(
                     [...approvedQuotes, ...approvedOrders, ...recentInvoices]
-                    .sort((a,b) => new Date(b.activityDate).getTime() - new Date(a.activityDate).getTime())
+                    .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                     .slice(0, 10)
                 );
                 
@@ -156,6 +156,21 @@ export function AccountsDashboard() {
             }, 250);
         }
     };
+
+    const getPrintableInvoiceBatch = (invoice: Invoice): InvoiceBatch => {
+        return {
+            id: invoice.id,
+            orderId: invoice.orderId,
+            customerName: invoice.customer.name,
+            customerPhone: invoice.customer.phone,
+            createdAt: invoice.createdAt,
+            status: 'invoiced', // Assuming it's invoiced for preview
+            items: invoice.items,
+            tallyVoucherNo: invoice.tallyVoucherNo,
+            invoiceId: invoice.id,
+            isVas: invoice.isVas
+        };
+    }
 
     return (
         <>
@@ -230,7 +245,7 @@ export function AccountsDashboard() {
                     )}
                     {selectedItem?.type === 'Invoice' && (
                         <PrintableInvoice
-                            batches={[{...(selectedItem.data as Invoice)}]}
+                            batches={[getPrintableInvoiceBatch(selectedItem.data as Invoice)]}
                             orders={[selectedItem.data as Order]} // Simplified for preview
                             preGeneratedInvoiceNo={(selectedItem.data as Invoice).invoiceNo}
                         />
