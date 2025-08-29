@@ -18,10 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PO_PROCESS_CONFIG } from "@/lib/constants";
 import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
-<<<<<<< HEAD
 import { AccountsDashboard } from "@/components/features/dashboard/AccountsDashboard";
-=======
->>>>>>> c833defe75d1e8a6470d06fa7a6319596a3184f9
 
 interface SummaryCardProps {
     title: string;
@@ -418,12 +415,9 @@ export default function DashboardPage() {
         return <SalesmanDashboard />;
     }
 
-<<<<<<< HEAD
     if (user?.role === 'Accounts') {
         return <AccountsDashboard />;
     }
 
-=======
->>>>>>> c833defe75d1e8a6470d06fa7a6319596a3184f9
     return <AdminDashboard />;
 }

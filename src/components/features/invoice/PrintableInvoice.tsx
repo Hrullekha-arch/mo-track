@@ -54,7 +54,6 @@ const parseDateSafe = (dateInput: any): Date => {
     return new Date(); // Fallback
 }
 
-
 export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null }: PrintableInvoiceProps) {
     const [stockDetails, setStockDetails] = React.useState<Record<string, Stock>>({});
     const [taxDetails, setTaxDetails] = React.useState<Record<string, TaxDetail>>({});
@@ -119,9 +118,27 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
         return <div className="p-8">Select an order to generate an invoice.</div>;
     }
     
-    const allItems = batches.flatMap(b => b.items);
+    const isVasInvoice = primaryBatch.isVas === true;
 
-    const totals = allItems.reduce((acc, item) => {
+    const consolidatedItems = batches
+        .flatMap(b => b.items)
+        .reduce((acc, item) => {
+            const key = item.bcn;
+            if (!acc[key]) {
+                acc[key] = { ...item, quantityAllocated: 0 };
+            }
+            acc[key].quantityAllocated += item.quantityAllocated;
+            return acc;
+        }, {} as Record<string, typeof primaryBatch.items[0]>);
+
+    const consolidatedItemList = Object.values(consolidatedItems);
+
+    const totals = consolidatedItemList.reduce((acc, item) => {
+        const stock = stockDetails[item.bcn];
+        const tax = taxDetails[stock?.hsnCode || ''];
+        const cgstRate = (tax?.cgst || (isVasInvoice ? 9 : 2.5)) / 100;
+        const sgstRate = (tax?.sgst || (isVasInvoice ? 9 : 2.5)) / 100;
+        
         const qty = item.quantityAllocated;
         const rate = item.rate;
         const amount = qty * rate;
@@ -179,6 +196,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                 </div>
                 <div style={{ width: '38%', border: '1px solid black' }}>
                     <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Date</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{format(parseDateSafe(primaryBatch.createdAt), 'dd/MM/yyyy')}</strong></p></div>
+                    <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Date</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{format(parseDateSafe(primaryBatch.createdAt), 'dd/MM/yyyy')}</strong></p></div>
                     <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Invoice No</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{preGeneratedInvoiceNo || invoiceDetails?.invoiceNo || 'N/A'}</strong></p></div>
                     <div style={{ display: 'flex', borderBottom: '1px solid black' }}><p style={{width: '50%', margin: '2px 4px'}}>Architect</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{/* Placeholder */}</strong></p></div>
                     <div style={{ display: 'flex' }}><p style={{width: '50%', margin: '2px 4px'}}>Sales Representative</p><p style={{width: '50%', margin: '2px 4px', borderLeft: '1px solid black'}}><strong>{primaryOrder.salesPerson}</strong></p></div>
@@ -219,8 +237,8 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                            return (
                                <tr key={index}>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'center' }}>{index + 1}</td>
-                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{item.itemName}</td>
-                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{stockDetails[item.bcn]?.hsnCode || ''}</td>
+                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{item.itemName}<br/><strong>{item.bcn}</strong></td>
+                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{stock?.hsnCode || ''}</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{qty.toFixed(2)} MTRS</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(rate)}</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(amount)}</td>
