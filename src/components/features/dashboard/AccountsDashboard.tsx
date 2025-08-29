@@ -4,14 +4,17 @@
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where, orderBy, limit, collectionGroup, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, Quotation } from "@/lib/types";
+import { Order, Quotation, Invoice, User } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, CheckCircle, Clock, FileSignature, HandCoins, ListOrdered } from "lucide-react";
+import { ArrowRight, CheckCircle, Clock, FileSignature, HandCoins, ListOrdered, Printer } from "lucide-react";
 import Link from "next/link";
 import { format, formatDistanceToNow } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PrintableQuotationProfessional } from "@/components/features/order-management/PrintableQuotationProfessional";
+import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
 
 interface SummaryCardProps {
     title: string;
@@ -41,15 +44,15 @@ function SummaryCard({ title, count, href, icon: Icon, loading }: SummaryCardPro
     )
 }
 
-interface RecentApprovalItem {
+type RecentActivityItem = {
     id: string;
-    type: 'Quotation' | 'Order';
+    type: 'Quotation' | 'Order' | 'Invoice';
     identifier: string;
     customerName: string;
     amount: number;
-    approvedAt: string;
-    href: string;
-}
+    activityDate: string;
+    data: Quotation | Order | Invoice;
+};
 
 export function AccountsDashboard() {
     const [counts, setCounts] = useState({
@@ -57,67 +60,78 @@ export function AccountsDashboard() {
         pendingOrders: 0,
         pendingPayments: 0,
     });
-    const [recentApprovals, setRecentApprovals] = useState<RecentApprovalItem[]>([]);
+    const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
     const [loading, setLoading] = useState(true);
+    const [allUsers, setAllUsers] = useState<User[]>([]);
+    
+    // State for the preview dialog
+    const [selectedItem, setSelectedItem] = useState<RecentActivityItem | null>(null);
 
     useEffect(() => {
+        const usersQuery = query(collection(db, "users"));
+        const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+            setAllUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
+        });
+        
         const queries = {
             quotations: query(collectionGroup(db, 'quotations')),
-            orders: query(collection(db, 'orders'))
+            orders: query(collection(db, 'orders')),
+            invoices: query(collection(db, 'invoices'), orderBy('createdAt', 'desc'), limit(10))
         };
         
-        const unsubscribes = [
-            onSnapshot(queries.quotations, (snapshot) => {
-                const quotationsData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Quotation & {id: string}));
-                setCounts(prev => ({
-                    ...prev,
+        const processData = () => {
+            Promise.all([
+                getDocs(queries.quotations),
+                getDocs(queries.orders),
+                getDocs(queries.invoices),
+            ]).then(([quotationsSnapshot, ordersSnapshot, invoicesSnapshot]) => {
+                const quotationsData = quotationsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Quotation & {id: string}));
+                const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
+                const invoicesData = invoicesSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Invoice));
+
+                setCounts({
                     pendingQuotations: quotationsData.filter(q => q.status === 'Pending Approval').length,
-                }));
-                setRecentApprovals(prev => [
-                    ...prev.filter(p => p.type !== 'Quotation'),
-                    ...quotationsData
-                        .filter(q => q.status === 'Approved' && q.approvedAt)
-                        .map(q => ({
-                            id: q.id,
-                            type: 'Quotation',
-                            identifier: q.quotationNo,
-                            customerName: q.customerName,
-                            amount: q.totalAmount,
-                            approvedAt: q.approvedAt!,
-                            href: `/dashboard/customers/${q.customerId}/${q.dealId}`
-                        }))
-                ].sort((a,b) => new Date(b.approvedAt).getTime() - new Date(a.approvedAt).getTime()).slice(0,5));
-            }),
-            onSnapshot(queries.orders, (snapshot) => {
-                const ordersData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
-                setCounts(prev => ({
-                    ...prev,
                     pendingOrders: ordersData.filter(o => o.status === 'Pending Approval').length,
                     pendingPayments: ordersData.filter(o => o.balanceFollowUp && !o.paymentConfirmed).length,
+                });
+                
+                const approvedQuotes: RecentActivityItem[] = quotationsData
+                    .filter(q => q.status === 'Approved' && q.approvedAt)
+                    .map(q => ({
+                        id: q.id, type: 'Quotation', identifier: q.quotationNo, customerName: q.customerName,
+                        amount: q.totalAmount, activityDate: q.approvedAt!, data: q
+                    }));
+                
+                const approvedOrders: RecentActivityItem[] = ordersData
+                    .filter(o => o.status === 'Approved' && o.approvedAt)
+                    .map(o => ({
+                        id: o.id, type: 'Order', identifier: o.crmOrderNo, customerName: o.customerName,
+                        amount: o.totalAmount || 0, activityDate: o.approvedAt!, data: o
+                    }));
+
+                const recentInvoices: RecentActivityItem[] = invoicesData.map(inv => ({
+                    id: inv.id, type: 'Invoice', identifier: inv.invoiceNo, customerName: inv.customer.name,
+                    amount: inv.totals.grandTotal, activityDate: inv.createdAt, data: inv
                 }));
-                 setRecentApprovals(prev => [
-                    ...prev.filter(p => p.type !== 'Order'),
-                    ...ordersData
-                        .filter(o => o.status === 'Approved' && o.approvedAt)
-                        .map(o => ({
-                            id: o.id,
-                            type: 'Order',
-                            identifier: o.crmOrderNo,
-                            customerName: o.customerName,
-                            amount: o.totalAmount || 0,
-                            approvedAt: o.approvedAt!,
-                            href: `/dashboard/orders/${o.id}`
-                        }))
-                ].sort((a,b) => new Date(b.approvedAt).getTime() - new Date(a.approvedAt).getTime()).slice(0,5));
-            }),
-        ];
 
-        Promise.all([
-            getDocs(queries.quotations),
-            getDocs(queries.orders)
-        ]).finally(() => setLoading(false));
+                setRecentActivity(
+                    [...approvedQuotes, ...approvedOrders, ...recentInvoices]
+                    .sort((a,b) => new Date(b.activityDate).getTime() - new Date(a.activityDate).getTime())
+                    .slice(0, 10)
+                );
+                
+                setLoading(false);
+            });
+        };
 
-        return () => unsubscribes.forEach(unsub => unsub());
+        processData(); // Initial fetch
+        
+        // You can add back onSnapshot listeners here if you need real-time updates for the dashboard
+        // For simplicity, this example fetches once.
+
+        return () => {
+            unsubscribeUsers();
+        };
     }, []);
 
     const dashboardItems = [
@@ -126,7 +140,25 @@ export function AccountsDashboard() {
         { title: "Pending Payment Confirmation", count: counts.pendingPayments, href: "/dashboard/approvals?tab=payment-confirmation", icon: HandCoins },
     ];
     
+    const handlePrint = () => {
+        const printContent = document.getElementById('printable-dialog-content');
+        if (!printContent) return;
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.write('<html><head><title>Print</title></head><body>');
+            printWindow.document.write(printContent.innerHTML);
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            setTimeout(() => {
+                printWindow.focus();
+                printWindow.print();
+                printWindow.close();
+            }, 250);
+        }
+    };
+
     return (
+        <>
         <div className="container mx-auto p-4 md:p-6 lg:p-8">
              <header className="mb-8">
                 <h1 className="text-3xl font-bold tracking-tight">Accounts Dashboard</h1>
@@ -148,37 +180,72 @@ export function AccountsDashboard() {
 
             <Card className="mt-8">
                 <CardHeader>
-                    <CardTitle>Recent Approvals</CardTitle>
-                    <CardDescription>The latest quotations and orders that have been approved.</CardDescription>
+                    <CardTitle>Recent Activity</CardTitle>
+                    <CardDescription>The latest quotations, orders, and invoices that have been processed.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <div className="space-y-4">
                         {loading ? (
                             Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
-                        ) : recentApprovals.length > 0 ? (
-                            recentApprovals.map(item => (
+                        ) : recentActivity.length > 0 ? (
+                            recentActivity.map(item => (
                                 <div key={item.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
                                     <div className="flex items-center gap-4">
                                         <div className="p-2 bg-primary/10 text-primary rounded-full">
-                                            {item.type === 'Quotation' ? <FileSignature className="h-5 w-5" /> : <ListOrdered className="h-5 w-5" />}
+                                            <FileSignature className="h-5 w-5" />
                                         </div>
                                         <div>
-                                            <p className="font-semibold text-primary">{item.identifier}</p>
+                                            <Button variant="link" className="p-0 h-auto font-semibold" onClick={() => setSelectedItem(item)}>
+                                                {item.type} #{item.identifier}
+                                            </Button>
                                             <p className="text-sm text-muted-foreground">{item.customerName}</p>
                                         </div>
                                     </div>
                                     <div className="text-right">
                                         <p className="font-bold">₹{item.amount.toLocaleString('en-IN')}</p>
-                                        <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(item.approvedAt), { addSuffix: true })}</p>
+                                        <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(item.activityDate), { addSuffix: true })}</p>
                                     </div>
                                 </div>
                             ))
                         ) : (
-                            <p className="text-sm text-muted-foreground text-center py-8">No recent approvals found.</p>
+                            <p className="text-sm text-muted-foreground text-center py-8">No recent activity found.</p>
                         )}
                     </div>
                 </CardContent>
             </Card>
         </div>
+
+         <Dialog open={!!selectedItem} onOpenChange={() => setSelectedItem(null)}>
+            <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
+                <DialogHeader>
+                    <DialogTitle>Document Preview</DialogTitle>
+                </DialogHeader>
+                <div className="flex-grow overflow-y-auto" id="printable-dialog-content">
+                    {selectedItem?.type === 'Quotation' && (
+                        <PrintableQuotationProfessional
+                            values={selectedItem.data as Quotation}
+                            creatorName={allUsers.find(u => u.id === (selectedItem.data as Quotation).createdBy)?.name}
+                            salesmanName={allUsers.find(s => s.id === (selectedItem.data as Quotation).representativeId)?.name}
+                        />
+                    )}
+                    {selectedItem?.type === 'Invoice' && (
+                        <PrintableInvoice
+                            batches={[{...(selectedItem.data as Invoice)}]}
+                            orders={[selectedItem.data as Order]} // Simplified for preview
+                            preGeneratedInvoiceNo={(selectedItem.data as Invoice).invoiceNo}
+                        />
+                    )}
+                    {/* Placeholder for PrintableOrder */}
+                    {selectedItem?.type === 'Order' && (
+                         <div className="p-8">Order Preview for {(selectedItem.data as Order).id} not implemented yet.</div>
+                    )}
+                </div>
+                <DialogFooter>
+                    <Button variant="ghost" onClick={() => setSelectedItem(null)}>Close</Button>
+                    <Button onClick={handlePrint}><Printer className="mr-2 h-4 w-4"/>Print</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+        </>
     )
 }

@@ -2,10 +2,11 @@
 "use client";
 
 import * as React from "react";
-import { Invoice, InvoiceBatch, Order, Stock } from "@/lib/types";
+import { Invoice, InvoiceBatch, Order, Stock, TaxDetail } from "@/lib/types";
 import { format } from "date-fns";
 import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+import Image from 'next/image';
 
 interface PrintableInvoiceProps {
     batches: InvoiceBatch[];
@@ -56,6 +57,7 @@ const parseDateSafe = (dateInput: any): Date => {
 
 export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null }: PrintableInvoiceProps) {
     const [stockDetails, setStockDetails] = React.useState<Record<string, Stock>>({});
+    const [taxDetails, setTaxDetails] = React.useState<Record<string, TaxDetail>>({});
     const [invoiceDetails, setInvoiceDetails] = React.useState<Invoice | null>(null);
     const [logoSrc, setLogoSrc] = React.useState<string | null>(null);
 
@@ -68,28 +70,46 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
         setLogoSrc(`${window.location.origin}/logo.png`);
 
         const fetchDetails = async () => {
+            if (!primaryBatch) return;
+
             const allItems = batches.flatMap(b => b.items);
             const uniqueBcns = [...new Set(allItems.map(item => item.bcn))];
             const newStockDetails: Record<string, Stock> = {};
+            const newTaxDetails: Record<string, TaxDetail> = {};
+            const hsnCodes = new Set<string>();
+
             for (const bcn of uniqueBcns) {
                 const stockId = bcn.replace(/\//g, '-');
                 const stockRef = doc(db, 'stocks', stockId);
                 const stockSnap = await getDoc(stockRef);
                 if (stockSnap.exists()) {
-                    newStockDetails[bcn] = stockSnap.data() as Stock;
+                    const stockData = stockSnap.data() as Stock;
+                    newStockDetails[bcn] = stockData;
+                    if(stockData.hsnCode) hsnCodes.add(stockData.hsnCode);
                 }
             }
             setStockDetails(newStockDetails);
+            
+            if (hsnCodes.size > 0) {
+                const taxQuery = query(collection(db, 'taxDetails'), where('hsnCode', 'in', Array.from(hsnCodes)));
+                const taxSnaps = await getDocs(taxQuery);
+                taxSnaps.forEach(taxDoc => {
+                    newTaxDetails[taxDoc.id] = taxDoc.data() as TaxDetail;
+                });
+                setTaxDetails(newTaxDetails);
+            }
 
             // Fetch the invoice document to get the invoiceNo
-            if (primaryBatch.invoiceId) {
-                const invoiceRef = doc(db, 'invoices', primaryBatch.invoiceId);
+            const invoiceIdToFetch = primaryBatch.invoiceId || (primaryBatch as unknown as Invoice).id;
+            if (invoiceIdToFetch) {
+                const invoiceRef = doc(db, 'invoices', invoiceIdToFetch);
                 const invoiceSnap = await getDoc(invoiceRef);
                 if (invoiceSnap.exists()) {
                     setInvoiceDetails(invoiceSnap.data() as Invoice);
                 }
             }
         };
+        
         if(batches.length > 0) {
             fetchDetails();
         }
@@ -99,26 +119,35 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
         return <div className="p-8">Select an order to generate an invoice.</div>;
     }
     
-    const allItems = batches.flatMap(b => b.items);
+    const isVasInvoice = primaryBatch.isVas === true;
 
-    const consolidatedItems = allItems.reduce((acc, item) => {
-        if (!acc[item.bcn]) {
-            acc[item.bcn] = { ...item, quantityAllocated: 0 };
-        }
-        acc[item.bcn].quantityAllocated += item.quantityAllocated;
-        return acc;
-    }, {} as Record<string, typeof allItems[0]>);
+    const consolidatedItems = batches
+        .flatMap(b => b.items)
+        .reduce((acc, item) => {
+            const key = item.bcn;
+            if (!acc[key]) {
+                acc[key] = { ...item, quantityAllocated: 0 };
+            }
+            acc[key].quantityAllocated += item.quantityAllocated;
+            return acc;
+        }, {} as Record<string, typeof primaryBatch.items[0]>);
 
     const consolidatedItemList = Object.values(consolidatedItems);
 
     const totals = consolidatedItemList.reduce((acc, item) => {
+        const stock = stockDetails[item.bcn];
+        const tax = taxDetails[stock?.hsnCode || ''];
+        const taxRate = (tax?.gst || (isVasInvoice ? 18 : 5)) / 100;
+        const cgstRate = (tax?.cgst || (isVasInvoice ? 9 : 2.5)) / 100;
+        const sgstRate = (tax?.sgst || (isVasInvoice ? 9 : 2.5)) / 100;
+        
         const qty = item.quantityAllocated;
         const rate = item.rate;
         const amount = qty * rate;
         const discountAmount = amount * ((item.discountPercent || 0) / 100);
         const taxableValue = amount - discountAmount;
-        const cgst = taxableValue * 0.025;
-        const sgst = taxableValue * 0.025;
+        const cgst = taxableValue * cgstRate;
+        const sgst = taxableValue * sgstRate;
         
         acc.totalQty += qty;
         acc.totalAmount += amount;
@@ -139,16 +168,18 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
             <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid black', paddingBottom: '0.5rem' }}>
                  <div style={{ flex: '0 0 120px' }}>
                     {logoSrc && (
-                        <img 
+                        <Image
                             src={logoSrc} 
                             alt="MoTrack Logo" 
+                            width={100}
+                            height={50}
                             style={{ width: '100px', height: 'auto' }} 
                         />
                     )}
                  </div>
                 <div style={{ flex: '1', textAlign: 'center' }}>
                     <h1 style={{ fontSize: '14px', fontWeight: 'bold', margin: 0, borderBottom: '1px solid black', paddingBottom: '4px' }}>TAX INVOICE</h1>
-                    <h2 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0.5rem 0 0.25rem' }}>MO DESIGNS PRIVATE LIMITED</h2>
+                    <h2 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0.5rem 0 0.25rem' }}>{isVasInvoice ? 'MO SPACES PVT.LTD' : 'MO DESIGNS PRIVATE LIMITED'}</h2>
                     <p style={{ margin: 0, fontSize: '10px' }}>
                         A6 SUSHANT LOK 1, M G ROAD, GURGAON<br />
                         GURGAON-122002 (HARYANA) INDIA
@@ -197,14 +228,18 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                            const amount = qty * rate;
                            const discountAmount = amount * ((item.discountPercent || 0) / 100);
                            const taxableValue = amount - discountAmount;
-                           const cgst = taxableValue * 0.025;
-                           const sgst = taxableValue * 0.025;
+                           const stock = stockDetails[item.bcn];
+                           const tax = taxDetails[stock?.hsnCode || ''];
+                           const cgstRate = (tax?.cgst || (isVasInvoice ? 9 : 2.5)) / 100;
+                           const sgstRate = (tax?.sgst || (isVasInvoice ? 9 : 2.5)) / 100;
+                           const cgst = taxableValue * cgstRate;
+                           const sgst = taxableValue * sgstRate;
 
                            return (
                                <tr key={index}>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'center' }}>{index + 1}</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd' }}>{item.itemName}<br/><strong>{item.bcn}</strong></td>
-                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{stockDetails[item.bcn]?.hsnCode || ''}</td>
+                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{stock?.hsnCode || ''}</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{qty.toFixed(2)} MTRS</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(rate)}</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(amount)}</td>
@@ -267,7 +302,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                      <p style={{ margin: '2px 0' }}>Reg. Office : Reg. off : A-6, Sushant Lok-I, M G Road, Gurgaon-122002,Branch: 850, Sushant Lok-II, Sec-56, Gurgaon, HARYANA, Phone No : 0124-4777888</p>
                 </div>
                  <div style={{ textAlign: 'right' }}>
-                    <p style={{ margin: '2px 0', fontWeight: 'bold' }}>For MO DESIGNS PRIVATE LIMITED</p>
+                    <p style={{ margin: '2px 0', fontWeight: 'bold' }}>For {isVasInvoice ? 'MO SPACES PVT.LTD' : 'MO DESIGNS PRIVATE LIMITED'}</p>
                     <p style={{ marginTop: '2rem' }}>Authorised Signatory</p>
                 </div>
             </div>
