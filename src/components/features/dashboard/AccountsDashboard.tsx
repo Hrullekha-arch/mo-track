@@ -8,7 +8,7 @@ import { Order, Quotation, Invoice, User, InvoiceBatch } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, CheckCircle, Clock, FileSignature, HandCoins, ListOrdered, Printer } from "lucide-react";
+import { ArrowRight, CheckCircle, Clock, FileSignature, HandCoins, ListOrdered, Printer, FileText } from "lucide-react";
 import Link from "next/link";
 import { format, formatDistanceToNow } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +60,7 @@ export function AccountsDashboard() {
         pendingQuotations: 0,
         pendingOrders: 0,
         pendingPayments: 0,
+        pendingInvoice: 0,
     });
     const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -77,7 +78,8 @@ export function AccountsDashboard() {
         const queries = {
             quotations: query(collectionGroup(db, 'quotations')),
             orders: query(collection(db, 'orders')),
-            invoices: query(collection(db, 'invoices'), orderBy('createdAt', 'desc'), limit(10))
+            invoices: query(collection(db, 'invoices'), orderBy('createdAt', 'desc'), limit(10)),
+            invoiceBatches: query(collection(db, 'invoiceBatches'), where('status', '==', 'pendingInvoice')),
         };
         
         const processData = () => {
@@ -85,7 +87,8 @@ export function AccountsDashboard() {
                 getDocs(queries.quotations),
                 getDocs(queries.orders),
                 getDocs(queries.invoices),
-            ]).then(([quotationsSnapshot, ordersSnapshot, invoicesSnapshot]) => {
+                getDocs(queries.invoiceBatches),
+            ]).then(([quotationsSnapshot, ordersSnapshot, invoicesSnapshot, invoiceBatchesSnapshot]) => {
                 const quotationsData = quotationsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Quotation & {id: string}));
                 const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
                 const invoicesData = invoicesSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Invoice));
@@ -94,6 +97,7 @@ export function AccountsDashboard() {
                     pendingQuotations: quotationsData.filter(q => q.status === 'Pending Approval').length,
                     pendingOrders: ordersData.filter(o => o.status === 'Pending Approval').length,
                     pendingPayments: ordersData.filter(o => o.balanceFollowUp && !o.paymentConfirmed).length,
+                    pendingInvoice: invoiceBatchesSnapshot.size,
                 });
                 
                 const approvedQuotes: RecentActivityItem[] = quotationsData
@@ -117,7 +121,7 @@ export function AccountsDashboard() {
 
                 setRecentActivity(
                     [...approvedQuotes, ...approvedOrders, ...recentInvoices]
-                    .sort((a,b) => new Date(b.activityDate).getTime() - new Date(a.activityDate).getTime())
+                    .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                     .slice(0, 10)
                 );
                 
@@ -139,6 +143,7 @@ export function AccountsDashboard() {
         { title: "Pending Quotation Approvals", count: counts.pendingQuotations, href: "/dashboard/approvals", icon: FileSignature },
         { title: "Pending Order Approvals", count: counts.pendingOrders, href: "/dashboard/approvals?tab=orders", icon: ListOrdered },
         { title: "Pending Payment Confirmation", count: counts.pendingPayments, href: "/dashboard/approvals?tab=payment-confirmation", icon: HandCoins },
+        { title: "Pending Invoice Generation", count: counts.pendingInvoice, href: "/dashboard/invoice", icon: FileText },
     ];
     
     const handlePrint = () => {
@@ -189,7 +194,7 @@ export function AccountsDashboard() {
                 <p className="text-muted-foreground">Key metrics and recent activities for the accounts department.</p>
             </header>
 
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
                 {dashboardItems.map(item => (
                     <SummaryCard 
                         key={item.title}
