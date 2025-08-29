@@ -119,28 +119,9 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
         return <div className="p-8">Select an order to generate an invoice.</div>;
     }
     
-    const isVasInvoice = primaryBatch.isVas === true;
+    const allItems = batches.flatMap(b => b.items);
 
-    const consolidatedItems = batches
-        .flatMap(b => b.items)
-        .reduce((acc, item) => {
-            const key = item.bcn;
-            if (!acc[key]) {
-                acc[key] = { ...item, quantityAllocated: 0 };
-            }
-            acc[key].quantityAllocated += item.quantityAllocated;
-            return acc;
-        }, {} as Record<string, typeof primaryBatch.items[0]>);
-
-    const consolidatedItemList = Object.values(consolidatedItems);
-
-    const totals = consolidatedItemList.reduce((acc, item) => {
-        const stock = stockDetails[item.bcn];
-        const tax = taxDetails[stock?.hsnCode || ''];
-        const taxRate = (tax?.gst || (isVasInvoice ? 18 : 5)) / 100;
-        const cgstRate = (tax?.cgst || (isVasInvoice ? 9 : 2.5)) / 100;
-        const sgstRate = (tax?.sgst || (isVasInvoice ? 9 : 2.5)) / 100;
-        
+    const totals = allItems.reduce((acc, item) => {
         const qty = item.quantityAllocated;
         const rate = item.rate;
         const amount = qty * rate;
@@ -238,8 +219,8 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                            return (
                                <tr key={index}>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'center' }}>{index + 1}</td>
-                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{item.itemName}<br/><strong>{item.bcn}</strong></td>
-                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{stock?.hsnCode || ''}</td>
+                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{item.itemName}</td>
+                                   <td style={{ padding: '4px', border: '1px solid #ddd' }}>{stockDetails[item.bcn]?.hsnCode || ''}</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{qty.toFixed(2)} MTRS</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(rate)}</td>
                                    <td style={{ padding: '4px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(amount)}</td>

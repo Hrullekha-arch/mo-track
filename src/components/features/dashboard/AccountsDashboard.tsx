@@ -2,16 +2,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, where, orderBy, limit, collectionGroup, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, query, where, orderBy, getDocs, doc, collectionGroup } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, Quotation, Invoice, User, InvoiceBatch } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, CheckCircle, Clock, FileSignature, HandCoins, ListOrdered, Printer, FileText } from "lucide-react";
+import { CheckCircle, FileSignature, HandCoins, ListOrdered, Printer, FileText } from "lucide-react";
 import Link from "next/link";
 import { format, formatDistanceToNow } from "date-fns";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableQuotationProfessional } from "@/components/features/order-management/PrintableQuotationProfessional";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
@@ -121,7 +120,7 @@ export function AccountsDashboard() {
 
                 setRecentActivity(
                     [...approvedQuotes, ...approvedOrders, ...recentInvoices]
-                    .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .sort((a,b) => new Date(b.activityDate).getTime() - new Date(a.activityDate).getTime())
                     .slice(0, 10)
                 );
                 
@@ -131,9 +130,6 @@ export function AccountsDashboard() {
 
         processData(); // Initial fetch
         
-        // You can add back onSnapshot listeners here if you need real-time updates for the dashboard
-        // For simplicity, this example fetches once.
-
         return () => {
             unsubscribeUsers();
         };
@@ -260,7 +256,7 @@ export function AccountsDashboard() {
                     {selectedItem?.type === 'Invoice' && (
                         <PrintableInvoice
                             batches={[getPrintableInvoiceBatch(selectedItem.data as Invoice)]}
-                            orders={[selectedItem.data as Order]} // Simplified for preview
+                            orders={[]}
                             preGeneratedInvoiceNo={(selectedItem.data as Invoice).invoiceNo}
                         />
                     )}
