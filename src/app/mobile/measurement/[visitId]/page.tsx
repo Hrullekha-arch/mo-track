@@ -318,23 +318,26 @@ export default function MeasurementPage() {
         if (!input) {
             throw new Error("Preview content not found for PDF generation");
         }
-    
+
         const canvas = await html2canvas(input, {
             scale: 2,
             useCORS: true,
-            height: input.scrollHeight, // Capture full height
+            width: input.scrollWidth,
+            height: input.scrollHeight,
+            windowWidth: input.scrollWidth,
             windowHeight: input.scrollHeight,
         });
+
         const imgData = canvas.toDataURL('image/png');
-    
+        
         const pdf = new jsPDF({
             orientation: 'p',
             unit: 'px',
-            format: [canvas.width, canvas.height]
+            format: [canvas.width, canvas.height],
         });
-    
+
         pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
-        const pdfBlob = await pdf.output('blob');
+        const pdfBlob = pdf.output('blob');
         const pdfFile = new File([pdfBlob], `${visitId}.pdf`, { type: 'application/pdf' });
 
         return await handleFileUpload(pdfFile);
