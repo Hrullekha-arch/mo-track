@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from 'react';
@@ -227,7 +228,9 @@ const MeasurementPreview = ({
                 </CardContent>
             </div>
              <CardFooter className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={onBack}><StepBack className="mr-2 h-4 w-4"/> Back to Edit</Button>
+                <Button variant="ghost" onClick={onBack} disabled={loading}>
+                    <StepBack className="mr-2 h-4 w-4"/> Back to Edit
+                </Button>
                 <Button onClick={onSubmit} disabled={loading}>
                     {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Confirm & Save
@@ -316,7 +319,12 @@ export default function MeasurementPage() {
             throw new Error("Preview content not found for PDF generation");
         }
     
-        const canvas = await html2canvas(input, { scale: 2 });
+        const canvas = await html2canvas(input, {
+            scale: 2,
+            useCORS: true,
+            height: input.scrollHeight, // Capture full height
+            windowHeight: input.scrollHeight,
+        });
         const imgData = canvas.toDataURL('image/png');
     
         const pdf = new jsPDF({
