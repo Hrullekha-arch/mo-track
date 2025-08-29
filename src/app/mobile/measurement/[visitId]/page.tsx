@@ -322,21 +322,22 @@ export default function MeasurementPage() {
         const canvas = await html2canvas(input, {
             scale: 2,
             useCORS: true,
-            width: input.scrollWidth,
-            height: input.scrollHeight,
-            windowWidth: input.scrollWidth,
-            windowHeight: input.scrollHeight,
         });
 
         const imgData = canvas.toDataURL('image/png');
-        
-        const pdf = new jsPDF({
-            orientation: 'p',
-            unit: 'px',
-            format: [canvas.width, canvas.height],
-        });
+        const pdf = new jsPDF("p", "mm", "a4");
 
-        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+
+        // Calculate scale ratio to fit
+        const ratio = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
+
+        const imgWidth = canvas.width * ratio;
+        const imgHeight = canvas.height * ratio;
+
+        pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+
         const pdfBlob = pdf.output('blob');
         const pdfFile = new File([pdfBlob], `${visitId}.pdf`, { type: 'application/pdf' });
 
