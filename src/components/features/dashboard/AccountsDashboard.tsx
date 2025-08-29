@@ -49,6 +49,7 @@ type RecentActivityItem = {
     type: 'Quotation' | 'Order' | 'Invoice';
     identifier: string;
     customerName: string;
+    dealId?: string;
     amount: number;
     activityDate: string;
     data: Quotation | Order | Invoice;
@@ -99,24 +100,24 @@ export function AccountsDashboard() {
                     .filter(q => q.status === 'Approved' && q.approvedAt)
                     .map(q => ({
                         id: q.id, type: 'Quotation', identifier: q.quotationNo, customerName: q.customerName,
-                        amount: q.totalAmount, activityDate: q.approvedAt!, data: q
+                        amount: q.totalAmount, activityDate: q.approvedAt!, data: q, dealId: (q as any).dealId
                     }));
                 
                 const approvedOrders: RecentActivityItem[] = ordersData
                     .filter(o => o.status === 'Approved' && o.approvedAt)
                     .map(o => ({
                         id: o.id, type: 'Order', identifier: o.crmOrderNo, customerName: o.customerName,
-                        amount: o.totalAmount || 0, activityDate: o.approvedAt!, data: o
+                        amount: o.totalAmount || 0, activityDate: o.approvedAt!, data: o, dealId: o.dealId
                     }));
 
                 const recentInvoices: RecentActivityItem[] = invoicesData.map(inv => ({
                     id: inv.id, type: 'Invoice', identifier: inv.invoiceNo, customerName: inv.customer.name,
-                    amount: inv.totals.grandTotal, activityDate: inv.createdAt, data: inv
+                    amount: inv.totals.grandTotal, activityDate: inv.createdAt, data: inv, dealId: (inv as any).dealId
                 }));
 
                 setRecentActivity(
                     [...approvedQuotes, ...approvedOrders, ...recentInvoices]
-                    .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .sort((a,b) => new Date(b.activityDate).getTime() - new Date(a.activityDate).getTime())
                     .slice(0, 10)
                 );
                 
@@ -171,6 +172,14 @@ export function AccountsDashboard() {
             isVas: invoice.isVas
         };
     }
+    
+    const renderActivityTitle = (item: RecentActivityItem) => {
+        let title = `${item.type} #${item.identifier}`;
+        if (item.type === 'Order' && item.dealId) {
+            title += ` (Deal: #${item.dealId})`;
+        }
+        return title;
+    };
 
     return (
         <>
@@ -211,7 +220,7 @@ export function AccountsDashboard() {
                                         </div>
                                         <div>
                                             <Button variant="link" className="p-0 h-auto font-semibold" onClick={() => setSelectedItem(item)}>
-                                                {item.type} #{item.identifier}
+                                                {renderActivityTitle(item)}
                                             </Button>
                                             <p className="text-sm text-muted-foreground">{item.customerName}</p>
                                         </div>
