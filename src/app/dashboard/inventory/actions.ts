@@ -375,7 +375,7 @@ export async function getAllStockTransactions(): Promise<StockTransaction[]> {
                 type: 'addition',
                 quantityChange: Number(data.quantity) || 0,
                 createdAt: data.lastUpdatedAt || new Date().toISOString(),
-                createdBy: data.createdBy || "Inbound Process",
+                createdBy: data.salesman || "Inbound Process",
                 salesman: data.salesman || 'N/A',
             } as StockTransaction;
         });
