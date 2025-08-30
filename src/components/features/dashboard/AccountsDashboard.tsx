@@ -14,6 +14,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableQuotationProfessional } from "@/components/features/order-management/PrintableQuotationProfessional";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
+import { PrintableOrder } from "../order-management/PrintableOrder";
 
 interface SummaryCardProps {
     title: string;
@@ -177,7 +178,7 @@ export function AccountsDashboard() {
     const renderActivityTitle = (item: RecentActivityItem) => {
         let title = `${item.type} #${item.identifier}`;
         if (item.type === 'Order' && item.dealId) {
-            title += ` (Deal: #${item.dealId})`;
+            title = `Order #${item.identifier} (Deal: #${item.dealId})`;
         }
         return title;
     };
@@ -246,23 +247,24 @@ export function AccountsDashboard() {
                     <DialogTitle>Document Preview</DialogTitle>
                 </DialogHeader>
                 <div className="flex-grow overflow-y-auto" id="printable-dialog-content">
-                    {selectedItem?.type === 'Quotation' && (
+                    {selectedItem?.type === 'Quotation' ? (
                         <PrintableQuotationProfessional
                             values={selectedItem.data as Quotation}
                             creatorName={allUsers.find(u => u.id === (selectedItem.data as Quotation).createdBy)?.name}
                             salesmanName={allUsers.find(s => s.id === (selectedItem.data as Quotation).representativeId)?.name}
                         />
-                    )}
-                    {selectedItem?.type === 'Invoice' && (
+                    ) : selectedItem?.type === 'Invoice' ? (
                         <PrintableInvoice
                             batches={[getPrintableInvoiceBatch(selectedItem.data as Invoice)]}
-                            orders={[]}
+                            orders={[selectedItem.data as Order]}
                             preGeneratedInvoiceNo={(selectedItem.data as Invoice).invoiceNo}
                         />
-                    )}
-                    {/* Placeholder for PrintableOrder */}
-                    {selectedItem?.type === 'Order' && (
-                         <div className="p-8">Order Preview for {(selectedItem.data as Order).id} not implemented yet.</div>
+                    ) : selectedItem?.type === 'Order' ? (
+                         <PrintableOrder order={selectedItem.data as Order} />
+                    ) : (
+                        <div className="p-8 text-center text-muted-foreground">
+                            <p>Select an item to see the preview.</p>
+                        </div>
                     )}
                 </div>
                 <DialogFooter>

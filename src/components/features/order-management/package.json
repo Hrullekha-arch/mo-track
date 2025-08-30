@@ -1,0 +1,24 @@
+
+{
+    "name": "order-management",
+    "main": "./OrdersDashboard.tsx",
+    "components": [
+        "./OrdersTable.tsx",
+        "./MilestoneProgress.tsx",
+        "./OrderCard.tsx",
+        "./NewOrderDialog.tsx",
+        "./PendingOrdersList.tsx",
+        "./AllOrdersTable.tsx",
+        "./SoOrderTable.tsx",
+        "./AssignInstallerDialog.tsx",
+        "./ScheduleDialog.tsx",
+        "./AssignCrmDialog.tsx",
+        "./ConfirmOrderTypeDialog.tsx",
+        "./CreateQuotationDialog.tsx",
+        "./QuotationPreview.tsx",
+        "./QuotationDetailDialog.tsx",
+        "./PrintableQuotation.tsx",
+        "./PrintableQuotationProfessional.tsx",
+        "./PrintableOrder.tsx"
+    ]
+}
