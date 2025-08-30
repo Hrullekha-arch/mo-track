@@ -185,7 +185,6 @@ export function StockDetails() {
                             key={tx.id}
                             bcn={selectedStock!.bcn!}
                             length={tx.quantityChange}
-                            mrp={selectedStock!.mrp!}
                             rack={selectedStock!.rack!}
                         />
                     ))
