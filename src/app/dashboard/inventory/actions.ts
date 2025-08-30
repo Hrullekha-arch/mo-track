@@ -251,7 +251,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
         });
 
         const soldTransactions: StockTransaction[] = allCuttingItemsForBcn.map(cut => ({
-            id: `${cut.orderId}-${cut.stockAddedId}`,
+            id: `${cut.orderId}-${cut.stockAddedId}-${new Date(cut.createdAt).getTime()}`, // Make key more unique
             bcn: cut.bcn,
             type: 'deduction',
             quantityChange: -cut.quantityAllocated,
@@ -271,7 +271,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
             const cutHistory: StockTransaction[] = allCuttingItemsForBcn
                 .filter(item => item.stockAddedId === lengthId)
                 .map(cut => ({
-                    id: `${cut.orderId}-${cut.stockAddedId}`,
+                    id: `${cut.orderId}-${cut.stockAddedId}-${new Date(cut.createdAt).getTime()}`,
                     type: 'deduction',
                     quantityChange: -cut.quantityAllocated,
                     createdAt: cut.createdAt,
