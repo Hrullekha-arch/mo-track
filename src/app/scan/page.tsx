@@ -5,7 +5,7 @@ import { useEffect, useState, useRef, useCallback, Suspense } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info, Package, DollarSign, History, Pencil, Warehouse, Tag, Barcode, GitCommitHorizontal, GitBranchPlus, ChevronsUpDown, Building, BadgePercent } from "lucide-react";
+import { CheckCircle, Loader2, AlertTriangle, CameraOff, ScanLine, Info, Package, DollarSign, History, Pencil, Warehouse, Tag, Barcode, GitCommitHorizontal, GitBranchPlus, ChevronsUpDown, Building, BadgePercent, Box, PackageCheck, Archive } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { completePmsProcess } from "./actions";
@@ -87,21 +87,46 @@ const StockDetailDisplay = ({ stockDetails, onUpdate }: { stockDetails: StockDet
             setIsSubmitting(false);
         }
     };
+    
+    const detailItems = [
+        { icon: Warehouse, label: "Rack", value: stock.rack || 'N/A'},
+        { icon: Tag, label: "Category", value: stock.category },
+        { icon: DollarSign, label: "MRP", value: `₹${stock.mrp || 0}` },
+        { icon: Building, label: "Vendor", value: stock.vendorName || 'N/A' },
+        { icon: BadgePercent, label: "HSN/Tax", value: `${stock.hsnCode || 'N/A'} / ${stock.tax || 0}%` },
+    ];
 
     return (
         <div className="space-y-4">
             <div>
-                <h3 className="text-lg font-bold flex items-center gap-2"><Barcode className="h-5 w-5" /> {stock.bcn}</h3>
-                <p className="text-sm text-muted-foreground">{stock.itemName}</p>
+                <h3 className="text-xl font-bold flex items-center gap-2"><Barcode className="h-6 w-6" /> {stock.bcn}</h3>
+                <p className="text-base text-muted-foreground">{stock.itemName}</p>
             </div>
-            <div className="grid grid-cols-2 gap-4 text-sm p-3 border rounded-lg bg-muted/50">
-                <p className="flex items-center gap-2"><Package className="h-4 w-4 text-muted-foreground" /><strong>Qty:</strong> {stock.quantity?.toFixed(2) || '0.00'}</p>
-                <p className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-muted-foreground" /><strong>MRP:</strong> ₹{stock.mrp || 0}</p>
-                <p className="flex items-center gap-2"><Warehouse className="h-4 w-4 text-muted-foreground" /><strong>Rack:</strong> {stock.rack || 'N/A'}</p>
-                <p className="flex items-center gap-2"><Tag className="h-4 w-4 text-muted-foreground" /><strong>Category:</strong> {stock.category}</p>
-                <p className="flex items-center gap-2"><Building className="h-4 w-4 text-muted-foreground" /><strong>Vendor:</strong> {stock.vendorName || 'N/A'}</p>
-                <p className="flex items-center gap-2"><BadgePercent className="h-4 w-4 text-muted-foreground" /><strong>HSN/Tax:</strong> {stock.hsnCode || 'N/A'} / {stock.tax || 0}%</p>
+            
+            <div className="grid grid-cols-3 gap-2 text-center p-2 border rounded-lg bg-muted/30">
+                <div>
+                    <p className="text-xs text-muted-foreground">Total</p>
+                    <p className="font-bold text-lg flex items-center justify-center gap-1"><Box className="h-4 w-4"/> {stock.quantity?.toFixed(2) || '0.00'}</p>
+                </div>
+                <div>
+                    <p className="text-xs text-muted-foreground">Available</p>
+                    <p className="font-bold text-lg text-green-600 flex items-center justify-center gap-1"><PackageCheck className="h-4 w-4"/> {stock.availableQty?.toFixed(2) || '0.00'}</p>
+                </div>
+                <div>
+                    <p className="text-xs text-muted-foreground">Reserved</p>
+                    <p className="font-bold text-lg text-orange-500 flex items-center justify-center gap-1"><Archive className="h-4 w-4"/> {stock.reservedQty?.toFixed(2) || '0.00'}</p>
+                </div>
             </div>
+
+            <div className="space-y-2 text-sm">
+                {detailItems.map(item => (
+                    <div key={item.label} className="flex items-center justify-between p-2 rounded-md bg-muted/30">
+                        <span className="flex items-center gap-2 text-muted-foreground"><item.icon className="h-4 w-4" /> {item.label}</span>
+                        <span className="font-semibold">{item.value}</span>
+                    </div>
+                ))}
+            </div>
+
 
             <div>
                 <h4 className="font-semibold mb-2 text-sm">Available Lengths/Rolls</h4>
