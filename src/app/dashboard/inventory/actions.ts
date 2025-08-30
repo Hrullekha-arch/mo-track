@@ -213,16 +213,53 @@ export async function updateStockQuantityAction(
 
 export async function revertStockAdditionAction(
   stockId: string, // This is now BCN
-  lengthId: string,
+  poNumber: string,
+  bcn: string,
   revertedBy: string
 ): Promise<{ success: boolean; message: string; }> {
   try {
-    const lengthRef = adminDb.collection('stocks').doc(stockId).collection('lengths').doc(lengthId);
-    await lengthRef.delete();
+    const stockRef = adminDb.collection('stocks').doc(stockId);
     
-    return { success: true, message: `Successfully reverted stock addition for roll ${lengthId}.` };
+    // Find the length document by PO number and BCN.
+    // This assumes one BCN per PO, which might need adjustment if a PO can have multiple rolls of the same BCN.
+    const lengthsQuery = await stockRef.collection('lengths')
+      .where('poNumber', '==', poNumber)
+      .where('bcn', '==', bcn)
+      .limit(1)
+      .get();
+      
+    if (lengthsQuery.empty) {
+      throw new Error(`No stock roll found for BCN ${bcn} and PO ${poNumber}.`);
+    }
+
+    const lengthDoc = lengthsQuery.docs[0];
+    const lengthData = lengthDoc.data() as Stock;
+    const lengthId = lengthDoc.id;
+    const quantityToRevert = lengthData.quantity;
+
+    await adminDb.runTransaction(async (transaction) => {
+        // 1. Delete the length document
+        transaction.delete(lengthDoc.ref);
+
+        // 2. Decrement the main stock document quantities
+        transaction.update(stockRef, {
+            quantity: FieldValue.increment(-quantityToRevert),
+            availableQty: FieldValue.increment(-quantityToRevert)
+        });
+        
+        // (Optional) Log the reversion
+        const revertLogRef = stockRef.collection('reversions').doc();
+        transaction.set(revertLogRef, {
+            revertedLengthId: lengthId,
+            revertedQuantity: quantityToRevert,
+            revertedBy: revertedBy,
+            timestamp: new Date().toISOString()
+        });
+    });
+    
+    return { success: true, message: `Successfully reverted stock addition for BCN ${bcn} from PO ${poNumber}.` };
   } catch (error: any) {
-    console.error(`Error reverting stock addition for ${stockId}/${lengthId}:`, error);
+    console.error(`Error reverting stock addition for ${stockId}:`, error);
     return { success: false, message: `Failed to revert stock addition: ${error.message}` };
   }
 }
@@ -233,7 +270,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
         const addedSnapshot = await stockRef.collection('lengths').get();
         
         // Fetch all cutting tasks to find relevant cuts for this BCN
-        const cuttingTasksSnapshot = await adminDb.collection('Cutting').get();
+        const cuttingTasksSnapshot = await adminDb.collection('Cutting').where("items", "array-contains", {bcn: bcn}).get();
 
         const allCuttingItemsForBcn: (CuttingTaskItem & { createdAt: string; orderId: string; salesman: string })[] = [];
         cuttingTasksSnapshot.forEach(doc => {
@@ -327,10 +364,51 @@ export async function getAvailableStockLengths(bcn: string): Promise<{ success: 
 
 
 export async function getAllStockTransactions(): Promise<StockTransaction[]> {
-  // This logic needs a major overhaul to iterate through all BCNs and then all lengths.
-  // Placeholder for now.
-  return [];
+    try {
+        // Fetch all stock additions from the 'lengths' subcollection across all 'stocks' documents
+        const addedSnapshot = await adminDb.collectionGroup('lengths').get();
+        const addedTransactions: StockTransaction[] = addedSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                ...data,
+                id: doc.id,
+                type: 'addition',
+                quantityChange: Number(data.quantity) || 0,
+                createdAt: data.lastUpdatedAt || new Date().toISOString(),
+            } as StockTransaction;
+        });
+
+        // Fetch all stock deductions from the 'Cutting' collection
+        const cuttingTasksSnapshot = await adminDb.collection('Cutting').get();
+        const soldTransactions: StockTransaction[] = [];
+        cuttingTasksSnapshot.forEach(doc => {
+            const task = doc.data() as CuttingTask;
+            task.items.forEach(item => {
+                soldTransactions.push({
+                    id: `${task.orderId}-${item.bcn}-${item.stockAddedId || ''}`,
+                    bcn: item.bcn,
+                    type: 'deduction',
+                    quantityChange: -item.quantityAllocated,
+                    orderId: task.orderId,
+                    createdAt: task.createdAt,
+                    createdBy: "Cutting Module",
+                    status: item.status,
+                    lengthId: item.stockAddedId
+                } as StockTransaction);
+            });
+        });
+
+        // Merge and sort all transactions
+        const allTransactions = [...addedTransactions, ...soldTransactions];
+        allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        return JSON.parse(JSON.stringify(allTransactions));
+    } catch (error) {
+        console.error("Error fetching all stock transactions:", error);
+        return [];
+    }
 }
+
 
 export async function deleteStockTransaction(stockId: string, transactionId: string, type: 'addition' | 'deduction'): Promise<{ success: boolean; message: string }> {
   return { success: false, message: "Direct deletion of individual transactions is currently disabled. Please revert from the source (e.g., order page)." };
