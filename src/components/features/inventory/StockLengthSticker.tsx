@@ -9,14 +9,13 @@ interface StockLengthStickerProps {
     bcn: string;
     length: number;
     rack: string;
-    mrp: number; // Keep for prop compatibility, but won't be displayed
 }
 
 // 72.1mm x 49.8mm at 96 DPI
 const STICKER_WIDTH_PX = 272;
 const STICKER_HEIGHT_PX = 188;
 
-export function StockLengthSticker({ bcn, length, rack, mrp }: StockLengthStickerProps) {
+export function StockLengthSticker({ bcn, length, rack }: StockLengthStickerProps) {
     const barcodeRef = useRef<SVGSVGElement>(null);
     const barcodeValue = `${bcn}|${length.toFixed(2)}`;
 
@@ -64,7 +63,7 @@ export function StockLengthSticker({ bcn, length, rack, mrp }: StockLengthSticke
             {/* Bottom Section */}
             <div className="flex flex-col justify-center items-center w-full">
                 <svg ref={barcodeRef} className='w-full max-w-[95%]'></svg>
-                 <div className="flex justify-between items-center w-full mt-1">
+                 <div className="flex justify-center items-center w-full mt-1">
                     <p className="text-base font-bold">Length: {length.toFixed(2)}</p>
                 </div>
             </div>
