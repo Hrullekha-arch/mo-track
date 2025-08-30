@@ -1,5 +1,3 @@
-
-
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -270,7 +268,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
         const addedSnapshot = await stockRef.collection('lengths').get();
         
         // Fetch all cutting tasks to find relevant cuts for this BCN
-        const cuttingTasksSnapshot = await adminDb.collection('Cutting').where("items", "array-contains", {bcn: bcn}).get();
+        const cuttingTasksSnapshot = await adminDb.collectionGroup('Cutting').where("items", "array-contains", {bcn: bcn}).get();
 
         const allCuttingItemsForBcn: (CuttingTaskItem & { createdAt: string; orderId: string; salesman: string })[] = [];
         cuttingTasksSnapshot.forEach(doc => {
@@ -375,6 +373,7 @@ export async function getAllStockTransactions(): Promise<StockTransaction[]> {
                 type: 'addition',
                 quantityChange: Number(data.quantity) || 0,
                 createdAt: data.lastUpdatedAt || new Date().toISOString(),
+                salesman: data.salesman || 'N/A',
             } as StockTransaction;
         });
 
@@ -393,7 +392,8 @@ export async function getAllStockTransactions(): Promise<StockTransaction[]> {
                     createdAt: task.createdAt,
                     createdBy: (item as any).cutBy || "Cutting Module", // Use the actual user if available
                     status: item.status,
-                    lengthId: item.stockAddedId
+                    lengthId: item.stockAddedId,
+                    salesman: task.salesPerson, // Add salesman from the cutting task
                 } as StockTransaction);
             });
         });
