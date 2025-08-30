@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useEffect, useState, useRef, useCallback, Suspense } from "react";
@@ -10,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { completePmsProcess } from "./actions";
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Order, Stock, StockTransaction, CuttingTask } from "@/lib/types";
+import { Order, Stock, StockTransaction, CuttingTask, CuttingTaskItem } from "@/lib/types";
 import { getStockDetails, updateStockBatchAction } from "../dashboard/inventory/actions";
 import { Separator } from "@/components/ui/separator";
 import { doc, updateDoc, getDoc, collection, query, where, getDocs, writeBatch, limit } from "firebase/firestore";
@@ -296,7 +297,7 @@ function UniversalScanner() {
                     
                     const taskData = taskDoc.data() as CuttingTask;
                     const updatedItems = taskData.items.map(item =>
-                        item.bcn === targetBcn ? { ...item, status: 'cut' } : item
+                        item.bcn === targetBcn ? { ...item, status: 'cut', cutBy: user.name } : item
                     );
                     const allCut = updatedItems.every(i => i.status === 'cut');
 

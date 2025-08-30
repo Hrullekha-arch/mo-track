@@ -294,7 +294,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
             quantityChange: -cut.quantityAllocated,
             orderId: cut.orderId,
             createdAt: cut.createdAt,
-            createdBy: 'Cutting Module',
+            createdBy: (cut as any).cutBy || "Cutting Module", // Use the name of the user who cut
             status: cut.status,
             lengthId: cut.stockAddedId,
             salesman: cut.salesman,
@@ -385,13 +385,13 @@ export async function getAllStockTransactions(): Promise<StockTransaction[]> {
             const task = doc.data() as CuttingTask;
             task.items.forEach(item => {
                 soldTransactions.push({
-                    id: `${task.orderId}-${item.bcn}-${item.stockAddedId || ''}`,
+                    id: `${task.orderId}-${item.bcn}-${item.stockAddedId || ''}-${new Date(task.createdAt).getTime()}`, // Make key more unique
                     bcn: item.bcn,
                     type: 'deduction',
                     quantityChange: -item.quantityAllocated,
                     orderId: task.orderId,
                     createdAt: task.createdAt,
-                    createdBy: "Cutting Module",
+                    createdBy: (item as any).cutBy || "Cutting Module", // Use the actual user if available
                     status: item.status,
                     lengthId: item.stockAddedId
                 } as StockTransaction);
