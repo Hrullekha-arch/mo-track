@@ -72,16 +72,45 @@ export function StockDetails() {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
-    printWindow.document.write('<html><head><title>Print Stickers</title></head><body>');
-    printWindow.document.write(`
-        <style>
-            @media print {
-                @page { size: 72.2mm 49.8mm; margin: 0; }
-                body { margin: 0; -webkit-print-color-adjust: exact; }
-                .sticker-container { page-break-after: always; }
-            }
-        </style>
-    `);
+    const styles = `
+      <style>
+        @media print {
+          @page { size: 72.1mm 48.9mm; margin: 0; }
+          body { margin: 0; font-family: Arial, sans-serif; -webkit-print-color-adjust: exact; }
+          .sticker-container {
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            page-break-after: always !important;
+            width: 72.1mm !important;
+            height: 48.9mm !important;
+            box-sizing: border-box !important;
+          }
+          /* Add other necessary styles to preserve layout */
+          .flex { display: flex !important; }
+          .items-center { align-items: center !important; }
+          .justify-between { justify-content: space-between !important; }
+          .justify-center { justify-content: center !important; }
+          .flex-col { flex-direction: column !important; }
+          .text-center { text-align: center !important; }
+          .font-bold { font-weight: bold !important; }
+          .text-xs { font-size: 10px !important; }
+          .text-sm { font-size: 12px !important; }
+          .text-base { font-size: 14px !important; }
+          .leading-tight { line-height: 1.2 !important; }
+          .leading-none { line-height: 1 !important; }
+          .my-1 { margin-top: 4px !important; margin-bottom: 4px !important; }
+          .mt-1 { margin-top: 4px !important; }
+          .space-y-1 > * + * { margin-top: 4px !important; }
+          .flex-shrink-0 { flex-shrink: 0 !important; }
+          .w-full { width: 100% !important; }
+          .max-w-\\[95\\%\\] { max-width: 95% !important; }
+        }
+      </style>
+    `;
+
+    printWindow.document.write('<html><head><title>Print Stickers</title>');
+    printWindow.document.write(styles);
     printWindow.document.write('</head><body>');
     printWindow.document.write(printContent.innerHTML);
     printWindow.document.write('</body></html>');
@@ -91,7 +120,7 @@ export function StockDetails() {
         printWindow.print();
         printWindow.close();
     }, 250);
-  };
+};
 
   return (
     <>

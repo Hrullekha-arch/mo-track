@@ -9,7 +9,7 @@ interface StockLengthStickerProps {
     bcn: string;
     length: number;
     rack: string;
-    mrp: number;
+    mrp: number; // Keep for prop compatibility, but won't be displayed
 }
 
 // 72.1mm x 49.8mm at 96 DPI
@@ -66,7 +66,6 @@ export function StockLengthSticker({ bcn, length, rack, mrp }: StockLengthSticke
                 <svg ref={barcodeRef} className='w-full max-w-[95%]'></svg>
                  <div className="flex justify-between items-center w-full mt-1">
                     <p className="text-base font-bold">Length: {length.toFixed(2)}</p>
-                    <p className="text-base font-bold">MRP: {mrp.toFixed(2)}</p>
                 </div>
             </div>
         </div>
