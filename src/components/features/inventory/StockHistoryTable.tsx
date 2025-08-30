@@ -46,7 +46,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 export function StockHistoryTable() {
   const [transactions, setTransactions] = React.useState<StockTransaction[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [sorting, setSorting] = React.useState<SortingState>([]);
+  const [sorting, setSorting] = React.useState<SortingState>([
+      { id: 'createdAt', desc: true }
+  ]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [rowSelection, setRowSelection] = React.useState({});
   const [globalFilter, setGlobalFilter] = React.useState('');
@@ -188,6 +190,10 @@ export function StockHistoryTable() {
     {
       accessorKey: "createdBy",
       header: "User",
+    },
+    {
+      accessorKey: "salesman",
+      header: "Salesman",
     },
     {
       id: "actions",

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect, use } from 'react';
@@ -263,7 +264,7 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
 
                         if (!o2dSnapshot.empty) {
                             const o2dDocRef = o2dSnapshot.docs[0].ref;
-                            const o2dData = o2dDocRef.data() as O2DProcess;
+                            const o2dData = (await getDoc(o2dDocRef)).data() as O2DProcess; // Re-fetch for latest data
                             const o2dStep = o2dData.milestones?.find(m => m.stepId === 7);
 
                             if (!o2dStep || o2dStep.status !== 'completed') {
