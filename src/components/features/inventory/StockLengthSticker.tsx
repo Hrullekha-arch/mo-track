@@ -9,15 +9,15 @@ interface StockLengthStickerProps {
     bcn: string;
     length: number;
     rack: string;
+    mrp: number;
 }
 
-// 72.1mm x 48.9mm at 96 DPI
+// 72.1mm x 49.8mm at 96 DPI
 const STICKER_WIDTH_PX = 272;
 const STICKER_HEIGHT_PX = 188;
 
-export function StockLengthSticker({ bcn, length, rack }: StockLengthStickerProps) {
+export function StockLengthSticker({ bcn, length, rack, mrp }: StockLengthStickerProps) {
     const barcodeRef = useRef<SVGSVGElement>(null);
-    // The barcode value should now be a composite of the BCN and the specific length.
     const barcodeValue = `${bcn}|${length.toFixed(2)}`;
 
     useEffect(() => {
@@ -26,7 +26,7 @@ export function StockLengthSticker({ bcn, length, rack }: StockLengthStickerProp
                 JsBarcode(barcodeRef.current, barcodeValue, {
                     format: "CODE128",
                     width: 1.5,
-                    height: 25, // Adjusted barcode height
+                    height: 25,
                     displayValue: false,
                     margin: 0,
                 });
@@ -64,7 +64,10 @@ export function StockLengthSticker({ bcn, length, rack }: StockLengthStickerProp
             {/* Bottom Section */}
             <div className="flex flex-col justify-center items-center w-full">
                 <svg ref={barcodeRef} className='w-full max-w-[95%]'></svg>
-                <p className="text-base font-bold mt-1">Length: {length.toFixed(2)}</p>
+                 <div className="flex justify-between items-center w-full mt-1">
+                    <p className="text-base font-bold">Length: {length.toFixed(2)}</p>
+                    <p className="text-base font-bold">MRP: {mrp.toFixed(2)}</p>
+                </div>
             </div>
         </div>
     );
