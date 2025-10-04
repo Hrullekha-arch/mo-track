@@ -20,6 +20,8 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet"></link>
         <meta name="theme-color" content="#2563eb" />
         <link rel="manifest" href="/manifest.json" />
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4024784077029748"
+     crossorigin="anonymous"></script>
       </head>
       <body className="font-body antialiased">
         <ThemeProvider
