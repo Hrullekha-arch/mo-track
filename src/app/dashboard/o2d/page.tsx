@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X, Eye, EyeOff, Sparkles, UserCheck, PackageSearch, FileText, BadgePercent, PhoneCall } from 'lucide-react';
 import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, getDoc, arrayRemove, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, O2DStep, O2DStatus, OrderType } from "@/lib/types";
+import { Order, O2DStep, O2DStatus, OrderType, O2DProcess } from "@/lib/types";
 import { Skeleton } from '@/components/ui/skeleton';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from '@/components/ui/button';
@@ -335,7 +335,7 @@ export default function O2DPage() {
                                 stepId: 8, // Production
                                 status: 'completed',
                                 completedAt: new Date().toISOString(),
-                                completedBy: "System (Stitching Complete)",
+                                completedBy: user?.name || "System",
                                 remarks: "Automatically completed when stitching was marked as done.",
                                 selection: "Done"
                             };
@@ -351,7 +351,7 @@ export default function O2DPage() {
             setLoading(false);
         });
         return () => unsubscribe();
-    }, []);
+    }, [user]);
 
     const pendingOrders = useMemo(() => {
         let orders = allOrders.filter(order => {
@@ -401,7 +401,7 @@ export default function O2DPage() {
         const o2dDocId = o2dDocs.docs[0].id;
         
         try {
-            const result = await setBalanceFollowUp(followUpOrder.id, o2dDocId, user.name);
+            const result = await setBalanceFollowUp(followUpOrder.orderId!, o2dDocId, user.name);
             if (result.success) {
                 toast({ title: "Follow-up Step Completed", description: result.message });
             } else {
@@ -503,7 +503,7 @@ export default function O2DPage() {
                     ...milestonesToUpdate[firstMilestoneIndex],
                     completed: true,
                     completedAt: new Date().toISOString(),
-                    completedBy: "System (O2D Complete)",
+                    completedBy: user.name,
                     location: null
                 };
             }

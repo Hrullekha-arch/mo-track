@@ -128,7 +128,7 @@ export async function approveOrderAndCreatePurchaseRequest(
                     stepId: 7, // 'Purchase Material Receiving'
                     status: 'completed',
                     completedAt: new Date().toISOString(),
-                    completedBy: "System (Stock available)",
+                    completedBy: approver.name,
                     remarks: "All required materials were already in stock.",
                     selection: "Done"
                 };

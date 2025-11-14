@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight, Truck } from "lucide-react";
 import { Order, Milestone, DealVisit, User, Customer, Deal, O2DStatus } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { collection, onSnapshot, query, where, doc, updateDoc, writeBatch, getDocs, limit, collectionGroup, getDoc, arrayUnion } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
@@ -365,17 +365,21 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
                     }
                     
                     // Also update the final O2D step
-                    const o2dDocRef = doc(db, 'o2d', dealDocId);
-                    batch.update(o2dDocRef, {
-                        milestones: arrayUnion({
+                    const o2dQuery = query(collection(db, 'o2d'), where('dealId', '==', order.dealId));
+                    const o2dSnapshot = await getDocs(o2dQuery);
+
+                    if (!o2dSnapshot.empty) {
+                         const o2dDocRef = o2dSnapshot.docs[0].ref;
+                         const o2dDoneMilestone: O2DStatus = {
                             stepId: 13, // Installation Done
-                            status: 'completed',
-                            completedAt: new Date().toISOString(),
-                            completedBy: user.name,
-                            selection: "Done",
+                            status: 'completed', 
+                            completedAt: new Date().toISOString(), 
+                            completedBy: user.name, 
+                            selection: "Done", 
                             remarks: "Completed via mobile app"
-                        })
-                    });
+                        };
+                        batch.update(o2dDocRef, { milestones: arrayUnion(o2dDoneMilestone) });
+                    }
                 }
             }
             
@@ -392,7 +396,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
     
     const handleFeedbackSubmit = async () => {
         if (otp !== order.otp) {
-            toast({ variant: "destructive", title: "Incorrect OTP", description: "Please enter the correct OTP provided to the customer." });
+            feedbackForm.setError("otp", { message: "Incorrect OTP."});
             return;
         }
 
@@ -408,7 +412,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
             setIsOtpDialogOpen(false);
         } catch (error) {
             console.error("Error submitting feedback:", error);
-            toast({ variant: "destructive", title: "Feedback submission failed" });
+            toast({ variant: "destructive", title: "Submission Failed" });
         } finally {
             setIsUpdating(false);
         }
