@@ -112,9 +112,9 @@ const productSchema = z.object({
     id: z.string().optional(),
     productCategory: z.string().optional().default(''),
     collectionBrand: z.string().min(1, "Collection/Brand is required."), // This will now hold the BCN
-    serialNo: z.string().optional().default(''),
     salesDescription: z.string().optional().default(''),
-    quantity: z.string().min(1, "Quantity is required."),
+    quantity: z.string().optional(),
+    mrp: z.string().optional(),
     remarks: z.string().optional().default(''),
     room: z.string().optional().default(''),
     noOfPcs: z.string().optional().default('1'),
@@ -1500,8 +1500,6 @@ function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { onMeasure
     );
 }
 
-const salesDescriptionOptions = [{ value: "curtain", label: "Drawing Room Curtain" }, { value: "sofa", label: "Sofa Fabric" }];
-
 const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAddOptionDialog }: { onAddProduct: (data: ProductFormValues) => void, productTypeOptions: ComboboxOption[], roomOptions: ComboboxOption[], openAddOptionDialog: (field: 'room' | 'type', onSave: (value: string) => void) => void }) => {
     const { toast } = useToast();
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
@@ -1510,8 +1508,15 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
     const addProductForm = useForm<ProductFormValues>({
         resolver: zodResolver(productSchema),
         defaultValues: {
-            productCategory: '', collectionBrand: "", serialNo: "", salesDescription: "",
-            quantity: "", remarks: "", room: "", noOfPcs: '1', info1: "", info2: "",
+            productCategory: '',
+            collectionBrand: "",
+            salesDescription: "",
+            quantity: "",
+            remarks: "",
+            room: "",
+            noOfPcs: '1',
+            info1: "",
+            info2: "",
         },
     });
 
@@ -1543,7 +1548,7 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
             }
 
             addProductForm.setValue('productCategory', productCategoryValue);
-            addProductForm.setValue('serialNo', stockItem.serialNo || '');
+            addProductForm.setValue('mrp', (stockItem.mrp || 0).toString());
         }
     };
 
@@ -1551,8 +1556,15 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
         addProductForm.handleSubmit((data) => {
             onAddProduct({...data, id: new Date().toISOString() });
             addProductForm.reset({
-                productCategory: '', collectionBrand: "", serialNo: "", salesDescription: "",
-                quantity: "", remarks: "", room: "", noOfPcs: '1', info1: "", info2: "",
+                productCategory: '',
+                collectionBrand: "",
+                salesDescription: "",
+                quantity: "",
+                remarks: "",
+                room: "",
+                noOfPcs: '1',
+                info1: "",
+                info2: "",
             });
         })();
     };
@@ -1567,11 +1579,11 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <FormField control={addProductForm.control} name="productCategory" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Product Category <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('type', (newValue) => field.onChange(newValue))}><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={productTypeOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="collectionBrand" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Collection/Brand (BCN)* <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <Combobox options={bcnOptions} value={field.value} onSelect={handleBcnSelect} onSearch={handleBcnSearch} placeholder="Search by BCN..." searchPlaceholder="Type to search BCN..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /> <FormMessage /> </FormItem> )} />
-                        <FormField control={addProductForm.control} name="serialNo" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Serial No <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} readOnly /></FormControl> <FormMessage /> </FormItem> )} />
-                        <FormField control={addProductForm.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3" /><Button type="button" variant="ghost" size="icon" className="h-5 w-5"><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={salesDescriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
+                        <FormField control={addProductForm.control} name="salesDescription" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Sales Description <Info className="h-3 w-3" /></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                         <FormField control={addProductForm.control} name="mrp" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">MRP<Info className="h-3 w-3"/></FormLabel><FormControl><Input {...field}/></FormControl> <FormMessage /> </FormItem>)} />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                        <FormField control={addProductForm.control} name="quantity" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Quantity <span className="text-destructive">*</span><Info className="h-3 w-3"/></FormLabel> <div className="flex items-center"><FormControl><Input {...field}/></FormControl><Button type="button" variant="ghost" size="icon" className="ml-1"><Calculator className="h-5 w-5"/></Button></div> <FormMessage /> </FormItem>)} />
+                        <FormField control={addProductForm.control} name="quantity" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Quantity <Info className="h-3 w-3"/></FormLabel> <div className="flex items-center"><FormControl><Input {...field}/></FormControl><Button type="button" variant="ghost" size="icon" className="ml-1"><Calculator className="h-5 w-5"/></Button></div> <FormMessage /> </FormItem>)} />
                         <FormField control={addProductForm.control} name="remarks" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Remarks <Info className="h-3 w-3" /></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
                         <FormField control={addProductForm.control} name="room" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Room <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('room', (newValue) => field.onChange(newValue))}><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="noOfPcs" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">No of Pcs <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
@@ -1745,7 +1757,6 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                 </TableHead>
                                 <TableHead>Modify</TableHead>
                                 <TableHead>Collection / Brand</TableHead>
-                                <TableHead>Serial No</TableHead>
                                 <TableHead>Quantity</TableHead>
                                 <TableHead>Room</TableHead>
                                 <TableHead>No of Pcs</TableHead>
@@ -1769,7 +1780,6 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                         <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4 text-destructive"/></Button>
                                     </TableCell>
                                     <TableCell>{form.watch(`products.${index}.collectionBrand`)}</TableCell>
-                                    <TableCell>{form.watch(`products.${index}.serialNo`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.quantity`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.room`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.noOfPcs`)}</TableCell>
@@ -1781,7 +1791,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                 </TableRow>
                             )) : (
                                 <TableRow>
-                                    <TableCell colSpan={10} className="text-center h-24">No products added yet.</TableCell>
+                                    <TableCell colSpan={9} className="text-center h-24">No products added yet.</TableCell>
                                 </TableRow>
                             )}
                         </TableBody>
@@ -3062,3 +3072,6 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
 
     
 
+
+
+    
