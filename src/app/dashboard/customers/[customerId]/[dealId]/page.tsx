@@ -118,8 +118,8 @@ const productSchema = z.object({
     remarks: z.string().optional().default(''),
     room: z.string().optional().default(''),
     noOfPcs: z.string().optional().default('1'),
-    info1: z.string().optional().default(''),
-    info2: z.string().optional().default(''),
+    verticalRepeat: z.string().optional().default(''),
+    horizontalRepeat: z.string().optional().default(''),
     stitchingType: z.enum(["in", "out"]).optional(),
     file: z.any().optional(),
     pushToMeasurement: z.boolean().default(false),
@@ -1516,8 +1516,8 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
             remarks: "",
             room: "",
             noOfPcs: '1',
-            info1: "",
-            info2: "",
+            verticalRepeat: "",
+            horizontalRepeat: "",
         },
     });
 
@@ -1565,8 +1565,8 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
                 remarks: "",
                 room: "",
                 noOfPcs: '1',
-                info1: "",
-                info2: "",
+                verticalRepeat: "",
+                horizontalRepeat: "",
             });
         })();
     };
@@ -1587,6 +1587,10 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <FormField control={addProductForm.control} name="quantity" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Quantity <Info className="h-3 w-3"/></FormLabel> <div className="flex items-center"><FormControl><Input {...field}/></FormControl><Button type="button" variant="ghost" size="icon" className="ml-1"><Calculator className="h-5 w-5"/></Button></div> <FormMessage /> </FormItem>)} />
                         <FormField control={addProductForm.control} name="remarks" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Remarks <Info className="h-3 w-3" /></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
+                        <FormField control={addProductForm.control} name="verticalRepeat" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Vertical Repeat <Info className="h-3 w-3" /></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
+                        <FormField control={addProductForm.control} name="horizontalRepeat" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">Horizontal Repeat <Info className="h-3 w-3" /></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <FormField control={addProductForm.control} name="room" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center gap-1">Room <Info className="h-3 w-3"/><Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={() => openAddOptionDialog('room', (newValue) => field.onChange(newValue))}><PlusCircle className="h-4 w-4 text-primary" /></Button></FormLabel> <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /> <FormMessage /> </FormItem> )} />
                         <FormField control={addProductForm.control} name="noOfPcs" render={({ field }) => (<FormItem> <FormLabel className="flex items-center gap-1">No of Pcs <Info className="h-3 w-3"/></FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem>)} />
                     </div>
