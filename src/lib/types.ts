@@ -125,6 +125,14 @@ export interface Order {
   milestones: Milestone[];
   o2dMilestones?: O2DStatus[]; // Legacy, will be phased out
   pmsMilestones?: PmsStatus[];
+  fabricDetails?: FabricDetail[];
+  furnitureDetails?: FurnitureDetail[];
+  vasDetails?: VasDetail[];
+  totalAmount?: number;
+  status?: 'Pending Approval' | 'Approved' | 'BalanceFollowUp';
+  isAcknowledged: boolean;
+
+  // For mobile view
   remarks?: string;
   assignedTo?: string; // Installer User ID
   handledByCrm?: string; // CRM User ID
@@ -133,7 +141,6 @@ export interface Order {
     id: string;
     name: string;
   };
-  isAcknowledged: boolean;
 
   // Installer feedback
   feedbackRating?: number;
@@ -146,16 +153,11 @@ export interface Order {
 
   otp?: string;
   completedAt?: string; // ISO Date string
-  fabricDetails?: FabricDetail[];
-  furnitureDetails?: FurnitureDetail[];
-  vasDetails?: VasDetail[];
-  status?: 'Pending Approval' | 'Approved' | 'BalanceFollowUp';
   
   // Reference back to the deal
   customerId?: string;
   dealId?: string;
   dealOrderDocId?: string;
-  totalAmount?: number;
   representativeId?: string;
 
   // Payment fields
@@ -359,6 +361,7 @@ export interface DealProduct {
     serialNo?: string;
     salesDescription?: string;
     quantity: string;
+    mrp?: string;
     remarks?: string;
     room?: string;
     noOfPcs?: string;
@@ -533,6 +536,7 @@ export interface Quotation {
     billingName?: string;
     vasDetails?: VasDetail[];
     representativeId?: string; // Salesman User ID
+    approvedAt?: string;
 }
 
 export interface DealOrder {
@@ -543,6 +547,13 @@ export interface DealOrder {
     remark?: string;
     items: QuotationItem[];
     status: 'Pending Approval' | 'Approved';
+}
+
+export interface Selection {
+    id: string; // 4-digit ID
+    products: DealProduct[];
+    createdAt: string;
+    createdBy: string;
 }
 
 export interface InvoiceBatchItem {

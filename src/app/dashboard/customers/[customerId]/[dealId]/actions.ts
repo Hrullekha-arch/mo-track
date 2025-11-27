@@ -3,7 +3,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess, Selection } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { VisitFormValues } from './page';
 import { getMilestonesForOrder } from '@/lib/constants';
@@ -620,6 +620,64 @@ export async function getCpdsForDeal(customerId: string, dealId: string): Promis
         return JSON.parse(JSON.stringify(cpds));
     } catch (error) {
         console.error("Error fetching CPDs:", error);
+        return [];
+    }
+}
+
+export async function createSelectionAction(customerId: string, dealId: string, products: DealProduct[], creatorName: string): Promise<{ success: boolean; message: string; selection?: Selection }> {
+  try {
+    const selectionsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('selections');
+
+    let selectionId: string;
+    let isUnique = false;
+    do {
+      selectionId = Math.floor(1000 + Math.random() * 9000).toString();
+      const existingDoc = await selectionsRef.doc(selectionId).get();
+      if (!existingDoc.exists) {
+        isUnique = true;
+      }
+    } while (!isUnique);
+
+    const newSelection: Selection = {
+      id: selectionId,
+      products: products,
+      createdAt: new Date().toISOString(),
+      createdBy: creatorName,
+    };
+
+    await selectionsRef.doc(selectionId).set(newSelection);
+
+    return { 
+      success: true, 
+      message: 'Selection created successfully!', 
+      selection: JSON.parse(JSON.stringify(newSelection))
+    };
+
+  } catch (error: any) {
+    console.error("Error creating selection:", error);
+    return { success: false, message: `Failed to create selection: ${error.message}` };
+  }
+}
+
+export async function getSelectionsForDeal(customerId: string, dealId: string): Promise<Selection[]> {
+    try {
+        const snapshot = await adminDb
+            .collection('customers')
+            .doc(customerId)
+            .collection('deals')
+            .doc(dealId)
+            .collection('selections')
+            .orderBy('createdAt', 'desc')
+            .get();
+
+        if (snapshot.empty) {
+            return [];
+        }
+
+        const selections = snapshot.docs.map(doc => doc.data() as Selection);
+        return JSON.parse(JSON.stringify(selections));
+    } catch (error) {
+        console.error("Error fetching selections:", error);
         return [];
     }
 }

@@ -8,7 +8,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, CpdItem, StitchDimension, TaxDetail } from "@/lib/types";
+import { Customer, Deal, User, Stock, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, CpdItem, StitchDimension, TaxDetail, Selection } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -48,7 +48,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal, addVisitAction, getVisitsForDeal, addMeasurementAction, getMeasurementsForDeal, addCpdAction, getCpdsForDeal, createDealOrderAction } from "./actions";
+import { getDealById, updateDealProducts, getQuotationsForDeal, getOrdersForDeal, addVisitAction, getVisitsForDeal, addMeasurementAction, getMeasurementsForDeal, addCpdAction, getCpdsForDeal, createDealOrderAction, createSelectionAction, getSelectionsForDeal } from "./actions";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -1512,6 +1512,7 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
             collectionBrand: "",
             salesDescription: "",
             quantity: "",
+            mrp: "",
             remarks: "",
             room: "",
             noOfPcs: '1',
@@ -1560,6 +1561,7 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
                 collectionBrand: "",
                 salesDescription: "",
                 quantity: "",
+                mrp: "",
                 remarks: "",
                 room: "",
                 noOfPcs: '1',
@@ -1600,7 +1602,9 @@ const AddProductForm = ({ onAddProduct, productTypeOptions, roomOptions, openAdd
 };
 
 function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, customer, cpds, quotations, orders }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal, customer: Customer, cpds: Cpd[], quotations: Quotation[], orders: DealOrder[] }) {
+    const { user } = useAuth();
     const [activityLoading, setActivityLoading] = useState(false);
+    const [selectionLoading, setSelectionLoading] = useState(false);
     const { toast } = useToast();
     const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -1609,6 +1613,16 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     const [productTypeOptions, setProductTypeOptions] = useState<ComboboxOption[]>(initialProductTypeOptions);
     const [isAddOptionOpen, setIsAddOptionOpen] = useState(false);
     const [addOptionConfig, setAddOptionConfig] = useState<{ field: 'room' | 'type'; onSave: (value: string) => void } | null>(null);
+    const [selections, setSelections] = useState<Selection[]>([]);
+
+    const fetchSelections = useCallback(async () => {
+        const data = await getSelectionsForDeal(customerId, dealId);
+        setSelections(data);
+    }, [customerId, dealId]);
+    
+    useEffect(() => {
+        fetchSelections();
+    }, [fetchSelections]);
 
     const openAddOptionDialog = (field: 'room' | 'type', onSaveCallback: (value: string) => void) => {
         setAddOptionConfig({ field, onSave: onSaveCallback });
@@ -1642,6 +1656,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
     const handleRefresh = async () => {
         setIsRefreshing(true);
         onRefresh();
+        fetchSelections();
         // Add a small delay for user to perceive the refresh action
         await new Promise(resolve => setTimeout(resolve, 500));
         setIsRefreshing(false);
@@ -1690,6 +1705,34 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
             
         setSelectedProductsForQuotation(productsWithRate);
         setIsQuotationDialogOpen(true);
+    };
+
+    const handleCreateSelection = async () => {
+        if (!user) return;
+        const selectedIds = Object.keys(selectedRows).filter(id => selectedRows[id]);
+        if (selectedIds.length === 0) {
+            toast({
+                variant: 'destructive',
+                title: 'No Items Selected',
+                description: 'Please select at least one item to save to a selection.'
+            });
+            return;
+        }
+        setSelectionLoading(true);
+        const selectedProducts = fields
+            .filter(field => selectedIds.includes(field.id!))
+            .map(field => field as DealProduct);
+        
+        const result = await createSelectionAction(customerId, dealId, selectedProducts, user.name);
+
+        if (result.success) {
+            toast({ title: "Selection Saved", description: `Selection #${result.selection?.id} has been created.` });
+            setSelectedRows({}); // Clear selection
+            fetchSelections(); // Refresh the list of selections
+        } else {
+            toast({ variant: 'destructive', title: 'Save Failed', description: result.message });
+        }
+        setSelectionLoading(false);
     };
     
     const allRowsSelected = fields.length > 0 && Object.keys(selectedRows).length === fields.length;
@@ -1757,6 +1800,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                 </TableHead>
                                 <TableHead>Modify</TableHead>
                                 <TableHead>Collection / Brand</TableHead>
+                                <TableHead>MRP</TableHead>
                                 <TableHead>Quantity</TableHead>
                                 <TableHead>Room</TableHead>
                                 <TableHead>No of Pcs</TableHead>
@@ -1780,6 +1824,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                         <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4 text-destructive"/></Button>
                                     </TableCell>
                                     <TableCell>{form.watch(`products.${index}.collectionBrand`)}</TableCell>
+                                    <TableCell>{form.watch(`products.${index}.mrp`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.quantity`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.room`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.noOfPcs`)}</TableCell>
@@ -1791,17 +1836,54 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                 </TableRow>
                             )) : (
                                 <TableRow>
-                                    <TableCell colSpan={9} className="text-center h-24">No products added yet.</TableCell>
+                                    <TableCell colSpan={10} className="text-center h-24">No products added yet.</TableCell>
                                 </TableRow>
                             )}
                         </TableBody>
                     </Table>
                 </div>
                  <div className="flex gap-2 mb-8">
-                    <Button type="button" >Convert To Order</Button>
+                    <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>
+                        {selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Create Selection
+                    </Button>
                     <Button type="button" onClick={handleQuotationClick}>Convert To Quotation</Button>
                 </div>
                 
+                 {selections.length > 0 && (
+                    <div className="space-y-4">
+                        <h3 className="text-xl font-semibold">Saved Selections</h3>
+                        {selections.map(selection => (
+                            <Card key={selection.id}>
+                                <CardHeader>
+                                    <CardTitle>Selection #{selection.id}</CardTitle>
+                                    <CardDescription>Created by {selection.createdBy} on {format(new Date(selection.createdAt), "PPP")}</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Collection / Brand</TableHead>
+                                                <TableHead>Quantity</TableHead>
+                                                <TableHead>Room</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {selection.products.map(p => (
+                                                <TableRow key={p.id}>
+                                                    <TableCell>{p.collectionBrand}</TableCell>
+                                                    <TableCell>{p.quantity}</TableCell>
+                                                    <TableCell>{p.room}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+                 )}
+
                  <div className="mt-12 flex flex-col items-start gap-4">
                     <form onSubmit={form.handleSubmit(handleUpdateActivity)}>
                         <p className="text-sm text-destructive mb-2">Please click on Update Activity if you have updated any changes.</p>
