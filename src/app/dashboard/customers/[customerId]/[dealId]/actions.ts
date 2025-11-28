@@ -625,41 +625,48 @@ export async function getCpdsForDeal(customerId: string, dealId: string): Promis
 }
 
 export async function createSelectionAction(customerId: string, dealId: string, products: DealProduct[], creatorName: string): Promise<{ success: boolean; message: string; selection?: Selection }> {
-  try {
-    const selectionsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('selections');
-
-    let selectionId: string;
-    let isUnique = false;
-    do {
-      selectionId = Math.floor(1000 + Math.random() * 9000).toString();
-      const existingDoc = await selectionsRef.doc(selectionId).get();
-      if (!existingDoc.exists) {
-        isUnique = true;
-      }
-    } while (!isUnique);
-    
-    const productIds = products.map(p => p.id).filter((id): id is string => !!id);
-
-    const newSelection: Selection = {
-      id: selectionId,
-      productIds: productIds,
-      createdAt: new Date().toISOString(),
-      createdBy: creatorName,
-    };
-
-    await selectionsRef.doc(selectionId).set(newSelection);
-
-    return { 
-      success: true, 
-      message: 'Selection created successfully!', 
-      selection: JSON.parse(JSON.stringify(newSelection))
-    };
-
-  } catch (error: any) {
-    console.error("Error creating selection:", error);
-    return { success: false, message: `Failed to create selection: ${error.message}` };
+    try {
+      const selectionsRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId).collection('selections');
+  
+      let selectionId: string;
+      let isUnique = false;
+      do {
+        selectionId = Math.floor(1000 + Math.random() * 9000).toString();
+        const existingDoc = await selectionsRef.doc(selectionId).get();
+        if (!existingDoc.exists) {
+          isUnique = true;
+        }
+      } while (!isUnique);
+      
+      const productIds = products.map(p => p.id).filter((id): id is string => !!id);
+      
+      const totalMrp = products.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.mrp) || 0)), 0);
+      const totalPcs = products.reduce((sum, p) => sum + (Number(p.noOfPcs) || 1), 0);
+      const totalRooms = new Set(products.map(p => p.room)).size;
+  
+      const newSelection: Selection = {
+        id: selectionId,
+        productIds: productIds,
+        createdAt: new Date().toISOString(),
+        createdBy: creatorName,
+        totalMrp: totalMrp,
+        totalPcs: totalPcs,
+        totalRooms: totalRooms,
+      };
+  
+      await selectionsRef.doc(selectionId).set(newSelection);
+  
+      return { 
+        success: true, 
+        message: 'Selection created successfully!', 
+        selection: JSON.parse(JSON.stringify(newSelection))
+      };
+  
+    } catch (error: any) {
+      console.error("Error creating selection:", error);
+      return { success: false, message: `Failed to create selection: ${error.message}` };
+    }
   }
-}
 
 export async function getProductsByIds(productIds: string[]): Promise<DealProduct[]> {
     // In a real application, you would query your database for products with these IDs.
