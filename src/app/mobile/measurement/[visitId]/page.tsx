@@ -1,11 +1,10 @@
-
 "use client";
 
 import * as React from 'react';
 import { useForm, useFieldArray, FormProvider, useFormContext, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/context/AuthContext';
 import { Customer, Deal, DealMeasurement, User, MeasurementEntry } from '@/lib/types';
@@ -25,7 +24,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const measurementEntrySchema = z.object({
-    roomName: z.string().optional(),
+    id: z.string().optional(),
     height: z.string().optional(),
     heightUnit: z.string().optional().default('inch'),
     width: z.string().optional(),
@@ -45,10 +44,16 @@ const measurementEntrySchema = z.object({
     audioUrl: z.string().optional(),
 });
 
+const roomSchema = z.object({
+    id: z.string().optional(),
+    roomName: z.string().min(1, "Room name is required."),
+    entries: z.array(measurementEntrySchema),
+});
+
 const measurementSchema = z.object({
     typeOf: z.string().min(1, "Type is required"),
     doerName: z.string().min(1, "Doer name is required"),
-    entries: z.array(measurementEntrySchema)
+    rooms: z.array(roomSchema)
 });
 
 export type MeasurementFormValues = z.infer<typeof measurementSchema>;
@@ -56,19 +61,19 @@ export type MeasurementFormValues = z.infer<typeof measurementSchema>;
 const MEASUREMENT_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
 const DOER_OPTIONS = ["TU", "OP", "NC", "VN", "MU"];
 
-const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index: number) => void }) => {
+const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: number; entryIndex: number; remove: (index: number) => void }) => {
     const { control, setValue, getValues } = useFormContext<MeasurementFormValues>();
     const typeOf = useWatch({ control, name: "typeOf" });
     const { toast } = useToast();
     
     const [imagePreviews, setImagePreviews] = React.useState<string[]>([]);
-    const pictures = useWatch({ control, name: `entries.${index}.pictures` });
+    const pictures = useWatch({ control, name: `rooms.${roomIndex}.entries.${entryIndex}.pictures` });
 
 
     const handlePictureChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const newFiles = event.target.files;
         if (newFiles) {
-            const currentFiles = (getValues(`entries.${index}.pictures`) || []) as File[];
+            const currentFiles = (getValues(`rooms.${roomIndex}.entries.${entryIndex}.pictures`) || []) as File[];
             const combinedFiles = [...currentFiles, ...Array.from(newFiles)];
             
             if (combinedFiles.length > 5) {
@@ -80,7 +85,7 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                 return;
             }
             
-            setValue(`entries.${index}.pictures`, combinedFiles, { shouldValidate: true });
+            setValue(`rooms.${roomIndex}.entries.${entryIndex}.pictures`, combinedFiles, { shouldValidate: true });
         }
     };
 
@@ -97,75 +102,113 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
       }, [pictures]);
     
     const handlePictureRemove = (imageIndex: number) => {
-        const currentFiles = (getValues(`entries.${index}.pictures`) || []) as File[];
+        const currentFiles = (getValues(`rooms.${roomIndex}.entries.${entryIndex}.pictures`) || []) as File[];
         const updatedFiles = currentFiles.filter((_, i) => i !== imageIndex);
-        setValue(`entries.${index}.pictures`, updatedFiles, { shouldValidate: true });
+        setValue(`rooms.${roomIndex}.entries.${entryIndex}.pictures`, updatedFiles, { shouldValidate: true });
     }
 
     const isSofaMeasurement = typeOf === "Sofa Measurement";
 
     return (
+        <Card className="relative bg-background/50 overflow-hidden p-4">
+             <Button type="button" variant="destructive" size="icon" className="absolute top-2 right-2 h-7 w-7" onClick={() => remove(entryIndex)}><Trash2 className="h-4 w-4"/></Button>
+            <div className="space-y-3">
+                {isSofaMeasurement ? (
+                    <div className="space-y-3">
+                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.noOfSheet`} render={({ field }) => (<FormItem><FormLabel>No Of Sheet</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.fabricQty1`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 1</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.fabricQty2`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 2</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.marking`} render={({ field }) => (<FormItem><FormLabel>Marking (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.casement`} render={({ field }) => (<FormItem><FormLabel>Casement (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.niwar`} render={({ field }) => (<FormItem><FormLabel>Niwar (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        <div className="space-y-2 rounded-lg bg-background/50 p-3 border">
+                           <div className="flex items-end gap-2">
+                                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.height`} render={({ field }) => ( <FormItem className="flex-grow"><FormLabel className="text-xs">Height</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
+                                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.heightUnit`} render={({ field }) => ( <FormItem><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="w-[80px] h-10"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="inch">Inch</SelectItem><SelectItem value="mm">MM</SelectItem></SelectContent></Select></FormItem> )} />
+                           </div>
+                           <div className="flex items-end gap-2">
+                                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.width`} render={({ field }) => ( <FormItem className="flex-grow"><FormLabel className="text-xs">Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
+                                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.widthUnit`} render={({ field }) => ( <FormItem><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="w-[80px] h-10"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="inch">Inch</SelectItem><SelectItem value="mm">MM</SelectItem></SelectContent></Select></FormItem> )} />
+                           </div>
+                        </div>
+                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                    </div>
+                )}
+                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                <FormItem>
+                    <FormLabel>Choose Picture(s)</FormLabel>
+                    <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap gap-2 mt-2 flex-grow">
+                            {imagePreviews.map((src, i) => (
+                                <div key={i} className="relative">
+                                    <Image src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover h-16 w-16" data-ai-hint="measurement image" />
+                                    <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full" onClick={() => handlePictureRemove(i)}>
+                                        <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                         <label htmlFor={`picture-upload-${roomIndex}-${entryIndex}`} className="cursor-pointer border-2 border-dashed rounded-md h-16 w-16 flex items-center justify-center text-muted-foreground hover:bg-accent">
+                            <PlusCircle className="h-6 w-6" />
+                        </label>
+                        <FormControl>
+                            <Input id={`picture-upload-${roomIndex}-${entryIndex}`} type="file" accept="image/*" multiple onChange={handlePictureChange} className="hidden" />
+                        </FormControl>
+                    </div>
+                </FormItem>
+                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.recordAudio`} render={({ field }) => (<FormItem><FormLabel>Record Audio</FormLabel><FormControl><Input type="file" accept="audio/*" onChange={(e) => field.onChange(e.target.files?.[0])} /></FormControl></FormItem>)} />
+             </div>
+        </Card>
+    );
+}
+
+
+const RoomEntryCard = ({ index, remove }: { index: number, remove: (index: number) => void }) => {
+    const { control } = useFormContext<MeasurementFormValues>();
+    const { fields, append, remove: removeEntry } = useFieldArray({
+        control,
+        name: `rooms.${index}.entries`
+    });
+
+    return (
         <Card className="relative bg-muted/50 overflow-hidden">
-             <Button type="button" variant="destructive" size="icon" className="absolute top-2 right-2 h-7 w-7" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button>
-            <CardContent className="pt-6">
-                 <div className="space-y-3">
-                    {isSofaMeasurement ? (
-                        <div className="space-y-3">
-                            <FormField control={control} name={`entries.${index}.noOfSheet`} render={({ field }) => (<FormItem><FormLabel>No Of Sheet</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                            <FormField control={control} name={`entries.${index}.fabricQty1`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 1</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                            <FormField control={control} name={`entries.${index}.fabricQty2`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 2</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                            <FormField control={control} name={`entries.${index}.marking`} render={({ field }) => (<FormItem><FormLabel>Marking (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                            <FormField control={control} name={`entries.${index}.casement`} render={({ field }) => (<FormItem><FormLabel>Casement (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                            <FormField control={control} name={`entries.${index}.niwar`} render={({ field }) => (<FormItem><FormLabel>Niwar (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                        </div>
-                    ) : (
-                        <div className="space-y-3">
-                            <FormField control={control} name={`entries.${index}.roomName`} render={({ field }) => (<FormItem><FormLabel>Room Name</FormLabel><FormControl><Input {...field} value={field.value || ''} placeholder="e.g. Master Bedroom" /></FormControl></FormItem>)} />
-                            
-                            <div className="space-y-2 rounded-lg bg-background/50 p-3 border">
-                               <div className="flex items-end gap-2">
-                                    <FormField control={control} name={`entries.${index}.height`} render={({ field }) => ( <FormItem className="flex-grow"><FormLabel className="text-xs">Height</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
-                                    <FormField control={control} name={`entries.${index}.heightUnit`} render={({ field }) => ( <FormItem><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="w-[80px] h-10"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="inch">Inch</SelectItem><SelectItem value="mm">MM</SelectItem></SelectContent></Select></FormItem> )} />
-                               </div>
-                               <div className="flex items-end gap-2">
-                                    <FormField control={control} name={`entries.${index}.width`} render={({ field }) => ( <FormItem className="flex-grow"><FormLabel className="text-xs">Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
-                                    <FormField control={control} name={`entries.${index}.widthUnit`} render={({ field }) => ( <FormItem><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="w-[80px] h-10"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="inch">Inch</SelectItem><SelectItem value="mm">MM</SelectItem></SelectContent></Select></FormItem> )} />
-                               </div>
-                            </div>
-
-                            <FormField control={control} name={`entries.${index}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                        </div>
-                    )}
-
-                    <FormField control={control} name={`entries.${index}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                    
-                    <FormItem>
-                        <FormLabel>Choose Picture(s)</FormLabel>
-                        <div className="flex items-center gap-2">
-                            <div className="flex flex-wrap gap-2 mt-2 flex-grow">
-                                {imagePreviews.map((src, i) => (
-                                    <div key={i} className="relative">
-                                        <Image src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover h-16 w-16" data-ai-hint="measurement image" />
-                                        <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full" onClick={() => handlePictureRemove(i)}>
-                                            <Trash2 className="h-3 w-3" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-                             <label htmlFor={`picture-upload-${index}`} className="cursor-pointer border-2 border-dashed rounded-md h-16 w-16 flex items-center justify-center text-muted-foreground hover:bg-accent">
-                                <PlusCircle className="h-6 w-6" />
-                            </label>
+            <CardHeader className="flex-row items-center justify-between">
+                <FormField
+                    control={control}
+                    name={`rooms.${index}.roomName`}
+                    render={({ field }) => (
+                        <FormItem className="w-2/3">
+                            <FormLabel>Room Name</FormLabel>
                             <FormControl>
-                                <Input id={`picture-upload-${index}`} type="file" accept="image/*" multiple onChange={handlePictureChange} className="hidden" />
+                                <Input {...field} value={field.value || ''} placeholder="e.g. Master Bedroom" />
                             </FormControl>
-                        </div>
-                    </FormItem>
-
-                    <FormField control={control} name={`entries.${index}.recordAudio`} render={({ field }) => (<FormItem><FormLabel>Record Audio</FormLabel><FormControl><Input type="file" accept="audio/*" onChange={(e) => field.onChange(e.target.files?.[0])} /></FormControl></FormItem>)} />
-                 </div>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+                 <Button type="button" variant="destructive" size="sm" onClick={() => remove(index)}>
+                    <Trash2 className="mr-2 h-4 w-4"/> Remove Room
+                </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+                {fields.map((field, entryIndex) => (
+                    <MeasurementEntryCard 
+                        key={field.id}
+                        roomIndex={index}
+                        entryIndex={entryIndex}
+                        remove={() => removeEntry(entryIndex)}
+                    />
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={() => append({ id: new Date().toISOString() })}>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Add New Entry
+                </Button>
             </CardContent>
         </Card>
-    )
+    );
 }
 
 const MeasurementPreview = ({
@@ -198,44 +241,49 @@ const MeasurementPreview = ({
                         <p><strong>Doer Name:</strong> {values.doerName}</p>
                     </div>
 
-                    {values.entries.map((entry, index) => (
-                        <div key={index} className="border-t pt-4 space-y-2">
-                            <h4 className="font-semibold mb-2">Entry #{index + 1}: {entry.roomName || ''}</h4>
-                            {values.typeOf === 'Sofa Measurement' ? (
-                                <div className="grid grid-cols-2 gap-2 text-sm">
-                                    <p><strong>No. of Sheet:</strong> {entry.noOfSheet || 'N/A'}</p>
-                                    <p><strong>Fabric Qty 1:</strong> {entry.fabricQty1 || 'N/A'}</p>
-                                    <p><strong>Fabric Qty 2:</strong> {entry.fabricQty2 || 'N/A'}</p>
-                                    <p><strong>Marking:</strong> {entry.marking ? `${entry.marking} MTR` : 'N/A'}</p>
-                                    <p><strong>Casement:</strong> {entry.casement ? `${entry.casement} MTR` : 'N/A'}</p>
-                                    <p><strong>Niwar:</strong> {entry.niwar ? `${entry.niwar} MTR` : 'N/A'}</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-1 text-sm">
-                                    <p><strong>Dimension:</strong> H {entry.height} {entry.heightUnit} x W {entry.width} {entry.widthUnit}</p>
-                                    <p><strong>Panels:</strong> {entry.noOfPannel || 'N/A'}</p>
-                                </div>
-                            )}
-                             <p className="text-sm mt-2"><strong>Remarks:</strong> {entry.remark || 'N/A'}</p>
+                    {values.rooms.map((room, roomIndex) => (
+                       <div key={room.id || roomIndex} className="border-t pt-4">
+                           <h3 className="font-bold text-lg mb-2">{room.roomName}</h3>
+                            {room.entries.map((entry, entryIndex) => (
+                                <div key={entry.id || entryIndex} className="border-b last:border-b-0 py-2 space-y-2">
+                                    <h4 className="font-semibold">Entry #{entryIndex + 1}</h4>
+                                    {values.typeOf === 'Sofa Measurement' ? (
+                                        <div className="grid grid-cols-2 gap-2 text-sm">
+                                            <p><strong>No. of Sheet:</strong> {entry.noOfSheet || 'N/A'}</p>
+                                            <p><strong>Fabric Qty 1:</strong> {entry.fabricQty1 || 'N/A'}</p>
+                                            <p><strong>Fabric Qty 2:</strong> {entry.fabricQty2 || 'N/A'}</p>
+                                            <p><strong>Marking:</strong> {entry.marking ? `${entry.marking} MTR` : 'N/A'}</p>
+                                            <p><strong>Casement:</strong> {entry.casement ? `${entry.casement} MTR` : 'N/A'}</p>
+                                            <p><strong>Niwar:</strong> {entry.niwar ? `${entry.niwar} MTR` : 'N/A'}</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1 text-sm">
+                                            <p><strong>Dimension:</strong> H {entry.height} {entry.heightUnit} x W {entry.width} {entry.widthUnit}</p>
+                                            <p><strong>Panels:</strong> {entry.noOfPannel || 'N/A'}</p>
+                                        </div>
+                                    )}
+                                    <p className="text-sm mt-2"><strong>Remarks:</strong> {entry.remark || 'N/A'}</p>
 
-                             {entry.pictures && Array.from(entry.pictures as File[]).length > 0 && (
-                                <div className="mt-2">
-                                    <p className="text-sm font-semibold">Attached Images:</p>
-                                    <div className="flex flex-wrap gap-2 mt-1">
-                                        {Array.from(entry.pictures as File[]).map((file, i) => (
-                                            <Image 
-                                                key={i}
-                                                src={URL.createObjectURL(file)} 
-                                                alt={`Entry ${index+1} Image ${i+1}`} 
-                                                width={100} 
-                                                height={100} 
-                                                className="rounded-md object-cover"
-                                            />
-                                        ))}
-                                    </div>
+                                    {entry.pictures && Array.from(entry.pictures as File[]).length > 0 && (
+                                        <div className="mt-2">
+                                            <p className="text-sm font-semibold">Attached Images:</p>
+                                            <div className="flex flex-wrap gap-2 mt-1">
+                                                {Array.from(entry.pictures as File[]).map((file, i) => (
+                                                    <Image 
+                                                        key={i}
+                                                        src={URL.createObjectURL(file)} 
+                                                        alt={`Entry ${entryIndex+1} Image ${i+1}`} 
+                                                        width={100} 
+                                                        height={100} 
+                                                        className="rounded-md object-cover"
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                             )}
-                        </div>
+                            ))}
+                       </div>
                     ))}
                 </CardContent>
             </div>
@@ -274,7 +322,7 @@ export default function MeasurementPage() {
         defaultValues: {
             typeOf: "Curtains",
             doerName: "",
-            entries: [{ roomName: "", height: "", width: "", noOfPannel: "", remark: "" }]
+            rooms: [{ roomName: "", entries: [{ id: new Date().toISOString() }] }]
         }
     });
     
@@ -282,7 +330,7 @@ export default function MeasurementPage() {
 
     const { fields, append, remove } = useFieldArray({
         control: form.control,
-        name: "entries"
+        name: "rooms"
     });
     
     React.useEffect(() => {
@@ -342,7 +390,6 @@ export default function MeasurementPage() {
         const pageWidth = pdf.internal.pageSize.getWidth();
         const pageHeight = pdf.internal.pageSize.getHeight();
 
-        // Calculate scale ratio to fit
         const ratio = Math.min(pageWidth / canvas.width, pageHeight / canvas.height);
 
         const imgWidth = canvas.width * ratio;
@@ -368,33 +415,43 @@ export default function MeasurementPage() {
         try {
             const pdfUrl = await generateAndUploadPdf();
             
-            const processedEntries = await Promise.all(
-                values.entries.map(async (entry) => {
-                    const audioUrl = entry.recordAudio ? await handleFileUpload(entry.recordAudio) : undefined;
+            const processedRooms = await Promise.all(
+                values.rooms.map(async (room) => {
+                    const processedEntries = await Promise.all(
+                        room.entries.map(async (entry) => {
+                             const audioUrl = entry.recordAudio ? await handleFileUpload(entry.recordAudio) : undefined;
                     
-                    let pictureUrls: string[] = [];
-                    const pictures = entry.pictures;
-                    if (pictures && pictures.length > 0) {
-                        const filesToUpload = Array.from(pictures as File[]);
-                        pictureUrls = await Promise.all(filesToUpload.map(file => handleFileUpload(file)));
-                    }
-    
-                    const cleanedEntry: Partial<MeasurementEntry> = { ...entry };
-                    delete cleanedEntry.recordAudio;
-                    delete cleanedEntry.pictures;
-    
-                    return { 
-                        ...cleanedEntry, 
-                        audioUrl, 
-                        pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined, 
-                    };
+                            let pictureUrls: string[] = [];
+                            const pictures = entry.pictures;
+                            if (pictures && pictures.length > 0) {
+                                const filesToUpload = Array.from(pictures as File[]);
+                                pictureUrls = await Promise.all(filesToUpload.map(file => handleFileUpload(file)));
+                            }
+            
+                            const cleanedEntry: Partial<MeasurementEntry> = { ...entry };
+                            delete cleanedEntry.recordAudio;
+                            delete cleanedEntry.pictures;
+            
+                            return { 
+                                ...cleanedEntry, 
+                                audioUrl, 
+                                pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined, 
+                            };
+                        })
+                    );
+                    return { ...room, entries: processedEntries };
                 })
             );
-    
+
+            const measurementDataForDb = { ...values, rooms: processedRooms };
+            
+            // This needs to be adapted as addMeasurementAction expects a different structure
+            const simplifiedEntries = processedRooms.flatMap(room => room.entries.map(entry => ({ ...entry, roomName: room.roomName })));
+
             const measurementData: Omit<DealMeasurement, 'id' | 'createdAt' | 'createdBy' | 'pdfUrl'> = {
                 typeOf: values.typeOf,
                 doerName: values.doerName,
-                entries: processedEntries as MeasurementEntry[],
+                entries: simplifiedEntries as MeasurementEntry[],
             };
             
             const result = await addMeasurementAction(customerId, dealId, visitId, measurementData as any, user.name, pdfUrl);
@@ -414,7 +471,7 @@ export default function MeasurementPage() {
                 duration: 9000
             });
         } finally {
-            setIsSubmitting(false); // Always reset spinner
+            setIsSubmitting(false);
         }
     };
     
@@ -515,9 +572,9 @@ export default function MeasurementPage() {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {fields.map((field, index) => (
-                               <MeasurementEntryCard key={field.id} index={index} remove={remove} />
+                               <RoomEntryCard key={field.id} index={index} remove={remove} />
                             ))}
-                            <Button type="button" variant="outline" onClick={() => append({ roomName: "", height: "", width: "", noOfPannel: "", remark: "" })} className="w-full">
+                            <Button type="button" variant="outline" onClick={() => append({ id: new Date().toISOString(), roomName: '', entries: [{ id: new Date().toISOString() }] })} className="w-full">
                                 <PlusCircle className="mr-2 h-4 w-4"/>Add new Room
                             </Button>
                         </CardContent>
@@ -533,5 +590,3 @@ export default function MeasurementPage() {
         </div>
     );
 }
-
-    
