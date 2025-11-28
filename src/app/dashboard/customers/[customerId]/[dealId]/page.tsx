@@ -1769,6 +1769,17 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
         return <Badge variant="outline">New</Badge>;
     };
 
+    const groupProductsByRoom = (products: DealProduct[]) => {
+        return products.reduce((acc, product) => {
+            const room = product.room || 'Unassigned';
+            if (!acc[room]) {
+                acc[room] = [];
+            }
+            acc[room].push(product);
+            return acc;
+        }, {} as Record<string, DealProduct[]>);
+    };
+
 
     return (
         <>
@@ -1809,6 +1820,8 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                 <TableHead>Room</TableHead>
                                 <TableHead>No of Pcs</TableHead>
                                 <TableHead>Description</TableHead>
+                                <TableHead>V-R</TableHead>
+                                <TableHead>H-R</TableHead>
                                 <TableHead>Remarks</TableHead>
                                 <TableHead>Status</TableHead>
                             </TableRow>
@@ -1833,6 +1846,8 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                     <TableCell>{form.watch(`products.${index}.room`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.noOfPcs`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.salesDescription`)}</TableCell>
+                                    <TableCell>{form.watch(`products.${index}.verticalRepeat`)}</TableCell>
+                                    <TableCell>{form.watch(`products.${index}.horizontalRepeat`)}</TableCell>
                                     <TableCell>{form.watch(`products.${index}.remarks`)}</TableCell>
                                     <TableCell>
                                         {getProductStatus(field as DealProduct)}
@@ -1840,7 +1855,7 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                                 </TableRow>
                             )) : (
                                 <TableRow>
-                                    <TableCell colSpan={10} className="text-center h-24">No products added yet.</TableCell>
+                                    <TableCell colSpan={12} className="text-center h-24">No products added yet.</TableCell>
                                 </TableRow>
                             )}
                         </TableBody>
@@ -1857,34 +1872,72 @@ function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, cus
                  {selections.length > 0 && (
                     <div className="space-y-4">
                         <h3 className="text-xl font-semibold">Saved Selections</h3>
-                        {selections.map(selection => (
-                            <Card key={selection.id}>
-                                <CardHeader>
-                                    <CardTitle>Selection #{selection.id}</CardTitle>
-                                    <CardDescription>Created by {selection.createdBy} on {format(new Date(selection.createdAt), "PPP")}</CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Collection / Brand</TableHead>
-                                                <TableHead>Quantity</TableHead>
-                                                <TableHead>Room</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {selection.products.map(p => (
-                                                <TableRow key={p.id}>
-                                                    <TableCell>{p.collectionBrand}</TableCell>
-                                                    <TableCell>{p.quantity}</TableCell>
-                                                    <TableCell>{p.room}</TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </CardContent>
-                            </Card>
-                        ))}
+                        {selections.map(selection => {
+                             const productsByRoom = groupProductsByRoom(selection.products);
+                             let grandTotalQty = 0;
+                             let grandTotalAmount = 0;
+                            return (
+                                <Card key={selection.id}>
+                                    <CardHeader>
+                                        <CardTitle>Selection #{selection.id}</CardTitle>
+                                        <CardDescription>Created by {selection.createdBy} on {format(new Date(selection.createdAt), "PPP")}</CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4">
+                                        {Object.entries(productsByRoom).map(([room, products]) => {
+                                            const roomTotalMrp = products.reduce((sum, p) => sum + (Number(p.mrp) || 0) * (Number(p.quantity) || 0), 0);
+                                            const roomTotalItems = products.length;
+                                            grandTotalQty += products.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
+                                            grandTotalAmount += roomTotalMrp;
+                                            return (
+                                                <div key={room}>
+                                                    <h4 className="font-semibold">{room}</h4>
+                                                    <Table>
+                                                        <TableHeader>
+                                                            <TableRow>
+                                                                <TableHead>Collection / Brand</TableHead>
+                                                                <TableHead>MRP</TableHead>
+                                                                <TableHead>Qty</TableHead>
+                                                                <TableHead>No of Pcs</TableHead>
+                                                                <TableHead>V-R</TableHead>
+                                                                <TableHead>H-R</TableHead>
+                                                                <TableHead>Remarks</TableHead>
+                                                            </TableRow>
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {products.map(p => (
+                                                                <TableRow key={p.id}>
+                                                                    <TableCell>{p.collectionBrand}</TableCell>
+                                                                    <TableCell>{p.mrp}</TableCell>
+                                                                    <TableCell>{p.quantity}</TableCell>
+                                                                    <TableCell>{p.noOfPcs}</TableCell>
+                                                                    <TableCell>{p.verticalRepeat}</TableCell>
+                                                                    <TableCell>{p.horizontalRepeat}</TableCell>
+                                                                    <TableCell>{p.remarks}</TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                        <TableFooter>
+                                                            <TableRow>
+                                                                <TableCell colSpan={6} className="text-right font-semibold">Total MRP Per Room:</TableCell>
+                                                                <TableCell className="font-bold">₹{roomTotalMrp.toFixed(2)}</TableCell>
+                                                            </TableRow>
+                                                             <TableRow>
+                                                                <TableCell colSpan={6} className="text-right font-semibold">Total Items Per Room:</TableCell>
+                                                                <TableCell className="font-bold">{roomTotalItems}</TableCell>
+                                                            </TableRow>
+                                                        </TableFooter>
+                                                    </Table>
+                                                </div>
+                                            )
+                                        })}
+                                    </CardContent>
+                                    <CardFooter className="flex justify-end gap-8 font-bold border-t pt-4">
+                                        <div>Grand Total Qty: {grandTotalQty.toFixed(2)}</div>
+                                        <div>Grand Total: ₹{grandTotalAmount.toFixed(2)}</div>
+                                    </CardFooter>
+                                </Card>
+                            )
+                        })}
                     </div>
                  )}
 
@@ -3161,3 +3214,4 @@ function PrintableCustomerCpd({ cpd, customer }: { cpd: Cpd, customer: Customer 
 
 
     
+
