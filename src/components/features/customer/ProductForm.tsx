@@ -180,8 +180,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
 
     const handleUpdateActivity = async () => {
         const productsToSave = form.getValues('products');
-        // This button should ONLY validate and submit the products array, not the newProduct fields.
-        // By getting the values directly and calling the server action, we bypass the main form's validation logic.
         setActivityLoading(true);
         const result = await updateDealProducts(customerId, dealId, productsToSave);
         if(result.success) {
@@ -230,8 +228,12 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
 
     const handleViewSelection = async (selection: Selection) => {
         setSelectedSelection(selection);
-        const products = fields.filter(p => p.id && Array.isArray(selection.productIds) && selection.productIds.includes(p.id!));
-        setSelectedSelectionProducts(products);
+        if (selection.productIds && Array.isArray(selection.productIds)) {
+            const products = fields.filter(p => p.id && selection.productIds.includes(p.id!));
+            setSelectedSelectionProducts(products);
+        } else {
+            setSelectedSelectionProducts([]);
+        }
     };
     
     const handleDeleteItem = (index: number) => {
@@ -372,7 +374,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                                     <TableCell>{roomCount}</TableCell>
                                                     <TableCell>₹{totalMrp.toFixed(2)}</TableCell>
                                                     <TableCell>{totalPcs}</TableCell>
-                                                    <TableCell><Button variant="ghost" size="icon" onClick={() => handleViewSelection(selection)}><Eye className="h-5 w-5"/></Button></TableCell>
+                                                    <TableCell><Button type="button" variant="ghost" size="icon" onClick={() => handleViewSelection(selection)}><Eye className="h-5 w-5"/></Button></TableCell>
                                                 </TableRow>
                                             )
                                         })}
@@ -408,5 +410,3 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         </>
     )
 }
-
-    
