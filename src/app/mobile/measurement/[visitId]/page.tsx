@@ -38,8 +38,8 @@ const measurementEntrySchema = z.object({
     fabricQty1: z.string().optional(),
     fabricQty2: z.string().optional(),
     marking: z.string().optional(),
-    casement: z.string().optional(),
-    niwar: z.string().optional(),
+    casement: z.boolean().optional(),
+    niwar: z.boolean().optional(),
     foam: z.boolean().optional(),
     markingFlag: z.boolean().optional(),
     // Common fields
@@ -199,7 +199,7 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                                 name={`rooms.${roomIndex}.entries.${entryIndex}.casement`}
                                 render={({ field }) => (
                                     <FormItem className="flex items-center gap-2 space-y-0">
-                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                        <FormControl><Checkbox checked={!!field.value} onCheckedChange={field.onChange} /></FormControl>
                                         <FormLabel>Casement</FormLabel>
                                     </FormItem>
                                 )}
@@ -219,7 +219,7 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                                 name={`rooms.${roomIndex}.entries.${entryIndex}.niwar`}
                                 render={({ field }) => (
                                     <FormItem className="flex items-center gap-2 space-y-0">
-                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                        <FormControl><Checkbox checked={!!field.value} onCheckedChange={field.onChange} /></FormControl>
                                         <FormLabel>Niwar</FormLabel>
                                     </FormItem>
                                 )}
@@ -241,9 +241,10 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                            </div>
                         </div>
                         <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} value={field.value || ''} /></FormControl></FormItem>)} />
                     </div>
                 )}
-                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                
                 <FormItem>
                     <FormLabel>Choose Picture(s)</FormLabel>
                     <div className="flex items-center gap-2">
@@ -360,12 +361,10 @@ const MeasurementPreview = ({
                                     <h4 className="font-semibold">Entry #{entryIndex + 1}</h4>
                                     {values.typeOf === 'Sofa Measurement' ? (
                                         <div className="grid grid-cols-2 gap-2 text-sm">
-                                            <p><strong>No. of Sheet:</strong> {entry.noOfSheet || 'N/A'}</p>
-                                            <p><strong>Fabric Qty 1:</strong> {entry.fabricQty1 || 'N/A'}</p>
-                                            <p><strong>Fabric Qty 2:</strong> {entry.fabricQty2 || 'N/A'}</p>
-                                            <p><strong>Marking:</strong> {entry.marking ? `${entry.marking} MTR` : 'N/A'}</p>
-                                            <p><strong>Casement:</strong> {entry.casement ? `${entry.casement} MTR` : 'N/A'}</p>
-                                            <p><strong>Niwar:</strong> {entry.niwar ? `${entry.niwar} MTR` : 'N/A'}</p>
+                                            <p><strong>Item Name:</strong> {entry.noOfSheet || 'N/A'}</p>
+                                            <p><strong>No of Seat / Pcs:</strong> {entry.fabricQty1 || 'N/A'}</p>
+                                            <p><strong>Fabric Qty:</strong> {entry.fabricQty2 || 'N/A'}</p>
+                                            <p><strong>Stitching Rate / per Sheet:</strong> {entry.marking || 'N/A'}</p>
                                         </div>
                                     ) : (
                                         <div className="space-y-1 text-sm">
@@ -701,3 +700,5 @@ export default function MeasurementPage() {
         </div>
     );
 }
+
+    
