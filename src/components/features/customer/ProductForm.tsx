@@ -312,11 +312,11 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                              {fields.map((room, index) => (
                                 <RoomForm key={room.id} roomIndex={index} removeRoom={() => remove(index)} />
                             ))}
-                            <Button type="button" variant="outline" onClick={() => append({ name: "", items: [{ collectionBrand: '', noOfPcs: '1' }] })}>
+                            <Button type="button" variant="outline" onClick={() => append({ name: "", items: [{ collectionBrand: '', salesDescription: '', mrp: '', noOfPcs: '1', verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: '' }] })}>
                                 <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
                             </Button>
                              <Separator className="my-8" />
-                            <div className="flex justify-between items-center">
+                             <div className="flex justify-between items-center">
                                  <div className="flex gap-2">
                                     <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
                                     <Button type="button" onClick={handleQuotationClick}>Convert To Quotation</Button>
@@ -390,5 +390,3 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         </>
     )
 }
-
-    
