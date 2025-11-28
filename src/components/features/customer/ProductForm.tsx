@@ -39,17 +39,27 @@ const productSchema = z.object({
     remarks: z.string().optional().default(''),
 });
 
-const roomSchema = z.object({
-  name: z.string().min(1, "Room name is required."),
-  items: z.array(productSchema).min(1, "At least one item is required per room."),
+const addProductSchema = z.object({
+    collectionBrand: z.string().optional(),
+    salesDescription: z.string().optional(),
+    mrp: z.string().optional(),
+    noOfPcs: z.string().optional(),
+    verticalRepeat: z.string().optional(),
+    horizontalRepeat: z.string().optional(),
+    quantity: z.string().optional(),
+    remarks: z.string().optional(),
 });
 
-const productListSchema = z.object({ 
-    rooms: z.array(roomSchema)
+
+const productListSchema = z.object({
+  rooms: z.array(z.object({
+    name: z.string().min(1, "Room name is required."),
+    items: z.array(productSchema).min(1, "At least one item is required per room."),
+  })),
+  addProduct: addProductSchema.optional(),
 });
 
-type RoomFormValues = z.infer<typeof roomSchema>;
-type ProductFormValues = z.infer<typeof productSchema>;
+
 type ProductListFormValues = z.infer<typeof productListSchema>;
 
 
@@ -156,7 +166,7 @@ function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: ()
                 size="icon" 
                 onClick={() => append({ 
                     collectionBrand: '', 
-                    salesDescription: '', 
+                    salesDescription: '',
                     mrp: '',
                     noOfPcs: '1', 
                     verticalRepeat: '',
@@ -171,7 +181,6 @@ function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: ()
     );
 }
 
-
 export function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, customer, cpds, quotations, orders, initialSelections }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal, customer: Customer, cpds: Cpd[], quotations: Quotation[], orders: DealOrder[], initialSelections: Selection[] }) {
     const { user } = useAuth();
     const [activityLoading, setActivityLoading] = useState(false);
@@ -184,6 +193,8 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
     const [selections, setSelections] = useState<Selection[]>(initialSelections);
     const [selectedSelection, setSelectedSelection] = useState<Selection | null>(null);
     const [selectedSelectionProducts, setSelectedSelectionProducts] = useState<DealProduct[]>([]);
+    const [bcnOptions, setBcnOptions] = useState<ComboboxOption[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
 
     const fetchSelections = useCallback(() => {
       setSelections(initialSelections);
@@ -195,7 +206,19 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
 
     const form = useForm<ProductListFormValues>({
         resolver: zodResolver(productListSchema),
-        defaultValues: { rooms: [] },
+        defaultValues: {
+            rooms: [],
+            addProduct: {
+                collectionBrand: '',
+                salesDescription: '',
+                mrp: '',
+                noOfPcs: '1',
+                verticalRepeat: '',
+                horizontalRepeat: '',
+                quantity: '',
+                remarks: ''
+            }
+        },
     });
     
     const { fields, append, remove } = useFieldArray({
@@ -205,7 +228,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
 
 
     useEffect(() => {
-        // Group initial products by room
         const roomsMap = initialProducts.reduce((acc, product) => {
             const roomName = product.room || 'Unassigned';
             if (!acc[roomName]) {
@@ -217,17 +239,26 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         
         const roomsForForm = Object.entries(roomsMap).map(([roomName, products]) => ({
             name: roomName,
-            items: products.map(p => ({...p, noOfPcs: p.noOfPcs || '1'}))
+            items: products.map(p => ({
+                id: p.id,
+                collectionBrand: p.collectionBrand,
+                salesDescription: p.salesDescription || '',
+                mrp: p.mrp || '',
+                noOfPcs: p.noOfPcs || '1',
+                verticalRepeat: p.verticalRepeat || '',
+                horizontalRepeat: p.horizontalRepeat || '',
+                quantity: p.quantity,
+                remarks: p.remarks || '',
+            }))
         }));
 
-        form.reset({ rooms: roomsForForm });
+        form.reset({ rooms: roomsForForm, addProduct: form.getValues('addProduct') });
     }, [initialProducts, form]);
 
     const handleRefresh = async () => { setIsRefreshing(true); onRefresh(); await new Promise(resolve => setTimeout(resolve, 500)); setIsRefreshing(false); };
     
     const handleUpdateActivity = async (data: ProductListFormValues) => {
         setActivityLoading(true);
-        // Flatten the room structure back into a single product list
         const productList: DealProduct[] = data.rooms.flatMap(room => room.items.map(item => ({
             ...item,
             room: room.name,
@@ -291,12 +322,49 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         setSelectedSelectionProducts(products);
     };
 
-    const getProductStatus = (product: DealProduct) => {
-        const isInOrder = orders.some(order => order.items.some(item => item.collectionBrand === product.collectionBrand));
-        if (isInOrder) return <Badge variant="default" className="bg-green-500">Order Created</Badge>;
-        const isInQuotation = quotations.some(q => q.items.some(item => item.collectionBrand === product.collectionBrand));
-        if (isInQuotation) return <Badge variant="secondary">In Quotation</Badge>;
-        return <Badge variant="outline">New</Badge>;
+    const handleBcnSearch = useCallback(async (query: string) => {
+        if (query.length < 2) { setBcnOptions([]); return; }
+        setIsSearching(true);
+        try {
+            const results = await searchStockByBcn(query);
+            const options = results.map(stock => ({
+                value: stock.bcn || stock.id,
+                label: `${stock.bcn} (${stock.itemName})`,
+                stockItem: stock
+            }));
+            setBcnOptions(options as any);
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Search failed' });
+        } finally {
+            setIsSearching(false);
+        }
+    }, [toast]);
+
+    const handleBcnSelect = (value: string) => {
+        const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
+        if (selectedOption) {
+            const stockItem = selectedOption.stockItem;
+            form.setValue('addProduct.collectionBrand', stockItem.bcn);
+            form.setValue('addProduct.mrp', (stockItem.mrp || 0).toString());
+        }
+    };
+
+    const handleAddProductToList = () => {
+        const productData = form.getValues('addProduct');
+        if (!productData?.collectionBrand) {
+            toast({ variant: "destructive", title: "BCN is required" });
+            return;
+        }
+        // This is a simplified logic. In a real app, you'd add it to a specific room.
+        // For now, let's add to the first room or a new room if none exist.
+        const rooms = form.getValues('rooms');
+        if (rooms.length === 0) {
+            append({ name: 'New Room', items: [productData as ProductFormValues] });
+        } else {
+            const firstRoomItems = rooms[0].items;
+            form.setValue('rooms.0.items', [...firstRoomItems, productData as ProductFormValues]);
+        }
+        form.reset({ ...form.getValues(), addProduct: { collectionBrand: '', salesDescription: '', mrp: '', noOfPcs: '1', verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: '' } });
     };
 
     return (
@@ -306,6 +374,30 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                     <CardContent className="p-6">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-semibold">Add / Edit Products</h3>
+                        </div>
+
+                         <div className="p-4 border rounded-lg space-y-6 mb-6">
+                            <h4 className="font-semibold">Add New Product</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <FormField control={form.control} name="addProduct.collectionBrand" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>BCN*</FormLabel>
+                                        <Combobox options={bcnOptions} value={field.value} onSelect={(value) => { field.onChange(value); handleBcnSelect(value); }} onSearch={handleBcnSearch} placeholder="Search BCN..." />
+                                    </FormItem>
+                                )} />
+                                <FormField control={form.control} name="addProduct.salesDescription" render={({ field }) => (<FormItem><FormLabel>Sales Description</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                <FormField control={form.control} name="addProduct.mrp" render={({ field }) => (<FormItem><FormLabel>MRP</FormLabel><FormControl><Input type="number" {...field} readOnly /></FormControl></FormItem>)} />
+                                <FormField control={form.control} name="addProduct.noOfPcs" render={({ field }) => (<FormItem><FormLabel>No Of Pcs</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                <FormField control={form.control} name="addProduct.verticalRepeat" render={({ field }) => (<FormItem><FormLabel>V-R</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                <FormField control={form.control} name="addProduct.horizontalRepeat" render={({ field }) => (<FormItem><FormLabel>H-R</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                <FormField control={form.control} name="addProduct.quantity" render={({ field }) => (<FormItem><FormLabel>Qty</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                            </div>
+                            <FormField control={form.control} name="addProduct.remarks" render={({ field }) => ( <FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea placeholder="Add any remarks..." {...field} /></FormControl></FormItem> )} />
+                             <Button type="button" onClick={handleAddProductToList}>
+                                <PlusCircle className="mr-2 h-4 w-4" /> Add Product to List
+                            </Button>
                         </div>
 
                         <form className="space-y-4" onSubmit={form.handleSubmit(handleUpdateActivity)}>
@@ -324,69 +416,12 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                 <Button type="submit" disabled={activityLoading} className="bg-cyan-600 hover:bg-cyan-700">{activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Update Activity</Button>
                             </div>
                         </form>
-
-                        {selections.length > 0 && (
-                            <div className="mt-8">
-                                <h3 className="text-xl font-semibold mb-4">Saved Selections</h3>
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Selection ID</TableHead>
-                                            <TableHead>Date</TableHead>
-                                            <TableHead>Total Qty</TableHead>
-                                            <TableHead>Total Amount</TableHead>
-                                            <TableHead>Action</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {selections.map(selection => {
-                                            const allProducts = form.getValues('rooms').flatMap(r => r.items);
-                                            const selectionProducts = allProducts.filter(p => p.id && selection.productIds.includes(p.id!));
-                                            const totalQty = selectionProducts.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
-                                            const totalAmount = selectionProducts.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.mrp) || 0)), 0);
-                                            return (
-                                                <TableRow key={selection.id}>
-                                                    <TableCell className="font-mono">{selection.id}</TableCell>
-                                                    <TableCell>{format(new Date(selection.createdAt), "dd/MM/yyyy")}</TableCell>
-                                                    <TableCell>{totalQty.toFixed(2)}</TableCell>
-                                                    <TableCell>₹{totalAmount.toFixed(2)}</TableCell>
-                                                    <TableCell><Button variant="ghost" size="icon" onClick={() => handleViewSelection(selection)}><Eye className="h-4 w-4" /></Button></TableCell>
-                                                </TableRow>
-                                            );
-                                        })}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        )}
                         
                     </CardContent>
                 </Card>
             </FormProvider>
-            
-             <Dialog open={!!selectedSelection} onOpenChange={() => setSelectedSelection(null)}>
-                <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
-                    <DialogHeader>
-                        <DialogTitle>Selection Details: #{selectedSelection?.id}</DialogTitle>
-                    </DialogHeader>
-                    <div className="flex-grow overflow-y-auto">
-                        {selectedSelection && <PrintableSelection selection={selectedSelection} deal={deal} products={selectedSelectionProducts} />}
-                    </div>
-                     <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setSelectedSelection(null)}>Close</Button>
-                        <Button type="button" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4"/> Print</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            <CreateQuotationDialog 
-                isOpen={isQuotationDialogOpen} 
-                onClose={() => setIsQuotationDialogOpen(false)}
-                onSuccess={onRefresh}
-                deal={deal}
-                customer={customer}
-                initialItems={selectedProductsForQuotation}
-                cpds={cpds}
-            />
         </>
     )
 }
+
+    
