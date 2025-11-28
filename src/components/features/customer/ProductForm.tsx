@@ -42,11 +42,11 @@ const productSchema = z.object({
 const newProductEntrySchema = z.object({
     collectionBrand: z.string().min(1, "BCN is required."),
     salesDescription: z.string().optional().default(''),
-    mrp: z.string().optional(),
+    mrp: z.string().optional().default(''),
     noOfPcs: z.string().optional().default('1'),
     verticalRepeat: z.string().optional().default(''),
     horizontalRepeat: z.string().optional().default(''),
-    quantity: z.string().optional(),
+    quantity: z.string().optional().default(''),
     remarks: z.string().optional().default(''),
 });
 
@@ -243,6 +243,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
             <FormProvider {...form}>
                 <Card className="mt-6">
                     <CardContent className="p-6">
+                        <form className="space-y-4" onSubmit={form.handleSubmit(handleUpdateActivity)}>
                          <div className="space-y-4">
                             <h3 className="text-lg font-semibold">Add More Product</h3>
                             <div className="p-4 border rounded-lg space-y-6">
@@ -296,93 +297,92 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
 
                          <Separator className="my-8" />
                          
-                        <form className="space-y-4" onSubmit={form.handleSubmit(handleUpdateActivity)}>
-                             <div className="space-y-4">
-                                <h3 className="text-lg font-semibold">Previously Added Products</h3>
-                                <div className="border rounded-md">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Modify</TableHead>
-                                                <TableHead>Room</TableHead>
-                                                <TableHead>BCN</TableHead>
-                                                <TableHead>MRP</TableHead>
-                                                <TableHead>Pcs</TableHead>
-                                                <TableHead>H-R</TableHead>
-                                                <TableHead>V-R</TableHead>
-                                                <TableHead>Description</TableHead>
-                                                <TableHead>Remark</TableHead>
-                                                <TableHead>Actions</TableHead>
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-semibold">Previously Added Products</h3>
+                            <div className="border rounded-md">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Modify</TableHead>
+                                            <TableHead>Room</TableHead>
+                                            <TableHead>BCN</TableHead>
+                                            <TableHead>MRP</TableHead>
+                                            <TableHead>Pcs</TableHead>
+                                            <TableHead>H-R</TableHead>
+                                            <TableHead>V-R</TableHead>
+                                            <TableHead>Description</TableHead>
+                                            <TableHead>Remark</TableHead>
+                                            <TableHead>Actions</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {fields.length > 0 ? fields.map((product, index) => (
+                                            <TableRow key={product.id}>
+                                                <TableCell><Checkbox checked={!!selectedRows[product.id!]} onCheckedChange={(checked) => { const newSelection = { ...selectedRows }; if (checked) {newSelection[product.id!] = true;} else {delete newSelection[product.id!];} setSelectedRows(newSelection); }} /></TableCell>
+                                                <TableCell>{product.room}</TableCell>
+                                                <TableCell>{product.collectionBrand}</TableCell>
+                                                <TableCell>{product.mrp}</TableCell>
+                                                <TableCell>{product.noOfPcs}</TableCell>
+                                                <TableCell>{product.horizontalRepeat}</TableCell>
+                                                <TableCell>{product.verticalRepeat}</TableCell>
+                                                <TableCell>{product.salesDescription}</TableCell>
+                                                <TableCell>{product.remarks}</TableCell>
+                                                <TableCell><Button type="button" variant="ghost" size="icon"><Edit className="h-4 w-4 text-blue-500" /></Button><Button type="button" variant="ghost" size="icon" onClick={() => handleDeleteItem(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
                                             </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {fields.length > 0 ? fields.map((product, index) => (
-                                                <TableRow key={product.id}>
-                                                    <TableCell><Checkbox checked={!!selectedRows[product.id!]} onCheckedChange={(checked) => { const newSelection = { ...selectedRows }; if (checked) {newSelection[product.id!] = true;} else {delete newSelection[product.id!];} setSelectedRows(newSelection); }} /></TableCell>
-                                                    <TableCell>{product.room}</TableCell>
-                                                    <TableCell>{product.collectionBrand}</TableCell>
-                                                    <TableCell>{product.mrp}</TableCell>
-                                                    <TableCell>{product.noOfPcs}</TableCell>
-                                                    <TableCell>{product.horizontalRepeat}</TableCell>
-                                                    <TableCell>{product.verticalRepeat}</TableCell>
-                                                    <TableCell>{product.salesDescription}</TableCell>
-                                                    <TableCell>{product.remarks}</TableCell>
-                                                    <TableCell><Button type="button" variant="ghost" size="icon"><Edit className="h-4 w-4 text-blue-500" /></Button><Button type="button" variant="ghost" size="icon" onClick={() => handleDeleteItem(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
-                                                </TableRow>
-                                            )) : (
-                                                <TableRow><TableCell colSpan={10} className="text-center">No products added yet.</TableCell></TableRow>
-                                            )}
-                                        </TableBody>
-                                    </Table>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
-                                    <p className="text-sm text-destructive">Please click on Update Activity if you have updated any changes.</p>
-                                </div>
+                                        )) : (
+                                            <TableRow><TableCell colSpan={10} className="text-center">No products added yet.</TableCell></TableRow>
+                                        )}
+                                    </TableBody>
+                                </Table>
                             </div>
-                            <Separator />
-                            <div className="space-y-4">
-                                <h3 className="text-lg font-semibold">Saved Selection</h3>
-                                <div className="border rounded-md">
-                                     <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Modify</TableHead>
-                                                <TableHead>Selection Id</TableHead>
-                                                <TableHead>Total No Of Room</TableHead>
-                                                <TableHead>Total MRP</TableHead>
-                                                <TableHead>Total Pcs</TableHead>
-                                                <TableHead>View</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                           {selections.map((selection) => {
-                                               const selectionProducts = fields.filter(p => p.id && Array.isArray(selection.productIds) && selection.productIds.includes(p.id!));
-                                               const roomCount = new Set(selectionProducts.map(p => p.room)).size;
-                                               const totalMrp = selectionProducts.reduce((sum, p) => sum + ((Number(p.mrp) || 0) * (Number(p.quantity) || 0)), 0);
-                                               const totalPcs = selectionProducts.reduce((sum, p) => sum + (Number(p.noOfPcs) || 0), 0);
-                                               return (
-                                                   <TableRow key={selection.id}>
-                                                       <TableCell><Checkbox /></TableCell>
-                                                       <TableCell>{selection.id}</TableCell>
-                                                       <TableCell>{roomCount}</TableCell>
-                                                       <TableCell>₹{totalMrp.toFixed(2)}</TableCell>
-                                                       <TableCell>{totalPcs}</TableCell>
-                                                       <TableCell><Button variant="ghost" size="icon" onClick={() => handleViewSelection(selection)}><Eye className="h-5 w-5"/></Button></TableCell>
-                                                   </TableRow>
-                                               )
-                                           })}
-                                        </TableBody>
-                                     </Table>
-                                </div>
-                            </div>
-                             <div className="flex justify-end items-center gap-4 pt-4 border-t">
+                            <div className="flex justify-between items-center">
+                                <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
+                                <p className="text-sm text-destructive">Please click on Update Activity if you have updated any changes.</p>
                                 <Button type="submit" disabled={activityLoading}>
                                   {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                   Update Activity
                                 </Button>
-                                <Button type="button" onClick={handleQuotationClick}>Create Quotation</Button>
                             </div>
+                        </div>
+                        <Separator />
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-semibold">Saved Selection</h3>
+                            <div className="border rounded-md">
+                                    <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Modify</TableHead>
+                                            <TableHead>Selection Id</TableHead>
+                                            <TableHead>Total No Of Room</TableHead>
+                                            <TableHead>Total MRP</TableHead>
+                                            <TableHead>Total Pcs</TableHead>
+                                            <TableHead>View</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {selections.map((selection) => {
+                                            const selectionProducts = fields.filter(p => p.id && Array.isArray(selection.productIds) && selection.productIds.includes(p.id!));
+                                            const roomCount = new Set(selectionProducts.map(p => p.room)).size;
+                                            const totalMrp = selectionProducts.reduce((sum, p) => sum + ((Number(p.mrp) || 0) * (Number(p.quantity) || 0)), 0);
+                                            const totalPcs = selectionProducts.reduce((sum, p) => sum + (Number(p.noOfPcs) || 0), 0);
+                                            return (
+                                                <TableRow key={selection.id}>
+                                                    <TableCell><Checkbox /></TableCell>
+                                                    <TableCell>{selection.id}</TableCell>
+                                                    <TableCell>{roomCount}</TableCell>
+                                                    <TableCell>₹{totalMrp.toFixed(2)}</TableCell>
+                                                    <TableCell>{totalPcs}</TableCell>
+                                                    <TableCell><Button variant="ghost" size="icon" onClick={() => handleViewSelection(selection)}><Eye className="h-5 w-5"/></Button></TableCell>
+                                                </TableRow>
+                                            )
+                                        })}
+                                    </TableBody>
+                                    </Table>
+                            </div>
+                        </div>
+                            <div className="flex justify-end items-center gap-4 pt-4 border-t">
+                            <Button type="button" onClick={handleQuotationClick}>Create Quotation</Button>
+                        </div>
                         </form>
                     </CardContent>
                 </Card>
@@ -398,8 +398,8 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                             <PrintableSelection selection={selectedSelection} deal={deal} products={selectedSelectionProducts} />
                         </div>
                         <DialogFooter>
-                             <Button type="button" variant="outline" onClick={() => setSelectedSelection(null)}>Close</Button>
-                             <Button type="button" onClick={() => {}}><Printer className="mr-2 h-4 w-4"/>Print</Button>
+                                <Button type="button" variant="outline" onClick={() => setSelectedSelection(null)}>Close</Button>
+                                <Button type="button" onClick={() => {}}><Printer className="mr-2 h-4 w-4"/>Print</Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
