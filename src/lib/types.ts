@@ -557,6 +557,7 @@ export interface Selection {
     totalMrp: number;
     totalPcs: number;
     totalRooms: number;
+    status?: 'draft' | 'final';
 }
 
 export interface InvoiceBatchItem {

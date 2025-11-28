@@ -9,10 +9,10 @@ import { Customer, Deal, DealProduct, Quotation, DealOrder, Cpd, Selection, Stoc
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Loader2, PlusCircle, Edit, Trash2, RefreshCw, Eye, Printer } from "lucide-react";
+import { Loader2, PlusCircle, Edit, Trash2, RefreshCw, Eye, Printer, MoreHorizontal } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
-import { updateDealProducts, createSelectionAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import { updateDealProducts, createSelectionAction, updateSelectionStatusAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
@@ -25,6 +25,7 @@ import { PrintableSelection } from "@/components/features/order-management/Print
 import { roomOptions } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const productSchema = z.object({
     id: z.string().optional(),
@@ -242,6 +243,17 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         toast({ title: "Item Removed", description: "Click 'Update Activity' to save this change." });
     };
 
+    const handleUpdateSelectionStatus = async (selectionId: string, status: 'draft' | 'final') => {
+        const result = await updateSelectionStatusAction(customerId, dealId, selectionId, status);
+        if (result.success) {
+            toast({ title: 'Status Updated', description: result.message });
+            onRefresh();
+        } else {
+            toast({ variant: 'destructive', title: 'Error', description: result.message });
+        }
+    };
+
+
     return (
         <>
             <FormProvider {...form}>
@@ -303,6 +315,10 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                         <div className="space-y-4">
                              <div className="flex justify-between items-center">
                                 <h3 className="text-lg font-semibold">Previously Added Products</h3>
+                                 <Button type="button" onClick={handleUpdateActivity} disabled={activityLoading}>
+                                    {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    Update Activity
+                                </Button>
                             </div>
                             <div className="border rounded-md">
                                 <Table>
@@ -328,8 +344,8 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                                 <TableCell>{product.collectionBrand}</TableCell>
                                                 <TableCell>{product.mrp}</TableCell>
                                                 <TableCell>{product.noOfPcs}</TableCell>
-                                                <TableCell>{product.horizontalRepeat}</TableCell>
-                                                <TableCell>{product.verticalRepeat}</TableCell>
+                                                <TableCell>{product.horizontalRepeat || '0.0'}</TableCell>
+                                                <TableCell>{product.verticalRepeat || '0.0'}</TableCell>
                                                 <TableCell>{product.salesDescription}</TableCell>
                                                 <TableCell>{product.remarks}</TableCell>
                                                 <TableCell><Button type="button" variant="ghost" size="icon"><Edit className="h-4 w-4 text-blue-500" /></Button><Button type="button" variant="ghost" size="icon" onClick={() => handleDeleteItem(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
@@ -339,12 +355,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                         )}
                                     </TableBody>
                                 </Table>
-                            </div>
-                             <div className="flex justify-end pt-4">
-                                <Button type="button" onClick={handleUpdateActivity} disabled={activityLoading}>
-                                  {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                  Update Activity
-                                </Button>
                             </div>
                         </div>
                         <Separator />
@@ -359,23 +369,51 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                             <TableHead>Total No Of Room</TableHead>
                                             <TableHead>Total MRP</TableHead>
                                             <TableHead>Total Pcs</TableHead>
+                                            <TableHead>Status</TableHead>
                                             <TableHead>View</TableHead>
+                                            <TableHead>Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {selections.map((selection) => {
                                             const selectionProducts = fields.filter(p => p.id && Array.isArray(selection.productIds) && selection.productIds.includes(p.id!));
-                                            const roomCount = selection.totalRooms;
-                                            const totalMrp = selection.totalMrp || 0;
-                                            const totalPcs = selection.totalPcs;
                                             return (
                                                 <TableRow key={selection.id}>
                                                     <TableCell><Checkbox /></TableCell>
                                                     <TableCell>{selection.id}</TableCell>
-                                                    <TableCell>{roomCount}</TableCell>
-                                                    <TableCell>₹{totalMrp.toFixed(2)}</TableCell>
-                                                    <TableCell>{totalPcs}</TableCell>
-                                                    <TableCell><Button type="button" variant="ghost" size="icon" onClick={() => handleViewSelection(selection)}><Eye className="h-5 w-5"/></Button></TableCell>
+                                                    <TableCell>{selection.totalRooms}</TableCell>
+                                                    <TableCell>₹{selection.totalMrp.toFixed(2)}</TableCell>
+                                                    <TableCell>{selection.totalPcs}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={selection.status === 'final' ? 'default' : 'secondary'} className={selection.status === 'final' ? 'bg-green-500' : ''}>
+                                                            {selection.status || 'draft'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Button type="button" variant="ghost" size="icon" onClick={() => handleViewSelection(selection)}>
+                                                            <Eye className="h-5 w-5"/>
+                                                        </Button>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                         <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <Button variant="ghost" size="icon">
+                                                                    <MoreHorizontal className="h-4 w-4" />
+                                                                </Button>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent>
+                                                                {selection.status === 'final' ? (
+                                                                    <DropdownMenuItem onClick={() => handleUpdateSelectionStatus(selection.id, 'draft')}>
+                                                                        Remove Final Selection
+                                                                    </DropdownMenuItem>
+                                                                ) : (
+                                                                    <DropdownMenuItem onClick={() => handleUpdateSelectionStatus(selection.id, 'final')}>
+                                                                        Final Selection
+                                                                    </DropdownMenuItem>
+                                                                )}
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </TableCell>
                                                 </TableRow>
                                             )
                                         })}

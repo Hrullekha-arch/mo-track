@@ -652,6 +652,7 @@ export async function createSelectionAction(customerId: string, dealId: string, 
         totalMrp: totalMrp,
         totalPcs: totalPcs,
         totalRooms: totalRooms,
+        status: 'draft',
       };
   
       await selectionsRef.doc(selectionId).set(newSelection);
@@ -699,4 +700,28 @@ export async function getSelectionsForDeal(customerId: string, dealId: string): 
         console.error("Error fetching selections:", error);
         return [];
     }
+}
+
+export async function updateSelectionStatusAction(
+  customerId: string,
+  dealId: string,
+  selectionId: string,
+  status: 'draft' | 'final'
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const selectionRef = adminDb
+      .collection('customers')
+      .doc(customerId)
+      .collection('deals')
+      .doc(dealId)
+      .collection('selections')
+      .doc(selectionId);
+
+    await selectionRef.update({ status });
+
+    return { success: true, message: `Selection status updated to ${status}.` };
+  } catch (error: any) {
+    console.error('Error updating selection status:', error);
+    return { success: false, message: 'Failed to update selection status.' };
+  }
 }
