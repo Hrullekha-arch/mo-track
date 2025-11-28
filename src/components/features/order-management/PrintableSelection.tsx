@@ -1,95 +1,90 @@
-import { Deal, Product, Selection } from "@/lib/types";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Separator } from "@/components/ui/separator";
+
+"use client";
+
+import { Deal, DealProduct, Selection } from "@/lib/types";
+import { format } from "date-fns";
+import Image from "next/image";
 
 interface PrintableSelectionProps {
     selection: Selection;
     deal: Deal | null;
-    products: Product[];
+    products: DealProduct[];
 }
 
 export function PrintableSelection({ selection, deal, products }: PrintableSelectionProps) {
+    const groupedProducts = products.reduce((acc, product) => {
+        const room = product.room || 'Unassigned';
+        if (!acc[room]) {
+            acc[room] = [];
+        }
+        acc[room].push(product);
+        return acc;
+    }, {} as Record<string, DealProduct[]>);
 
-    const calculateRoomTotals = (productIds: string[]) => {
-        let totalMrp = 0;
-        let totalItems = 0;
-
-        productIds.forEach(productId => {
-            const product = products.find(p => p.id === productId);
-            if (product) {
-                totalMrp += product.mrp;
-                totalItems += 1; // Assuming qty is 1 for each product line
-            }
-        });
-
-        return { totalMrp, totalItems };
-    };
-
-    const roomTotals = calculateRoomTotals(selection.productIds);
-
-    //This is a placeholder for a grand total calculation
-    const grandTotalQty = roomTotals.totalItems;
-    const grandTotalAmount = roomTotals.totalMrp;
+    const grandTotalQty = products.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
+    const grandTotalAmount = products.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.mrp) || 0)), 0);
 
     return (
-        <div className="bg-white text-black p-8 font-sans">
-            <div className="text-center mb-8">
-                <h1 className="text-3xl font-bold">Selection #{selection.id.slice(-4)}</h1>
-                <p className="text-sm text-gray-600">
-                    Created by {deal?.salesmanName || 'admin'} on {new Date(selection.createdAt.seconds * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+        <div className="bg-white text-black p-4 font-sans text-xs">
+            <header className="text-center mb-4">
+                <h1 className="text-xl font-bold">Selection #{selection.id}</h1>
+                <p className="text-sm text-gray-500">
+                    Created by {selection.createdBy} on {format(new Date(selection.createdAt), "PPP")}
                 </p>
-            </div>
+                {deal && <p className="text-sm text-gray-500">Deal: {deal.dealName}</p>}
+            </header>
 
-            <div className="mb-8">
-                <Card className="border-none shadow-none">
-                    <CardHeader className="px-2">
-                        <CardTitle className="text-xl">{selection.room}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-2">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead className="w-[150px] text-black font-semibold">Collection/Brand</TableHead>
-                                    <TableHead className="text-black font-semibold">MRP</TableHead>
-                                    <TableHead className="text-black font-semibold">Qty</TableHead>
-                                    <TableHead className="text-black font-semibold">No of Pcs</TableHead>
-                                    <TableHead className="text-black font-semibold">V-R</TableHead>
-                                    <TableHead className="text-black font-semibold">H-R</TableHead>
-                                    <TableHead className="text-black font-semibold">Remarks</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {selection.productIds.map(productId => {
-                                    const product = products.find(p => p.id === productId);
-                                    if (!product) return null;
+            <div className="space-y-4">
+                {Object.entries(groupedProducts).map(([room, roomProducts]) => {
+                    const roomTotalAmount = roomProducts.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.mrp) || 0)), 0);
+                    const roomTotalItems = roomProducts.length;
 
-                                    return (
-                                        <TableRow key={product.id}>
-                                            <TableCell>{product.collection || 'N/A'}</TableCell>
-                                            <TableCell>₹{product.mrp.toFixed(2)}</TableCell>
-                                            <TableCell>1</TableCell> {/* Placeholder */}
-                                            <TableCell>1</TableCell> {/* Placeholder */}
-                                            <TableCell></TableCell> {/* Placeholder */}
-                                            <TableCell></TableCell> {/* Placeholder */}
-                                            <TableCell></TableCell> {/* Placeholder */}
-                                        </TableRow>
-                                    );
-                                })}
-                            </TableBody>
-                        </Table>
-                        <div className="text-right mt-4 pr-4">
-                            <p><strong>Total MRP Per Room:</strong> ₹{roomTotals.totalMrp.toFixed(2)}</p>
-                            <p><strong>Total Items Per Room:</strong> {roomTotals.totalItems}</p>
+                    return (
+                        <div key={room}>
+                            <h3 className="font-bold bg-gray-100 p-2 rounded-t-md">{room}</h3>
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="border-b">
+                                        <th className="p-1">Collection/Brand</th>
+                                        <th className="p-1">MRP</th>
+                                        <th className="p-1">Qty</th>
+                                        <th className="p-1">No of Pcs</th>
+                                        <th className="p-1">V-R</th>
+                                        <th className="p-1">H-R</th>
+                                        <th className="p-1">Remarks</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {roomProducts.map(p => (
+                                        <tr key={p.id} className="border-b">
+                                            <td className="p-1">{p.collectionBrand}</td>
+                                            <td className="p-1">{p.mrp}</td>
+                                            <td className="p-1">{p.quantity}</td>
+                                            <td className="p-1">{p.noOfPcs}</td>
+                                            <td className="p-1">{p.verticalRepeat}</td>
+                                            <td className="p-1">{p.horizontalRepeat}</td>
+                                            <td className="p-1">{p.remarks}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td colSpan={6} className="text-right font-semibold p-1">Total MRP Per Room:</td>
+                                        <td className="font-bold p-1">₹{roomTotalAmount.toFixed(2)}</td>
+                                    </tr>
+                                    <tr>
+                                        <td colSpan={6} className="text-right font-semibold p-1">Total Items Per Room:</td>
+                                        <td className="font-bold p-1">{roomTotalItems}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
                         </div>
-                    </CardContent>
-                </Card>
+                    );
+                })}
             </div>
 
-            <Separator className="my-4 bg-gray-300" />
-
-            <div className="text-right font-bold text-lg">
-                <span className="mr-8">Grand Total Qty: {grandTotalQty}</span>
+            <div className="text-right font-bold text-sm mt-4 border-t pt-2">
+                <span className="mr-4">Grand Total Qty: {grandTotalQty.toFixed(2)}</span>
                 <span>Grand Total: ₹{grandTotalAmount.toFixed(2)}</span>
             </div>
         </div>

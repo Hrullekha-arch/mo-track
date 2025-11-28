@@ -3,7 +3,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess, Selection } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess, Selection, Stock } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 import { VisitFormValues } from './page';
 import { getMilestonesForOrder } from '@/lib/constants';
@@ -637,10 +637,12 @@ export async function createSelectionAction(customerId: string, dealId: string, 
         isUnique = true;
       }
     } while (!isUnique);
+    
+    const productIds = products.map(p => p.id).filter((id): id is string => !!id);
 
     const newSelection: Selection = {
       id: selectionId,
-      products: products,
+      productIds: productIds,
       createdAt: new Date().toISOString(),
       createdBy: creatorName,
     };
@@ -658,6 +660,16 @@ export async function createSelectionAction(customerId: string, dealId: string, 
     return { success: false, message: `Failed to create selection: ${error.message}` };
   }
 }
+
+export async function getProductsByIds(productIds: string[]): Promise<DealProduct[]> {
+    // In a real application, you would query your database for products with these IDs.
+    // Since the products are part of the deal document, we can't query them directly.
+    // This function is a placeholder and would need a better data model to work efficiently.
+    // For now, we will return an empty array.
+    console.warn("getProductsByIds is a placeholder and not implemented efficiently.");
+    return [];
+}
+
 
 export async function getSelectionsForDeal(customerId: string, dealId: string): Promise<Selection[]> {
     try {

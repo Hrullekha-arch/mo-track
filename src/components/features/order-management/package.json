@@ -19,6 +19,7 @@
         "./QuotationDetailDialog.tsx",
         "./PrintableQuotation.tsx",
         "./PrintableQuotationProfessional.tsx",
-        "./PrintableOrder.tsx"
+        "./PrintableOrder.tsx",
+        "./PrintableSelection.tsx"
     ]
 }
