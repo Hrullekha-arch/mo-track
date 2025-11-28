@@ -47,7 +47,6 @@ const newProductEntrySchema = z.object({
     horizontalRepeat: z.string().optional().default(''),
     quantity: z.string().optional().default(''),
     remarks: z.string().optional().default(''),
-    noOfPcs: z.string().optional().default('1'),
 });
 
 const productListSchema = z.object({
@@ -102,7 +101,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                 horizontalRepeat: '',
                 quantity: '',
                 remarks: '',
-                noOfPcs: '1',
             }
         },
     });
@@ -155,7 +153,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
             ...form.getValues(),
             newProduct: {
                 collectionBrand: '', salesDescription: '', mrp: '', 
-                verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: '', noOfPcs: '1'
+                verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: ''
             }
         });
     };
@@ -181,8 +179,10 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
     };
 
     const handleUpdateActivity = async () => {
-        setActivityLoading(true);
         const productsToSave = form.getValues('products');
+        // This button should ONLY validate and submit the products array, not the newProduct fields.
+        // By getting the values directly and calling the server action, we bypass the main form's validation logic.
+        setActivityLoading(true);
         const result = await updateDealProducts(customerId, dealId, productsToSave);
         if(result.success) {
             toast({ title: "Products Updated", description: "The product list has been saved."});
@@ -257,7 +257,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                         </FormItem>
                                      )}/>
                                      <div className="md:col-span-2 flex items-end gap-2">
-                                        <Button type="button" variant="outline" onClick={() => append({name: "", items: []})}> <PlusCircle className="mr-2 h-4 w-4" /> Add new Room </Button>
+                                        <Button type="button" variant="outline" onClick={() => {}}> <PlusCircle className="mr-2 h-4 w-4" /> Add new Room </Button>
                                         <Button type="button" onClick={handleAddProductsToList}>Add Products to List</Button>
                                     </div>
                                 </div>
@@ -300,10 +300,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                         <div className="space-y-4">
                              <div className="flex justify-between items-center">
                                 <h3 className="text-lg font-semibold">Previously Added Products</h3>
-                                <Button type="button" onClick={handleUpdateActivity} disabled={activityLoading}>
-                                  {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                  Update Activity
-                                </Button>
                             </div>
                             <div className="border rounded-md">
                                 <Table>
@@ -340,6 +336,12 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                         )}
                                     </TableBody>
                                 </Table>
+                            </div>
+                             <div className="flex justify-end pt-4">
+                                <Button type="button" onClick={handleUpdateActivity} disabled={activityLoading}>
+                                  {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                  Update Activity
+                                </Button>
                             </div>
                         </div>
                         <Separator />
