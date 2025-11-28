@@ -43,7 +43,6 @@ const newProductEntrySchema = z.object({
     collectionBrand: z.string().min(1, "BCN is required."),
     salesDescription: z.string().optional().default(''),
     mrp: z.string().optional().default(''),
-    noOfPcs: z.string().optional().default('1'),
     verticalRepeat: z.string().optional().default(''),
     horizontalRepeat: z.string().optional().default(''),
     quantity: z.string().optional().default(''),
@@ -98,7 +97,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                 collectionBrand: '',
                 salesDescription: '',
                 mrp: '',
-                noOfPcs: '1',
                 verticalRepeat: '',
                 horizontalRepeat: '',
                 quantity: '',
@@ -154,7 +152,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         form.reset({
             ...form.getValues(),
             newProduct: {
-                collectionBrand: '', salesDescription: '', mrp: '', noOfPcs: '1', 
+                collectionBrand: '', salesDescription: '', mrp: '', 
                 verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: ''
             }
         });
@@ -257,7 +255,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                      )}/>
                                      <div className="md:col-span-2 flex items-end gap-2">
                                         <Button type="button" variant="outline" onClick={() => append({name: "", items: []})}> <PlusCircle className="mr-2 h-4 w-4" /> Add new Room </Button>
-                                        <Button type="button" onClick={handleAddProductsToList}>Add Product to List</Button>
+                                        <Button type="button" onClick={handleAddProductsToList}>Add Products to List</Button>
                                     </div>
                                 </div>
                                 
@@ -273,14 +271,13 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                     )} />
                                     <FormField control={form.control} name="newProduct.salesDescription" render={({ field }) => (<FormItem><FormLabel>Sales Description</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                                     <FormField control={form.control} name="newProduct.mrp" render={({ field }) => (<FormItem><FormLabel>MRP</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-                                    <FormField control={form.control} name="newProduct.noOfPcs" render={({ field }) => (<FormItem><FormLabel>No Of Pcs</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                                    <FormField control={form.control} name="newProduct.quantity" render={({ field }) => (<FormItem><FormLabel>Qty</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                     <FormField control={form.control} name="newProduct.verticalRepeat" render={({ field }) => (<FormItem><FormLabel>Vertical Repeat</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                                     <FormField control={form.control} name="newProduct.horizontalRepeat" render={({ field }) => (<FormItem><FormLabel>Horizontal Repeat</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                    <FormField control={form.control} name="newProduct.quantity" render={({ field }) => (<FormItem><FormLabel>Qty</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                                    <FormField control={form.control} name="newProduct.remarks" render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
                                 </div>
-                                <FormField control={form.control} name="newProduct.remarks" render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
                                 
                                 <Button type="button" size="sm" onClick={handleStageItem}>Add Item</Button>
 
@@ -298,7 +295,13 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                          <Separator className="my-8" />
                          
                         <div className="space-y-4">
-                            <h3 className="text-lg font-semibold">Previously Added Products</h3>
+                             <div className="flex justify-between items-center">
+                                <h3 className="text-lg font-semibold">Previously Added Products</h3>
+                                <Button type="submit" disabled={activityLoading}>
+                                  {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                  Update Activity
+                                </Button>
+                            </div>
                             <div className="border rounded-md">
                                 <Table>
                                     <TableHeader>
@@ -334,14 +337,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                         )}
                                     </TableBody>
                                 </Table>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
-                                <p className="text-sm text-destructive">Please click on Update Activity if you have updated any changes.</p>
-                                <Button type="submit" disabled={activityLoading}>
-                                  {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                  Update Activity
-                                </Button>
                             </div>
                         </div>
                         <Separator />
@@ -380,7 +375,8 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                     </Table>
                             </div>
                         </div>
-                            <div className="flex justify-end items-center gap-4 pt-4 border-t">
+                            <div className="flex justify-between items-center pt-4 border-t">
+                             <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
                             <Button type="button" onClick={handleQuotationClick}>Create Quotation</Button>
                         </div>
                         </form>
