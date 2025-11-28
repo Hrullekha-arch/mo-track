@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack -p 9002",
+    "dev": "next dev -p 9002",
     "build:ssr": "next build && rm -rf functions/.next && mkdir -p functions && cp -r public functions/ && cp package.json functions/ && cp -r .next functions/",
     "deploy:ssr": "npm run build:ssr && firebase deploy --only functions,hosting",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
