@@ -39,6 +39,8 @@ const measurementEntrySchema = z.object({
     marking: z.string().optional(),
     casement: z.string().optional(),
     niwar: z.string().optional(),
+    foam: z.boolean().optional(),
+    markingFlag: z.boolean().optional(),
     // Common fields
     remark: z.string().optional(),
     pictures: z.any().optional(),
@@ -116,16 +118,116 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
         <Card className="relative bg-background/50 overflow-hidden p-4">
              <Button type="button" variant="destructive" size="icon" className="absolute top-2 right-2 h-7 w-7" onClick={() => remove(entryIndex)}><Trash2 className="h-4 w-4"/></Button>
             <div className="space-y-3">
-                {isSofaMeasurement ? (
-                    <div className="space-y-3">
-                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.noOfSheet`} render={({ field }) => (<FormItem><FormLabel>No Of Sheet</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.fabricQty1`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 1</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.fabricQty2`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 2</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.marking`} render={({ field }) => (<FormItem><FormLabel>Marking (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.casement`} render={({ field }) => (<FormItem><FormLabel>Casement (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.niwar`} render={({ field }) => (<FormItem><FormLabel>Niwar (MTR)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+            {isSofaMeasurement ? (
+                <div className="space-y-4">
+                    <FormField
+                        control={control}
+                        name={`rooms.${roomIndex}.entries.${entryIndex}.noOfSheet`}
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Item Name</FormLabel>
+                                <FormControl>
+                                    <Input {...field} placeholder="e.g. 3 Seater Sofa" />
+                                </FormControl>
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={control}
+                        name={`rooms.${roomIndex}.entries.${entryIndex}.fabricQty1`}
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>No Of Seat / Pcs</FormLabel>
+                                <FormControl>
+                                    <Input {...field} placeholder="e.g. 3" />
+                                </FormControl>
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={control}
+                        name={`rooms.${roomIndex}.entries.${entryIndex}.fabricQty2`}
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Fabric Qty</FormLabel>
+                                <FormControl>
+                                    <Input {...field} placeholder="e.g. 4.5 Mtr" />
+                                </FormControl>
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={control}
+                        name={`rooms.${roomIndex}.entries.${entryIndex}.marking`}
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Stitching Rate / per Sheet</FormLabel>
+                                <FormControl>
+                                    <Input {...field} placeholder="e.g. ₹200" />
+                                </FormControl>
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={control}
+                        name={`rooms.${roomIndex}.entries.${entryIndex}.remark`}
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Remark</FormLabel>
+                                <FormControl>
+                                    <Textarea {...field} placeholder="Additional notes..." />
+                                </FormControl>
+                            </FormItem>
+                        )}
+                    />
+                    <div className="space-y-1">
+                        <FormLabel className="font-semibold">Options</FormLabel>
+                        <div className="grid grid-cols-2 gap-2">
+                             <FormField
+                                control={control}
+                                name={`rooms.${roomIndex}.entries.${entryIndex}.foam`}
+                                render={({ field }) => (
+                                    <FormItem className="flex items-center gap-2 space-y-0">
+                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                        <FormLabel>Foam</FormLabel>
+                                    </FormItem>
+                                )}
+                            />
+                             <FormField
+                                control={control}
+                                name={`rooms.${roomIndex}.entries.${entryIndex}.casement`}
+                                render={({ field }) => (
+                                    <FormItem className="flex items-center gap-2 space-y-0">
+                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                        <FormLabel>Casement</FormLabel>
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={control}
+                                name={`rooms.${roomIndex}.entries.${entryIndex}.markingFlag`}
+                                render={({ field }) => (
+                                    <FormItem className="flex items-center gap-2 space-y-0">
+                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                        <FormLabel>Marking</FormLabel>
+                                    </FormItem>
+                                )}
+                            />
+                             <FormField
+                                control={control}
+                                name={`rooms.${roomIndex}.entries.${entryIndex}.niwar`}
+                                render={({ field }) => (
+                                    <FormItem className="flex items-center gap-2 space-y-0">
+                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                        <FormLabel>Niwar</FormLabel>
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
                     </div>
-                ) : (
+                </div>
+            ) : (
+
                     <div className="space-y-3">
                         <div className="space-y-2 rounded-lg bg-background/50 p-3 border">
                            <div className="flex items-end gap-2">
@@ -598,5 +700,3 @@ export default function MeasurementPage() {
         </div>
     );
 }
-
-    
