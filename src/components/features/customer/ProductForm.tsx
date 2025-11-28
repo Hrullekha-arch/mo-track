@@ -30,13 +30,13 @@ import { Textarea } from "@/components/ui/textarea";
 const productSchema = z.object({
     id: z.string().optional(),
     collectionBrand: z.string().min(1, "BCN is required."),
-    salesDescription: z.string().optional().default(''),
+    salesDescription: z.string().optional(),
     mrp: z.string().optional(),
-    noOfPcs: z.string().optional().default('1'),
-    verticalRepeat: z.string().optional().default(''),
-    horizontalRepeat: z.string().optional().default(''),
+    noOfPcs: z.string().optional(),
+    verticalRepeat: z.string().optional(),
+    horizontalRepeat: z.string().optional(),
     quantity: z.string().optional(),
-    remarks: z.string().optional().default(''),
+    remarks: z.string().optional(),
     room: z.string().optional(), // Added room to individual item
 });
 
@@ -82,7 +82,15 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
     const form = useForm<ProductListFormValues>({
         resolver: zodResolver(productListSchema),
         defaultValues: {
-            products: initialProducts.map(p => ({...p, id: p.id || p.collectionBrand})),
+            products: initialProducts.map(p => ({
+                ...p, 
+                id: p.id || p.collectionBrand,
+                salesDescription: p.salesDescription || '',
+                noOfPcs: p.noOfPcs || '1',
+                verticalRepeat: p.verticalRepeat || '',
+                horizontalRepeat: p.horizontalRepeat || '',
+                remarks: p.remarks || '',
+            })),
             room: '',
             newProduct: {
                 collectionBrand: '',
@@ -241,7 +249,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                      )}/>
                                      <div className="md:col-span-2 flex items-end gap-2">
                                         <Button type="button" variant="outline" onClick={() => append({name: "", items: []})}> <PlusCircle className="mr-2 h-4 w-4" /> Add new Room </Button>
-                                        <Button type="button" onClick={handleAddProductsToList}>Add Products to List</Button>
+                                        <Button type="button" onClick={handleAddProductsToList}>Add Product to List</Button>
                                     </div>
                                 </div>
                                 
@@ -342,7 +350,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                         </TableHeader>
                                         <TableBody>
                                            {selections.map((selection) => {
-                                               const selectionProducts = fields.filter(p => p.id && selection.productIds.includes(p.id!));
+                                               const selectionProducts = fields.filter(p => p.id && Array.isArray(selection.productIds) && selection.productIds.includes(p.id!));
                                                const roomCount = new Set(selectionProducts.map(p => p.room)).size;
                                                const totalMrp = selectionProducts.reduce((sum, p) => sum + ((Number(p.mrp) || 0) * (Number(p.quantity) || 0)), 0);
                                                const totalPcs = selectionProducts.reduce((sum, p) => sum + (Number(p.noOfPcs) || 0), 0);
@@ -392,3 +400,5 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         </>
     )
 }
+
+    
