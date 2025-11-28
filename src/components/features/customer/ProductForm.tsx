@@ -47,6 +47,7 @@ const newProductEntrySchema = z.object({
     horizontalRepeat: z.string().optional().default(''),
     quantity: z.string().optional().default(''),
     remarks: z.string().optional().default(''),
+    noOfPcs: z.string().optional().default('1'),
 });
 
 const productListSchema = z.object({
@@ -101,6 +102,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                 horizontalRepeat: '',
                 quantity: '',
                 remarks: '',
+                noOfPcs: '1',
             }
         },
     });
@@ -153,7 +155,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
             ...form.getValues(),
             newProduct: {
                 collectionBrand: '', salesDescription: '', mrp: '', 
-                verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: ''
+                verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: '', noOfPcs: '1'
             }
         });
     };
@@ -178,9 +180,10 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         toast({ title: "Products Added", description: `${stagedItems.length} item(s) added to the list. Click 'Update Activity' to save.` });
     };
 
-    const handleUpdateActivity = async (data: ProductListFormValues) => {
+    const handleUpdateActivity = async () => {
         setActivityLoading(true);
-        const result = await updateDealProducts(customerId, dealId, data.products);
+        const productsToSave = form.getValues('products');
+        const result = await updateDealProducts(customerId, dealId, productsToSave);
         if(result.success) {
             toast({ title: "Products Updated", description: "The product list has been saved."});
             onRefresh();
@@ -241,7 +244,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
             <FormProvider {...form}>
                 <Card className="mt-6">
                     <CardContent className="p-6">
-                        <form className="space-y-4" onSubmit={form.handleSubmit(handleUpdateActivity)}>
+                        <form className="space-y-4">
                          <div className="space-y-4">
                             <h3 className="text-lg font-semibold">Add More Product</h3>
                             <div className="p-4 border rounded-lg space-y-6">
@@ -297,7 +300,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                         <div className="space-y-4">
                              <div className="flex justify-between items-center">
                                 <h3 className="text-lg font-semibold">Previously Added Products</h3>
-                                <Button type="submit" disabled={activityLoading}>
+                                <Button type="button" onClick={handleUpdateActivity} disabled={activityLoading}>
                                   {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                   Update Activity
                                 </Button>
@@ -403,5 +406,3 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         </>
     )
 }
-
-    
