@@ -170,6 +170,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         }
         const newProductsForForm = stagedItems.map(item => ({
             ...item,
+            quantity: item.quantity || '0', // Ensure quantity has a default
             room,
             id: `${item.collectionBrand}-${Date.now()}`
         }));
@@ -364,9 +365,9 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                     <TableBody>
                                         {selections.map((selection) => {
                                             const selectionProducts = fields.filter(p => p.id && Array.isArray(selection.productIds) && selection.productIds.includes(p.id!));
-                                            const roomCount = new Set(selectionProducts.map(p => p.room)).size;
+                                            const roomCount = selection.totalRooms;
                                             const totalMrp = selection.totalMrp || 0;
-                                            const totalPcs = selectionProducts.reduce((sum, p) => sum + (Number(p.noOfPcs) || 0), 0);
+                                            const totalPcs = selection.totalPcs;
                                             return (
                                                 <TableRow key={selection.id}>
                                                     <TableCell><Checkbox /></TableCell>
