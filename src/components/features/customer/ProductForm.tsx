@@ -89,8 +89,8 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                 verticalRepeat: p.verticalRepeat || '',
                 horizontalRepeat: p.horizontalRepeat || '',
                 remarks: p.remarks || '',
-                quantity: p.quantity || '',
-                mrp: p.mrp || '',
+                quantity: p.quantity || '0',
+                mrp: p.mrp || '0',
                 room: p.room || '',
             })),
             room: '',
@@ -406,3 +406,5 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         </>
     )
 }
+
+    
