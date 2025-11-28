@@ -150,7 +150,23 @@ function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: ()
                      )} />
                 </div>
             ))}
-            <Button type="button" variant="ghost" size="icon" onClick={() => append({ collectionBrand: '', noOfPcs: '1' })}><PlusCircle className="h-6 w-6 text-primary" /></Button>
+            <Button 
+                type="button" 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => append({ 
+                    collectionBrand: '', 
+                    salesDescription: '', 
+                    mrp: '',
+                    noOfPcs: '1', 
+                    verticalRepeat: '',
+                    horizontalRepeat: '',
+                    quantity: '',
+                    remarks: '',
+                })}
+            >
+                <PlusCircle className="h-6 w-6 text-primary" />
+            </Button>
         </Card>
     );
 }
@@ -374,3 +390,5 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         </>
     )
 }
+
+    
