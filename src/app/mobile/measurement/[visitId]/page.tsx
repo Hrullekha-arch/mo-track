@@ -23,6 +23,7 @@ import { Loader2, ArrowLeft, PlusCircle, Trash2, Eye, StepBack } from "lucide-re
 import Image from 'next/image';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const measurementEntrySchema = z.object({
     id: z.string().optional(),
