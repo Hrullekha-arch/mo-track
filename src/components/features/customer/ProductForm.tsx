@@ -365,7 +365,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                         {selections.map((selection) => {
                                             const selectionProducts = fields.filter(p => p.id && Array.isArray(selection.productIds) && selection.productIds.includes(p.id!));
                                             const roomCount = new Set(selectionProducts.map(p => p.room)).size;
-                                            const totalMrp = selectionProducts.reduce((sum, p) => sum + ((Number(p.mrp) || 0) * (Number(p.quantity) || 0)), 0);
+                                            const totalMrp = selection.totalMrp || 0;
                                             const totalPcs = selectionProducts.reduce((sum, p) => sum + (Number(p.noOfPcs) || 0), 0);
                                             return (
                                                 <TableRow key={selection.id}>
