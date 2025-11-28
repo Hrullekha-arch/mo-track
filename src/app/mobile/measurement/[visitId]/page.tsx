@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from 'react';
@@ -28,8 +29,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '@/components/ui/label';
 
 const foamSchema = z.object({
-    name: z.string().optional(),
-    make: z.string().optional(),
+    foamSize: z.string().optional(),
+    qty: z.string().optional(),
     density: z.string().optional(),
 });
 
@@ -46,14 +47,15 @@ const measurementEntrySchema = z.object({
     widthUnit: z.string().optional().default('inch'),
     noOfPannel: z.string().optional(),
     // Sofa fields
+    itemName: z.string().optional(),
     noOfSheet: z.string().optional(),
     fabricQty1: z.string().optional(),
     fabricQty2: z.string().optional(),
-    marking: z.string().optional(),
-    casement: simpleQtySchema.optional(),
-    niwar: simpleQtySchema.optional(),
+    stitchingRate: z.string().optional(),
     foam: foamSchema.optional(),
-    markingFlag: simpleQtySchema.optional(),
+    casement: simpleQtySchema.optional(),
+    marking: simpleQtySchema.optional(),
+    niwar: simpleQtySchema.optional(),
     // Common fields
     remark: z.string().optional(),
     pictures: z.any().optional(),
@@ -145,12 +147,12 @@ const FoamDialog = ({
                 </DialogHeader>
                 <form onSubmit={handleSubmit(handleSave)} className="py-4 space-y-4">
                     <div>
-                        <Label htmlFor="foam-name">Name</Label>
-                        <Input id="foam-name" {...register("name")} />
+                        <Label htmlFor="foam-size">Foam size</Label>
+                        <Input id="foam-size" {...register("foamSize")} />
                     </div>
                     <div>
-                        <Label htmlFor="foam-make">Make</Label>
-                        <Input id="foam-make" {...register("make")} />
+                        <Label htmlFor="foam-qty">Qty</Label>
+                        <Input id="foam-qty" {...register("qty")} />
                     </div>
                     <div>
                         <Label htmlFor="foam-density">Density</Label>
@@ -227,7 +229,7 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                 <div className="space-y-4">
                     <FormField
                         control={control}
-                        name={`rooms.${roomIndex}.entries.${entryIndex}.noOfSheet`}
+                        name={`rooms.${roomIndex}.entries.${entryIndex}.itemName`}
                         render={({ field }) => (
                             <FormItem>
                                 <FormLabel>Item Name</FormLabel>
@@ -239,7 +241,7 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                     />
                     <FormField
                         control={control}
-                        name={`rooms.${roomIndex}.entries.${entryIndex}.fabricQty1`}
+                        name={`rooms.${roomIndex}.entries.${entryIndex}.noOfSheet`}
                         render={({ field }) => (
                             <FormItem>
                                 <FormLabel>No Of Seat / Pcs</FormLabel>
@@ -251,7 +253,7 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                     />
                     <FormField
                         control={control}
-                        name={`rooms.${roomIndex}.entries.${entryIndex}.fabricQty2`}
+                        name={`rooms.${roomIndex}.entries.${entryIndex}.fabricQty1`}
                         render={({ field }) => (
                             <FormItem>
                                 <FormLabel>Fabric Qty</FormLabel>
@@ -263,7 +265,7 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                     />
                     <FormField
                         control={control}
-                        name={`rooms.${roomIndex}.entries.${entryIndex}.marking`}
+                        name={`rooms.${roomIndex}.entries.${entryIndex}.stitchingRate`}
                         render={({ field }) => (
                             <FormItem>
                                 <FormLabel>Stitching Rate / per Sheet</FormLabel>
@@ -274,11 +276,11 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                         )}
                     />
                     <div className="space-y-2">
-                        <FormLabel className="font-semibold">Options</FormLabel>
+                        <FormLabel>Options</FormLabel>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('foam')}>Foam</Button>
-                                {entryData?.foam && <p className="text-xs text-muted-foreground mt-1">Name: {entryData.foam.name}, Make: {entryData.foam.make}, Density: {entryData.foam.density}</p>}
+                                {entryData?.foam && <p className="text-xs text-muted-foreground mt-1">Size: {entryData.foam.foamSize}, Qty: {entryData.foam.qty}, Density: {entryData.foam.density}</p>}
                             </div>
                              <div>
                                 <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('casement')}>Casement</Button>
@@ -286,7 +288,7 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                             </div>
                              <div>
                                 <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('marking')}>Marking</Button>
-                                {entryData?.markingFlag?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.markingFlag.qty} Mtr</p>}
+                                {entryData?.marking?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.marking.qty} Mtr</p>}
                             </div>
                              <div>
                                 <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('niwar')}>Niwar</Button>
@@ -294,18 +296,6 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                             </div>
                         </div>
                     </div>
-                     <FormField
-                            control={control}
-                            name={`rooms.${roomIndex}.entries.${entryIndex}.remark`}
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Additional notes</FormLabel>
-                                    <FormControl>
-                                        <Textarea placeholder="Any other details..." {...field} value={field.value || ''} />
-                                    </FormControl>
-                                </FormItem>
-                            )}
-                        />
                 </div>
             ) : (
                     <div className="space-y-3">
@@ -320,10 +310,10 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                            </div>
                         </div>
                         <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                        <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.remark`} render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                        
                     </div>
                 )}
-                
+                 <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.remark`} render={({ field }) => (<FormItem><FormLabel>Additional notes</FormLabel><FormControl><Textarea placeholder="Any other details..." {...field} value={field.value || ''} /></FormControl></FormItem>)} />
                 <FormItem>
                     <FormLabel>Choose Picture(s)</FormLabel>
                     <div className="flex items-center gap-2">
@@ -362,7 +352,7 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
             <SimpleQtyDialog
                 isOpen={openDialog === 'marking'}
                 onClose={() => setOpenDialog(null)}
-                onSave={(data) => setValue(`rooms.${roomIndex}.entries.${entryIndex}.markingFlag`, data)}
+                onSave={(data) => setValue(`rooms.${roomIndex}.entries.${entryIndex}.marking`, data)}
                 title="Enter Marking Quantity"
             />
             <SimpleQtyDialog
@@ -464,10 +454,10 @@ const MeasurementPreview = ({
                                     <h4 className="font-semibold">Entry #{entryIndex + 1}</h4>
                                     {values.typeOf === 'Sofa Measurement' ? (
                                         <div className="grid grid-cols-2 gap-2 text-sm">
-                                            <p><strong>Item Name:</strong> {entry.noOfSheet || 'N/A'}</p>
-                                            <p><strong>No of Seat / Pcs:</strong> {entry.fabricQty1 || 'N/A'}</p>
-                                            <p><strong>Fabric Qty:</strong> {entry.fabricQty2 || 'N/A'}</p>
-                                            <p><strong>Stitching Rate / per Sheet:</strong> {entry.marking || 'N/A'}</p>
+                                            <p><strong>Item Name:</strong> {entry.itemName || 'N/A'}</p>
+                                            <p><strong>No of Seat / Pcs:</strong> {entry.noOfSheet || 'N/A'}</p>
+                                            <p><strong>Fabric Qty:</strong> {entry.fabricQty1 || 'N/A'}</p>
+                                            <p><strong>Stitching Rate / per Sheet:</strong> {entry.stitchingRate || 'N/A'}</p>
                                         </div>
                                     ) : (
                                         <div className="space-y-1 text-sm">
@@ -803,5 +793,3 @@ export default function MeasurementPage() {
         </div>
     );
 }
-
-    
