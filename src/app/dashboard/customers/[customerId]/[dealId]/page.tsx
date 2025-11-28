@@ -2,8 +2,8 @@
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
-import { useParams, useRouter } from "next/navigation";
-import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
 import { Customer, Deal, User, Quotation, DealOrder, DealVisit, DealMeasurement, Cpd, Selection, Order } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription,CardFooter } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -22,7 +22,8 @@ import {
   Receipt,
   ShoppingCart,
   User as UserIcon,
-  Contact2
+  Contact2,
+  Eye
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -44,6 +45,7 @@ import { ProductForm } from "@/components/features/customer/ProductForm";
 import { format } from "date-fns";
 import { PrintableSelection } from "@/components/features/order-management/PrintableSelection";
 import { PrintableCpd, PrintableCustomerCpd } from "@/components/features/customer/PrintableCpd";
+import { Table, TableHeader, TableRow, TableBody, TableCell, TableHead } from "@/components/ui/table";
 
 
 function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreated }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[], onOrderCreated: () => void }) {

@@ -51,7 +51,7 @@ const initialProductTypeOptions: ComboboxOption[] = [
     // ... add all other types
 ];
 
-function AddProductForm({ onAddProduct, productTypeOptions, roomOptions, openAddOptionDialog }: { onAddProduct: (data: ProductFormValues) => void, productTypeOptions: ComboboxOption[], roomOptions: ComboboxOption[], openAddOptionDialog: (field: 'room' | 'type', onSave: (value: string) => void) => void }) {
+function AddProductForm({ onAddProduct }: { onAddProduct: (data: ProductFormValues) => void }) {
     const { toast } = useToast();
     const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -60,6 +60,29 @@ function AddProductForm({ onAddProduct, productTypeOptions, roomOptions, openAdd
         resolver: zodResolver(productSchema),
         defaultValues: { productCategory: '', collectionBrand: "", salesDescription: "", quantity: "", mrp: "", remarks: "", room: "", noOfPcs: '1', verticalRepeat: "", horizontalRepeat: "" },
     });
+
+    const handleBcnSearch = async (query: string) => {
+        if (query.length < 2) { setBcnOptions([]); return; }
+        setIsSearching(true);
+        try {
+            const results = await searchStockByBcn(query);
+            setBcnOptions(results.map(stock => ({ value: stock.bcn || stock.id, label: `${stock.bcn} (${stock.itemName})`, stockItem: stock })));
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Search failed' });
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    const handleBcnSelect = (value: string) => {
+        const selectedOption = bcnOptions.find(opt => opt.value === value);
+        if (selectedOption) {
+            const stockItem = selectedOption.stockItem;
+            addProductForm.setValue('collectionBrand', stockItem.bcn || stockItem.id);
+            addProductForm.setValue('salesDescription', stockItem.itemName);
+            addProductForm.setValue('mrp', (stockItem.mrp || 0).toString());
+        }
+    };
 
     const handleAddClick = () => {
         addProductForm.handleSubmit((data) => {
@@ -74,7 +97,17 @@ function AddProductForm({ onAddProduct, productTypeOptions, roomOptions, openAdd
                 <h3 className="text-xl font-semibold">Add More Products</h3>
             </div>
             <Card className="mb-4 p-4">
-                {/* Form fields for adding a product */}
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <FormField control={addProductForm.control} name="collectionBrand" render={({ field }) => (<FormItem><FormLabel>Collection/Brand (BCN)*</FormLabel><Combobox options={bcnOptions} value={field.value} onSelect={(value) => { field.onChange(value); handleBcnSelect(value); }} onSearch={handleBcnSearch} placeholder="Search BCN..." searchPlaceholder="Type to search..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /><FormMessage /></FormItem>)} />
+                    <FormField control={addProductForm.control} name="salesDescription" render={({ field }) => (<FormItem><FormLabel>Sales Description</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={addProductForm.control} name="mrp" render={({ field }) => (<FormItem><FormLabel>MRP</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={addProductForm.control} name="quantity" render={({ field }) => (<FormItem><FormLabel>Quantity</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={addProductForm.control} name="room" render={({ field }) => (<FormItem><FormLabel>Room</FormLabel><Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="Select Room" /><FormMessage /></FormItem>)} />
+                    <FormField control={addProductForm.control} name="noOfPcs" render={({ field }) => (<FormItem><FormLabel>No of Pcs</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={addProductForm.control} name="verticalRepeat" render={({ field }) => (<FormItem><FormLabel>Vertical Repeat</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={addProductForm.control} name="horizontalRepeat" render={({ field }) => (<FormItem><FormLabel>Horizontal Repeat</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                    <FormField control={addProductForm.control} name="remarks" render={({ field }) => (<FormItem className="lg:col-span-4"><FormLabel>Remarks</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                </div>
             </Card>
             <div className="mt-4">
                 <Button type="button" onClick={handleAddClick} variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Add Product to List</Button>
@@ -109,7 +142,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         defaultValues: { products: initialProducts || [] },
     });
 
-    const { fields, append, remove } = useFieldArray({ control: form.control, name: "products" });
+    const { fields, append, remove, update } = useFieldArray({ control: form.control, name: "products" });
 
     useEffect(() => { form.reset({ products: initialProducts || [] }); }, [initialProducts, form]);
     
@@ -165,7 +198,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
 
     const handleViewSelection = async (selection: Selection) => {
         setSelectedSelection(selection);
-        const products = await getProductsByIds(selection.productIds);
+        const products = fields.filter(p => selection.productIds.includes(p.id!));
         setSelectedSelectionProducts(products);
     };
 
@@ -182,7 +215,55 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
             <FormProvider {...form}>
                 <Card className="mt-6">
                     <CardContent className="p-6">
-                        {/* AddProductForm and Table of existing products */}
+                        <AddProductForm onAddProduct={handleAddProduct} />
+
+                        <Separator className="my-8" />
+
+                        <div className="flex justify-between items-center mb-6">
+                             <h3 className="text-xl font-semibold">Previously Added Products</h3>
+                             <Button onClick={handleRefresh} variant="outline" size="sm" disabled={isRefreshing}>
+                                {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>} Refresh
+                            </Button>
+                        </div>
+                        <div className="border rounded-md">
+                             <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead className="w-10"><Checkbox onCheckedChange={(checked) => { const newSelection: Record<string, boolean> = {}; if (checked) { fields.forEach(f => { if(f.id) newSelection[f.id] = true; }); } setSelectedRows(newSelection); }} /></TableHead>
+                                        <TableHead>Collection/Brand</TableHead>
+                                        <TableHead>Sales Desc</TableHead>
+                                        <TableHead>Qty</TableHead>
+                                        <TableHead>MRP</TableHead>
+                                        <TableHead>V-R</TableHead>
+                                        <TableHead>H-R</TableHead>
+                                        <TableHead>Room</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead className="text-right">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {fields.map((product, index) => (
+                                        <TableRow key={product.id}>
+                                            <TableCell><Checkbox checked={selectedRows[product.id!] || false} onCheckedChange={(checked) => setSelectedRows(prev => ({ ...prev, [product.id!]: !!checked }))} /></TableCell>
+                                            <TableCell>{product.collectionBrand}</TableCell>
+                                            <TableCell>{product.salesDescription}</TableCell>
+                                            <TableCell>{product.quantity}</TableCell>
+                                            <TableCell>{product.mrp}</TableCell>
+                                            <TableCell>{product.verticalRepeat}</TableCell>
+                                            <TableCell>{product.horizontalRepeat}</TableCell>
+                                            <TableCell>{product.room}</TableCell>
+                                            <TableCell>{getProductStatus(product)}</TableCell>
+                                            <TableCell className="text-right">
+                                                <Button variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+
+                        <Separator className="my-8" />
+                        
                         <div className="flex gap-2 mb-8">
                             <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
                             <Button type="button" onClick={handleQuotationClick}>Convert To Quotation</Button>
@@ -203,9 +284,9 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                     </TableHeader>
                                     <TableBody>
                                         {selections.map(selection => {
-                                            // Note: These calculations are placeholders.
-                                            const totalQty = 0; // You would calculate this
-                                            const totalAmount = 0; // You would calculate this
+                                            const selectionProducts = fields.filter(p => selection.productIds.includes(p.id!));
+                                            const totalQty = selectionProducts.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
+                                            const totalAmount = selectionProducts.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.mrp) || 0)), 0);
                                             return (
                                                 <TableRow key={selection.id}>
                                                     <TableCell className="font-mono">{selection.id}</TableCell>
