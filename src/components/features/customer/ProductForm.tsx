@@ -90,8 +90,8 @@ function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: ()
         const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
         if (selectedOption) {
             const stockItem = selectedOption.stockItem;
+            // Only set the BCN (collectionBrand) and MRP. Leave description empty.
             setValue(`rooms.${roomIndex}.items.${itemIndex}.collectionBrand`, stockItem.bcn || stockItem.id);
-            setValue(`rooms.${roomIndex}.items.${itemIndex}.salesDescription`, stockItem.itemName);
             setValue(`rooms.${roomIndex}.items.${itemIndex}.mrp`, (stockItem.mrp || 0).toString());
         }
     };
@@ -151,7 +151,7 @@ function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: ()
                      )} />
                 </div>
             ))}
-            <Button type="button" variant="ghost" size="icon" onClick={() => append({ collectionBrand: "" })}><PlusCircle className="h-6 w-6 text-primary" /></Button>
+            <Button type="button" variant="ghost" size="icon" onClick={() => append({ collectionBrand: '' })}><PlusCircle className="h-6 w-6 text-primary" /></Button>
         </Card>
     );
 }
