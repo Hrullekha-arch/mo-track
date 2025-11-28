@@ -123,7 +123,7 @@ function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: ()
             </div>
 
             {fields.map((item, itemIndex) => (
-                <div key={item.id} className="p-4 border-2 border-blue-500 rounded-lg space-y-4 mb-4 relative">
+                <div key={item.id} className="p-4 border rounded-lg space-y-4 mb-4 relative">
                      <Button type="button" size="icon" variant="destructive" className="absolute -top-3 -right-3 h-7 w-7" onClick={() => remove(itemIndex)}><Trash2 className="h-4 w-4" /></Button>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.collectionBrand`} render={({ field }) => (
@@ -158,25 +158,13 @@ function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: ()
                             </FormControl>
                         </FormItem>
                      )} />
+                      <div className="flex justify-end">
+                        <Button type="button" size="icon" variant="ghost" onClick={() => append({ collectionBrand: '', salesDescription: '', mrp: '', noOfPcs: '1', verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: '' })}>
+                            <PlusCircle className="h-6 w-6 text-primary" />
+                        </Button>
+                    </div>
                 </div>
             ))}
-            <Button 
-                type="button" 
-                variant="ghost" 
-                size="icon" 
-                onClick={() => append({ 
-                    collectionBrand: '', 
-                    salesDescription: '',
-                    mrp: '',
-                    noOfPcs: '1', 
-                    verticalRepeat: '',
-                    horizontalRepeat: '',
-                    quantity: '',
-                    remarks: '',
-                })}
-            >
-                <PlusCircle className="h-6 w-6 text-primary" />
-            </Button>
         </Card>
     );
 }
@@ -193,8 +181,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
     const [selections, setSelections] = useState<Selection[]>(initialSelections);
     const [selectedSelection, setSelectedSelection] = useState<Selection | null>(null);
     const [selectedSelectionProducts, setSelectedSelectionProducts] = useState<DealProduct[]>([]);
-    const [bcnOptions, setBcnOptions] = useState<ComboboxOption[]>([]);
-    const [isSearching, setIsSearching] = useState(false);
 
     const fetchSelections = useCallback(() => {
       setSelections(initialSelections);
@@ -207,17 +193,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
     const form = useForm<ProductListFormValues>({
         resolver: zodResolver(productListSchema),
         defaultValues: {
-            rooms: [],
-            addProduct: {
-                collectionBrand: '',
-                salesDescription: '',
-                mrp: '',
-                noOfPcs: '1',
-                verticalRepeat: '',
-                horizontalRepeat: '',
-                quantity: '',
-                remarks: ''
-            }
+            rooms: []
         },
     });
     
@@ -252,7 +228,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
             }))
         }));
 
-        form.reset({ rooms: roomsForForm, addProduct: form.getValues('addProduct') });
+        form.reset({ rooms: roomsForForm });
     }, [initialProducts, form]);
 
     const handleRefresh = async () => { setIsRefreshing(true); onRefresh(); await new Promise(resolve => setTimeout(resolve, 500)); setIsRefreshing(false); };
@@ -321,107 +297,151 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         const products = allProducts.filter(p => p.id && selection.productIds.includes(p.id!));
         setSelectedSelectionProducts(products);
     };
+    
+    const allFormProducts = form.watch('rooms').flatMap(room => room.items);
 
-    const handleBcnSearch = useCallback(async (query: string) => {
-        if (query.length < 2) { setBcnOptions([]); return; }
-        setIsSearching(true);
-        try {
-            const results = await searchStockByBcn(query);
-            const options = results.map(stock => ({
-                value: stock.bcn || stock.id,
-                label: `${stock.bcn} (${stock.itemName})`,
-                stockItem: stock
-            }));
-            setBcnOptions(options as any);
-        } catch (error) {
-            toast({ variant: 'destructive', title: 'Search failed' });
-        } finally {
-            setIsSearching(false);
-        }
-    }, [toast]);
-
-    const handleBcnSelect = (value: string) => {
-        const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
-        if (selectedOption) {
-            const stockItem = selectedOption.stockItem;
-            form.setValue('addProduct.collectionBrand', stockItem.bcn);
-            form.setValue('addProduct.mrp', (stockItem.mrp || 0).toString());
-        }
-    };
-
-    const handleAddProductToList = () => {
-        const productData = form.getValues('addProduct');
-        if (!productData?.collectionBrand) {
-            toast({ variant: "destructive", title: "BCN is required" });
-            return;
-        }
-        // This is a simplified logic. In a real app, you'd add it to a specific room.
-        // For now, let's add to the first room or a new room if none exist.
-        const rooms = form.getValues('rooms');
-        if (rooms.length === 0) {
-            append({ name: 'New Room', items: [productData as ProductFormValues] });
-        } else {
-            const firstRoomItems = rooms[0].items;
-            form.setValue('rooms.0.items', [...firstRoomItems, productData as ProductFormValues]);
-        }
-        form.reset({ ...form.getValues(), addProduct: { collectionBrand: '', salesDescription: '', mrp: '', noOfPcs: '1', verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: '' } });
-    };
 
     return (
         <>
             <FormProvider {...form}>
                 <Card className="mt-6">
                     <CardContent className="p-6">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-semibold">Add / Edit Products</h3>
-                        </div>
-
-                         <div className="p-4 border rounded-lg space-y-6 mb-6">
-                            <h4 className="font-semibold">Add New Product</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                <FormField control={form.control} name="addProduct.collectionBrand" render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>BCN*</FormLabel>
-                                        <Combobox options={bcnOptions} value={field.value} onSelect={(value) => { field.onChange(value); handleBcnSelect(value); }} onSearch={handleBcnSearch} placeholder="Search BCN..." />
-                                    </FormItem>
-                                )} />
-                                <FormField control={form.control} name="addProduct.salesDescription" render={({ field }) => (<FormItem><FormLabel>Sales Description</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                <FormField control={form.control} name="addProduct.mrp" render={({ field }) => (<FormItem><FormLabel>MRP</FormLabel><FormControl><Input type="number" {...field} readOnly /></FormControl></FormItem>)} />
-                                <FormField control={form.control} name="addProduct.noOfPcs" render={({ field }) => (<FormItem><FormLabel>No Of Pcs</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                <FormField control={form.control} name="addProduct.verticalRepeat" render={({ field }) => (<FormItem><FormLabel>V-R</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                <FormField control={form.control} name="addProduct.horizontalRepeat" render={({ field }) => (<FormItem><FormLabel>H-R</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                <FormField control={form.control} name="addProduct.quantity" render={({ field }) => (<FormItem><FormLabel>Qty</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-                            </div>
-                            <FormField control={form.control} name="addProduct.remarks" render={({ field }) => ( <FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea placeholder="Add any remarks..." {...field} /></FormControl></FormItem> )} />
-                             <Button type="button" onClick={handleAddProductToList}>
-                                <PlusCircle className="mr-2 h-4 w-4" /> Add Product to List
-                            </Button>
-                        </div>
-
                         <form className="space-y-4" onSubmit={form.handleSubmit(handleUpdateActivity)}>
                              {fields.map((room, index) => (
                                 <RoomForm key={room.id} roomIndex={index} removeRoom={() => remove(index)} />
                             ))}
                             <Button type="button" variant="outline" onClick={() => append({ name: "", items: [{ collectionBrand: '', salesDescription: '', mrp: '', noOfPcs: '1', verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: '' }] })}>
-                                <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
+                                <PlusCircle className="mr-2 h-4 w-4" /> Add new Room
                             </Button>
                              <Separator className="my-8" />
-                             <div className="flex justify-between items-center">
-                                 <div className="flex gap-2">
-                                    <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
-                                    <Button type="button" onClick={handleQuotationClick}>Convert To Quotation</Button>
+
+                             <div className="space-y-4">
+                                <h3 className="text-lg font-semibold">Previously Added product</h3>
+                                <div className="border rounded-md">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Modify</TableHead>
+                                                <TableHead>Room</TableHead>
+                                                <TableHead>BCN</TableHead>
+                                                <TableHead>MRP</TableHead>
+                                                <TableHead>Pcs</TableHead>
+                                                <TableHead>H-R</TableHead>
+                                                <TableHead>V-R</TableHead>
+                                                <TableHead>Description</TableHead>
+                                                <TableHead>Remark</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {allFormProducts.length > 0 ? allFormProducts.map((product, index) => (
+                                                <TableRow key={product.id || index}>
+                                                     <TableCell>
+                                                        <Checkbox
+                                                            checked={!!selectedRows[product.id!]}
+                                                            onCheckedChange={(checked) => {
+                                                                const newSelection = { ...selectedRows };
+                                                                if (checked) {
+                                                                    newSelection[product.id!] = true;
+                                                                } else {
+                                                                    delete newSelection[product.id!];
+                                                                }
+                                                                setSelectedRows(newSelection);
+                                                            }}
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell>{form.getValues('rooms').find(r => r.items.some(i => i.id === product.id))?.name}</TableCell>
+                                                    <TableCell>{product.collectionBrand}</TableCell>
+                                                    <TableCell>{product.mrp}</TableCell>
+                                                    <TableCell>{product.noOfPcs}</TableCell>
+                                                    <TableCell>{product.horizontalRepeat}</TableCell>
+                                                    <TableCell>{product.verticalRepeat}</TableCell>
+                                                    <TableCell>{product.salesDescription}</TableCell>
+                                                    <TableCell>{product.remarks}</TableCell>
+                                                </TableRow>
+                                            )) : (
+                                                <TableRow>
+                                                    <TableCell colSpan={9} className="text-center">No products added yet.</TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
                                 </div>
-                                <Button type="submit" disabled={activityLoading} className="bg-cyan-600 hover:bg-cyan-700">{activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Update Activity</Button>
+                                <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
+                            </div>
+
+                            <div className="space-y-4">
+                                <h3 className="text-lg font-semibold">Saved Selection</h3>
+                                <div className="border rounded-md">
+                                     <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Modify</TableHead>
+                                                <TableHead>Selection Id</TableHead>
+                                                <TableHead>Total No Of Room</TableHead>
+                                                <TableHead>Total MRP</TableHead>
+                                                <TableHead>Total Pcs</TableHead>
+                                                <TableHead>View</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                           {selections.map((selection) => {
+                                               const selectionProducts = allFormProducts.filter(p => p.id && selection.productIds.includes(p.id));
+                                               const roomCount = new Set(selectionProducts.map(p => form.getValues('rooms').find(r => r.items.some(i => i.id === p.id))?.name)).size;
+                                               const totalMrp = selectionProducts.reduce((sum, p) => sum + ((Number(p.mrp) || 0) * (Number(p.quantity) || 0)), 0);
+                                               const totalPcs = selectionProducts.reduce((sum, p) => sum + (Number(p.noOfPcs) || 0), 0);
+
+                                               return (
+                                                   <TableRow key={selection.id}>
+                                                       <TableCell><Checkbox /></TableCell>
+                                                       <TableCell>{selection.id}</TableCell>
+                                                       <TableCell>{roomCount}</TableCell>
+                                                       <TableCell>₹{totalMrp.toFixed(2)}</TableCell>
+                                                       <TableCell>{totalPcs}</TableCell>
+                                                       <TableCell><Button variant="ghost" size="icon" onClick={() => handleViewSelection(selection)}><Eye className="h-5 w-5"/></Button></TableCell>
+                                                   </TableRow>
+                                               )
+                                           })}
+                                        </TableBody>
+                                     </Table>
+                                </div>
+                            </div>
+                            
+                             <div className="flex justify-end items-center gap-4 pt-4 border-t">
+                                <Button type="button" onClick={handleQuotationClick}>Create Quotation</Button>
                             </div>
                         </form>
-                        
                     </CardContent>
                 </Card>
             </FormProvider>
+            <CreateQuotationDialog
+                isOpen={isQuotationDialogOpen}
+                onClose={() => setIsQuotationDialogOpen(false)}
+                onSuccess={onRefresh}
+                deal={deal}
+                customer={customer}
+                initialItems={selectedProductsForQuotation}
+                cpds={cpds}
+            />
+            {selectedSelection && (
+                <Dialog open={!!selectedSelection} onOpenChange={() => setSelectedSelection(null)}>
+                    <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
+                        <DialogHeader>
+                            <DialogTitle>Selection Details: #{selectedSelection.id}</DialogTitle>
+                        </DialogHeader>
+                        <div className="flex-grow overflow-y-auto">
+                            <PrintableSelection
+                                selection={selectedSelection}
+                                deal={deal}
+                                products={selectedSelectionProducts}
+                            />
+                        </div>
+                        <DialogFooter>
+                             <Button type="button" variant="outline" onClick={() => setSelectedSelection(null)}>Close</Button>
+                             <Button type="button" onClick={() => { /* Print logic */ }}><Printer className="mr-2 h-4 w-4"/>Print</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            )}
         </>
     )
 }
-
-    
