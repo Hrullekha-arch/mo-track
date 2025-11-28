@@ -18,6 +18,7 @@ import { addVisitAction } from "@/app/dashboard/customers/[customerId]/[dealId]/
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Loader2, Share2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const deliveryInstallationItemSchema = z.object({
   id: z.string(),
@@ -41,13 +42,43 @@ export type VisitFormValues = z.infer<typeof visitSchema>;
 export const measurementItems = [
     { id: 'curtain-measurement', label: 'Curtain Measurement' },
     { id: 'sofa-measurement', label: 'Sofa Measurement' },
-    // ... all other measurement items
+    { id: 'wallpaper-measurement', label: 'Wallpaper Measurement' },
+    { id: 'flooring-measurement', label: 'Flooring Measurement' },
+    { id: 'blinds-measurement', label: 'Blinds Measurement' },
+    { id: 'mattress-measurement', label: 'Mattress Measurement' },
+    { id: 'other-measurement', label: 'Other Measurement' },
 ];
 
-export const subMeasurementBlinds = [ { id: 'roman-blind', label: 'Roman Blind' }, /* ... */ ];
-export const subMeasurementCurtain = [ { id: 'three-pleat', label: 'Three Pleat' }, /* ... */ ];
-export const deliveryInstallationItems = [ { id: 'curtain-installation', label: 'Curtain Installation' }, /* ... */ ];
-export const subDeliveryInstallationItems = [ { id: 'roman-blind', label: 'Roman Blind' }, /* ... */ ];
+export const subMeasurementBlinds = [
+    { id: 'roman-blind', label: 'Roman Blind' },
+    { id: 'roller-blind', label: 'Roller Blind' },
+    { id: 'zebra-blind', label: 'Zebra Blind' },
+    { id: 'wooden-blind', label: 'Wooden Blind' },
+];
+
+export const subMeasurementCurtain = [
+    { id: 'three-pleat', label: 'Three Pleat' },
+    { id: 'two-pleat', label: 'Two Pleat' },
+    { id: 'one-pleat', label: 'One Pleat' },
+    { id: 'eyelet', label: 'Eyelet' },
+    { id: 'rod-pocket', label: 'Rod Pocket' },
+    { id: 'box-pleat', label: 'Box Pleat' },
+    { id: 'goblet', label: 'Goblet' },
+];
+
+export const deliveryInstallationItems: DeliveryInstallationItem[] = [
+    { id: 'curtain-installation', noOfPcs: '1' },
+    { id: 'blind-installation', noOfPcs: '1' },
+    { id: 'wallpaper-installation', noOfPcs: '1' },
+    { id: 'flooring-installation', noOfPcs: '1' },
+    { id: 'other-installation', noOfPcs: '1' },
+];
+
+export const subDeliveryInstallationItems: DeliveryInstallationItem[] = [
+    { id: 'roman-blind', noOfPcs: '1' },
+    { id: 'roller-blind', noOfPcs: '1' },
+    { id: 'zebra-blind', noOfPcs: '1' },
+];
 
 
 export function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void, visits: DealVisit[], orders: DealOrder[] }) {
@@ -98,10 +129,161 @@ export function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, 
         }
     }
     
+    const MeasurementVisitTabContent = (
+        <div className="space-y-6">
+            <FormField
+                control={form.control}
+                name="measurements"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Type of Measurement</FormLabel>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {measurementItems.map((item) => (
+                                <FormField
+                                    key={item.id}
+                                    control={form.control}
+                                    name="measurements"
+                                    render={({ field }) => (
+                                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                            <FormControl><Checkbox checked={field.value?.includes(item.id)} onCheckedChange={(checked) => { return checked ? field.onChange([...(field.value || []), item.id]) : field.onChange(field.value?.filter((value) => value !== item.id))}} /></FormControl>
+                                            <FormLabel className="font-normal">{item.label}</FormLabel>
+                                        </FormItem>
+                                    )}
+                                />
+                            ))}
+                        </div>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
+            {watchedMeasurements?.includes('blinds-measurement') && (
+                 <FormField
+                    control={form.control}
+                    name="blinds"
+                    render={() => (
+                        <FormItem>
+                            <FormLabel>Select Blinds</FormLabel>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                {subMeasurementBlinds.map((item) => (
+                                    <FormField key={item.id} control={form.control} name="blinds" render={({ field }) => (
+                                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                            <FormControl><Checkbox checked={field.value?.includes(item.id)} onCheckedChange={(checked) => {return checked ? field.onChange([...(field.value || []), item.id]) : field.onChange(field.value?.filter((value) => value !== item.id))}} /></FormControl>
+                                            <FormLabel className="font-normal">{item.label}</FormLabel>
+                                        </FormItem>
+                                    )} />
+                                ))}
+                            </div>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+            )}
+             {watchedMeasurements?.includes('curtain-measurement') && (
+                <FormField
+                    control={form.control}
+                    name="curtain"
+                    render={() => (
+                        <FormItem>
+                            <FormLabel>Select Curtain</FormLabel>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                {subMeasurementCurtain.map((item) => (
+                                    <FormField key={item.id} control={form.control} name="curtain" render={({ field }) => (
+                                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                            <FormControl><Checkbox checked={field.value?.includes(item.id)} onCheckedChange={(checked) => {return checked ? field.onChange([...(field.value || []), item.id]) : field.onChange(field.value?.filter((value) => value !== item.id))}} /></FormControl>
+                                            <FormLabel className="font-normal">{item.label}</FormLabel>
+                                        </FormItem>
+                                    )} />
+                                ))}
+                                <FormField control={form.control} name="otherCurtain" render={({ field }) => ( <FormItem className="col-span-2"><FormControl><Input placeholder="Other..." {...field} /></FormControl></FormItem> )} />
+                            </div>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+            )}
+        </div>
+    );
+    
     const DeliveryVisitTabContent = (
         <div className="space-y-6">
             <FormField control={form.control} name="orderId" render={({ field }) => ( <FormItem><FormLabel>Select Order Number</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select an order to associate with this visit" /></SelectTrigger></FormControl><SelectContent>{orders.map(order => ( <SelectItem key={order.id} value={order.orderNo}>{order.orderNo}</SelectItem> ))}</SelectContent></Select><FormMessage /></FormItem> )} />
-            {/* ... rest of the delivery form */}
+            <FormField
+                control={form.control}
+                name="deliveryInstallations"
+                render={() => (
+                    <FormItem>
+                        <FormLabel>Type of Delivery/Installation</FormLabel>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            {deliveryInstallationItems.map((item, index) => (
+                                <Controller
+                                    key={item.id}
+                                    control={form.control}
+                                    name={`deliveryInstallations.${index}`}
+                                    render={({ field }) => (
+                                        <div className="flex items-center gap-2 p-2 border rounded-md">
+                                            <Checkbox
+                                                checked={!!field.value}
+                                                onCheckedChange={(checked) => {
+                                                    field.onChange(checked ? { id: item.id, noOfPcs: '1' } : null);
+                                                }}
+                                            />
+                                            <Label htmlFor={item.id} className="flex-grow">{item.label}</Label>
+                                            {field.value && (
+                                                 <Input
+                                                    type="number"
+                                                    className="w-16 h-8"
+                                                    placeholder="Pcs"
+                                                    value={field.value.noOfPcs || '1'}
+                                                    onChange={(e) => field.onChange({ ...field.value, noOfPcs: e.target.value })}
+                                                />
+                                            )}
+                                        </div>
+                                    )}
+                                />
+                            ))}
+                            <FormField control={form.control} name="otherDelivery" render={({ field }) => ( <FormItem className="col-span-full"><FormControl><Input placeholder="Other..." {...field} /></FormControl></FormItem> )} />
+                        </div>
+                    </FormItem>
+                )}
+            />
+            {watchedDeliveryInstallations?.some(d => d?.id === 'curtain-installation') && (
+                 <FormField
+                    control={form.control}
+                    name="subDeliveryInstallations"
+                    render={() => (
+                        <FormItem>
+                            <FormLabel>Select Sub Delivery/Installation</FormLabel>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                {subDeliveryInstallationItems.map((item, index) => (
+                                    <Controller
+                                        key={item.id}
+                                        control={form.control}
+                                        name={`subDeliveryInstallations.${index}`}
+                                        render={({ field }) => (
+                                            <div className="flex items-center gap-2 p-2 border rounded-md">
+                                                <Checkbox
+                                                    checked={!!field.value}
+                                                    onCheckedChange={(checked) => field.onChange(checked ? { id: item.id, noOfPcs: '1' } : null)}
+                                                />
+                                                <Label htmlFor={item.id} className="flex-grow">{item.label}</Label>
+                                                {field.value && (
+                                                    <Input
+                                                        type="number"
+                                                        className="w-16 h-8"
+                                                        placeholder="Pcs"
+                                                        value={field.value.noOfPcs || '1'}
+                                                        onChange={(e) => field.onChange({ ...field.value, noOfPcs: e.target.value })}
+                                                    />
+                                                )}
+                                            </div>
+                                        )}
+                                    />
+                                ))}
+                            </div>
+                        </FormItem>
+                    )}
+                />
+            )}
         </div>
     );
 
@@ -112,7 +294,36 @@ export function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, 
             <CardContent className="p-6">
                  <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-                        {/* ... form fields ... */}
+                        <FormField
+                            control={form.control}
+                            name="representative"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Representative*</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl><SelectTrigger><SelectValue placeholder="Select a representative" /></SelectTrigger></FormControl>
+                                        <SelectContent>{salesmen.map((s) => ( <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem> ))}</SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <Separator />
+                        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                            <TabsList className="grid w-full grid-cols-5">
+                                <TabsTrigger value="measurement" disabled={hasMeasurementVisit}>Measurement</TabsTrigger>
+                                <TabsTrigger value="delivery">Delivery</TabsTrigger>
+                                <TabsTrigger value="fittings">Fittings</TabsTrigger>
+                                <TabsTrigger value="complaint">Complaint</TabsTrigger>
+                                <TabsTrigger value="other">Other</TabsTrigger>
+                            </TabsList>
+                            <TabsContent value="measurement" className="mt-6">{MeasurementVisitTabContent}</TabsContent>
+                            <TabsContent value="delivery" className="mt-6">{DeliveryVisitTabContent}</TabsContent>
+                            <TabsContent value="fittings" className="mt-6"><p className="text-muted-foreground text-center py-4">Fittings visit form fields will appear here.</p></TabsContent>
+                            <TabsContent value="complaint" className="mt-6"><p className="text-muted-foreground text-center py-4">Complaint visit form fields will appear here.</p></TabsContent>
+                            <TabsContent value="other" className="mt-6"><p className="text-muted-foreground text-center py-4">Other visit form fields will appear here.</p></TabsContent>
+                        </Tabs>
+
                         <div className="mt-8 flex">
                             <Button type="submit" disabled={loading}>{loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Update Activity</Button>
                         </div>

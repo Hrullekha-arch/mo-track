@@ -31,7 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal } from "./actions";
+import { getDealById, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction } from "./actions";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
@@ -354,7 +354,7 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders 
     );
 }
 
-function MeasurementsTab({ customerId, dealId, measurements }: { customerId: string; dealId: string, measurements: DealMeasurement[] }) {
+function MeasurementsTab({ customer, dealId, measurements }: { customer: Customer; dealId: string, measurements: DealMeasurement[] }) {
     const [localMeasurements, setLocalMeasurements] = useState<DealMeasurement[]>(measurements);
 
     const handleMeasurementAdded = (newMeasurement: DealMeasurement) => {
@@ -363,7 +363,7 @@ function MeasurementsTab({ customerId, dealId, measurements }: { customerId: str
 
     return (
         <div>
-            <MeasurementForm onMeasurementAdded={handleMeasurementAdded} customerId={customerId} dealId={dealId} />
+            <MeasurementForm onMeasurementAdded={handleMeasurementAdded} customer={customer} dealId={dealId} />
              <Card className="mt-6">
                 <CardHeader>
                     <CardTitle>Measurement History</CardTitle>
@@ -604,7 +604,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
           
           <TabsContent value="measurement">
-            <MeasurementsTab customerId={customerId} dealId={dealId} measurements={measurements} />
+            <MeasurementsTab customer={customer} dealId={dealId} measurements={measurements} />
           </TabsContent>
 
           <TabsContent value="cpd">
