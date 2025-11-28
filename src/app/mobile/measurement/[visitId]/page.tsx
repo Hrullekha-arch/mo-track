@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from 'react';
@@ -127,11 +128,11 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                         <div className="space-y-2 rounded-lg bg-background/50 p-3 border">
                            <div className="flex items-end gap-2">
                                 <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.height`} render={({ field }) => ( <FormItem className="flex-grow"><FormLabel className="text-xs">Height</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
-                                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.heightUnit`} render={({ field }) => ( <FormItem><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="w-[80px] h-10"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="inch">Inch</SelectItem><SelectItem value="mm">MM</SelectItem></SelectContent></Select></FormItem> )} />
+                                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.heightUnit`} render={({ field }) => ( <FormItem><Select value={field.value ?? "inch"} onValueChange={field.onChange}><FormControl><SelectTrigger className="w-[80px] h-10"><SelectValue placeholder="Inch" /></SelectTrigger></FormControl><SelectContent><SelectItem value="inch">Inch</SelectItem><SelectItem value="mm">MM</SelectItem></SelectContent></Select></FormItem> )} />
                            </div>
                            <div className="flex items-end gap-2">
                                 <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.width`} render={({ field }) => ( <FormItem className="flex-grow"><FormLabel className="text-xs">Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
-                                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.widthUnit`} render={({ field }) => ( <FormItem><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="w-[80px] h-10"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="inch">Inch</SelectItem><SelectItem value="mm">MM</SelectItem></SelectContent></Select></FormItem> )} />
+                                <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.widthUnit`} render={({ field }) => ( <FormItem><Select value={field.value ?? "inch"} onValueChange={field.onChange}><FormControl><SelectTrigger className="w-[80px] h-10"><SelectValue placeholder="Inch" /></SelectTrigger></FormControl><SelectContent><SelectItem value="inch">Inch</SelectItem><SelectItem value="mm">MM</SelectItem></SelectContent></Select></FormItem> )} />
                            </div>
                         </div>
                         <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
@@ -590,3 +591,4 @@ export default function MeasurementPage() {
         </div>
     );
 }
+

@@ -68,3 +68,65 @@
     @apply bg-background text-foreground;
   }
 }
+/* === PREMIUM SOFT GLASS THEME === */
+
+.glass-panel {
+  @apply bg-white/30 backdrop-blur-xl border border-white/20 
+         rounded-2xl shadow-[0_4px_30px_rgba(0,0,0,0.08)]
+         transition-all duration-300;
+}
+
+.glass-card {
+  @apply bg-white/40 backdrop-blur-xl border border-white/10 
+         rounded-2xl shadow-[0_8px_26px_rgba(0,0,0,0.06)]
+         p-5 transition-all duration-300;
+}
+
+.glass-card:hover {
+  @apply shadow-[0_12px_30px_rgba(0,0,0,0.12)] scale-[1.01];
+}
+
+.glass-input {
+  @apply bg-white/40 backdrop-blur-sm 
+         border border-white/20 
+         rounded-xl px-3 py-2 
+         shadow-inner 
+         transition-all duration-300
+         text-[0.95rem];
+}
+
+.glass-input:focus {
+  @apply border-[#C8BBA4]/60 shadow-[0_0_10px_#C8BBA4];
+}
+
+.glass-select-trigger {
+  @apply bg-white/40 backdrop-blur-sm 
+         border border-white/20 rounded-xl h-10 px-3
+         shadow-inner transition-all duration-300;
+}
+
+.glass-select-trigger:focus {
+  @apply border-[#C8BBA4]/60 shadow-[0_0_10px_#C8BBA4];
+}
+
+.premium-title {
+  @apply text-xl font-semibold tracking-tight text-[#1A1A1A];
+}
+
+.premium-section-title {
+  @apply text-lg font-semibold text-[#2A2A2A] mb-3;
+}
+
+.premium-button {
+  @apply bg-[#C8BBA4] text-white 
+         hover:bg-[#b7a991] 
+         rounded-xl px-4 py-2 font-medium 
+         shadow-[0_4px_15px_rgba(0,0,0,0.15)]
+         transition-all duration-300;
+}
+
+.premium-ghost-button {
+  @apply bg-transparent border border-[#C8BBA4]/50 
+         text-[#554b3b] hover:bg-[#C8BBA4]/10
+         rounded-xl px-4 py-2 transition-all;
+}
