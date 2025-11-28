@@ -23,7 +23,9 @@ import {
   ShoppingCart,
   User as UserIcon,
   Contact2,
-  Eye
+  Eye,
+  Loader2,
+  RefreshCw
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
