@@ -26,14 +26,12 @@ import html2canvas from 'html2canvas';
 
 const measurementEntrySchema = z.object({
     id: z.string().optional(),
+    // Curtain/Wallpaper fields
     height: z.string().optional(),
     heightUnit: z.string().optional().default('inch'),
     width: z.string().optional(),
     widthUnit: z.string().optional().default('inch'),
     noOfPannel: z.string().optional(),
-    remark: z.string().optional(),
-    pictures: z.any().optional(),
-    pictureUrls: z.array(z.string()).optional(),
     // Sofa fields
     noOfSheet: z.string().optional(),
     fabricQty1: z.string().optional(),
@@ -41,6 +39,10 @@ const measurementEntrySchema = z.object({
     marking: z.string().optional(),
     casement: z.string().optional(),
     niwar: z.string().optional(),
+    // Common fields
+    remark: z.string().optional(),
+    pictures: z.any().optional(),
+    pictureUrls: z.array(z.string()).optional(),
     recordAudio: z.any().optional(),
     audioUrl: z.string().optional(),
 });
@@ -145,7 +147,7 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                         <div className="flex flex-wrap gap-2 mt-2 flex-grow">
                             {imagePreviews.map((src, i) => (
                                 <div key={i} className="relative">
-                                    <Image src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover h-16 w-16" data-ai-hint="measurement image" />
+                                    <Image src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover h-16 w-16" />
                                     <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full" onClick={() => handlePictureRemove(i)}>
                                         <Trash2 className="h-3 w-3" />
                                     </Button>
@@ -173,6 +175,11 @@ const RoomEntryCard = ({ index, remove }: { index: number, remove: (index: numbe
         control,
         name: `rooms.${index}.entries`
     });
+
+    const roomName = useWatch({
+        control,
+        name: `rooms.${index}.roomName`
+    })
 
     return (
         <Card className="relative bg-muted/50 overflow-hidden">
@@ -591,4 +598,3 @@ export default function MeasurementPage() {
         </div>
     );
 }
-
