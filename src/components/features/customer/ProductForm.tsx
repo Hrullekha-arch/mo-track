@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, PlusCircle, Edit, Trash2, RefreshCw, Eye, Printer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
-import { updateDealProducts, createSelectionAction, getProductsByIds } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import { updateDealProducts, createSelectionAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
@@ -23,7 +23,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { PrintableSelection } from "@/components/features/order-management/PrintableSelection";
 import { roomOptions } from "@/lib/constants";
-import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -37,7 +36,7 @@ const productSchema = z.object({
     horizontalRepeat: z.string().optional(),
     quantity: z.string().optional(),
     remarks: z.string().optional(),
-    room: z.string().optional(), // Added room to individual item
+    room: z.string().optional(),
 });
 
 const newProductEntrySchema = z.object({
@@ -53,7 +52,7 @@ const newProductEntrySchema = z.object({
 
 const productListSchema = z.object({
   products: z.array(productSchema),
-  room: z.string().optional(), // Room selection at the top
+  room: z.string().optional(),
   newProduct: newProductEntrySchema,
 });
 
@@ -90,6 +89,9 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                 verticalRepeat: p.verticalRepeat || '',
                 horizontalRepeat: p.horizontalRepeat || '',
                 remarks: p.remarks || '',
+                quantity: p.quantity || '',
+                mrp: p.mrp || '',
+                room: p.room || '',
             })),
             room: '',
             newProduct: {
@@ -105,7 +107,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         },
     });
 
-    const { fields, append, remove, update } = useFieldArray({
+    const { fields, append, remove } = useFieldArray({
         control: form.control,
         name: "products"
     });
@@ -149,7 +151,13 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
             return;
         }
         setStagedItems(prev => [...prev, newProduct]);
-        form.resetField('newProduct');
+        form.reset({
+            ...form.getValues(),
+            newProduct: {
+                collectionBrand: '', salesDescription: '', mrp: '', noOfPcs: '1', 
+                verticalRepeat: '', horizontalRepeat: '', quantity: '', remarks: ''
+            }
+        });
     };
 
     const handleAddProductsToList = () => {
@@ -165,11 +173,10 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         const newProductsForForm = stagedItems.map(item => ({
             ...item,
             room,
-            id: `${item.collectionBrand}-${Date.now()}` // temp id
+            id: `${item.collectionBrand}-${Date.now()}`
         }));
         append(newProductsForForm);
         setStagedItems([]);
-        form.resetField('room');
         toast({ title: "Products Added", description: `${stagedItems.length} item(s) added to the list. Click 'Update Activity' to save.` });
     };
 
@@ -222,7 +229,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
 
     const handleViewSelection = async (selection: Selection) => {
         setSelectedSelection(selection);
-        const products = fields.filter(p => p.id && selection.productIds.includes(p.id!));
+        const products = fields.filter(p => p.id && Array.isArray(selection.productIds) && selection.productIds.includes(p.id!));
         setSelectedSelectionProducts(products);
     };
     
@@ -264,7 +271,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                         </FormItem>
                                     )} />
                                     <FormField control={form.control} name="newProduct.salesDescription" render={({ field }) => (<FormItem><FormLabel>Sales Description</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                    <FormField control={form.control} name="newProduct.mrp" render={({ field }) => (<FormItem><FormLabel>MRP</FormLabel><FormControl><Input type="number" {...field} readOnly /></FormControl></FormItem>)} />
+                                    <FormField control={form.control} name="newProduct.mrp" render={({ field }) => (<FormItem><FormLabel>MRP</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
                                     <FormField control={form.control} name="newProduct.noOfPcs" render={({ field }) => (<FormItem><FormLabel>No Of Pcs</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
