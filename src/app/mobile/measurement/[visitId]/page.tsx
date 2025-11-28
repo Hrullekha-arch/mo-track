@@ -453,19 +453,33 @@ const MeasurementPreview = ({
                                 <div key={entry.id || entryIndex} className="border-b last:border-b-0 py-2 space-y-2">
                                     <h4 className="font-semibold">Entry #{entryIndex + 1}</h4>
                                     {values.typeOf === 'Sofa Measurement' ? (
-                                        <div className="grid grid-cols-2 gap-2 text-sm">
-                                            <p><strong>Item Name:</strong> {entry.itemName || 'N/A'}</p>
-                                            <p><strong>No of Seat / Pcs:</strong> {entry.noOfSheet || 'N/A'}</p>
-                                            <p><strong>Fabric Qty:</strong> {entry.fabricQty1 || 'N/A'}</p>
-                                            <p><strong>Stitching Rate / per Sheet:</strong> {entry.stitchingRate || 'N/A'}</p>
-                                        </div>
+                                        <>
+                                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                                <div><p><strong>Item Name:</strong> {entry.itemName || 'N/A'}</p></div>
+                                                <div><p><strong>No of Seat / Pcs:</strong> {entry.noOfSheet || 'N/A'}</p></div>
+                                                <div><p><strong>Fabric Qty:</strong> {entry.fabricQty1 || 'N/A'}</p></div>
+                                                <div><p><strong>Stitching Rate / per Sheet:</strong> {entry.stitchingRate || 'N/A'}</p></div>
+                                                <div className="col-span-2"><p><strong>Remarks:</strong> {entry.remark || 'N/A'}</p></div>
+                                            </div>
+                                             {(entry.foam || entry.casement || entry.marking || entry.niwar) && (
+                                                <div className="mt-2 pt-2 border-t">
+                                                    <h5 className="font-semibold text-xs text-muted-foreground mb-1">OPTIONS</h5>
+                                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                                        {entry.foam?.foamSize && <p><strong>Foam:</strong> {entry.foam.foamSize} / {entry.foam.qty} / {entry.foam.density}</p>}
+                                                        {entry.casement?.qty && <p><strong>Casement:</strong> {entry.casement.qty} MTR</p>}
+                                                        {entry.marking?.qty && <p><strong>Marking:</strong> {entry.marking.qty} MTR</p>}
+                                                        {entry.niwar?.qty && <p><strong>Niwar:</strong> {entry.niwar.qty} MTR</p>}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>
                                     ) : (
                                         <div className="space-y-1 text-sm">
                                             <p><strong>Dimension:</strong> H {entry.height} {entry.heightUnit} x W {entry.width} {entry.widthUnit}</p>
                                             <p><strong>Panels:</strong> {entry.noOfPannel || 'N/A'}</p>
+                                             <p><strong>Remarks:</strong> {entry.remark || 'N/A'}</p>
                                         </div>
                                     )}
-                                    <p className="text-sm mt-2"><strong>Remarks:</strong> {entry.remark || 'N/A'}</p>
 
                                     {entry.pictures && Array.from(entry.pictures as File[]).length > 0 && (
                                         <div className="mt-2">
