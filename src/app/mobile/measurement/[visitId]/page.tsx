@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from 'react';
@@ -24,6 +25,17 @@ import Image from 'next/image';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+
+const foamSchema = z.object({
+    name: z.string().optional(),
+    make: z.string().optional(),
+    density: z.string().optional(),
+});
+
+const simpleQtySchema = z.object({
+    qty: z.string().optional(),
+});
 
 const measurementEntrySchema = z.object({
     id: z.string().optional(),
@@ -38,10 +50,10 @@ const measurementEntrySchema = z.object({
     fabricQty1: z.string().optional(),
     fabricQty2: z.string().optional(),
     marking: z.string().optional(),
-    casement: z.boolean().optional(),
-    niwar: z.boolean().optional(),
-    foam: z.boolean().optional(),
-    markingFlag: z.boolean().optional(),
+    casement: simpleQtySchema.optional(),
+    niwar: simpleQtySchema.optional(),
+    foam: foamSchema.optional(),
+    markingFlag: simpleQtySchema.optional(),
     // Common fields
     remark: z.string().optional(),
     pictures: z.any().optional(),
@@ -49,6 +61,7 @@ const measurementEntrySchema = z.object({
     recordAudio: z.any().optional(),
     audioUrl: z.string().optional(),
 });
+
 
 const roomSchema = z.object({
     id: z.string().optional(),
@@ -67,6 +80,93 @@ export type MeasurementFormValues = z.infer<typeof measurementSchema>;
 const MEASUREMENT_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
 const DOER_OPTIONS = ["TU", "OP", "NC", "VN", "MU"];
 
+// Reusable Dialog for simple quantity input
+const SimpleQtyDialog = ({
+    isOpen,
+    onClose,
+    onSave,
+    title,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (data: { qty: string }) => void;
+    title: string;
+}) => {
+    const [qty, setQty] = React.useState('');
+
+    const handleSave = () => {
+        onSave({ qty });
+        onClose();
+        setQty('');
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>{title}</DialogTitle>
+                </DialogHeader>
+                <div className="py-4">
+                    <Label htmlFor="qty-input">Quantity (MTR)</Label>
+                    <Input id="qty-input" value={qty} onChange={(e) => setQty(e.target.value)} />
+                </div>
+                <DialogFooter>
+                    <Button variant="ghost" onClick={onClose}>Cancel</Button>
+                    <Button onClick={handleSave}>Save</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+// Dialog for Foam details
+const FoamDialog = ({
+    isOpen,
+    onClose,
+    onSave,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (data: z.infer<typeof foamSchema>) => void;
+}) => {
+    const { register, handleSubmit, reset } = useForm<z.infer<typeof foamSchema>>();
+
+    const handleSave = (data: z.infer<typeof foamSchema>) => {
+        onSave(data);
+        reset();
+        onClose();
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Foam Details</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmit(handleSave)} className="py-4 space-y-4">
+                    <div>
+                        <Label htmlFor="foam-name">Name</Label>
+                        <Input id="foam-name" {...register("name")} />
+                    </div>
+                    <div>
+                        <Label htmlFor="foam-make">Make</Label>
+                        <Input id="foam-make" {...register("make")} />
+                    </div>
+                    <div>
+                        <Label htmlFor="foam-density">Density</Label>
+                        <Input id="foam-density" {...register("density")} />
+                    </div>
+                    <DialogFooter>
+                        <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+                        <Button type="submit">Save</Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+
 const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: number; entryIndex: number; remove: (index: number) => void }) => {
     const { control, setValue, getValues } = useFormContext<MeasurementFormValues>();
     const typeOf = useWatch({ control, name: "typeOf" });
@@ -74,6 +174,10 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
     
     const [imagePreviews, setImagePreviews] = React.useState<string[]>([]);
     const pictures = useWatch({ control, name: `rooms.${roomIndex}.entries.${entryIndex}.pictures` });
+    
+    const [openDialog, setOpenDialog] = React.useState<'foam' | 'casement' | 'marking' | 'niwar' | null>(null);
+
+    const entryData = useWatch({ control, name: `rooms.${roomIndex}.entries.${entryIndex}`});
 
 
     const handlePictureChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -169,66 +273,29 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                             </FormItem>
                         )}
                     />
-                    <FormField
-                        control={control}
-                        name={`rooms.${roomIndex}.entries.${entryIndex}.remark`}
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Remark</FormLabel>
-                                <FormControl>
-                                    <Textarea {...field} placeholder="Additional notes..." />
-                                </FormControl>
-                            </FormItem>
-                        )}
-                    />
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                         <FormLabel className="font-semibold">Options</FormLabel>
-                        <div className="grid grid-cols-2 gap-2">
-                             <FormField
-                                control={control}
-                                name={`rooms.${roomIndex}.entries.${entryIndex}.foam`}
-                                render={({ field }) => (
-                                    <FormItem className="flex items-center gap-2 space-y-0">
-                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                                        <FormLabel>Foam</FormLabel>
-                                    </FormItem>
-                                )}
-                            />
-                             <FormField
-                                control={control}
-                                name={`rooms.${roomIndex}.entries.${entryIndex}.casement`}
-                                render={({ field }) => (
-                                    <FormItem className="flex items-center gap-2 space-y-0">
-                                        <FormControl><Checkbox checked={!!field.value} onCheckedChange={field.onChange} /></FormControl>
-                                        <FormLabel>Casement</FormLabel>
-                                    </FormItem>
-                                )}
-                            />
-                            <FormField
-                                control={control}
-                                name={`rooms.${roomIndex}.entries.${entryIndex}.markingFlag`}
-                                render={({ field }) => (
-                                    <FormItem className="flex items-center gap-2 space-y-0">
-                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                                        <FormLabel>Marking</FormLabel>
-                                    </FormItem>
-                                )}
-                            />
-                             <FormField
-                                control={control}
-                                name={`rooms.${roomIndex}.entries.${entryIndex}.niwar`}
-                                render={({ field }) => (
-                                    <FormItem className="flex items-center gap-2 space-y-0">
-                                        <FormControl><Checkbox checked={!!field.value} onCheckedChange={field.onChange} /></FormControl>
-                                        <FormLabel>Niwar</FormLabel>
-                                    </FormItem>
-                                )}
-                            />
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('foam')}>Foam</Button>
+                                {entryData?.foam && <p className="text-xs text-muted-foreground mt-1">Name: {entryData.foam.name}, Make: {entryData.foam.make}, Density: {entryData.foam.density}</p>}
+                            </div>
+                             <div>
+                                <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('casement')}>Casement</Button>
+                                {entryData?.casement?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.casement.qty} Mtr</p>}
+                            </div>
+                             <div>
+                                <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('marking')}>Marking</Button>
+                                {entryData?.markingFlag?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.markingFlag.qty} Mtr</p>}
+                            </div>
+                             <div>
+                                <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('niwar')}>Niwar</Button>
+                                {entryData?.niwar?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.niwar.qty} Mtr</p>}
+                            </div>
                         </div>
                     </div>
                 </div>
             ) : (
-
                     <div className="space-y-3">
                         <div className="space-y-2 rounded-lg bg-background/50 p-3 border">
                            <div className="flex items-end gap-2">
@@ -268,6 +335,30 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                 </FormItem>
                 <FormField control={control} name={`rooms.${roomIndex}.entries.${entryIndex}.recordAudio`} render={({ field }) => (<FormItem><FormLabel>Record Audio</FormLabel><FormControl><Input type="file" accept="audio/*" onChange={(e) => field.onChange(e.target.files?.[0])} /></FormControl></FormItem>)} />
              </div>
+             
+            <FoamDialog
+                isOpen={openDialog === 'foam'}
+                onClose={() => setOpenDialog(null)}
+                onSave={(data) => setValue(`rooms.${roomIndex}.entries.${entryIndex}.foam`, data)}
+            />
+            <SimpleQtyDialog
+                isOpen={openDialog === 'casement'}
+                onClose={() => setOpenDialog(null)}
+                onSave={(data) => setValue(`rooms.${roomIndex}.entries.${entryIndex}.casement`, data)}
+                title="Enter Casement Quantity"
+            />
+            <SimpleQtyDialog
+                isOpen={openDialog === 'marking'}
+                onClose={() => setOpenDialog(null)}
+                onSave={(data) => setValue(`rooms.${roomIndex}.entries.${entryIndex}.markingFlag`, data)}
+                title="Enter Marking Quantity"
+            />
+            <SimpleQtyDialog
+                isOpen={openDialog === 'niwar'}
+                onClose={() => setOpenDialog(null)}
+                onSave={(data) => setValue(`rooms.${roomIndex}.entries.${entryIndex}.niwar`, data)}
+                title="Enter Niwar Quantity"
+            />
         </Card>
     );
 }
@@ -700,5 +791,3 @@ export default function MeasurementPage() {
         </div>
     );
 }
-
-    
