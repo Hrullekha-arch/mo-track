@@ -54,7 +54,7 @@ export function Combobox({
       setIsLoading(false);
   }, [onSearch]);
 
-  const selectedLabel = options.find((option) => option.value.toLowerCase() === value?.toLowerCase())?.label;
+  const selectedOption = options.find((option) => option.value.toLowerCase() === value?.toLowerCase());
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -66,7 +66,7 @@ export function Combobox({
           className="w-full justify-between font-normal"
         >
           {value
-            ? selectedLabel || value
+            ? selectedOption?.value || value
             : placeholder}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>

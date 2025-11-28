@@ -73,7 +73,7 @@ function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: ()
         try {
           const results = await searchStockByBcn(query);
           const options = results.map(stock => ({
-            value: stock.id,
+            value: stock.bcn || stock.id,
             label: `${stock.bcn} (${stock.itemName})`,
             stockItem: stock
           }));
@@ -90,7 +90,6 @@ function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: ()
         const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
         if (selectedOption) {
             const stockItem = selectedOption.stockItem;
-            // Only set the BCN (collectionBrand) and MRP. Leave description empty.
             setValue(`rooms.${roomIndex}.items.${itemIndex}.collectionBrand`, stockItem.bcn || stockItem.id);
             setValue(`rooms.${roomIndex}.items.${itemIndex}.mrp`, (stockItem.mrp || 0).toString());
         }
@@ -151,7 +150,7 @@ function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: ()
                      )} />
                 </div>
             ))}
-            <Button type="button" variant="ghost" size="icon" onClick={() => append({ collectionBrand: '' })}><PlusCircle className="h-6 w-6 text-primary" /></Button>
+            <Button type="button" variant="ghost" size="icon" onClick={() => append({ collectionBrand: '', noOfPcs: '1' })}><PlusCircle className="h-6 w-6 text-primary" /></Button>
         </Card>
     );
 }
@@ -297,7 +296,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                              {fields.map((room, index) => (
                                 <RoomForm key={room.id} roomIndex={index} removeRoom={() => remove(index)} />
                             ))}
-                            <Button type="button" variant="outline" onClick={() => append({ name: "", items: [{ collectionBrand: '' }] })}>
+                            <Button type="button" variant="outline" onClick={() => append({ name: "", items: [{ collectionBrand: '', noOfPcs: '1' }] })}>
                                 <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
                             </Button>
                              <Separator className="my-8" />
