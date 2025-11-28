@@ -25,96 +25,137 @@ import { PrintableSelection } from "@/components/features/order-management/Print
 import { roomOptions } from "@/lib/constants";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 
 const productSchema = z.object({
     id: z.string().optional(),
-    productCategory: z.string().optional().default(''),
-    collectionBrand: z.string().min(1, "Collection/Brand is required."),
+    collectionBrand: z.string().min(1, "BCN is required."),
     salesDescription: z.string().optional().default(''),
-    quantity: z.string().optional(),
     mrp: z.string().optional(),
-    remarks: z.string().optional().default(''),
-    room: z.string().optional().default(''),
     noOfPcs: z.string().optional().default('1'),
     verticalRepeat: z.string().optional().default(''),
     horizontalRepeat: z.string().optional().default(''),
+    quantity: z.string().optional(),
+    remarks: z.string().optional().default(''),
 });
 
-const productListSchema = z.object({ products: z.array(productSchema) });
+const roomSchema = z.object({
+  name: z.string().min(1, "Room name is required."),
+  items: z.array(productSchema).min(1, "At least one item is required per room."),
+});
 
+const productListSchema = z.object({ 
+    rooms: z.array(roomSchema)
+});
+
+type RoomFormValues = z.infer<typeof roomSchema>;
 type ProductFormValues = z.infer<typeof productSchema>;
 type ProductListFormValues = z.infer<typeof productListSchema>;
 
-const initialProductTypeOptions: ComboboxOption[] = [
-    { value: "fabric", label: "Fabric" },
-    { value: "rod", label: "Rod" },
-    // ... add all other types
-];
 
-function AddProductForm({ onAddProduct }: { onAddProduct: (data: ProductFormValues) => void }) {
-    const { toast } = useToast();
-    const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
-    const [isSearching, setIsSearching] = useState(false);
-    
-    const addProductForm = useForm<ProductFormValues>({
-        resolver: zodResolver(productSchema),
-        defaultValues: { productCategory: '', collectionBrand: "", salesDescription: "", quantity: "", mrp: "", remarks: "", room: "", noOfPcs: '1', verticalRepeat: "", horizontalRepeat: "" },
+function RoomForm({ roomIndex, removeRoom }: { roomIndex: number; removeRoom: () => void; }) {
+    const { control, getValues, setValue } = useFormContext<ProductListFormValues>();
+    const { fields, append, remove } = useFieldArray({
+        control,
+        name: `rooms.${roomIndex}.items`
     });
+    
+    const [bcnOptions, setBcnOptions] = useState<ComboboxOption[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const { toast } = useToast();
 
-    const handleBcnSearch = async (query: string) => {
-        if (query.length < 2) { setBcnOptions([]); return; }
+    const handleBcnSearch = useCallback(async (query: string) => {
+        if (query.length < 2) {
+          setBcnOptions([]);
+          return;
+        }
         setIsSearching(true);
         try {
-            const results = await searchStockByBcn(query);
-            setBcnOptions(results.map(stock => ({ value: stock.bcn || stock.id, label: `${stock.bcn} (${stock.itemName})`, stockItem: stock })));
+          const results = await searchStockByBcn(query);
+          const options = results.map(stock => ({
+            value: stock.id,
+            label: `${stock.bcn} (${stock.itemName})`,
+            stockItem: stock
+          }));
+          setBcnOptions(options as any);
         } catch (error) {
-            toast({ variant: 'destructive', title: 'Search failed' });
+          console.error("Error searching BCN:", error);
+          toast({ variant: 'destructive', title: 'Search failed' });
         } finally {
-            setIsSearching(false);
+          setIsSearching(false);
         }
-    };
-
-    const handleBcnSelect = (value: string) => {
-        const selectedOption = bcnOptions.find(opt => opt.value === value);
+      }, [toast]);
+    
+    const handleBcnSelect = (value: string, itemIndex: number) => {
+        const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
         if (selectedOption) {
             const stockItem = selectedOption.stockItem;
-            addProductForm.setValue('collectionBrand', stockItem.bcn || stockItem.id);
-            addProductForm.setValue('salesDescription', stockItem.itemName);
-            addProductForm.setValue('mrp', (stockItem.mrp || 0).toString());
+            setValue(`rooms.${roomIndex}.items.${itemIndex}.collectionBrand`, stockItem.bcn || stockItem.id);
+            setValue(`rooms.${roomIndex}.items.${itemIndex}.salesDescription`, stockItem.itemName);
+            setValue(`rooms.${roomIndex}.items.${itemIndex}.mrp`, (stockItem.mrp || 0).toString());
         }
     };
 
-    const handleAddClick = () => {
-        addProductForm.handleSubmit((data) => {
-            onAddProduct({...data, id: new Date().toISOString() });
-            addProductForm.reset();
-        })();
-    };
 
     return (
-        <FormProvider {...addProductForm}>
-            <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-semibold">Add More Products</h3>
+        <Card className="p-4 border-2 border-blue-500 relative">
+            <div className="flex items-end gap-2 mb-4">
+                <FormField control={control} name={`rooms.${roomIndex}.name`} render={({ field }) => (
+                    <FormItem className="flex-grow">
+                        <FormLabel>Room Name</FormLabel>
+                        <FormControl>
+                            <Input placeholder="e.g. Master Bedroom" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                )} />
+                 <Button type="button" size="icon" variant="ghost" onClick={() => {}}><PlusCircle className="h-5 w-5 text-primary" /></Button>
+                 <Button type="button" size="icon" variant="destructive" onClick={removeRoom}><Trash2 className="h-5 w-5" /></Button>
             </div>
-            <Card className="mb-4 p-4">
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <FormField control={addProductForm.control} name="collectionBrand" render={({ field }) => (<FormItem><FormLabel>Collection/Brand (BCN)*</FormLabel><Combobox options={bcnOptions} value={field.value} onSelect={(value) => { field.onChange(value); handleBcnSelect(value); }} onSearch={handleBcnSearch} placeholder="Search BCN..." searchPlaceholder="Type to search..." emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} /><FormMessage /></FormItem>)} />
-                    <FormField control={addProductForm.control} name="salesDescription" render={({ field }) => (<FormItem><FormLabel>Sales Description</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={addProductForm.control} name="mrp" render={({ field }) => (<FormItem><FormLabel>MRP</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={addProductForm.control} name="quantity" render={({ field }) => (<FormItem><FormLabel>Quantity</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={addProductForm.control} name="room" render={({ field }) => (<FormItem><FormLabel>Room</FormLabel><Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="Select Room" /><FormMessage /></FormItem>)} />
-                    <FormField control={addProductForm.control} name="noOfPcs" render={({ field }) => (<FormItem><FormLabel>No of Pcs</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={addProductForm.control} name="verticalRepeat" render={({ field }) => (<FormItem><FormLabel>Vertical Repeat</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={addProductForm.control} name="horizontalRepeat" render={({ field }) => (<FormItem><FormLabel>Horizontal Repeat</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                    <FormField control={addProductForm.control} name="remarks" render={({ field }) => (<FormItem className="lg:col-span-4"><FormLabel>Remarks</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+
+            {fields.map((item, itemIndex) => (
+                <div key={item.id} className="p-4 border-2 border-blue-500 rounded-lg space-y-4 mb-4 relative">
+                     <Button type="button" size="icon" variant="destructive" className="absolute -top-3 -right-3 h-7 w-7" onClick={() => remove(itemIndex)}><Trash2 className="h-4 w-4" /></Button>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.collectionBrand`} render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>BCN*</FormLabel>
+                                <Combobox 
+                                    options={bcnOptions}
+                                    value={field.value} 
+                                    onSelect={(value) => { field.onChange(value); handleBcnSelect(value, itemIndex); }} 
+                                    onSearch={handleBcnSearch} 
+                                    placeholder="Search BCN..." 
+                                    searchPlaceholder="Type to search..." 
+                                    emptyPlaceholder={isSearching ? 'Searching...' : 'No BCN found.'} 
+                                />
+                                <FormMessage />
+                            </FormItem>
+                        )} />
+                        <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.salesDescription`} render={({ field }) => (<FormItem><FormLabel>Sales Description</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.mrp`} render={({ field }) => (<FormItem><FormLabel>MRP</FormLabel><FormControl><Input type="number" {...field} readOnly /></FormControl></FormItem>)} />
+                        <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.noOfPcs`} render={({ field }) => (<FormItem><FormLabel>No Of Pcs</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                    </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                         <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.verticalRepeat`} render={({ field }) => (<FormItem><FormLabel>Vertical Repeat</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                         <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.horizontalRepeat`} render={({ field }) => (<FormItem><FormLabel>Horizontal Repeat</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                         <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.quantity`} render={({ field }) => (<FormItem><FormLabel>Qty</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                     </div>
+                     <FormField control={control} name={`rooms.${roomIndex}.items.${itemIndex}.remarks`} render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Remark</FormLabel>
+                            <FormControl>
+                                <Textarea placeholder="Add any remarks..." {...field} />
+                            </FormControl>
+                        </FormItem>
+                     )} />
                 </div>
-            </Card>
-            <div className="mt-4">
-                <Button type="button" onClick={handleAddClick} variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Add Product to List</Button>
-            </div>
-        </FormProvider>
+            ))}
+            <Button type="button" variant="ghost" size="icon" onClick={() => append({ collectionBrand: "" })}><PlusCircle className="h-6 w-6 text-primary" /></Button>
+        </Card>
     );
 }
+
 
 export function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, customer, cpds, quotations, orders, initialSelections }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal, customer: Customer, cpds: Cpd[], quotations: Quotation[], orders: DealOrder[], initialSelections: Selection[] }) {
     const { user } = useAuth();
@@ -139,19 +180,45 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
 
     const form = useForm<ProductListFormValues>({
         resolver: zodResolver(productListSchema),
-        defaultValues: { products: initialProducts || [] },
+        defaultValues: { rooms: [] },
+    });
+    
+    const { fields, append, remove } = useFieldArray({
+        control: form.control,
+        name: "rooms"
     });
 
-    const { fields, append, remove, update } = useFieldArray({ control: form.control, name: "products" });
 
-    useEffect(() => { form.reset({ products: initialProducts || [] }); }, [initialProducts, form]);
-    
+    useEffect(() => {
+        // Group initial products by room
+        const roomsMap = initialProducts.reduce((acc, product) => {
+            const roomName = product.room || 'Unassigned';
+            if (!acc[roomName]) {
+                acc[roomName] = [];
+            }
+            acc[roomName].push(product);
+            return acc;
+        }, {} as Record<string, DealProduct[]>);
+        
+        const roomsForForm = Object.entries(roomsMap).map(([roomName, products]) => ({
+            name: roomName,
+            items: products.map(p => ({...p, noOfPcs: p.noOfPcs || '1'}))
+        }));
+
+        form.reset({ rooms: roomsForForm });
+    }, [initialProducts, form]);
+
     const handleRefresh = async () => { setIsRefreshing(true); onRefresh(); await new Promise(resolve => setTimeout(resolve, 500)); setIsRefreshing(false); };
-    const handleAddProduct = (productData: ProductFormValues) => { append(productData); };
     
     const handleUpdateActivity = async (data: ProductListFormValues) => {
         setActivityLoading(true);
-        const result = await updateDealProducts(customerId, dealId, data.products);
+        // Flatten the room structure back into a single product list
+        const productList: DealProduct[] = data.rooms.flatMap(room => room.items.map(item => ({
+            ...item,
+            room: room.name,
+        })));
+        
+        const result = await updateDealProducts(customerId, dealId, productList);
         if(result.success) {
             toast({ title: "Products Updated", description: "The product list has been saved."});
             onRefresh();
@@ -167,7 +234,10 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
             toast({ variant: 'destructive', title: 'No Products Selected', description: 'Please select at least one product to create a quotation.' });
             return;
         }
-        const productsToQuote = fields.filter(p => p.id && selectedProductIds.includes(p.id));
+        
+        const allProducts = form.getValues('rooms').flatMap(r => r.items);
+        const productsToQuote = allProducts.filter(p => p.id && selectedProductIds.includes(p.id));
+
         setSelectedProductsForQuotation(productsToQuote.map(p => ({
             ...p,
             rate: parseFloat(p.mrp || '0'),
@@ -184,7 +254,10 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
             setSelectionLoading(false);
             return;
         }
-        const productsToSave = fields.filter(p => p.id && selectedProductIds.includes(p.id));
+        
+        const allProducts = form.getValues('rooms').flatMap(r => r.items);
+        const productsToSave = allProducts.filter(p => p.id && selectedProductIds.includes(p.id));
+
         const result = await createSelectionAction(customerId, dealId, productsToSave, user?.name || 'Unknown');
         if (result.success && result.selection) {
             toast({ title: "Selection Saved", description: `Selection #${result.selection.id} created.` });
@@ -198,7 +271,8 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
 
     const handleViewSelection = async (selection: Selection) => {
         setSelectedSelection(selection);
-        const products = fields.filter(p => selection.productIds.includes(p.id!));
+         const allProducts = form.getValues('rooms').flatMap(r => r.items);
+        const products = allProducts.filter(p => p.id && selection.productIds.includes(p.id!));
         setSelectedSelectionProducts(products);
     };
 
@@ -215,62 +289,29 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
             <FormProvider {...form}>
                 <Card className="mt-6">
                     <CardContent className="p-6">
-                        <AddProductForm onAddProduct={handleAddProduct} />
-
-                        <Separator className="my-8" />
-
                         <div className="flex justify-between items-center mb-6">
-                             <h3 className="text-xl font-semibold">Previously Added Products</h3>
-                             <Button onClick={handleRefresh} variant="outline" size="sm" disabled={isRefreshing}>
-                                {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>} Refresh
-                            </Button>
-                        </div>
-                        <div className="border rounded-md">
-                             <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="w-10"><Checkbox onCheckedChange={(checked) => { const newSelection: Record<string, boolean> = {}; if (checked) { fields.forEach(f => { if(f.id) newSelection[f.id] = true; }); } setSelectedRows(newSelection); }} /></TableHead>
-                                        <TableHead>Collection/Brand</TableHead>
-                                        <TableHead>Sales Desc</TableHead>
-                                        <TableHead>Qty</TableHead>
-                                        <TableHead>MRP</TableHead>
-                                        <TableHead>V-R</TableHead>
-                                        <TableHead>H-R</TableHead>
-                                        <TableHead>Room</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead className="text-right">Actions</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {fields.map((product, index) => (
-                                        <TableRow key={product.id}>
-                                            <TableCell><Checkbox checked={selectedRows[product.id!] || false} onCheckedChange={(checked) => setSelectedRows(prev => ({ ...prev, [product.id!]: !!checked }))} /></TableCell>
-                                            <TableCell>{product.collectionBrand}</TableCell>
-                                            <TableCell>{product.salesDescription}</TableCell>
-                                            <TableCell>{product.quantity}</TableCell>
-                                            <TableCell>{product.mrp}</TableCell>
-                                            <TableCell>{product.verticalRepeat}</TableCell>
-                                            <TableCell>{product.horizontalRepeat}</TableCell>
-                                            <TableCell>{product.room}</TableCell>
-                                            <TableCell>{getProductStatus(product)}</TableCell>
-                                            <TableCell className="text-right">
-                                                <Button variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
+                            <h3 className="text-xl font-semibold">Add / Edit Products</h3>
                         </div>
 
-                        <Separator className="my-8" />
-                        
-                        <div className="flex gap-2 mb-8">
-                            <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
-                            <Button type="button" onClick={handleQuotationClick}>Convert To Quotation</Button>
-                        </div>
-                        
+                        <form className="space-y-4" onSubmit={form.handleSubmit(handleUpdateActivity)}>
+                             {fields.map((room, index) => (
+                                <RoomForm key={room.id} roomIndex={index} removeRoom={() => remove(index)} />
+                            ))}
+                            <Button type="button" variant="outline" onClick={() => append({ name: "", items: [{ collectionBrand: '' }] })}>
+                                <PlusCircle className="mr-2 h-4 w-4" /> Add Another Room
+                            </Button>
+                             <Separator className="my-8" />
+                            <div className="flex justify-between items-center">
+                                 <div className="flex gap-2">
+                                    <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
+                                    <Button type="button" onClick={handleQuotationClick}>Convert To Quotation</Button>
+                                </div>
+                                <Button type="submit" disabled={activityLoading} className="bg-cyan-600 hover:bg-cyan-700">{activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Update Activity</Button>
+                            </div>
+                        </form>
+
                         {selections.length > 0 && (
-                            <div className="mb-8">
+                            <div className="mt-8">
                                 <h3 className="text-xl font-semibold mb-4">Saved Selections</h3>
                                 <Table>
                                     <TableHeader>
@@ -284,7 +325,8 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                     </TableHeader>
                                     <TableBody>
                                         {selections.map(selection => {
-                                            const selectionProducts = fields.filter(p => selection.productIds.includes(p.id!));
+                                            const allProducts = form.getValues('rooms').flatMap(r => r.items);
+                                            const selectionProducts = allProducts.filter(p => p.id && selection.productIds.includes(p.id!));
                                             const totalQty = selectionProducts.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
                                             const totalAmount = selectionProducts.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.mrp) || 0)), 0);
                                             return (
@@ -302,12 +344,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                             </div>
                         )}
                         
-                        <div className="mt-12 flex flex-col items-start gap-4">
-                            <form onSubmit={form.handleSubmit(handleUpdateActivity)}>
-                                <p className="text-sm text-destructive mb-2">Please click on Update Activity if you have updated any changes.</p>
-                                <Button type="submit" disabled={activityLoading} className="bg-cyan-600 hover:bg-cyan-700">{activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Update Activity</Button>
-                            </form>
-                        </div>
                     </CardContent>
                 </Card>
             </FormProvider>
