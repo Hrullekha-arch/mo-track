@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from 'react';
@@ -26,6 +25,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 
 const foamSchema = z.object({
     name: z.string().optional(),
@@ -294,6 +294,18 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                             </div>
                         </div>
                     </div>
+                     <FormField
+                            control={control}
+                            name={`rooms.${roomIndex}.entries.${entryIndex}.remark`}
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Additional notes</FormLabel>
+                                    <FormControl>
+                                        <Textarea placeholder="Any other details..." {...field} value={field.value || ''} />
+                                    </FormControl>
+                                </FormItem>
+                            )}
+                        />
                 </div>
             ) : (
                     <div className="space-y-3">
@@ -791,3 +803,5 @@ export default function MeasurementPage() {
         </div>
     );
 }
+
+    
