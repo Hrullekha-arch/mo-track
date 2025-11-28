@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from 'react';
@@ -25,22 +24,30 @@ import Image from 'next/image';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
+const dimensionSchema = z.object({
+    id: z.string(),
+    height: z.string().optional(),
+    heightUnit: z.string().optional().default('inch'),
+    width: z.string().optional(),
+    widthUnit: z.string().optional().default('inch'),
+});
+
 const measurementEntrySchema = z.object({
     roomName: z.string().optional(),
+    dimensions: z.array(dimensionSchema).optional(),
     noOfPannel: z.string().optional(),
-    height: z.string().optional(),
-    width: z.string().optional(),
     remark: z.string().optional(),
-    recordAudio: z.any().optional(),
-    audioUrl: z.string().optional(),
+    pictures: z.any().optional(),
+    pictureUrls: z.array(z.string()).optional(),
+    // Sofa fields
     noOfSheet: z.string().optional(),
     fabricQty1: z.string().optional(),
     fabricQty2: z.string().optional(),
     marking: z.string().optional(),
     casement: z.string().optional(),
     niwar: z.string().optional(),
-    pictures: z.any().optional(),
-    pictureUrls: z.array(z.string()).optional(),
+    recordAudio: z.any().optional(),
+    audioUrl: z.string().optional(),
 });
 
 const measurementSchema = z.object({
@@ -54,10 +61,30 @@ export type MeasurementFormValues = z.infer<typeof measurementSchema>;
 const MEASUREMENT_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
 const DOER_OPTIONS = ["TU", "OP", "NC", "VN", "MU"];
 
+const DimensionEntryCard = ({ entryIndex, dimensionIndex, remove }: { entryIndex: number, dimensionIndex: number, remove: () => void }) => {
+    const { control } = useFormContext<MeasurementFormValues>();
+    return (
+        <div className="flex items-end gap-2 p-2 border rounded-md bg-white">
+             <FormField control={control} name={`entries.${entryIndex}.dimensions.${dimensionIndex}.height`} render={({ field }) => ( <FormItem className="flex-grow"><FormLabel className="text-xs">Height</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
+             <FormField control={control} name={`entries.${entryIndex}.dimensions.${dimensionIndex}.width`} render={({ field }) => ( <FormItem className="flex-grow"><FormLabel className="text-xs">Width</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
+            <div className="flex gap-1">
+                <FormField control={control} name={`entries.${entryIndex}.dimensions.${dimensionIndex}.heightUnit`} render={({ field }) => ( <FormItem><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="w-[70px] h-10"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="inch">Inch</SelectItem><SelectItem value="mm">MM</SelectItem></SelectContent></Select></FormItem> )} />
+                <FormField control={control} name={`entries.${entryIndex}.dimensions.${dimensionIndex}.widthUnit`} render={({ field }) => ( <FormItem><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger className="w-[70px] h-10"><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="inch">Inch</SelectItem><SelectItem value="mm">MM</SelectItem></SelectContent></Select></FormItem> )} />
+            </div>
+            <Button type="button" variant="ghost" size="icon" className="text-destructive" onClick={remove}><Trash2 className="h-4 w-4" /></Button>
+        </div>
+    )
+}
+
 const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index: number) => void }) => {
     const { control, setValue, getValues } = useFormContext<MeasurementFormValues>();
     const typeOf = useWatch({ control, name: "typeOf" });
     const { toast } = useToast();
+    
+    const { fields: dimensionFields, append: appendDimension, remove: removeDimension } = useFieldArray({
+        control,
+        name: `entries.${index}.dimensions`
+    });
     
     const [imagePreviews, setImagePreviews] = React.useState<string[]>([]);
     const pictures = useWatch({ control, name: `entries.${index}.pictures` });
@@ -100,12 +127,14 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
         setValue(`entries.${index}.pictures`, updatedFiles, { shouldValidate: true });
     }
 
+    const isSofaMeasurement = typeOf === "Sofa Measurement";
+
     return (
-        <Card className="relative">
-            <Button type="button" variant="destructive" size="icon" className="absolute -top-3 -right-3 h-7 w-7" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button>
+        <Card className="relative bg-muted/50 overflow-hidden">
+             <Button type="button" variant="destructive" size="icon" className="absolute top-2 right-2 h-7 w-7" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button>
             <CardContent className="pt-6">
                  <div className="space-y-3">
-                    {typeOf === "Sofa Measurement" ? (
+                    {isSofaMeasurement ? (
                         <div className="space-y-3">
                             <FormField control={control} name={`entries.${index}.noOfSheet`} render={({ field }) => (<FormItem><FormLabel>No Of Sheet</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
                             <FormField control={control} name={`entries.${index}.fabricQty1`} render={({ field }) => (<FormItem><FormLabel>Fabric Qty 1</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
@@ -116,14 +145,18 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            <FormField control={control} name={`entries.${index}.roomName`} render={({ field }) => (<FormItem><FormLabel>Room Name</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
+                            <FormField control={control} name={`entries.${index}.roomName`} render={({ field }) => (<FormItem><FormLabel>Room Name</FormLabel><FormControl><Input {...field} value={field.value || ''} placeholder="e.g. Master Bedroom" /></FormControl></FormItem>)} />
+                            <div className="space-y-2 rounded-lg bg-background/50 p-3">
+                                {dimensionFields.map((dimField, dimIndex) => (
+                                    <DimensionEntryCard key={dimField.id} entryIndex={index} dimensionIndex={dimIndex} remove={() => removeDimension(dimIndex)} />
+                                ))}
+                                <Button type="button" size="sm" variant="outline" className="w-full" onClick={() => appendDimension({ id: new Date().toISOString() })}><PlusCircle className="mr-2 h-4 w-4" /> Add Height/Width</Button>
+                            </div>
                             <FormField control={control} name={`entries.${index}.noOfPannel`} render={({ field }) => (<FormItem><FormLabel>No Of Pannel</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                            <FormField control={control} name={`entries.${index}.height`} render={({ field }) => (<FormItem><FormLabel>Height</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
-                            <FormField control={control} name={`entries.${index}.width`} render={({ field }) => (<FormItem><FormLabel>Width</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl></FormItem>)} />
                         </div>
                     )}
                     <FormItem>
-                        <FormLabel>Pictures (Upto 5)</FormLabel>
+                        <FormLabel>Choose Pictures (Upto 5)</FormLabel>
                         <FormControl>
                             <Input type="file" accept="image/*" multiple onChange={handlePictureChange} />
                         </FormControl>
@@ -133,13 +166,7 @@ const MeasurementEntryCard = ({ index, remove }: { index: number, remove: (index
                             {imagePreviews.map((src, i) => (
                                 <div key={i} className="relative">
                                     <Image src={src} alt={`Preview ${i+1}`} width={60} height={60} className="rounded-md object-cover" style={{ height: 'auto' }} data-ai-hint="measurement image"/>
-                                    <Button 
-                                        type="button" 
-                                        variant="destructive" 
-                                        size="icon" 
-                                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
-                                        onClick={() => handlePictureRemove(i)}
-                                    >
+                                    <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6 rounded-full" onClick={() => handlePictureRemove(i)}>
                                         <Trash2 className="h-3 w-3" />
                                     </Button>
                                 </div>
@@ -186,7 +213,7 @@ const MeasurementPreview = ({
 
                     {values.entries.map((entry, index) => (
                         <div key={index} className="border-t pt-4 space-y-2">
-                            <h4 className="font-semibold mb-2">Entry #{index + 1}</h4>
+                            <h4 className="font-semibold mb-2">Entry #{index + 1}: {entry.roomName || ''}</h4>
                             {values.typeOf === 'Sofa Measurement' ? (
                                 <div className="grid grid-cols-2 gap-2 text-sm">
                                     <p><strong>No. of Sheet:</strong> {entry.noOfSheet || 'N/A'}</p>
@@ -197,11 +224,11 @@ const MeasurementPreview = ({
                                     <p><strong>Niwar:</strong> {entry.niwar ? `${entry.niwar} MTR` : 'N/A'}</p>
                                 </div>
                             ) : (
-                                 <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
-                                    <p><strong>Room:</strong> {entry.roomName || 'N/A'}</p>
-                                    <p><strong>No. of Pannel:</strong> {entry.noOfPannel || 'N/A'}</p>
-                                    <p><strong>Height:</strong> {entry.height || 'N/A'}</p>
-                                    <p><strong>Width:</strong> {entry.width || 'N/A'}</p>
+                                <div className="space-y-1">
+                                    {(entry.dimensions || []).map(d => (
+                                        <p key={d.id} className="text-sm"><strong>Dimension:</strong> H {d.height} {d.heightUnit} x W {d.width} {d.widthUnit}</p>
+                                    ))}
+                                    <p className="text-sm"><strong>Panels:</strong> {entry.noOfPannel || 'N/A'}</p>
                                 </div>
                             )}
                              <p className="text-sm mt-2"><strong>Remarks:</strong> {entry.remark || 'N/A'}</p>
@@ -262,7 +289,7 @@ export default function MeasurementPage() {
         defaultValues: {
             typeOf: "Curtains",
             doerName: "",
-            entries: [{}]
+            entries: [{ dimensions: [{id: 'initial-dim'}] }]
         }
     });
     
@@ -505,7 +532,9 @@ export default function MeasurementPage() {
                             {fields.map((field, index) => (
                                <MeasurementEntryCard key={field.id} index={index} remove={remove} />
                             ))}
-                            <Button type="button" variant="outline" onClick={() => append({})}><PlusCircle className="mr-2 h-4 w-4"/>Add</Button>
+                            <Button type="button" variant="outline" onClick={() => append({ dimensions: [{id: new Date().toISOString()}] })} className="w-full">
+                                <PlusCircle className="mr-2 h-4 w-4"/>Add New Room
+                            </Button>
                         </CardContent>
                         <CardFooter>
                             <Button type="button" className="w-full" onClick={handlePreview}>
