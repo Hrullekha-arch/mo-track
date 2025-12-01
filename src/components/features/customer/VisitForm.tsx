@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useMemo } from "react";
@@ -142,7 +141,7 @@ export function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, 
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                             <FormControl><SelectTrigger><SelectValue placeholder="Select a pre-made selection..." /></SelectTrigger></FormControl>
                             <SelectContent>
-                                <SelectItem value="">None</SelectItem>
+                                <SelectItem value="none">None</SelectItem>
                                 {selections.map(s => <SelectItem key={s.id} value={s.id}>Selection #{s.id} ({s.totalPcs} pcs)</SelectItem>)}
                             </SelectContent>
                         </Select>
