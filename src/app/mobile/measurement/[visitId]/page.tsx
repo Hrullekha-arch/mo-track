@@ -62,7 +62,6 @@ const measurementEntrySchema = z.object({
     itemName: z.string().optional(),
     noOfSheet: z.string().optional(),
     fabricQty1: z.string().optional(),
-    fabricQty2: z.string().optional(),
     stitchingRate: z.string().optional(),
     foam: foamSchema.optional(),
     casement: simpleQtySchema.optional(),
@@ -381,15 +380,15 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
                             </div>
                              <div>
                                 <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('casement')}>Casement</Button>
-                                {entryData?.casement?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.casement.qty} Mtr</p>}
+                                {entryData?.casement?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.casement.qty} MTR</p>}
                             </div>
                              <div>
                                 <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('marking')}>Marking</Button>
-                                {entryData?.marking?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.marking.qty} Mtr</p>}
+                                {entryData?.marking?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.marking.qty} MTR</p>}
                             </div>
                              <div>
                                 <Button type="button" variant="outline" className="w-full justify-start" onClick={() => setOpenDialog('niwar')}>Niwar</Button>
-                                {entryData?.niwar?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.niwar.qty} Mtr</p>}
+                                {entryData?.niwar?.qty && <p className="text-xs text-muted-foreground mt-1">Qty: {entryData.niwar.qty} MTR</p>}
                             </div>
                         </div>
                     </div>
@@ -498,7 +497,7 @@ const RoomEntryCard = ({ index, remove }: { index: number, remove: (index: numbe
             </CardHeader>
             <CardContent className="space-y-3">
                  <div className="flex items-center space-x-2">
-                    <Checkbox id={`add-blind-${index}`} onCheckedChange={() => setIsBlindDialogOpen(true)} />
+                    <Checkbox id={`add-blind-${index}`} onCheckedChange={(checked) => checked && setIsBlindDialogOpen(true)} />
                     <Label htmlFor={`add-blind-${index}`}>Add Blind</Label>
                 </div>
                 {fields.map((field, entryIndex) => (
@@ -619,6 +618,20 @@ const MeasurementPreview = ({
         </Card>
     )
 }
+
+const MEASUREMENT_TYPES = [
+    "Curtains",
+    "Sofa Measurement",
+    "Blinds",
+    "Flooring",
+    "Wallpaper",
+    "Mattress",
+    "Paneling",
+    "Other"
+];
+
+const DOER_OPTIONS = ["Anil", "Sunil", "Raj", "Amit"];
+
 
 export default function MeasurementPage() {
     const params = useParams();
