@@ -77,26 +77,14 @@ const AddBlindsDialog = ({ isOpen, onClose, roomName }: { isOpen: boolean; onClo
     const { toast } = useToast();
     const [bcnOptions, setBcnOptions] = React.useState<any[]>([]);
 
-        // Find the index of the first product that matches the roomName to manage its blinds
-        let productIndex = getValues('products').findIndex(p => p.room === roomName);
-    // If no product in this room yet → create a temporary one
-            if (productIndex === -1) {
-                setValue('products', [
-                    ...getValues('products'),
-                    {
-                        id: `temp-${Date.now()}`,
-                        collectionBrand: "",
-                        room: roomName,
-                        blinds: []
-                    }
-                ]);
+    const productIndex = useMemo(() => {
+        return getValues('products').findIndex(p => p.room === roomName);
+    }, [getValues, roomName]);
 
-                return null; // component will re-render automatically
-            }
-
-    const { fields, append, remove } = useFieldArray({ 
-        control, 
-        name: `products.${productIndex}.blinds` as const
+    const { fields, append, remove } = useFieldArray({
+        control,
+        name: `products.${productIndex}.blinds` as const,
+        shouldUnregister: false
     });
 
     const handleSearch = async (query: string) => {
@@ -114,17 +102,26 @@ const AddBlindsDialog = ({ isOpen, onClose, roomName }: { isOpen: boolean; onClo
         return '0.00';
     };
 
-    if (productIndex === -1) {
-        // This case should ideally not happen if dialog is opened correctly
-        return (
-            <Dialog open={isOpen} onOpenChange={onClose}>
-                <DialogContent>
-                    <DialogHeader><DialogTitle>Error</DialogTitle></DialogHeader>
-                    <p>Could not find a product associated with room "{roomName}". Please add a product to this room first.</p>
-                </DialogContent>
-            </Dialog>
-        );
+    useEffect(() => {
+        if (isOpen && productIndex === -1) {
+            const products = getValues('products');
+            setValue('products', [
+                ...products,
+                {
+                    id: `temp-${Date.now()}`,
+                    collectionBrand: "",
+                    room: roomName,
+                    blinds: []
+                }
+            ]);
+        }
+    }, [isOpen, productIndex, roomName, getValues, setValue]);
+
+    if (productIndex === -1 && isOpen) {
+        return <Dialog open={true}><DialogContent><DialogHeader><DialogTitle>Initializing Room...</DialogTitle></DialogHeader><p>Please wait...</p></DialogContent></Dialog>;
     }
+    
+    if (productIndex === -1) return null;
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -401,6 +398,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         }, {} as Record<string, (typeof fields[0] & { originalIndex: number })[]>);
     }, [fields]);
 
+    const selectedRoom = form.watch('room');
 
     return (
         <>
@@ -421,6 +419,9 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                      )}/>
                                      <div className="md:col-span-2 flex items-end gap-2">
                                         <Button type="button" variant="outline" onClick={() => {}}> <PlusCircle className="mr-2 h-4 w-4" /> Add new Room </Button>
+                                         <Button type="button" variant="outline" onClick={() => { if (selectedRoom) { setBlindDialogState({ isOpen: true, roomName: selectedRoom }) } else { toast({ variant: 'destructive', title: 'No Room Selected' })}}} disabled={!selectedRoom}>
+                                            Add Blind
+                                        </Button>
                                         <Button type="button" onClick={handleAddProductsToList}>Add Products to List</Button>
                                     </div>
                                 </div>
@@ -472,7 +473,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                 <div key={room}>
                                     <div className="flex items-center justify-between bg-muted/50 p-2 rounded-t-md">
                                         <h4 className="font-semibold">{room}</h4>
-                                        <Button type="button" size="sm" variant="outline" onClick={() => setBlindDialogState({ isOpen: true, roomName: room })}>Add Blind</Button>
                                     </div>
                                     <div className="border border-t-0 rounded-b-md">
                                         <Table>
@@ -585,7 +585,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                         </form>
                     </CardContent>
                 </Card>
-                 {blindDialogState.isOpen && blindDialogState.roomName && (
+                {blindDialogState.isOpen && blindDialogState.roomName && (
                     <AddBlindsDialog 
                         isOpen={blindDialogState.isOpen} 
                         onClose={() => setBlindDialogState({ isOpen: false, roomName: null })} 
