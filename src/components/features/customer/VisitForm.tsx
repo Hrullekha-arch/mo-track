@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Loader2, Share2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
 
 export const deliveryInstallationItemSchema = z.object({
   id: z.string(),
@@ -359,3 +360,5 @@ export function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, 
         </>
     )
 }
+
+    
