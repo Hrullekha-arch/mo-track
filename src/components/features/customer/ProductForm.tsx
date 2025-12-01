@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { useForm, useFieldArray, FormProvider, useFormContext } from "react-hook-form";
+import { useForm, useFieldArray, FormProvider, useFormContext, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Customer, Deal, DealProduct, Quotation, DealOrder, Cpd, Selection, Stock } from "@/lib/types";
@@ -26,6 +26,18 @@ import { roomOptions } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+
+
+const blindEntrySchema = z.object({
+    id: z.string(),
+    bcn: z.string().optional(),
+    control: z.enum(['Left', 'Right']).optional(),
+    type: z.enum(['IBT', 'OBT']).optional(),
+    width: z.string().optional(),
+    height: z.string().optional(),
+    area: z.string().optional(),
+});
 
 const productSchema = z.object({
     id: z.string().optional(),
@@ -38,6 +50,7 @@ const productSchema = z.object({
     quantity: z.string().optional(),
     remarks: z.string().optional(),
     room: z.string().optional(),
+    blinds: z.array(blindEntrySchema).optional(), // Add blinds to product
 });
 
 const newProductEntrySchema = z.object({
@@ -59,6 +72,114 @@ const productListSchema = z.object({
 
 type ProductListFormValues = z.infer<typeof productListSchema>;
 
+const AddBlindsDialog = ({ isOpen, onClose, roomName }: { isOpen: boolean; onClose: () => void; roomName: string; }) => {
+    const { control, getValues, setValue } = useFormContext<ProductListFormValues>();
+    const { toast } = useToast();
+    const [bcnOptions, setBcnOptions] = React.useState<any[]>([]);
+
+    // Find the index of the first product that matches the roomName to manage its blinds
+    const productIndex = getValues('products').findIndex(p => p.room === roomName);
+
+    const { fields, append, remove } = useFieldArray({ 
+        control, 
+        name: `products.${productIndex}.blinds` as const
+    });
+
+    const handleSearch = async (query: string) => {
+        if (query.length < 2) return;
+        const results = await searchStockByBcn(query);
+        setBcnOptions(results.map(r => ({ label: r.bcn, value: r.bcn })));
+    };
+
+    const calculateArea = (widthStr?: string, heightStr?: string) => {
+        const width = parseFloat(widthStr || '0');
+        const height = parseFloat(heightStr || '0');
+        if (!isNaN(width) && !isNaN(height)) {
+            return (width * height).toFixed(2);
+        }
+        return '0.00';
+    };
+
+    if (productIndex === -1) {
+        // This case should ideally not happen if dialog is opened correctly
+        return (
+            <Dialog open={isOpen} onOpenChange={onClose}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Error</DialogTitle></DialogHeader>
+                    <p>Could not find a product associated with room "{roomName}". Please add a product to this room first.</p>
+                </DialogContent>
+            </Dialog>
+        );
+    }
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent className="max-w-4xl">
+                <DialogHeader>
+                    <DialogTitle>Add Blinds for {roomName}</DialogTitle>
+                </DialogHeader>
+                <div className="py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Sr No</TableHead>
+                                <TableHead>BCN</TableHead>
+                                <TableHead>Control</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>W</TableHead>
+                                <TableHead>H</TableHead>
+                                <TableHead>Area</TableHead>
+                                <TableHead>Action</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {fields.map((field, index) => {
+                                const blind = getValues(`products.${productIndex}.blinds`)?.[index];
+                                const area = calculateArea(blind?.width, blind?.height);
+                                return (
+                                    <TableRow key={field.id}>
+                                        <TableCell>{index + 1}</TableCell>
+                                        <TableCell>
+                                            <FormField control={control} name={`products.${productIndex}.blinds.${index}.bcn`} render={({ field }) => (
+                                                <Combobox options={bcnOptions} value={field.value} onSelect={field.onChange} onSearch={handleSearch} placeholder="Search BCN..." />
+                                            )} />
+                                        </TableCell>
+                                        <TableCell>
+                                            <FormField control={control} name={`products.${productIndex}.blinds.${index}.control`} render={({ field }) => (
+                                                <Select onValueChange={field.onChange} value={field.value}>
+                                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                                    <SelectContent><SelectItem value="Left">Left</SelectItem><SelectItem value="Right">Right</SelectItem></SelectContent>
+                                                </Select>
+                                            )} />
+                                        </TableCell>
+                                        <TableCell>
+                                            <FormField control={control} name={`products.${productIndex}.blinds.${index}.type`} render={({ field }) => (
+                                                <Select onValueChange={field.onChange} value={field.value}>
+                                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                                    <SelectContent><SelectItem value="IBT">IBT</SelectItem><SelectItem value="OBT">OBT</SelectItem></SelectContent>
+                                                </Select>
+                                            )} />
+                                        </TableCell>
+                                        <TableCell><FormField control={control} name={`products.${productIndex}.blinds.${index}.width`} render={({ field }) => <Input {...field} placeholder="W" onChange={(e) => { field.onChange(e); setValue(`products.${productIndex}.blinds.${index}.area`, calculateArea(e.target.value, getValues(`products.${productIndex}.blinds.${index}.height`))) }} />} /></TableCell>
+                                        <TableCell><FormField control={control} name={`products.${productIndex}.blinds.${index}.height`} render={({ field }) => <Input {...field} placeholder="H" onChange={(e) => { field.onChange(e); setValue(`products.${productIndex}.blinds.${index}.area`, calculateArea(getValues(`products.${productIndex}.blinds.${index}.width`), e.target.value)) }} />} /></TableCell>
+                                        <TableCell>{area}</TableCell>
+                                        <TableCell><Button variant="destructive" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button></TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                    <Button variant="outline" onClick={() => append({ id: new Date().toISOString() })}><PlusCircle className="mr-2 h-4 w-4"/>Add Blind</Button>
+                </div>
+                <DialogFooter>
+                    <Button onClick={onClose}>Done</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+
 export function ProductForm({ initialProducts, customerId, dealId, onRefresh, deal, customer, cpds, quotations, orders, initialSelections }: { initialProducts: DealProduct[], customerId: string, dealId: string, onRefresh: () => void, deal: Deal, customer: Customer, cpds: Cpd[], quotations: Quotation[], orders: DealOrder[], initialSelections: Selection[] }) {
     const { user } = useAuth();
     const [activityLoading, setActivityLoading] = useState(false);
@@ -73,6 +194,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
     const [bcnOptions, setBcnOptions] = useState<ComboboxOption[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [stagedItems, setStagedItems] = useState<z.infer<typeof newProductEntrySchema>[]>([]);
+    const [blindDialogState, setBlindDialogState] = useState<{ isOpen: boolean; roomName: string | null }>({ isOpen: false, roomName: null });
 
     useEffect(() => {
         setSelections(initialSelections);
@@ -92,6 +214,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                 quantity: p.quantity || '0',
                 mrp: p.mrp || '0',
                 room: p.room || '',
+                blinds: (p as any).blinds || [],
             })),
             room: '',
             newProduct: {
@@ -253,6 +376,17 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         }
     };
 
+    const groupedProducts = useMemo(() => {
+        return fields.reduce((acc, product, index) => {
+            const room = product.room || 'Unassigned';
+            if (!acc[room]) {
+                acc[room] = [];
+            }
+            acc[room].push({ ...product, originalIndex: index });
+            return acc;
+        }, {} as Record<string, (typeof fields[0] & { originalIndex: number })[]>);
+    }, [fields]);
+
 
     return (
         <>
@@ -320,42 +454,51 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                     Update Activity
                                 </Button>
                             </div>
-                            <div className="border rounded-md">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Modify</TableHead>
-                                            <TableHead>Room</TableHead>
-                                            <TableHead>BCN</TableHead>
-                                            <TableHead>MRP</TableHead>
-                                            <TableHead>Pcs</TableHead>
-                                            <TableHead>H-R</TableHead>
-                                            <TableHead>V-R</TableHead>
-                                            <TableHead>Description</TableHead>
-                                            <TableHead>Remark</TableHead>
-                                            <TableHead>Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {fields.length > 0 ? fields.map((product, index) => (
-                                            <TableRow key={product.id}>
-                                                <TableCell><Checkbox checked={!!selectedRows[product.id!]} onCheckedChange={(checked) => { const newSelection = { ...selectedRows }; if (checked) {newSelection[product.id!] = true;} else {delete newSelection[product.id!];} setSelectedRows(newSelection); }} /></TableCell>
-                                                <TableCell>{product.room}</TableCell>
-                                                <TableCell>{product.collectionBrand}</TableCell>
-                                                <TableCell>{product.mrp}</TableCell>
-                                                <TableCell>{product.noOfPcs}</TableCell>
-                                                <TableCell>{product.horizontalRepeat || '0.0'}</TableCell>
-                                                <TableCell>{product.verticalRepeat || '0.0'}</TableCell>
-                                                <TableCell>{product.salesDescription}</TableCell>
-                                                <TableCell>{product.remarks}</TableCell>
-                                                <TableCell><Button type="button" variant="ghost" size="icon"><Edit className="h-4 w-4 text-blue-500" /></Button><Button type="button" variant="ghost" size="icon" onClick={() => handleDeleteItem(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
-                                            </TableRow>
-                                        )) : (
-                                            <TableRow><TableCell colSpan={10} className="text-center">No products added yet.</TableCell></TableRow>
-                                        )}
-                                    </TableBody>
-                                </Table>
-                            </div>
+                            {Object.entries(groupedProducts).map(([room, productsInRoom]) => (
+                                <div key={room}>
+                                    <div className="flex items-center justify-between bg-muted/50 p-2 rounded-t-md">
+                                        <h4 className="font-semibold">{room}</h4>
+                                        <Button size="sm" variant="outline" onClick={() => setBlindDialogState({ isOpen: true, roomName: room })}>Add Blind</Button>
+                                    </div>
+                                    <div className="border border-t-0 rounded-b-md">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead><Checkbox onCheckedChange={(checked) => {
+                                                        const newSelection = { ...selectedRows };
+                                                        productsInRoom.forEach(p => {
+                                                            if (p.id) {
+                                                                if (checked) newSelection[p.id] = true;
+                                                                else delete newSelection[p.id];
+                                                            }
+                                                        });
+                                                        setSelectedRows(newSelection);
+                                                    }} /></TableHead>
+                                                    <TableHead>BCN</TableHead>
+                                                    <TableHead>MRP</TableHead>
+                                                    <TableHead>Pcs</TableHead>
+                                                    <TableHead>Qty</TableHead>
+                                                    <TableHead>Description</TableHead>
+                                                    <TableHead>Actions</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {productsInRoom.map((product) => (
+                                                    <TableRow key={product.id}>
+                                                        <TableCell><Checkbox checked={!!selectedRows[product.id!]} onCheckedChange={(checked) => { const newSelection = { ...selectedRows }; if (checked) {newSelection[product.id!] = true;} else {delete newSelection[product.id!];} setSelectedRows(newSelection); }} /></TableCell>
+                                                        <TableCell>{product.collectionBrand}</TableCell>
+                                                        <TableCell>{product.mrp}</TableCell>
+                                                        <TableCell>{product.noOfPcs}</TableCell>
+                                                        <TableCell>{product.quantity}</TableCell>
+                                                        <TableCell>{product.salesDescription}</TableCell>
+                                                        <TableCell><Button type="button" variant="ghost" size="icon" onClick={() => handleDeleteItem(product.originalIndex)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                         <Separator />
                         <div className="space-y-4">
@@ -445,6 +588,13 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
+            )}
+             {blindDialogState.isOpen && blindDialogState.roomName && (
+                <AddBlindsDialog 
+                    isOpen={blindDialogState.isOpen} 
+                    onClose={() => setBlindDialogState({ isOpen: false, roomName: null })} 
+                    roomName={blindDialogState.roomName}
+                />
             )}
         </>
     )
