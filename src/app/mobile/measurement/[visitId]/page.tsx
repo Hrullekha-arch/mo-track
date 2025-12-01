@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import * as React from 'react';
@@ -27,6 +26,9 @@ import html2canvas from 'html2canvas';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { searchStockByBcn } from '@/app/dashboard/inventory/actions';
+import { Combobox } from '@/components/ui/combobox';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const foamSchema = z.object({
     foamSize: z.string().optional(),
@@ -36,6 +38,16 @@ const foamSchema = z.object({
 
 const simpleQtySchema = z.object({
     qty: z.string().optional(),
+});
+
+const blindEntrySchema = z.object({
+    id: z.string(),
+    bcn: z.string().optional(),
+    control: z.enum(['Left', 'Right']).optional(),
+    type: z.enum(['IBT', 'OBT']).optional(),
+    width: z.string().optional(),
+    height: z.string().optional(),
+    area: z.string().optional(),
 });
 
 const measurementEntrySchema = z.object({
@@ -69,6 +81,7 @@ const roomSchema = z.object({
     id: z.string().optional(),
     roomName: z.string().min(1, "Room name is required."),
     entries: z.array(measurementEntrySchema),
+    blinds: z.array(blindEntrySchema).optional(),
 });
 
 const measurementSchema = z.object({
@@ -78,9 +91,6 @@ const measurementSchema = z.object({
 });
 
 export type MeasurementFormValues = z.infer<typeof measurementSchema>;
-
-const MEASUREMENT_TYPES = ["Curtains", "Wallpaper", "Wall to Wall", "Sofa Measurement"];
-const DOER_OPTIONS = ["TU", "OP", "NC", "VN", "MU"];
 
 // Reusable Dialog for simple quantity input
 const SimpleQtyDialog = ({
@@ -150,7 +160,7 @@ const FoamDialog = ({
                         <Label htmlFor="foam-size">Foam size</Label>
                         <Input id="foam-size" {...register("foamSize")} />
                     </div>
-                    <div>
+                     <div>
                         <Label htmlFor="foam-qty">Qty</Label>
                         <Input id="foam-qty" {...register("qty")} />
                     </div>
@@ -168,6 +178,93 @@ const FoamDialog = ({
     );
 };
 
+const AddBlindsDialog = ({ isOpen, onClose, roomIndex }: { isOpen: boolean; onClose: () => void; roomIndex: number; }) => {
+    const { control, getValues, setValue } = useFormContext<MeasurementFormValues>();
+    const { fields, append, remove } = useFieldArray({ control, name: `rooms.${roomIndex}.blinds` });
+    const { toast } = useToast();
+    const [bcnOptions, setBcnOptions] = React.useState<any[]>([]);
+
+    const handleSearch = async (query: string) => {
+        if (query.length < 2) return;
+        const results = await searchStockByBcn(query);
+        setBcnOptions(results.map(r => ({ label: r.bcn, value: r.bcn })));
+    };
+
+    const calculateArea = (widthStr?: string, heightStr?: string) => {
+        const width = parseFloat(widthStr || '0');
+        const height = parseFloat(heightStr || '0');
+        if (!isNaN(width) && !isNaN(height)) {
+            return (width * height).toFixed(2);
+        }
+        return '0.00';
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent className="max-w-4xl">
+                <DialogHeader>
+                    <DialogTitle>Add Blinds for {getValues(`rooms.${roomIndex}.roomName`)}</DialogTitle>
+                </DialogHeader>
+                <div className="py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Sr No</TableHead>
+                                <TableHead>BCN</TableHead>
+                                <TableHead>Control</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>W</TableHead>
+                                <TableHead>H</TableHead>
+                                <TableHead>Area</TableHead>
+                                <TableHead>Action</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {fields.map((field, index) => {
+                                const blind = getValues(`rooms.${roomIndex}.blinds`)?.[index];
+                                const area = calculateArea(blind?.width, blind?.height);
+                                return (
+                                    <TableRow key={field.id}>
+                                        <TableCell>{index + 1}</TableCell>
+                                        <TableCell>
+                                            <FormField control={control} name={`rooms.${roomIndex}.blinds.${index}.bcn`} render={({ field }) => (
+                                                <Combobox options={bcnOptions} value={field.value} onSelect={field.onChange} onSearch={handleSearch} placeholder="Search BCN..." />
+                                            )} />
+                                        </TableCell>
+                                        <TableCell>
+                                            <FormField control={control} name={`rooms.${roomIndex}.blinds.${index}.control`} render={({ field }) => (
+                                                <Select onValueChange={field.onChange} value={field.value}>
+                                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                                    <SelectContent><SelectItem value="Left">Left</SelectItem><SelectItem value="Right">Right</SelectItem></SelectContent>
+                                                </Select>
+                                            )} />
+                                        </TableCell>
+                                        <TableCell>
+                                            <FormField control={control} name={`rooms.${roomIndex}.blinds.${index}.type`} render={({ field }) => (
+                                                <Select onValueChange={field.onChange} value={field.value}>
+                                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                                    <SelectContent><SelectItem value="IBT">IBT</SelectItem><SelectItem value="OBT">OBT</SelectItem></SelectContent>
+                                                </Select>
+                                            )} />
+                                        </TableCell>
+                                        <TableCell><FormField control={control} name={`rooms.${roomIndex}.blinds.${index}.width`} render={({ field }) => <Input {...field} placeholder="W" onChange={(e) => { field.onChange(e); setValue(`rooms.${roomIndex}.blinds.${index}.area`, calculateArea(e.target.value, getValues(`rooms.${roomIndex}.blinds.${index}.height`))) }} />} /></TableCell>
+                                        <TableCell><FormField control={control} name={`rooms.${roomIndex}.blinds.${index}.height`} render={({ field }) => <Input {...field} placeholder="H" onChange={(e) => { field.onChange(e); setValue(`rooms.${roomIndex}.blinds.${index}.area`, calculateArea(getValues(`rooms.${roomIndex}.blinds.${index}.width`), e.target.value)) }} />} /></TableCell>
+                                        <TableCell>{area}</TableCell>
+                                        <TableCell><Button variant="destructive" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button></TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                    <Button variant="outline" onClick={() => append({ id: new Date().toISOString() })}><PlusCircle className="mr-2 h-4 w-4"/>Add Blind</Button>
+                </div>
+                <DialogFooter>
+                    <Button onClick={onClose}>Submit</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
 
 const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: number; entryIndex: number; remove: (index: number) => void }) => {
     const { control, setValue, getValues } = useFormContext<MeasurementFormValues>();
@@ -367,11 +464,12 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
 
 
 const RoomEntryCard = ({ index, remove }: { index: number, remove: (index: number) => void }) => {
-    const { control } = useFormContext<MeasurementFormValues>();
+    const { control, getValues, setValue } = useFormContext<MeasurementFormValues>();
     const { fields, append, remove: removeEntry } = useFieldArray({
         control,
         name: `rooms.${index}.entries`
     });
+    const [isBlindDialogOpen, setIsBlindDialogOpen] = React.useState(false);
 
     const roomName = useWatch({
         control,
@@ -399,6 +497,10 @@ const RoomEntryCard = ({ index, remove }: { index: number, remove: (index: numbe
                 </Button>
             </CardHeader>
             <CardContent className="space-y-3">
+                 <div className="flex items-center space-x-2">
+                    <Checkbox id={`add-blind-${index}`} onCheckedChange={() => setIsBlindDialogOpen(true)} />
+                    <Label htmlFor={`add-blind-${index}`}>Add Blind</Label>
+                </div>
                 {fields.map((field, entryIndex) => (
                     <MeasurementEntryCard 
                         key={field.id}
@@ -412,6 +514,7 @@ const RoomEntryCard = ({ index, remove }: { index: number, remove: (index: numbe
                     Add New Entry
                 </Button>
             </CardContent>
+            <AddBlindsDialog isOpen={isBlindDialogOpen} onClose={() => setIsBlindDialogOpen(false)} roomIndex={index} />
         </Card>
     );
 }
@@ -539,7 +642,7 @@ export default function MeasurementPage() {
         defaultValues: {
             typeOf: "Curtains",
             doerName: "",
-            rooms: [{ roomName: "", entries: [{ id: new Date().toISOString() }] }]
+            rooms: [{ roomName: "", entries: [{ id: new Date().toISOString() }], blinds: [] }]
         }
     });
     
@@ -791,7 +894,7 @@ export default function MeasurementPage() {
                             {fields.map((field, index) => (
                                <RoomEntryCard key={field.id} index={index} remove={remove} />
                             ))}
-                            <Button type="button" variant="outline" onClick={() => append({ id: new Date().toISOString(), roomName: '', entries: [{ id: new Date().toISOString() }] })} className="w-full">
+                            <Button type="button" variant="outline" onClick={() => append({ id: new Date().toISOString(), roomName: '', entries: [{ id: new Date().toISOString() }], blinds: [] })} className="w-full">
                                 <PlusCircle className="mr-2 h-4 w-4"/>Add new Room
                             </Button>
                         </CardContent>
