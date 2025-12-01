@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from 'react';
@@ -52,6 +53,7 @@ const blindEntrySchema = z.object({
 
 const measurementEntrySchema = z.object({
     id: z.string().optional(),
+    status: z.enum(['complete', 'item-needed']).optional(),
     // Curtain/Wallpaper fields
     height: z.string().optional(),
     heightUnit: z.string().optional().default('inch'),
@@ -655,7 +657,7 @@ export default function MeasurementPage() {
         defaultValues: {
             typeOf: "Curtains",
             doerName: "",
-            rooms: [{ roomName: "", entries: [{ id: new Date().toISOString() }], blinds: [] }]
+            rooms: [{ roomName: "", entries: [{ id: new Date().toISOString(), status: 'item-needed' }], blinds: [] }]
         }
     });
     
@@ -768,7 +770,8 @@ export default function MeasurementPage() {
                             return { 
                                 ...cleanedEntry, 
                                 audioUrl, 
-                                pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined, 
+                                pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined,
+                                status: 'item-needed', // Always set to item-needed on creation by installer
                             };
                         })
                     );
@@ -778,7 +781,6 @@ export default function MeasurementPage() {
 
             const measurementDataForDb = { ...values, rooms: processedRooms };
             
-            // This needs to be adapted as addMeasurementAction expects a different structure
             const simplifiedEntries = processedRooms.flatMap(room => room.entries.map(entry => ({ ...entry, roomName: room.roomName })));
 
             const measurementData: Omit<DealMeasurement, 'id' | 'createdAt' | 'createdBy' | 'pdfUrl'> = {

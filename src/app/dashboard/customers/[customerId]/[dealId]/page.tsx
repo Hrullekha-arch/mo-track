@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Customer, Deal, User, Quotation, DealOrder, DealVisit, DealMeasurement, Cpd, Selection, Order } from "@/lib/types";
+import { Customer, Deal, User, Quotation, DealOrder, DealVisit, DealMeasurement, Cpd, Selection, Order, MeasurementEntry } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription,CardFooter } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,8 @@ import {
   Eye,
   Loader2,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  Pencil
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -358,26 +359,26 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders,
 
 function MeasurementsTab({ customer, dealId, measurements }: { customer: Customer; dealId: string, measurements: DealMeasurement[] }) {
     const [localMeasurements, setLocalMeasurements] = useState<DealMeasurement[]>(measurements);
+    const [isEditing, setIsEditing] = useState<DealMeasurement | null>(null);
     const { role } = useAuth();
     
     const handleMeasurementAdded = (newMeasurement: DealMeasurement) => {
         setLocalMeasurements(prev => [newMeasurement, ...prev]);
     };
 
-    const getMeasurementStatus = (measurement: DealMeasurement) => {
+    const getMeasurementStatus = (measurement: DealMeasurement): { color: string; text: string; needsAction: boolean } => {
         const totalEntries = measurement.entries?.length || 0;
-        if (totalEntries === 0) return { color: 'bg-gray-200', text: 'Empty' };
+        if (totalEntries === 0) return { color: 'bg-gray-200', text: 'Empty', needsAction: false };
 
         const itemsNeededCount = measurement.entries.filter(e => e.status === 'item-needed').length;
 
-        if (itemsNeededCount === 0) return { color: 'bg-green-500', text: 'Complete' };
-        if (itemsNeededCount === totalEntries) return { color: 'bg-red-500', text: 'Item Details Needed' };
-        return { color: 'bg-yellow-500', text: 'Partially Detailed' };
+        if (itemsNeededCount === 0) return { color: 'bg-green-500', text: 'Complete', needsAction: false };
+        if (itemsNeededCount === totalEntries) return { color: 'bg-red-500', text: 'Item Details Needed', needsAction: true };
+        return { color: 'bg-yellow-500', text: 'Partially Detailed', needsAction: true };
     };
 
     return (
         <div>
-            {/* The form to add a new measurement will be on the mobile page for the installer */}
             {role !== 'installer' && (
                 <Card>
                     <CardHeader>
@@ -415,12 +416,17 @@ function MeasurementsTab({ customer, dealId, measurements }: { customer: Custome
                                                 <TableCell>
                                                     <Badge style={{ backgroundColor: status.color }} className="text-white">{status.text}</Badge>
                                                 </TableCell>
-                                                <TableCell>
+                                                 <TableCell className="space-x-1">
                                                     {m.pdfUrl && (
                                                         <Button asChild variant="ghost" size="icon">
                                                             <Link href={m.pdfUrl} target="_blank" rel="noopener noreferrer">
                                                                 <Eye className="h-4 w-4" />
                                                             </Link>
+                                                        </Button>
+                                                    )}
+                                                    {status.needsAction && (
+                                                        <Button variant="ghost" size="icon" onClick={() => setIsEditing(m)}>
+                                                            <Pencil className="h-4 w-4 text-blue-500" />
                                                         </Button>
                                                     )}
                                                 </TableCell>
@@ -437,7 +443,19 @@ function MeasurementsTab({ customer, dealId, measurements }: { customer: Custome
                     </CardContent>
                 </Card>
             )}
-             {role === 'installer' && <MeasurementForm onMeasurementAdded={handleMeasurementAdded} customer={customer} dealId={dealId} />}
+             {role === 'installer' && <MeasurementForm onMeasurementAdded={handleMeasurementAdded} customerId={customer.id} dealId={dealId} />}
+             {isEditing && (
+                <MeasurementForm 
+                    onMeasurementAdded={(updatedMeasurement) => {
+                        setLocalMeasurements(prev => prev.map(m => m.id === updatedMeasurement.id ? updatedMeasurement : m));
+                        setIsEditing(null);
+                    }}
+                    customerId={customer.id}
+                    dealId={dealId}
+                    existingMeasurement={isEditing}
+                    onClose={() => setIsEditing(null)}
+                />
+            )}
         </div>
     );
 }
