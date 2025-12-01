@@ -77,8 +77,22 @@ const AddBlindsDialog = ({ isOpen, onClose, roomName }: { isOpen: boolean; onClo
     const { toast } = useToast();
     const [bcnOptions, setBcnOptions] = React.useState<any[]>([]);
 
-    // Find the index of the first product that matches the roomName to manage its blinds
-    const productIndex = getValues('products').findIndex(p => p.room === roomName);
+        // Find the index of the first product that matches the roomName to manage its blinds
+        let productIndex = getValues('products').findIndex(p => p.room === roomName);
+    // If no product in this room yet → create a temporary one
+            if (productIndex === -1) {
+                setValue('products', [
+                    ...getValues('products'),
+                    {
+                        id: `temp-${Date.now()}`,
+                        collectionBrand: "",
+                        room: roomName,
+                        blinds: []
+                    }
+                ]);
+
+                return null; // component will re-render automatically
+            }
 
     const { fields, append, remove } = useFieldArray({ 
         control, 
@@ -458,7 +472,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                 <div key={room}>
                                     <div className="flex items-center justify-between bg-muted/50 p-2 rounded-t-md">
                                         <h4 className="font-semibold">{room}</h4>
-                                        <Button size="sm" variant="outline" onClick={() => setBlindDialogState({ isOpen: true, roomName: room })}>Add Blind</Button>
+                                        <Button type="button" size="sm" variant="outline" onClick={() => setBlindDialogState({ isOpen: true, roomName: room })}>Add Blind</Button>
                                     </div>
                                     <div className="border border-t-0 rounded-b-md">
                                         <Table>
@@ -571,6 +585,13 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                         </form>
                     </CardContent>
                 </Card>
+                 {blindDialogState.isOpen && blindDialogState.roomName && (
+                    <AddBlindsDialog 
+                        isOpen={blindDialogState.isOpen} 
+                        onClose={() => setBlindDialogState({ isOpen: false, roomName: null })} 
+                        roomName={blindDialogState.roomName}
+                    />
+                )}
             </FormProvider>
             <CreateQuotationDialog isOpen={isQuotationDialogOpen} onClose={() => setIsQuotationDialogOpen(false)} onSuccess={onRefresh} deal={deal} customer={customer} initialItems={selectedProductsForQuotation} cpds={cpds} />
             {selectedSelection && (
@@ -589,13 +610,8 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                     </DialogContent>
                 </Dialog>
             )}
-             {blindDialogState.isOpen && blindDialogState.roomName && (
-                <AddBlindsDialog 
-                    isOpen={blindDialogState.isOpen} 
-                    onClose={() => setBlindDialogState({ isOpen: false, roomName: null })} 
-                    roomName={blindDialogState.roomName}
-                />
-            )}
         </>
     )
 }
+
+    
