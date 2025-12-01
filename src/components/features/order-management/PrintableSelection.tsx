@@ -12,7 +12,11 @@ interface PrintableSelectionProps {
 }
 
 export function PrintableSelection({ selection, deal, products }: PrintableSelectionProps) {
-    const groupedProducts = products.reduce((acc, product) => {
+    
+    // Filter the products based on the selection's productIds
+    const selectedProducts = products.filter(p => selection.productIds?.includes(p.id!));
+
+    const groupedProducts = selectedProducts.reduce((acc, product) => {
         const room = product.room || 'Unassigned';
         if (!acc[room]) {
             acc[room] = [];
@@ -21,8 +25,8 @@ export function PrintableSelection({ selection, deal, products }: PrintableSelec
         return acc;
     }, {} as Record<string, DealProduct[]>);
 
-    const grandTotalQty = products.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
-    const grandTotalAmount = products.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.mrp) || 0)), 0);
+    const grandTotalQty = selectedProducts.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
+    const grandTotalAmount = selectedProducts.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.mrp) || 0)), 0);
 
     return (
         <div className="bg-white text-black p-4 font-sans text-xs">

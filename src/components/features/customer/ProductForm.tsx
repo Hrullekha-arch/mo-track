@@ -192,7 +192,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
     const [selectedProductsForQuotation, setSelectedProductsForQuotation] = useState<ItemDetailValues[]>([]);
     const [selections, setSelections] = useState<Selection[]>(initialSelections);
     const [selectedSelection, setSelectedSelection] = useState<Selection | null>(null);
-    const [selectedSelectionProducts, setSelectedSelectionProducts] = useState<DealProduct[]>([]);
     const [bcnOptions, setBcnOptions] = useState<ComboboxOption[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [stagedItems, setStagedItems] = useState<z.infer<typeof newProductEntrySchema>[]>([]);
@@ -356,12 +355,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
 
     const handleViewSelection = async (selection: Selection) => {
         setSelectedSelection(selection);
-        if (selection.productIds && Array.isArray(selection.productIds)) {
-            const products = fields.filter(p => p.id && selection.productIds.includes(p.id!));
-            setSelectedSelectionProducts(products);
-        } else {
-            setSelectedSelectionProducts([]);
-        }
     };
     
     const handleDeleteItem = (index: number) => {
@@ -410,7 +403,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                                     )}/>
                                     <div className="md:col-span-2 flex items-end gap-2">
                                     <Button type="button" variant="outline" onClick={() => {}}> <PlusCircle className="mr-2 h-4 w-4" /> Add new Room </Button>
-                                    <Button type="button" variant="outline" onClick={() => { if (selectedRoom) { setBlindDialogState({ isOpen: true, roomName: selectedRoom }) } else { toast({ variant: 'destructive', title: 'No Room Selected' })}}} disabled={!selectedRoom}>
+                                     <Button type="button" variant="outline" onClick={() => { if (selectedRoom) { setBlindDialogState({ isOpen: true, roomName: selectedRoom }) } else { toast({ variant: 'destructive', title: 'No Room Selected' })}}} disabled={!selectedRoom}>
                                         Add Blind
                                     </Button>
                                     <Button type="button" onClick={handleAddProductsToList}>Add Products to List</Button>
@@ -464,6 +457,9 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                             <div key={room}>
                                 <div className="flex items-center justify-between bg-muted/50 p-2 rounded-t-md">
                                     <h4 className="font-semibold">{room}</h4>
+                                     <Button type="button" size="sm" variant="outline" onClick={() => { setBlindDialogState({ isOpen: true, roomName: room }) }}>
+                                        Add Blind
+                                    </Button>
                                 </div>
                                 <div className="border border-t-0 rounded-b-md">
                                     <Table>
@@ -605,7 +601,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                             <DialogTitle>Selection Details: #{selectedSelection.id}</DialogTitle>
                         </DialogHeader>
                         <div className="flex-grow overflow-y-auto">
-                            <PrintableSelection selection={selectedSelection} deal={deal} products={selectedSelectionProducts} />
+                            <PrintableSelection selection={selectedSelection} deal={deal} products={fields} />
                         </div>
                         <DialogFooter>
                                 <Button type="button" variant="outline" onClick={() => setSelectedSelection(null)}>Close</Button>
@@ -617,5 +613,3 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
         </FormProvider>
     )
 }
-
-    
