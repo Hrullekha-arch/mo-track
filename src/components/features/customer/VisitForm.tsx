@@ -1,11 +1,12 @@
 
+
 "use client";
 
 import React, { useState, useMemo } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Customer, Deal, User, DealOrder, DealVisit, DeliveryInstallationItem } from "@/lib/types";
+import { Customer, Deal, User, DealOrder, DealVisit, DeliveryInstallationItem, Selection } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ export const deliveryInstallationItemSchema = z.object({
 
 const visitSchema = z.object({
     representative: z.string().min(1, "Representative is required."),
+    selectionId: z.string().optional(), // Added for linking to a selection
     measurements: z.array(z.string()).optional(),
     blinds: z.array(z.string()).optional(),
     curtain: z.array(z.string()).optional(),
@@ -81,7 +83,7 @@ export const subDeliveryInstallationItems: DeliveryInstallationItem[] = [
 ];
 
 
-export function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void, visits: DealVisit[], orders: DealOrder[] }) {
+export function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, orders, selections }: { salesmen: User[], customerId: string, dealId: string, onVisitAdded: (visit: DealVisit) => void, visits: DealVisit[], orders: DealOrder[], selections: Selection[] }) {
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('measurement');
     const [showShareDialog, setShowShareDialog] = useState(false);
@@ -131,6 +133,23 @@ export function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, 
     
     const MeasurementVisitTabContent = (
         <div className="space-y-6">
+            <FormField
+                control={form.control}
+                name="selectionId"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Link to Selection (Optional)</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl><SelectTrigger><SelectValue placeholder="Select a pre-made selection..." /></SelectTrigger></FormControl>
+                            <SelectContent>
+                                <SelectItem value="">None</SelectItem>
+                                {selections.map(s => <SelectItem key={s.id} value={s.id}>Selection #{s.id} ({s.totalPcs} pcs)</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
             <FormField
                 control={form.control}
                 name="measurements"

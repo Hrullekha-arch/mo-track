@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
@@ -25,7 +26,8 @@ import {
   Contact2,
   Eye,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -254,7 +256,7 @@ function OrdersTab({ customerId, dealId }: { customerId: string, dealId: string 
     )
 }
 
-function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders }: { customerId: string, dealId: string, salesmen: User[], visits: DealVisit[], onVisitAdded: (visit: DealVisit) => void, orders: DealOrder[] }) {
+function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders, selections }: { customerId: string, dealId: string, salesmen: User[], visits: DealVisit[], onVisitAdded: (visit: DealVisit) => void, orders: DealOrder[], selections: Selection[] }) {
     const [loading] = useState(false); // Visits are passed as props, no internal loading needed
     const [selectedVisit, setSelectedVisit] = useState<DealVisit | null>(null);
 
@@ -277,7 +279,7 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders 
 
     return (
         <div>
-            <VisitForm salesmen={salesmen} customerId={customerId} dealId={dealId} onVisitAdded={onVisitAdded} visits={visits} orders={orders} />
+            <VisitForm salesmen={salesmen} customerId={customerId} dealId={dealId} onVisitAdded={onVisitAdded} visits={visits} orders={orders} selections={selections} />
             <Card className="mt-6">
                 <CardHeader>
                     <CardTitle>Visit History</CardTitle>
@@ -356,64 +358,86 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders 
 
 function MeasurementsTab({ customer, dealId, measurements }: { customer: Customer; dealId: string, measurements: DealMeasurement[] }) {
     const [localMeasurements, setLocalMeasurements] = useState<DealMeasurement[]>(measurements);
-
+    const { role } = useAuth();
+    
     const handleMeasurementAdded = (newMeasurement: DealMeasurement) => {
         setLocalMeasurements(prev => [newMeasurement, ...prev]);
     };
 
+    const getMeasurementStatus = (measurement: DealMeasurement) => {
+        const totalEntries = measurement.entries?.length || 0;
+        if (totalEntries === 0) return { color: 'bg-gray-200', text: 'Empty' };
+
+        const itemsNeededCount = measurement.entries.filter(e => e.status === 'item-needed').length;
+
+        if (itemsNeededCount === 0) return { color: 'bg-green-500', text: 'Complete' };
+        if (itemsNeededCount === totalEntries) return { color: 'bg-red-500', text: 'Item Details Needed' };
+        return { color: 'bg-yellow-500', text: 'Partially Detailed' };
+    };
+
     return (
         <div>
-            <MeasurementForm onMeasurementAdded={handleMeasurementAdded} customer={customer} dealId={dealId} />
-             <Card className="mt-6">
-                <CardHeader>
-                    <CardTitle>Measurement History</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    {localMeasurements.length > 0 ? (
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>#</TableHead>
-                                    <TableHead>Type</TableHead>
-                                    <TableHead>Doer</TableHead>
-                                    <TableHead>Entries</TableHead>
-                                    <TableHead>Created</TableHead>
-                                    <TableHead>Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {localMeasurements.map((m, i) => (
-                                    <TableRow key={m.id}>
-                                        <TableCell>{i + 1}</TableCell>
-                                        <TableCell>{m.typeOf}</TableCell>
-                                        <TableCell>{m.doerName}</TableCell>
-                                        <TableCell>{m.entries?.length || 0}</TableCell>
-                                        <TableCell>
-                                            <div className="text-xs">
-                                                <p>{m.createdBy}</p>
-                                                <p className="text-muted-foreground">{format(new Date(m.createdAt), 'dd/MM/yy')}</p>
-                                            </div>
-                                        </TableCell>
-                                         <TableCell>
-                                            {m.pdfUrl && (
-                                                <Button asChild variant="ghost" size="icon">
-                                                    <Link href={m.pdfUrl} target="_blank" rel="noopener noreferrer">
-                                                        <Eye className="h-4 w-4" />
-                                                    </Link>
-                                                </Button>
-                                            )}
-                                        </TableCell>
+            {/* The form to add a new measurement will be on the mobile page for the installer */}
+            {role !== 'installer' && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Measurement History</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {localMeasurements.length > 0 ? (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>#</TableHead>
+                                        <TableHead>Type</TableHead>
+                                        <TableHead>Doer</TableHead>
+                                        <TableHead>Entries</TableHead>
+                                        <TableHead>Created</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>Actions</TableHead>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    ) : (
-                        <div className="text-center py-10 text-muted-foreground">
-                            No measurements have been logged for this deal yet.
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+                                </TableHeader>
+                                <TableBody>
+                                    {localMeasurements.map((m, i) => {
+                                        const status = getMeasurementStatus(m);
+                                        return (
+                                            <TableRow key={m.id}>
+                                                <TableCell>{i + 1}</TableCell>
+                                                <TableCell>{m.typeOf}</TableCell>
+                                                <TableCell>{m.doerName}</TableCell>
+                                                <TableCell>{m.entries?.length || 0}</TableCell>
+                                                <TableCell>
+                                                    <div className="text-xs">
+                                                        <p>{m.createdBy}</p>
+                                                        <p className="text-muted-foreground">{format(new Date(m.createdAt), 'dd/MM/yy')}</p>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge style={{ backgroundColor: status.color }} className="text-white">{status.text}</Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {m.pdfUrl && (
+                                                        <Button asChild variant="ghost" size="icon">
+                                                            <Link href={m.pdfUrl} target="_blank" rel="noopener noreferrer">
+                                                                <Eye className="h-4 w-4" />
+                                                            </Link>
+                                                        </Button>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        )
+                                    })}
+                                </TableBody>
+                            </Table>
+                        ) : (
+                            <div className="text-center py-10 text-muted-foreground">
+                                No measurements have been logged for this deal yet.
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
+             {role === 'installer' && <MeasurementForm onMeasurementAdded={handleMeasurementAdded} customer={customer} dealId={dealId} />}
         </div>
     );
 }
@@ -600,7 +624,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsList>
           
           <TabsContent value="visits">
-            <VisitsTab customerId={customerId} dealId={dealId} salesmen={salesmen} visits={visits} onVisitAdded={fetchData} orders={orders} />
+            <VisitsTab customerId={customerId} dealId={dealId} salesmen={salesmen} visits={visits} onVisitAdded={fetchData} orders={orders} selections={selections} />
           </TabsContent>
           
           <TabsContent value="measurement">

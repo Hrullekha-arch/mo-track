@@ -386,6 +386,7 @@ export interface DealVisit {
     createdAt: string; // ISO string
     createdBy: string;
     assignedTo?: string; // Installer User ID
+    selectionId?: string; // Link to a pre-made selection
     // Measurement fields
     measurements?: string[];
     blinds?: string[];
@@ -404,24 +405,34 @@ export interface DealVisit {
 }
 
 export interface MeasurementEntry {
+    id: string;
     roomName?: string;
-    noOfPannel?: string;
-    height?: string;
-    width?: string;
-    remark?: string;
-    audioUrl?: string;
-    // Sofa measurement fields
+    itemName?: string;
     noOfSheet?: string;
     fabricQty1?: string;
-    fabricQty2?: string;
-    marking?: string;
-    casement?: string;
-    niwar?: string;
+    stitchingRate?: string;
+    foam?: { foamSize?: string; qty?: string; density?: string };
+    casement?: { qty?: string };
+    marking?: { qty?: string };
+    niwar?: { qty?: string };
+    height?: string;
+    heightUnit?: string;
+    width?: string;
+    widthUnit?: string;
+    noOfPannel?: string;
+    remark?: string;
+    pictures?: File[];
     pictureUrls?: string[];
+    recordAudio?: File;
+    audioUrl?: string;
+    status?: 'complete' | 'item-needed'; // Status for this entry
+    bcn?: string; // The BCN/item name added by salesman later
 }
+
 
 export interface DealMeasurement {
     id: string;
+    selectionId?: string; // Link to a selection if applicable
     // Common fields
     typeOf: string;
     doerName: string;
@@ -649,3 +660,4 @@ export interface TaxDetail {
 
 
 export { type ComboboxOption };
+
