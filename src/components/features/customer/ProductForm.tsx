@@ -27,16 +27,28 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 
 const blindEntrySchema = z.object({
-    id: z.string(),
-    bcn: z.string().optional(),
-    control: z.enum(['Left', 'Right']).optional(),
-    type: z.enum(['IBT', 'OBT']).optional(),
-    width: z.string().optional(),
-    height: z.string().optional(),
-    area: z.string().optional(),
+  id: z.string(),
+  blindType: z.enum(['Roman Blind', 'Roller Blind', 'Normal Blind']).optional(),
+  shadeNo: z.string().optional(),
+  width: z.string().optional(),
+  widthUnit: z.string().optional().default('inch'),
+  height: z.string().optional(),
+  heightUnit: z.string().optional().default('inch'),
+  operating: z.enum(['Manual', 'motorized']).optional(),
+  usesType: z.enum(['Direct Fix', 'Head Rail', 'Plain Cassette', 'Decorative Cassette', 'One Touch Up', 'Moto Down']).optional(),
+  motorType: z.enum(['Simotic or Ebony (RTS | WT)', 'Wire Free (RTS)']).optional(),
+  remoteType: z.string().optional(),
+  control: z.enum(['LHT', 'RHT']).optional(),
+  bracket: z.enum(['Wall', 'Celling']).optional(),
+  bottomChannel: z.enum(['Square', 'Rounded', 'Fabric Covered']).optional(),
+  bottomRailColor: z.string().optional(),
+  otherBottomRailColor: z.string().optional(),
+  locationOfBlind: z.string().optional(),
+  noOfBlind: z.string().optional(),
 });
 
 const productSchema = z.object({
@@ -71,12 +83,14 @@ const productListSchema = z.object({
 
 
 type ProductListFormValues = z.infer<typeof productListSchema>;
+type BlindEntryFormValues = z.infer<typeof blindEntrySchema>;
 
 const AddBlindsDialog = ({ isOpen, onClose, roomName }: { isOpen: boolean; onClose: () => void; roomName: string; }) => {
     const { control, getValues, setValue } = useFormContext<ProductListFormValues>();
     const { toast } = useToast();
-    const [bcnOptions, setBcnOptions] = React.useState<any[]>([]);
-
+    
+    // Find the index of the product that corresponds to the roomName.
+    // This is a bit of a workaround because we're managing room-based blinds within a product list.
     const productIndex = useMemo(() => {
         return getValues('products').findIndex(p => p.room === roomName);
     }, [getValues, roomName]);
@@ -84,32 +98,17 @@ const AddBlindsDialog = ({ isOpen, onClose, roomName }: { isOpen: boolean; onClo
     const { fields, append, remove } = useFieldArray({
         control,
         name: `products.${productIndex}.blinds` as const,
-        shouldUnregister: false
+        shouldUnregister: false,
     });
-
-    const handleSearch = async (query: string) => {
-        if (query.length < 2) return;
-        const results = await searchStockByBcn(query);
-        setBcnOptions(results.map(r => ({ label: r.bcn, value: r.bcn })));
-    };
-
-    const calculateArea = (widthStr?: string, heightStr?: string) => {
-        const width = parseFloat(widthStr || '0');
-        const height = parseFloat(heightStr || '0');
-        if (!isNaN(width) && !isNaN(height)) {
-            return (width * height).toFixed(2);
-        }
-        return '0.00';
-    };
-
+    
+    // This effect ensures that a placeholder product item exists for the room if it doesn't already.
     useEffect(() => {
         if (isOpen && productIndex === -1) {
             const products = getValues('products');
             setValue('products', [
                 ...products,
                 {
-                    id: `temp-${Date.now()}`,
-                    collectionBrand: "",
+                    collectionBrand: `Blinds for ${roomName}`, // Placeholder BCN
                     room: roomName,
                     blinds: []
                 }
@@ -118,10 +117,12 @@ const AddBlindsDialog = ({ isOpen, onClose, roomName }: { isOpen: boolean; onClo
     }, [isOpen, productIndex, roomName, getValues, setValue]);
 
     if (productIndex === -1 && isOpen) {
-        return <Dialog open={true}><DialogContent><DialogHeader><DialogTitle>Initializing Room...</DialogTitle></DialogHeader><p>Please wait...</p></DialogContent></Dialog>;
+        return <Dialog open={true}><DialogContent><DialogHeader><DialogTitle>Initializing Room...</DialogTitle></DialogHeader><p>Please wait... The form will refresh shortly. Close and reopen this dialog.</p></DialogContent></Dialog>;
     }
     
     if (productIndex === -1) return null;
+    
+    const operating = useFormContext<ProductListFormValues>().watch(`products.${productIndex}.blinds`);
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -129,59 +130,40 @@ const AddBlindsDialog = ({ isOpen, onClose, roomName }: { isOpen: boolean; onClo
                 <DialogHeader>
                     <DialogTitle>Add Blinds for {roomName}</DialogTitle>
                 </DialogHeader>
-                <div className="py-4 space-y-4 max-h-[70vh] overflow-y-auto">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Sr No</TableHead>
-                                <TableHead>BCN</TableHead>
-                                <TableHead>Control</TableHead>
-                                <TableHead>Type</TableHead>
-                                <TableHead>W</TableHead>
-                                <TableHead>H</TableHead>
-                                <TableHead>Area</TableHead>
-                                <TableHead>Action</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {fields.map((field, index) => {
-                                const blind = getValues(`products.${productIndex}.blinds`)?.[index];
-                                const area = calculateArea(blind?.width, blind?.height);
-                                return (
-                                    <TableRow key={field.id}>
-                                        <TableCell>{index + 1}</TableCell>
-                                        <TableCell>
-                                            <FormField control={control} name={`products.${productIndex}.blinds.${index}.bcn`} render={({ field }) => (
-                                                <Combobox options={bcnOptions} value={field.value} onSelect={field.onChange} onSearch={handleSearch} placeholder="Search BCN..." />
-                                            )} />
-                                        </TableCell>
-                                        <TableCell>
-                                            <FormField control={control} name={`products.${productIndex}.blinds.${index}.control`} render={({ field }) => (
-                                                <Select onValueChange={field.onChange} value={field.value}>
-                                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                                    <SelectContent><SelectItem value="Left">Left</SelectItem><SelectItem value="Right">Right</SelectItem></SelectContent>
-                                                </Select>
-                                            )} />
-                                        </TableCell>
-                                        <TableCell>
-                                            <FormField control={control} name={`products.${productIndex}.blinds.${index}.type`} render={({ field }) => (
-                                                <Select onValueChange={field.onChange} value={field.value}>
-                                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                                    <SelectContent><SelectItem value="IBT">IBT</SelectItem><SelectItem value="OBT">OBT</SelectItem></SelectContent>
-                                                </Select>
-                                            )} />
-                                        </TableCell>
-                                        <TableCell><FormField control={control} name={`products.${productIndex}.blinds.${index}.width`} render={({ field }) => <Input {...field} placeholder="W" onChange={(e) => { field.onChange(e); setValue(`products.${productIndex}.blinds.${index}.area`, calculateArea(e.target.value, getValues(`products.${productIndex}.blinds.${index}.height`))) }} />} /></TableCell>
-                                        <TableCell><FormField control={control} name={`products.${productIndex}.blinds.${index}.height`} render={({ field }) => <Input {...field} placeholder="H" onChange={(e) => { field.onChange(e); setValue(`products.${productIndex}.blinds.${index}.area`, calculateArea(getValues(`products.${productIndex}.blinds.${index}.width`), e.target.value)) }} />} /></TableCell>
-                                        <TableCell>{area}</TableCell>
-                                        <TableCell><Button variant="destructive" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button></TableCell>
-                                    </TableRow>
-                                );
-                            })}
-                        </TableBody>
-                    </Table>
-                    <Button variant="outline" onClick={() => append({ id: new Date().toISOString() })}><PlusCircle className="mr-2 h-4 w-4"/>Add Blind</Button>
+                <ScrollArea className="h-[70vh]">
+                <div className="py-4 space-y-4 pr-4">
+                    {fields.map((field, index) => {
+                        const isMotorized = operating?.[index]?.operating === 'motorized';
+                        const showOtherColor = operating?.[index]?.bottomRailColor === 'Other';
+                        return (
+                            <Card key={field.id} className="p-4 relative">
+                                <Button variant="destructive" size="icon" className="absolute top-2 right-2 h-7 w-7" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button>
+                                <p className="font-semibold mb-3">Blind #{index + 1}</p>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.blindType`} render={({ field }) => (
+                                        <FormItem><FormLabel>Blind Type</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Roman Blind">Roman Blind</SelectItem><SelectItem value="Roller Blind">Roller Blind</SelectItem><SelectItem value="Normal Blind">Normal Blind</SelectItem></SelectContent></Select></FormItem>
+                                     )} />
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.shadeNo`} render={({ field }) => (<FormItem><FormLabel>Shade No</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.width`} render={({ field }) => (<FormItem><FormLabel>Width</FormLabel><div className="flex items-center gap-1"><FormControl><Input {...field} /></FormControl><FormField control={control} name={`products.${productIndex}.blinds.${index}.widthUnit`} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="w-20"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inch">inch</SelectItem><SelectItem value="mm">mm</SelectItem></SelectContent></Select>)} /></div></FormItem>)} />
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.height`} render={({ field }) => (<FormItem><FormLabel>Height</FormLabel><div className="flex items-center gap-1"><FormControl><Input {...field} /></FormControl><FormField control={control} name={`products.${productIndex}.blinds.${index}.heightUnit`} render={({ field }) => (<Select onValueChange={field.onChange} value={field.value}><SelectTrigger className="w-20"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="inch">inch</SelectItem><SelectItem value="mm">mm</SelectItem></SelectContent></Select>)} /></div></FormItem>)} />
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.operating`} render={({ field }) => (<FormItem><FormLabel>Operating</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select Operating" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Manual">Manual</SelectItem><SelectItem value="motorized">motorized</SelectItem></SelectContent></Select></FormItem>)} />
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.usesType`} render={({ field }) => (<FormItem><FormLabel>Uses Type</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select Uses Type" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Direct Fix">Direct Fix</SelectItem><SelectItem value="Head Rail">Head Rail</SelectItem><SelectItem value="Plain Cassette">Plain Cassette</SelectItem><SelectItem value="Decorative Cassette">Decorative Cassette</SelectItem><SelectItem value="One Touch Up">One Touch Up</SelectItem><SelectItem value="Moto Down">Moto Down</SelectItem></SelectContent></Select></FormItem>)} />
+                                     {isMotorized && (<FormField control={control} name={`products.${productIndex}.blinds.${index}.motorType`} render={({ field }) => (<FormItem><FormLabel>Motor Type</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select Motor Type" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Simotic or Ebony (RTS | WT)">Simotic or Ebony (RTS | WT)</SelectItem><SelectItem value="Wire Free (RTS)">Wire Free (RTS)</SelectItem></SelectContent></Select></FormItem>)} />)}
+                                     {isMotorized && (<FormField control={control} name={`products.${productIndex}.blinds.${index}.remoteType`} render={({ field }) => (<FormItem><FormLabel>Remote Type</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />)}
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.control`} render={({ field }) => (<FormItem><FormLabel>Control</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select Control" /></SelectTrigger></FormControl><SelectContent><SelectItem value="LHT">LHT</SelectItem><SelectItem value="RHT">RHT</SelectItem></SelectContent></Select></FormItem>)} />
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.bracket`} render={({ field }) => (<FormItem><FormLabel>Bracket</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select Bracket" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Wall">Wall</SelectItem><SelectItem value="Celling">Celling</SelectItem></SelectContent></Select></FormItem>)} />
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.bottomChannel`} render={({ field }) => (<FormItem><FormLabel>Bottom Channel</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select Channel" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Square">Square</SelectItem><SelectItem value="Rounded">Rounded</SelectItem><SelectItem value="Fabric Covered">Fabric Covered</SelectItem></SelectContent></Select></FormItem>)} />
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.bottomRailColor`} render={({ field }) => (<FormItem><FormLabel>Bottom Rail Color</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select Color" /></SelectTrigger></FormControl><SelectContent><SelectItem value="Matching">Matching</SelectItem><SelectItem value="Other">Other</SelectItem></SelectContent></Select></FormItem>)} />
+                                     {showOtherColor && (<FormField control={control} name={`products.${productIndex}.blinds.${index}.otherBottomRailColor`} render={({ field }) => (<FormItem><FormLabel>Specify Color</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />)}
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.locationOfBlind`} render={({ field }) => (<FormItem><FormLabel>Location of Blind</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                     <FormField control={control} name={`products.${productIndex}.blinds.${index}.noOfBlind`} render={({ field }) => (<FormItem><FormLabel>No Of Blind (Pcs)</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                                </div>
+                            </Card>
+                        )
+                    })}
+                    <Button variant="outline" onClick={() => append({ id: new Date().toISOString() })}><PlusCircle className="mr-2 h-4 w-4"/>Add Another Blind</Button>
                 </div>
+                </ScrollArea>
                 <DialogFooter>
                     <Button onClick={onClose}>Done</Button>
                 </DialogFooter>
@@ -401,198 +383,196 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
     const selectedRoom = form.watch('room');
 
     return (
-        <>
-            <FormProvider {...form}>
-                <Card className="mt-6">
-                    <CardContent className="p-6">
-                        <form className="space-y-4">
-                         <div className="space-y-4">
-                            <h3 className="text-lg font-semibold">Add More Product</h3>
-                            <div className="p-4 border rounded-lg space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                     <FormField control={form.control} name="room" render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Room*</FormLabel>
-                                            <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="Select Room..." />
-                                            <FormMessage />
-                                        </FormItem>
-                                     )}/>
-                                     <div className="md:col-span-2 flex items-end gap-2">
-                                        <Button type="button" variant="outline" onClick={() => {}}> <PlusCircle className="mr-2 h-4 w-4" /> Add new Room </Button>
-                                         <Button type="button" variant="outline" onClick={() => { if (selectedRoom) { setBlindDialogState({ isOpen: true, roomName: selectedRoom }) } else { toast({ variant: 'destructive', title: 'No Room Selected' })}}} disabled={!selectedRoom}>
-                                            Add Blind
-                                        </Button>
-                                        <Button type="button" onClick={handleAddProductsToList}>Add Products to List</Button>
-                                    </div>
+        <FormProvider {...form}>
+            <Card className="mt-6">
+                <CardContent className="p-6">
+                    <form className="space-y-4">
+                     <div className="space-y-4">
+                        <h3 className="text-lg font-semibold">Add More Product</h3>
+                        <div className="p-4 border rounded-lg space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <FormField control={form.control} name="room" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Room*</FormLabel>
+                                        <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="Select Room..." />
+                                        <FormMessage />
+                                    </FormItem>
+                                    )}/>
+                                    <div className="md:col-span-2 flex items-end gap-2">
+                                    <Button type="button" variant="outline" onClick={() => {}}> <PlusCircle className="mr-2 h-4 w-4" /> Add new Room </Button>
+                                     <Button type="button" variant="outline" onClick={() => { if (selectedRoom) { setBlindDialogState({ isOpen: true, roomName: selectedRoom }) } else { toast({ variant: 'destructive', title: 'No Room Selected' })}}} disabled={!selectedRoom}>
+                                        Add Blind
+                                    </Button>
+                                    <Button type="button" onClick={handleAddProductsToList}>Add Products to List</Button>
                                 </div>
-                                
-                                <Separator />
-                                
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                    <FormField control={form.control} name="newProduct.collectionBrand" render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>BCN*</FormLabel>
-                                            <Combobox options={bcnOptions} value={field.value} onSelect={(value) => { field.onChange(value); handleBcnSelect(value); }} onSearch={handleBcnSearch} placeholder="Search by BCN..." />
-                                            <FormMessage />
-                                        </FormItem>
-                                    )} />
-                                    <FormField control={form.control} name="newProduct.salesDescription" render={({ field }) => (<FormItem><FormLabel>Sales Description</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                    <FormField control={form.control} name="newProduct.mrp" render={({ field }) => (<FormItem><FormLabel>MRP</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-                                    <FormField control={form.control} name="newProduct.quantity" render={({ field }) => (<FormItem><FormLabel>Qty</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    <FormField control={form.control} name="newProduct.verticalRepeat" render={({ field }) => (<FormItem><FormLabel>Vertical Repeat</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                    <FormField control={form.control} name="newProduct.horizontalRepeat" render={({ field }) => (<FormItem><FormLabel>Horizontal Repeat</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                                    <FormField control={form.control} name="newProduct.remarks" render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
-                                </div>
-                                
-                                <Button type="button" size="sm" onClick={handleStageItem}>Add Item</Button>
-
-                                {stagedItems.length > 0 && (
-                                    <div className="space-y-2">
-                                        <h4 className="text-sm font-semibold">Staged Items for Room: {form.getValues('room')}</h4>
-                                        <ul className="text-xs list-disc list-inside p-2 border rounded-md bg-muted/50">
-                                            {stagedItems.map((item, i) => <li key={i}>{item.collectionBrand} - Qty: {item.quantity || 'N/A'}</li>)}
-                                        </ul>
-                                    </div>
-                                )}
                             </div>
-                        </div>
-
-                         <Separator className="my-8" />
-                         
-                        <div className="space-y-4">
-                             <div className="flex justify-between items-center">
-                                <h3 className="text-lg font-semibold">Previously Added Products</h3>
-                                 <Button type="button" onClick={handleUpdateActivity} disabled={activityLoading}>
-                                    {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                    Update Activity
-                                </Button>
+                            
+                            <Separator />
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <FormField control={form.control} name="newProduct.collectionBrand" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>BCN*</FormLabel>
+                                        <Combobox options={bcnOptions} value={field.value} onSelect={(value) => { field.onChange(value); handleBcnSelect(value); }} onSearch={handleBcnSearch} placeholder="Search by BCN..." />
+                                        <FormMessage />
+                                    </FormItem>
+                                )} />
+                                <FormField control={form.control} name="newProduct.salesDescription" render={({ field }) => (<FormItem><FormLabel>Sales Description</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                <FormField control={form.control} name="newProduct.mrp" render={({ field }) => (<FormItem><FormLabel>MRP</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
+                                <FormField control={form.control} name="newProduct.quantity" render={({ field }) => (<FormItem><FormLabel>Qty</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
                             </div>
-                            {Object.entries(groupedProducts).map(([room, productsInRoom]) => (
-                                <div key={room}>
-                                    <div className="flex items-center justify-between bg-muted/50 p-2 rounded-t-md">
-                                        <h4 className="font-semibold">{room}</h4>
-                                    </div>
-                                    <div className="border border-t-0 rounded-b-md">
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead><Checkbox onCheckedChange={(checked) => {
-                                                        const newSelection = { ...selectedRows };
-                                                        productsInRoom.forEach(p => {
-                                                            if (p.id) {
-                                                                if (checked) newSelection[p.id] = true;
-                                                                else delete newSelection[p.id];
-                                                            }
-                                                        });
-                                                        setSelectedRows(newSelection);
-                                                    }} /></TableHead>
-                                                    <TableHead>BCN</TableHead>
-                                                    <TableHead>MRP</TableHead>
-                                                    <TableHead>Pcs</TableHead>
-                                                    <TableHead>Qty</TableHead>
-                                                    <TableHead>Description</TableHead>
-                                                    <TableHead>Actions</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {productsInRoom.map((product) => (
-                                                    <TableRow key={product.id}>
-                                                        <TableCell><Checkbox checked={!!selectedRows[product.id!]} onCheckedChange={(checked) => { const newSelection = { ...selectedRows }; if (checked) {newSelection[product.id!] = true;} else {delete newSelection[product.id!];} setSelectedRows(newSelection); }} /></TableCell>
-                                                        <TableCell>{product.collectionBrand}</TableCell>
-                                                        <TableCell>{product.mrp}</TableCell>
-                                                        <TableCell>{product.noOfPcs}</TableCell>
-                                                        <TableCell>{product.quantity}</TableCell>
-                                                        <TableCell>{product.salesDescription}</TableCell>
-                                                        <TableCell><Button type="button" variant="ghost" size="icon" onClick={() => handleDeleteItem(product.originalIndex)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                <FormField control={form.control} name="newProduct.verticalRepeat" render={({ field }) => (<FormItem><FormLabel>Vertical Repeat</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                <FormField control={form.control} name="newProduct.horizontalRepeat" render={({ field }) => (<FormItem><FormLabel>Horizontal Repeat</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                                <FormField control={form.control} name="newProduct.remarks" render={({ field }) => (<FormItem><FormLabel>Remark</FormLabel><FormControl><Textarea {...field} /></FormControl></FormItem>)} />
+                            </div>
+                            
+                            <Button type="button" size="sm" onClick={handleStageItem}>Add Item</Button>
+
+                            {stagedItems.length > 0 && (
+                                <div className="space-y-2">
+                                    <h4 className="text-sm font-semibold">Staged Items for Room: {form.getValues('room')}</h4>
+                                    <ul className="text-xs list-disc list-inside p-2 border rounded-md bg-muted/50">
+                                        {stagedItems.map((item, i) => <li key={i}>{item.collectionBrand} - Qty: {item.quantity || 'N/A'}</li>)}
+                                    </ul>
                                 </div>
-                            ))}
+                            )}
                         </div>
-                        <Separator />
-                        <div className="space-y-4">
-                            <h3 className="text-lg font-semibold">Saved Selection</h3>
-                            <div className="border rounded-md">
+                    </div>
+
+                     <Separator className="my-8" />
+                     
+                    <div className="space-y-4">
+                         <div className="flex justify-between items-center">
+                            <h3 className="text-lg font-semibold">Previously Added Products</h3>
+                             <Button type="button" onClick={handleUpdateActivity} disabled={activityLoading}>
+                                {activityLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Update Activity
+                            </Button>
+                        </div>
+                        {Object.entries(groupedProducts).map(([room, productsInRoom]) => (
+                            <div key={room}>
+                                <div className="flex items-center justify-between bg-muted/50 p-2 rounded-t-md">
+                                    <h4 className="font-semibold">{room}</h4>
+                                </div>
+                                <div className="border border-t-0 rounded-b-md">
                                     <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Modify</TableHead>
-                                            <TableHead>Selection Id</TableHead>
-                                            <TableHead>Total No Of Room</TableHead>
-                                            <TableHead>Total MRP</TableHead>
-                                            <TableHead>Total Pcs</TableHead>
-                                            <TableHead>Status</TableHead>
-                                            <TableHead>View</TableHead>
-                                            <TableHead>Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {selections.map((selection) => {
-                                            const selectionProducts = fields.filter(p => p.id && Array.isArray(selection.productIds) && selection.productIds.includes(p.id!));
-                                            return (
-                                                <TableRow key={selection.id}>
-                                                    <TableCell><Checkbox /></TableCell>
-                                                    <TableCell>{selection.id}</TableCell>
-                                                    <TableCell>{selection.totalRooms}</TableCell>
-                                                    <TableCell>₹{selection.totalMrp.toFixed(2)}</TableCell>
-                                                    <TableCell>{selection.totalPcs}</TableCell>
-                                                    <TableCell>
-                                                        <Badge variant={selection.status === 'final' ? 'default' : 'secondary'} className={selection.status === 'final' ? 'bg-green-500' : ''}>
-                                                            {selection.status || 'draft'}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Button type="button" variant="ghost" size="icon" onClick={() => handleViewSelection(selection)}>
-                                                            <Eye className="h-5 w-5"/>
-                                                        </Button>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                         <DropdownMenu>
-                                                            <DropdownMenuTrigger asChild>
-                                                                <Button variant="ghost" size="icon">
-                                                                    <MoreHorizontal className="h-4 w-4" />
-                                                                </Button>
-                                                            </DropdownMenuTrigger>
-                                                            <DropdownMenuContent>
-                                                                {selection.status === 'final' ? (
-                                                                    <DropdownMenuItem onClick={() => handleUpdateSelectionStatus(selection.id, 'draft')}>
-                                                                        Remove Final Selection
-                                                                    </DropdownMenuItem>
-                                                                ) : (
-                                                                    <DropdownMenuItem onClick={() => handleUpdateSelectionStatus(selection.id, 'final')}>
-                                                                        Final Selection
-                                                                    </DropdownMenuItem>
-                                                                )}
-                                                            </DropdownMenuContent>
-                                                        </DropdownMenu>
-                                                    </TableCell>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead><Checkbox onCheckedChange={(checked) => {
+                                                    const newSelection = { ...selectedRows };
+                                                    productsInRoom.forEach(p => {
+                                                        if (p.id) {
+                                                            if (checked) newSelection[p.id] = true;
+                                                            else delete newSelection[p.id];
+                                                        }
+                                                    });
+                                                    setSelectedRows(newSelection);
+                                                }} /></TableHead>
+                                                <TableHead>BCN</TableHead>
+                                                <TableHead>MRP</TableHead>
+                                                <TableHead>Pcs</TableHead>
+                                                <TableHead>Qty</TableHead>
+                                                <TableHead>Description</TableHead>
+                                                <TableHead>Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {productsInRoom.map((product) => (
+                                                <TableRow key={product.id}>
+                                                    <TableCell><Checkbox checked={!!selectedRows[product.id!]} onCheckedChange={(checked) => { const newSelection = { ...selectedRows }; if (checked) {newSelection[product.id!] = true;} else {delete newSelection[product.id!];} setSelectedRows(newSelection); }} /></TableCell>
+                                                    <TableCell>{product.collectionBrand}</TableCell>
+                                                    <TableCell>{product.mrp}</TableCell>
+                                                    <TableCell>{product.noOfPcs}</TableCell>
+                                                    <TableCell>{product.quantity}</TableCell>
+                                                    <TableCell>{product.salesDescription}</TableCell>
+                                                    <TableCell><Button type="button" variant="ghost" size="icon" onClick={() => handleDeleteItem(product.originalIndex)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
                                                 </TableRow>
-                                            )
-                                        })}
-                                    </TableBody>
+                                            ))}
+                                        </TableBody>
                                     </Table>
+                                </div>
                             </div>
+                        ))}
+                    </div>
+                    <Separator />
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-semibold">Saved Selection</h3>
+                        <div className="border rounded-md">
+                                <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Modify</TableHead>
+                                        <TableHead>Selection Id</TableHead>
+                                        <TableHead>Total No Of Room</TableHead>
+                                        <TableHead>Total MRP</TableHead>
+                                        <TableHead>Total Pcs</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>View</TableHead>
+                                        <TableHead>Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {selections.map((selection) => {
+                                        const selectionProducts = fields.filter(p => p.id && Array.isArray(selection.productIds) && selection.productIds.includes(p.id!));
+                                        return (
+                                            <TableRow key={selection.id}>
+                                                <TableCell><Checkbox /></TableCell>
+                                                <TableCell>{selection.id}</TableCell>
+                                                <TableCell>{selection.totalRooms}</TableCell>
+                                                <TableCell>₹{selection.totalMrp.toFixed(2)}</TableCell>
+                                                <TableCell>{selection.totalPcs}</TableCell>
+                                                <TableCell>
+                                                    <Badge variant={selection.status === 'final' ? 'default' : 'secondary'} className={selection.status === 'final' ? 'bg-green-500' : ''}>
+                                                        {selection.status || 'draft'}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Button type="button" variant="ghost" size="icon" onClick={() => handleViewSelection(selection)}>
+                                                        <Eye className="h-5 w-5"/>
+                                                    </Button>
+                                                </TableCell>
+                                                <TableCell>
+                                                     <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button variant="ghost" size="icon">
+                                                                <MoreHorizontal className="h-4 w-4" />
+                                                            </Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent>
+                                                            {selection.status === 'final' ? (
+                                                                <DropdownMenuItem onClick={() => handleUpdateSelectionStatus(selection.id, 'draft')}>
+                                                                    Remove Final Selection
+                                                                </DropdownMenuItem>
+                                                            ) : (
+                                                                <DropdownMenuItem onClick={() => handleUpdateSelectionStatus(selection.id, 'final')}>
+                                                                    Final Selection
+                                                                </DropdownMenuItem>
+                                                            )}
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
+                                                </TableCell>
+                                            </TableRow>
+                                        )
+                                    })}
+                                </TableBody>
+                                </Table>
                         </div>
-                            <div className="flex justify-between items-center pt-4 border-t">
-                             <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
-                            <Button type="button" onClick={handleQuotationClick}>Create Quotation</Button>
-                        </div>
-                        </form>
-                    </CardContent>
-                </Card>
-                {blindDialogState.isOpen && blindDialogState.roomName && (
-                    <AddBlindsDialog 
-                        isOpen={blindDialogState.isOpen} 
-                        onClose={() => setBlindDialogState({ isOpen: false, roomName: null })} 
-                        roomName={blindDialogState.roomName}
-                    />
-                )}
-            </FormProvider>
+                    </div>
+                        <div className="flex justify-between items-center pt-4 border-t">
+                         <Button type="button" onClick={handleCreateSelection} disabled={selectionLoading}>{selectionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create Selection</Button>
+                        <Button type="button" onClick={handleQuotationClick}>Create Quotation</Button>
+                    </div>
+                    </form>
+                </CardContent>
+            </Card>
+            {blindDialogState.isOpen && blindDialogState.roomName && (
+                <AddBlindsDialog 
+                    isOpen={blindDialogState.isOpen} 
+                    onClose={() => setBlindDialogState({ isOpen: false, roomName: null })} 
+                    roomName={blindDialogState.roomName}
+                />
+            )}
             <CreateQuotationDialog isOpen={isQuotationDialogOpen} onClose={() => setIsQuotationDialogOpen(false)} onSuccess={onRefresh} deal={deal} customer={customer} initialItems={selectedProductsForQuotation} cpds={cpds} />
             {selectedSelection && (
                 <Dialog open={!!selectedSelection} onOpenChange={() => setSelectedSelection(null)}>
@@ -610,8 +590,6 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                     </DialogContent>
                 </Dialog>
             )}
-        </>
+        </FormProvider>
     )
 }
-
-    
