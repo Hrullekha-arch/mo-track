@@ -13,7 +13,7 @@ import { Loader2, PlusCircle, Edit, Trash2, RefreshCw, Eye, Printer, MoreHorizon
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { updateDealProducts, createSelectionAction, updateSelectionStatusAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
-import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
+import { FormField, FormItem, FormLabel, FormControl, FormMessage, } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -384,6 +384,12 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
     }, [fields]);
 
     const selectedRoom = form.watch('room');
+    const selectedSelectionProducts = useMemo(() => {
+                if (!selectedSelection) return [];
+                return fields.filter(
+                    p => p.id && selectedSelection.productIds?.includes(p.id)
+                );
+                }, [selectedSelection, fields]);
 
     return (
         <FormProvider {...form}>
@@ -594,6 +600,7 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                 />
             )}
             <CreateQuotationDialog isOpen={isQuotationDialogOpen} onClose={() => setIsQuotationDialogOpen(false)} onSuccess={onRefresh} deal={deal} customer={customer} initialItems={selectedProductsForQuotation} cpds={cpds} />
+            
             {selectedSelection && (
                 <Dialog open={!!selectedSelection} onOpenChange={() => setSelectedSelection(null)}>
                     <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
@@ -601,7 +608,11 @@ export function ProductForm({ initialProducts, customerId, dealId, onRefresh, de
                             <DialogTitle>Selection Details: #{selectedSelection.id}</DialogTitle>
                         </DialogHeader>
                         <div className="flex-grow overflow-y-auto">
-                            <PrintableSelection selection={selectedSelection} deal={deal} products={fields} />
+                            <PrintableSelection 
+                            selection={selectedSelection} 
+                            deal={deal} 
+                            products={selectedSelectionProducts}
+                        />
                         </div>
                         <DialogFooter>
                                 <Button type="button" variant="outline" onClick={() => setSelectedSelection(null)}>Close</Button>

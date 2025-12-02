@@ -562,12 +562,12 @@ export interface DealOrder {
 
 export interface Selection {
     id: string; // 4-digit ID
-    productIds: string[];
     createdAt: string;
     createdBy: string;
     totalMrp: number;
     totalPcs: number;
     totalRooms: number;
+    products: any[];
     status?: 'draft' | 'final';
 }
 

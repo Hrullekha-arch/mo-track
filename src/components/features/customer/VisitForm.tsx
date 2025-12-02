@@ -105,13 +105,20 @@ export function VisitForm({ salesmen, customerId, dealId, onVisitAdded, visits, 
     const watchedDeliveryInstallations = form.watch("deliveryInstallations");
 
     async function onSubmit(data: VisitFormValues) {
+        console.log("🟢 SUBMIT CLICKED", data);
+
         if (!user) {
             toast({ variant: "destructive", title: "Authentication Error", description: "You must be logged in." });
             return;
         }
         setLoading(true);
         try {
-            const visitDataForDb = { ...data, typeOfVisit: activeTab };
+            const visitDataForDb = {
+                                    ...data,
+                                    typeOfVisit: activeTab,
+                                    selectionId: data.selectionId === "none" ? null : data.selectionId
+                                };
+
             const result = await addVisitAction(customerId, dealId, visitDataForDb, user.name);
             if (result.success && result.visit) {
                 toast({ title: "Visit Request Created", description: "Share the link with the customer to confirm." });

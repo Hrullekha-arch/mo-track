@@ -7,11 +7,11 @@ import { useForm, useFieldArray, FormProvider, useFormContext, useWatch, Control
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useToast } from "@/hooks/use-toast";
+import { toast, useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/context/AuthContext';
 import { Customer, Deal, DealMeasurement, User, MeasurementEntry } from '@/lib/types';
 import { getCustomerById } from '@/app/dashboard/customers/actions';
-import { getDealById, addMeasurementAction, uploadFileToDriveAction } from '@/app/dashboard/customers/[customerId]/[dealId]/actions';
+import { getDealById, addMeasurementAction, uploadFileToDriveAction, getVisitsForDeal, getSelectionsForDeal, getSelectionById, updateBlindsAction, updateItemsAction, updateSofasAction } from '@/app/dashboard/customers/[customerId]/[dealId]/actions';
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -29,7 +29,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '@/components/ui/label';
 import { searchStockByBcn } from '@/app/dashboard/inventory/actions';
 import { Combobox } from '@/components/ui/combobox';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { processMeasurementSubmission } from '@/services/measurement-selection-middleware';
+import { register } from 'module';
+
+
 
 const foamSchema = z.object({
     foamSize: z.string().optional(),
@@ -179,99 +183,13 @@ const FoamDialog = ({
     );
 };
 
-const AddBlindsDialog = ({ isOpen, onClose, roomIndex }: { isOpen: boolean; onClose: () => void; roomIndex: number; }) => {
-    const { control, getValues, setValue } = useFormContext<MeasurementFormValues>();
-    const { fields, append, remove } = useFieldArray({ control, name: `rooms.${roomIndex}.blinds` });
-    const { toast } = useToast();
-    const [bcnOptions, setBcnOptions] = React.useState<any[]>([]);
-
-    const handleSearch = async (query: string) => {
-        if (query.length < 2) return;
-        const results = await searchStockByBcn(query);
-        setBcnOptions(results.map(r => ({ label: r.bcn, value: r.bcn })));
-    };
-
-    const calculateArea = (widthStr?: string, heightStr?: string) => {
-        const width = parseFloat(widthStr || '0');
-        const height = parseFloat(heightStr || '0');
-        if (!isNaN(width) && !isNaN(height)) {
-            return (width * height).toFixed(2);
-        }
-        return '0.00';
-    };
-
-    return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-4xl">
-                <DialogHeader>
-                    <DialogTitle>Add Blinds for {getValues(`rooms.${roomIndex}.roomName`)}</DialogTitle>
-                </DialogHeader>
-                <div className="py-4 space-y-4 max-h-[70vh] overflow-y-auto">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Sr No</TableHead>
-                                <TableHead>BCN</TableHead>
-                                <TableHead>Control</TableHead>
-                                <TableHead>Type</TableHead>
-                                <TableHead>W</TableHead>
-                                <TableHead>H</TableHead>
-                                <TableHead>Area</TableHead>
-                                <TableHead>Action</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {fields.map((field, index) => {
-                                const blind = getValues(`rooms.${roomIndex}.blinds`)?.[index];
-                                const area = calculateArea(blind?.width, blind?.height);
-                                return (
-                                    <TableRow key={field.id}>
-                                        <TableCell>{index + 1}</TableCell>
-                                        <TableCell>
-                                            <FormField control={control} name={`rooms.${roomIndex}.blinds.${index}.bcn`} render={({ field }) => (
-                                                <Combobox options={bcnOptions} value={field.value} onSelect={field.onChange} onSearch={handleSearch} placeholder="Search BCN..." />
-                                            )} />
-                                        </TableCell>
-                                        <TableCell>
-                                            <FormField control={control} name={`rooms.${roomIndex}.blinds.${index}.control`} render={({ field }) => (
-                                                <Select onValueChange={field.onChange} value={field.value}>
-                                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                                    <SelectContent><SelectItem value="Left">Left</SelectItem><SelectItem value="Right">Right</SelectItem></SelectContent>
-                                                </Select>
-                                            )} />
-                                        </TableCell>
-                                        <TableCell>
-                                            <FormField control={control} name={`rooms.${roomIndex}.blinds.${index}.type`} render={({ field }) => (
-                                                <Select onValueChange={field.onChange} value={field.value}>
-                                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                                    <SelectContent><SelectItem value="IBT">IBT</SelectItem><SelectItem value="OBT">OBT</SelectItem></SelectContent>
-                                                </Select>
-                                            )} />
-                                        </TableCell>
-                                        <TableCell><FormField control={control} name={`rooms.${roomIndex}.blinds.${index}.width`} render={({ field }) => <Input {...field} placeholder="W" onChange={(e) => { field.onChange(e); setValue(`rooms.${roomIndex}.blinds.${index}.area`, calculateArea(e.target.value, getValues(`rooms.${roomIndex}.blinds.${index}.height`))) }} />} /></TableCell>
-                                        <TableCell><FormField control={control} name={`rooms.${roomIndex}.blinds.${index}.height`} render={({ field }) => <Input {...field} placeholder="H" onChange={(e) => { field.onChange(e); setValue(`rooms.${roomIndex}.blinds.${index}.area`, calculateArea(getValues(`rooms.${roomIndex}.blinds.${index}.width`), e.target.value)) }} />} /></TableCell>
-                                        <TableCell>{area}</TableCell>
-                                        <TableCell><Button variant="destructive" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button></TableCell>
-                                    </TableRow>
-                                );
-                            })}
-                        </TableBody>
-                    </Table>
-                    <Button variant="outline" onClick={() => append({ id: new Date().toISOString() })}><PlusCircle className="mr-2 h-4 w-4"/>Add Blind</Button>
-                </div>
-                <DialogFooter>
-                    <Button onClick={onClose}>Submit</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-};
-
 const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: number; entryIndex: number; remove: (index: number) => void }) => {
     const { control, setValue, getValues } = useFormContext<MeasurementFormValues>();
     const typeOf = useWatch({ control, name: "typeOf" });
     const { toast } = useToast();
-    
+        // For blind editing
+    const [showBlindEdit, setShowBlindEdit] = React.useState(false);
+    const [editBlind, setEditBlind] = React.useState<any>(null);
     const [imagePreviews, setImagePreviews] = React.useState<string[]>([]);
     const pictures = useWatch({ control, name: `rooms.${roomIndex}.entries.${entryIndex}.pictures` });
     
@@ -464,61 +382,902 @@ const MeasurementEntryCard = ({ roomIndex, entryIndex, remove }: { roomIndex: nu
 }
 
 
-const RoomEntryCard = ({ index, remove }: { index: number, remove: (index: number) => void }) => {
-    const { control, getValues, setValue } = useFormContext<MeasurementFormValues>();
-    const { fields, append, remove: removeEntry } = useFieldArray({
-        control,
-        name: `rooms.${index}.entries`
+const RoomEntryCard = ({
+  index,
+  remove,
+  customerId,
+  dealId,
+  selectionId
+}: {
+  index: number;
+  remove: (index: number) => void;
+  customerId: string;
+  dealId: string;
+  selectionId: string;
+}) => {
+
+  const { control, getValues, setValue, register, watch } = useFormContext<MeasurementFormValues>();
+
+  // ==========================
+  // STATES
+  // ==========================
+  const [addBlindMode, setAddBlindMode] = React.useState(false);
+
+  const [newBlind, setNewBlind] = React.useState({
+    blindType: "",
+    control: "",
+    width: "",
+    height: ""
+  });
+
+  const [openDialog, setOpenDialog] = React.useState<
+    "foam" | "casement" | "marking" | "niwar" | null
+  >(null);
+
+  const [selectedEntryIndex, setSelectedEntryIndex] =
+    React.useState<number | null>(null);
+
+  const [extraPopup, setExtraPopup] = React.useState({
+    open: false,
+    roomIndex: -1,
+    entryIndex: -1,
+    isSofa: false
+  });
+
+  // NEW: Item Type Selection Dialog
+  const [itemTypeDialog, setItemTypeDialog] = React.useState(false);
+
+  // ==========================
+  // FIELD ARRAYS
+  // ==========================
+  const { fields: fieldsEntries, append: appendEntry, remove: removeEntry } = useFieldArray({
+    control,
+    name: `rooms.${index}.entries`
+  });
+
+  const { fields: fieldsBlinds, append: appendBlind, remove: removeBlind } =
+    useFieldArray({
+      control,
+      name: `rooms.${index}.blinds`
     });
-    const [isBlindDialogOpen, setIsBlindDialogOpen] = React.useState(false);
 
-    const roomName = useWatch({
-        control,
-        name: `rooms.${index}.roomName`
-    })
+  // NEW: Sofa Field Array
+  const { fields: fieldsSofas, append: appendSofa, remove: removeSofa } =
+    useFieldArray({
+      control,
+      name: `rooms.${index}.sofas`
+    });
 
-    return (
-        <Card className="relative bg-muted/50 overflow-hidden">
-            <CardHeader className="flex-row items-center justify-between">
-                <FormField
-                    control={control}
-                    name={`rooms.${index}.roomName`}
-                    render={({ field }) => (
-                        <FormItem className="w-2/3">
-                            <FormLabel>Room Name</FormLabel>
-                            <FormControl>
-                                <Input {...field} value={field.value || ''} placeholder="e.g. Master Bedroom" />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                 <Button type="button" variant="destructive" size="sm" onClick={() => remove(index)}>
-                    <Trash2 className="mr-2 h-4 w-4"/> Remove Room
-                </Button>
-            </CardHeader>
-            <CardContent className="space-y-3">
-                 <div className="flex items-center space-x-2">
-                    <Checkbox id={`add-blind-${index}`} onCheckedChange={(checked) => checked && setIsBlindDialogOpen(true)} />
-                    <Label htmlFor={`add-blind-${index}`}>Add Blind</Label>
-                </div>
-                {fields.map((field, entryIndex) => (
-                    <MeasurementEntryCard 
-                        key={field.id}
-                        roomIndex={index}
-                        entryIndex={entryIndex}
-                        remove={() => removeEntry(entryIndex)}
-                    />
+  const roomName = watch(`rooms.${index}.roomName`) || "";
+
+  // ==========================
+  // UPDATE BLINDS IN DATABASE
+  // ==========================
+  const handleUpdateBlinds = async () => {
+    const blinds = getValues(`rooms.${index}.blinds`);
+
+    const res = await updateBlindsAction({
+      customerId,
+      dealId,
+      selectionId,
+      roomName,
+      blinds
+    });
+
+    if (res.success) {
+      toast({ title: "Blinds Updated", description: "Saved successfully!" });
+    } else {
+      toast({ variant: "destructive", title: "Error", description: res.error });
+    }
+  };
+  
+  //==========================
+  // Random UID
+  //==========================
+  function makeId() {
+        return (
+            Date.now().toString(36) +
+            Math.random().toString(36).substring(2, 9)
+        );
+    }
+
+  // ==========================
+  // UPDATE ITEMS IN DATABASE
+  // ==========================
+  const handleUpdateItems = async () => {
+    const items = getValues(`rooms.${index}.entries`);
+
+    const res = await updateItemsAction({
+      customerId,
+      dealId,
+      selectionId,
+      roomName,
+      items
+    });
+
+    if (res.success) {
+      toast({ title: "Items Updated", description: "Saved successfully!" });
+    } else {
+      toast({ variant: "destructive", title: "Error", description: res.error });
+    }
+  };
+
+  // ==========================
+  // UPDATE SOFAS IN DATABASE
+  // ==========================
+  const handleUpdateSofas = async () => {
+    const sofas = getValues(`rooms.${index}.sofas`);
+
+    const res = await updateSofasAction({
+      customerId,
+      dealId,
+      selectionId,
+      roomName,
+      sofas
+    });
+
+    if (res.success) {
+      toast({ title: "Sofas Updated", description: "Saved successfully!" });
+    } else {
+      toast({ variant: "destructive", title: "Error", description: res.error });
+    }
+  };
+
+  // ==========================
+  // HANDLE ITEM TYPE SELECTION
+  // ==========================
+  const handleAddItemType = (type: string) => {
+    if (type === "Sofa") {
+      appendSofa({
+        id: makeId(),
+        itemName: "",
+        noOfSeat: "",
+        fabricQty: "",
+        stitchingRate: "",
+        foam: null,
+        casement: null,
+        marking: null
+      });
+    } else {
+      // For Curtain, Wall to Wall, Wallpaper
+      appendEntry({
+        id: makeId(),
+        itemType: type,
+        itemName: "",
+        noOfPannel: "",
+        height: "",
+        width: "",
+        remark: "",
+        casement: null,
+        marking: null,
+        niwar: null
+      });
+    }
+    setItemTypeDialog(false);
+  };
+
+  return (
+    <Card className="relative bg-muted/50 overflow-hidden">
+
+      {/* ROOM HEADER */}
+      <CardHeader className="flex-row items-center justify-between">
+        <FormField
+          control={control}
+          name={`rooms.${index}.roomName`}
+          render={({ field }) => (
+            <FormItem className="w-2/3">
+              <FormLabel>Room Name</FormLabel>
+              <FormControl>
+                <Input {...field} value={field.value || ""} placeholder="e.g. Living Room" />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <Button type="button" size="sm" variant="destructive" onClick={() => remove(index)}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </CardHeader>
+
+      <CardContent className="space-y-6">
+
+        {/* =====================
+            BLINDS SECTION
+        ===================== */}
+        <div className="space-y-3 border rounded-lg p-3 bg-white/50">
+
+          <div className="flex justify-between items-center">
+            <h3 className="font-semibold text-sm">Blinds</h3>
+
+            <Button type="button" onClick={() => setAddBlindMode(true)}>+ Add Blind</Button>
+          </div>
+
+          {/* EXISTING BLINDS TABLE */}
+          {fieldsBlinds.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Blind</TableHead>
+                  <TableHead>Control</TableHead>
+                  <TableHead>W</TableHead>
+                  <TableHead>H</TableHead>
+                  <TableHead className="text-center">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {fieldsBlinds.map((blind, bIndex) => (
+                  <TableRow key={blind.id}>
+                    <TableCell>
+                      <Input {...register(`rooms.${index}.blinds.${bIndex}.blindType`)} />
+                    </TableCell>
+
+                    <TableCell>
+                      <Select
+                        value={watch(`rooms.${index}.blinds.${bIndex}.control`)}
+                        onValueChange={(val) =>
+                          setValue(`rooms.${index}.blinds.${bIndex}.control`, val)
+                        }
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Left">Left</SelectItem>
+                          <SelectItem value="Right">Right</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+
+                    <TableCell>
+                      <Input {...register(`rooms.${index}.blinds.${bIndex}.width`)} />
+                    </TableCell>
+
+                    <TableCell>
+                      <Input {...register(`rooms.${index}.blinds.${bIndex}.height`)} />
+                    </TableCell>
+
+                    <TableCell className="text-center">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="destructive"
+                        onClick={() => removeBlind(bIndex)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 ))}
-                <Button type="button" variant="outline" size="sm" onClick={() => append({ id: new Date().toISOString() })}>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Add New Entry
+              </TableBody>
+
+              <TableFooter>
+                <TableRow>
+                  <TableCell colSpan={5}>
+                    <Button type="button" className="bg-blue-600 text-white" onClick={handleUpdateBlinds}>
+                      Update Blinds
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              </TableFooter>
+            </Table>
+          )}
+
+          {/* ADD BLIND INLINE FORM */}
+          {addBlindMode && (
+            <div className="grid grid-cols-2 gap-3 mt-2 p-3 border rounded-lg bg-muted/40">
+              <Input
+                placeholder="Blind Name"
+                value={newBlind.blindType}
+                onChange={(e) =>
+                  setNewBlind({ ...newBlind, blindType: e.target.value })
+                }
+              />
+
+              <Select
+                onValueChange={(val) => setNewBlind({ ...newBlind, control: val })}
+              >
+                <SelectTrigger><SelectValue placeholder="Control" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Left">Left</SelectItem>
+                  <SelectItem value="Right">Right</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Input
+                placeholder="Width"
+                value={newBlind.width}
+                onChange={(e) => setNewBlind({ ...newBlind, width: e.target.value })}
+              />
+
+              <Input
+                placeholder="Height"
+                value={newBlind.height}
+                onChange={(e) => setNewBlind({ ...newBlind, height: e.target.value })}
+              />
+
+              <div className="col-span-2 flex justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={() => setAddBlindMode(false)}>
+                  Cancel
                 </Button>
-            </CardContent>
-            <AddBlindsDialog isOpen={isBlindDialogOpen} onClose={() => setIsBlindDialogOpen(false)} roomIndex={index} />
-        </Card>
-    );
-}
+
+                <Button
+                    type="button"
+                    onClick={() => {
+                        appendBlind({
+                        id: makeId(),
+                        blindType: newBlind.blindType,
+                        control: newBlind.control,
+                        width: newBlind.width,
+                        height: newBlind.height
+                        });
+
+                        setNewBlind({ blindType: "", control: "", width: "", height: "" });
+                        setAddBlindMode(false);
+                    }}
+                    >
+                    Save Blind
+                </Button>
+
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* =====================
+            SOFA SECTION (NEW)
+        ===================== */}
+        {/* SOFA EXTRAS SUMMARY */}
+{fieldsSofas.some((_sofa, idx) => {
+  const foam = watch(`rooms.${index}.sofas.${idx}.foam`);
+  const casement = watch(`rooms.${index}.sofas.${idx}.casement`);
+  const marking = watch(`rooms.${index}.sofas.${idx}.marking`);
+  return foam || casement || marking;
+}) && (
+  <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+    <h4 className="font-semibold text-sm mb-2">Extras Summary (Sofas)</h4>
+
+    <div className="space-y-1 text-sm">
+      {fieldsSofas.map((sofa, idx) => {
+        const itemName =
+          watch(`rooms.${index}.sofas.${idx}.itemName`) || `Sofa ${idx + 1}`;
+
+        const foam = watch(`rooms.${index}.sofas.${idx}.foam`);
+        const casement = watch(`rooms.${index}.sofas.${idx}.casement`);
+        const marking = watch(`rooms.${index}.sofas.${idx}.marking`);
+
+        const hasExtras = foam || casement || marking;
+        if (!hasExtras) return null;
+
+        return (
+          <div key={sofa.id} className="flex gap-2 items-center flex-wrap">
+            <span className="font-medium">{itemName}:</span>
+
+            {foam && (
+              <span className="text-xs bg-white px-2 py-1 rounded border">
+                Foam: {foam.qty} Foam Size : {foam.foamsize} Density : {foam.density}
+              </span>
+            )}
+
+            {casement && (
+              <span className="text-xs bg-white px-2 py-1 rounded border">
+                Casement: {casement.qty}
+              </span>
+            )}
+
+            {marking && (
+              <span className="text-xs bg-white px-2 py-1 rounded border">
+                Marking: {marking.qty}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
+
+        {fieldsSofas.length > 0 && (
+          <div className="space-y-3 border rounded-lg p-3 bg-white/50">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold text-sm">Sofas</h3>
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item Name</TableHead>
+                  <TableHead>No of Seat</TableHead>
+                  <TableHead>Fabric Qty</TableHead>
+                  <TableHead>Stitching Rate/Seat</TableHead>
+                  <TableHead>Extras</TableHead>
+                  <TableHead className="text-center">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {fieldsSofas.map((sofa, sofaIndex) => {
+                  const foam = watch(`rooms.${index}.sofas.${sofaIndex}.foam`);
+                  const casement = watch(`rooms.${index}.sofas.${sofaIndex}.casement`);
+                  const marking = watch(`rooms.${index}.sofas.${sofaIndex}.marking`);
+                  const hasExtras = foam || casement || marking;
+
+                  return (
+                    <TableRow key={sofa.id}>
+                      <TableCell>
+                        <Input
+                          {...register(`rooms.${index}.sofas.${sofaIndex}.itemName`)}
+                          placeholder="Item Name"
+                          className="w-32"
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <Input
+                          {...register(`rooms.${index}.sofas.${sofaIndex}.noOfSeat`)}
+                          placeholder="Seats"
+                          className="w-20"
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <Input
+                          {...register(`rooms.${index}.sofas.${sofaIndex}.fabricQty`)}
+                          placeholder="Qty"
+                          className="w-20"
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <Input
+                          {...register(`rooms.${index}.sofas.${sofaIndex}.stitchingRate`)}
+                          placeholder="Rate"
+                          className="w-20"
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={hasExtras ? "default" : "outline"}
+                          onClick={() => {
+                            setSelectedEntryIndex(sofaIndex);
+                            setExtraPopup({
+                              roomIndex: index,
+                              entryIndex: sofaIndex,
+                              open: true,
+                              isSofa: true
+                            });
+                          }}
+                        >
+                          {hasExtras ? "Edit" : "Add"}
+                        </Button>
+                      </TableCell>
+
+                      <TableCell className="text-center">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="destructive"
+                          onClick={() => removeSofa(sofaIndex)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+
+            <Button type="button" className="bg-blue-600 text-white mt-3" onClick={handleUpdateSofas}>
+              Update Sofas
+            </Button>
+          </div>
+        )}
+
+        {/* =====================
+            ITEMS SECTION (CURTAIN, WALL TO WALL, WALLPAPER)
+        ===================== */}
+        <div className="space-y-3 border rounded-lg p-3 bg-white/50">
+
+          <div className="flex justify-between items-center">
+            <h3 className="font-semibold text-sm">Items</h3>
+
+            <Button
+              type="button"
+              onClick={() => setItemTypeDialog(true)}
+            >
+              + Add Item
+            </Button>
+          </div>
+
+          {/* EXTRAS SUMMARY */}
+          {fieldsEntries.some((_entry, idx) => {
+            const casement = watch(`rooms.${index}.entries.${idx}.casement`);
+            const marking = watch(`rooms.${index}.entries.${idx}.marking`);
+            const niwar = watch(`rooms.${index}.entries.${idx}.niwar`);
+            return casement || marking || niwar;
+            //////// For Sofa////////////
+            
+          }) && (
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+              <h4 className="font-semibold text-sm mb-2">Extras Summary</h4>
+              <div className="space-y-1 text-sm">
+                {fieldsEntries.map((entry, idx) => {
+                  const itemName = watch(`rooms.${index}.entries.${idx}.itemName`) || `Item ${idx + 1}`;
+                  const casement = watch(`rooms.${index}.entries.${idx}.casement`);
+                  const marking = watch(`rooms.${index}.entries.${idx}.marking`);
+                  const niwar = watch(`rooms.${index}.entries.${idx}.niwar`);
+                  
+                  const hasExtras = casement || marking || niwar;
+                  
+                  if (!hasExtras) return null;
+                  
+                  return (
+                    <div key={entry.id} className="flex gap-2 items-center flex-wrap">
+                      <span className="font-medium">{itemName}:</span>
+                      {casement && <span className="text-xs bg-white px-2 py-1 rounded border">Casement: {casement.qty}</span>}
+                      {marking && <span className="text-xs bg-white px-2 py-1 rounded border">Marking: {marking.qty}</span>}
+                      {niwar && <span className="text-xs bg-white px-2 py-1 rounded border">Niwar: {niwar.qty}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+
+          {fieldsEntries.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Item Name</TableHead>
+                  <TableHead>No of Panel</TableHead>
+                  <TableHead>Height</TableHead>
+                  <TableHead>Width</TableHead>
+                  <TableHead>Remark</TableHead>
+                  <TableHead>Extras</TableHead>
+                  <TableHead className="text-center">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {fieldsEntries.map((entry, entryIndex) => {
+                  const casement = watch(`rooms.${index}.entries.${entryIndex}.casement`);
+                  const marking = watch(`rooms.${index}.entries.${entryIndex}.marking`);
+                  const niwar = watch(`rooms.${index}.entries.${entryIndex}.niwar`);
+                  const hasExtras = casement || marking || niwar;
+
+                  return (
+                    <TableRow key={entry.id}>
+                      <TableCell>
+                        <Input
+                          {...register(`rooms.${index}.entries.${entryIndex}.itemType`)}
+                          placeholder="Type"
+                          className="w-24"
+                          disabled
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <Input
+                          {...register(`rooms.${index}.entries.${entryIndex}.itemName`)}
+                          placeholder="Item"
+                          className="w-32"
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <Input
+                          {...register(`rooms.${index}.entries.${entryIndex}.noOfPannel`)}
+                          placeholder="Panel"
+                          className="w-16"
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <Input
+                          {...register(`rooms.${index}.entries.${entryIndex}.height`)}
+                          placeholder="H"
+                          className="w-16"
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <Input
+                          {...register(`rooms.${index}.entries.${entryIndex}.width`)}
+                          placeholder="W"
+                          className="w-16"
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <Input
+                          {...register(`rooms.${index}.entries.${entryIndex}.remark`)}
+                          placeholder="Remark"
+                          className="w-24"
+                        />
+                      </TableCell>
+
+                      <TableCell>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={hasExtras ? "default" : "outline"}
+                          onClick={() => {
+                            setSelectedEntryIndex(entryIndex);
+                            setExtraPopup({
+                              roomIndex: index,
+                              entryIndex,
+                              open: true,
+                              isSofa: false
+                            });
+                          }}
+                        >
+                          {hasExtras ? "Edit" : "Add"}
+                        </Button>
+                      </TableCell>
+
+                      <TableCell className="text-center">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="destructive"
+                          onClick={() => removeEntry(entryIndex)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+
+          <Button type="button" className="bg-blue-600 text-white mt-3" onClick={handleUpdateItems}>
+            Update Items
+          </Button>
+
+        </div>
+      </CardContent>
+
+      {/* ===================================================
+                ITEM TYPE SELECTION DIALOG (NEW)
+      =================================================== */}
+      <Dialog open={itemTypeDialog} onOpenChange={setItemTypeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Select Item Type</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-24 flex flex-col gap-2"
+              onClick={() => handleAddItemType("Sofa")}
+            >
+              <span className="text-2xl">🛋️</span>
+              <span>Sofa</span>
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="h-24 flex flex-col gap-2"
+              onClick={() => handleAddItemType("Curtain")}
+            >
+              <span className="text-2xl">🪟</span>
+              <span>Curtain</span>
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="h-24 flex flex-col gap-2"
+              onClick={() => handleAddItemType("Wall to Wall")}
+            >
+              <span className="text-2xl">📏</span>
+              <span>Wall to Wall</span>
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="h-24 flex flex-col gap-2"
+              onClick={() => handleAddItemType("Wallpaper")}
+            >
+              <span className="text-2xl">🎨</span>
+              <span>Wallpaper</span>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===================================================
+                EXTRA POPUP
+      =================================================== */}
+      <Dialog
+        open={extraPopup.open}
+        onOpenChange={() => setExtraPopup({ ...extraPopup, open: false })}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Additional Options</DialogTitle>
+          </DialogHeader>
+
+          {!extraPopup.isSofa ? (
+            <div className="space-y-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSelectedEntryIndex(extraPopup.entryIndex);
+                  setOpenDialog("casement");
+                  setExtraPopup({ ...extraPopup, open: false });
+                }}
+              >
+                Casement
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSelectedEntryIndex(extraPopup.entryIndex);
+                  setOpenDialog("marking");
+                  setExtraPopup({ ...extraPopup, open: false });
+                }}
+              >
+                Marking
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSelectedEntryIndex(extraPopup.entryIndex);
+                  setOpenDialog("niwar");
+                  setExtraPopup({ ...extraPopup, open: false });
+                }}
+              >
+                Niwar
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSelectedEntryIndex(extraPopup.entryIndex);
+                  setOpenDialog("foam");
+                  setExtraPopup({ ...extraPopup, open: false });
+                }}
+              >
+                Foam
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSelectedEntryIndex(extraPopup.entryIndex);
+                  setOpenDialog("casement");
+                  setExtraPopup({ ...extraPopup, open: false });
+                }}
+              >
+                Casement
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setSelectedEntryIndex(extraPopup.entryIndex);
+                  setOpenDialog("marking");
+                  setExtraPopup({ ...extraPopup, open: false });
+                }}
+              >
+                Marking
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ===================================================
+                ACTUAL EXTRA DIALOGS
+      =================================================== */}
+      <FoamDialog
+        isOpen={openDialog === "foam"}
+        onClose={() => setOpenDialog(null)}
+        onSave={(data) => {
+          if (selectedEntryIndex !== null) {
+            if (extraPopup.isSofa) {
+              setValue(
+                `rooms.${index}.sofas.${selectedEntryIndex}.foam`,
+                data
+              );
+            } else {
+              setValue(
+                `rooms.${index}.entries.${selectedEntryIndex}.foam`,
+                data
+              );
+            }
+          }
+        }}
+      />
+
+      <SimpleQtyDialog
+        isOpen={openDialog === "casement"}
+        title="Casement Qty (MTR)"
+        onClose={() => setOpenDialog(null)}
+        onSave={(data) => {
+          if (selectedEntryIndex !== null) {
+            if (extraPopup.isSofa) {
+              setValue(
+                `rooms.${index}.sofas.${selectedEntryIndex}.casement`,
+                data
+              );
+            } else {
+              setValue(
+                `rooms.${index}.entries.${selectedEntryIndex}.casement`,
+                data
+              );
+            }
+          }
+        }}
+      />
+
+      <SimpleQtyDialog
+        isOpen={openDialog === "marking"}
+        title="Marking Qty (MTR)"
+        onClose={() => setOpenDialog(null)}
+        onSave={(data) => {
+          if (selectedEntryIndex !== null) {
+            if (extraPopup.isSofa) {
+              setValue(
+                `rooms.${index}.sofas.${selectedEntryIndex}.marking`,
+                data
+              );
+            } else {
+              setValue(
+                `rooms.${index}.entries.${selectedEntryIndex}.marking`,
+                data
+              );
+            }
+          }
+        }}
+      />
+
+      <SimpleQtyDialog
+        isOpen={openDialog === "niwar"}
+        title="Niwar Qty (MTR)"
+        onClose={() => setOpenDialog(null)}
+        onSave={(data) => {
+          if (selectedEntryIndex !== null) {
+            setValue(
+              `rooms.${index}.entries.${selectedEntryIndex}.niwar`,
+              data
+            );
+          }
+        }}
+      />
+    
+    </Card>
+  );
+};
+
+
 
 const MeasurementPreview = ({
     values,
@@ -527,7 +1286,7 @@ const MeasurementPreview = ({
     onBack,
     onSubmit,
     loading
-} : {
+}: {
     values: MeasurementFormValues,
     customer: Customer,
     deal: Deal,
@@ -535,14 +1294,18 @@ const MeasurementPreview = ({
     onSubmit: () => void,
     loading: boolean
 }) => {
+
     return (
         <Card>
-             <div id="measurement-preview-content" className="p-6">
+            <div id="measurement-preview-content" className="p-6">
                 <CardHeader>
                     <CardTitle>Measurement Preview</CardTitle>
                     <CardDescription>Please review the details before confirming.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
+
+                <CardContent className="space-y-8">
+
+                    {/* BASIC INFO */}
                     <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                         <p><strong>Customer:</strong> {customer.name}</p>
                         <p><strong>Deal ID:</strong> {deal.dealId}</p>
@@ -550,76 +1313,167 @@ const MeasurementPreview = ({
                         <p><strong>Doer Name:</strong> {values.doerName}</p>
                     </div>
 
+                    {/* ROOMS */}
                     {values.rooms.map((room, roomIndex) => (
-                       <div key={room.id || roomIndex} className="border-t pt-4">
-                           <h3 className="font-bold text-lg mb-2">{room.roomName}</h3>
-                            {room.entries.map((entry, entryIndex) => (
-                                <div key={entry.id || entryIndex} className="border-b last:border-b-0 py-2 space-y-2">
-                                    <h4 className="font-semibold">Entry #{entryIndex + 1}</h4>
-                                    {values.typeOf === 'Sofa Measurement' ? (
-                                        <>
-                                            <div className="grid grid-cols-2 gap-2 text-sm">
-                                                <div><p><strong>Item Name:</strong> {entry.itemName || 'N/A'}</p></div>
-                                                <div><p><strong>No of Seat / Pcs:</strong> {entry.noOfSheet || 'N/A'}</p></div>
-                                                <div><p><strong>Fabric Qty:</strong> {entry.fabricQty1 || 'N/A'}</p></div>
-                                                <div><p><strong>Stitching Rate / per Sheet:</strong> {entry.stitchingRate || 'N/A'}</p></div>
-                                                <div className="col-span-2"><p><strong>Remarks:</strong> {entry.remark || 'N/A'}</p></div>
-                                            </div>
-                                             {(entry.foam || entry.casement || entry.marking || entry.niwar) && (
-                                                <div className="mt-2 pt-2 border-t">
-                                                    <h5 className="font-semibold text-xs text-muted-foreground mb-1">OPTIONS</h5>
-                                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                                                        {entry.foam?.foamSize && <p><strong>Foam:</strong> {entry.foam.foamSize} / {entry.foam.qty} / {entry.foam.density}</p>}
-                                                        {entry.casement?.qty && <p><strong>Casement:</strong> {entry.casement.qty} MTR</p>}
-                                                        {entry.marking?.qty && <p><strong>Marking:</strong> {entry.marking.qty} MTR</p>}
-                                                        {entry.niwar?.qty && <p><strong>Niwar:</strong> {entry.niwar.qty} MTR</p>}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </>
-                                    ) : (
-                                        <div className="space-y-1 text-sm">
-                                            <p><strong>Dimension:</strong> H {entry.height} {entry.heightUnit} x W {entry.width} {entry.widthUnit}</p>
-                                            <p><strong>Panels:</strong> {entry.noOfPannel || 'N/A'}</p>
-                                             <p><strong>Remarks:</strong> {entry.remark || 'N/A'}</p>
-                                        </div>
-                                    )}
+                        <div key={room.id || roomIndex} className="border-t pt-4">
 
-                                    {entry.pictures && Array.from(entry.pictures as File[]).length > 0 && (
-                                        <div className="mt-2">
-                                            <p className="text-sm font-semibold">Attached Images:</p>
-                                            <div className="flex flex-wrap gap-2 mt-1">
-                                                {Array.from(entry.pictures as File[]).map((file, i) => (
-                                                    <Image 
-                                                        key={i}
-                                                        src={URL.createObjectURL(file)} 
-                                                        alt={`Entry ${entryIndex+1} Image ${i+1}`} 
-                                                        width={100} 
-                                                        height={100} 
-                                                        className="rounded-md object-cover"
-                                                    />
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                            <h3 className="font-bold text-xl mb-3">
+                                {room.roomName || `Room ${roomIndex + 1}`}
+                            </h3>
+
+                            {/* ======================
+                                SOFAS PREVIEW
+                            ====================== */}
+                            {room.sofas && room.sofas.length > 0 && (
+                                <div className="mb-6">
+                                    <h4 className="font-semibold text-lg mb-2">Sofas</h4>
+
+                                    <table className="w-full text-sm border">
+                                        <thead className="bg-gray-100">
+                                            <tr>
+                                                <th className="border p-2">Item</th>
+                                                <th className="border p-2">Seats</th>
+                                                <th className="border p-2">Fabric Qty</th>
+                                                <th className="border p-2">Stitching Rate</th>
+                                                <th className="border p-2">Extras</th>
+                                            </tr>
+                                        </thead>
+
+                                        <tbody>
+                                            {room.sofas.map((sofa, sIndex) => (
+                                                <tr key={sIndex}>
+                                                    <td className="border p-2">{sofa.itemName}</td>
+                                                    <td className="border p-2">{sofa.noOfSeat}</td>
+                                                    <td className="border p-2">{sofa.fabricQty}</td>
+                                                    <td className="border p-2">{sofa.stitchingRate}</td>
+
+                                                    <td className="border p-2 space-x-2">
+                                                        {sofa.foam && (
+                                                            <span className="bg-blue-100 px-2 py-1 rounded text-xs">
+                                                                Foam: {sofa.foam.foamSize}/{sofa.foam.qty}/{sofa.foam.density}
+                                                            </span>
+                                                        )}
+                                                        {sofa.casement && (
+                                                            <span className="bg-green-100 px-2 py-1 rounded text-xs">
+                                                                Casement: {sofa.casement.qty}
+                                                            </span>
+                                                        )}
+                                                        {sofa.marking && (
+                                                            <span className="bg-yellow-100 px-2 py-1 rounded text-xs">
+                                                                Marking: {sofa.marking.qty}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
-                            ))}
-                       </div>
+                            )}
+
+                            {/* ======================
+                                WINDOW ITEMS PREVIEW
+                            ====================== */}
+                            {room.entries && room.entries.length > 0 && (
+                                <div className="mb-6">
+                                    <h4 className="font-semibold text-lg mb-2">Window Items</h4>
+
+                                    <table className="w-full text-sm border">
+                                        <thead className="bg-gray-100">
+                                            <tr>
+                                                <th className="border p-2">Item</th>
+                                                <th className="border p-2">Height</th>
+                                                <th className="border p-2">Width</th>
+                                                <th className="border p-2">Panels</th>
+                                                <th className="border p-2">Remark</th>
+                                                <th className="border p-2">Extras</th>
+                                            </tr>
+                                        </thead>
+
+                                        <tbody>
+                                            {room.entries.map((entry, eIndex) => (
+                                                <tr key={eIndex}>
+                                                    <td className="border p-2">{entry.itemName}</td>
+                                                    <td className="border p-2">{entry.height}</td>
+                                                    <td className="border p-2">{entry.width}</td>
+                                                    <td className="border p-2">{entry.noOfPannel}</td>
+                                                    <td className="border p-2">{entry.remark}</td>
+
+                                                    <td className="border p-2 space-x-2">
+                                                        {entry.casement && (
+                                                            <span className="bg-green-100 px-2 py-1 rounded text-xs">
+                                                                Casement: {entry.casement.qty}
+                                                            </span>
+                                                        )}
+                                                        {entry.marking && (
+                                                            <span className="bg-yellow-100 px-2 py-1 rounded text-xs">
+                                                                Marking: {entry.marking.qty}
+                                                            </span>
+                                                        )}
+                                                        {entry.niwar && (
+                                                            <span className="bg-red-100 px-2 py-1 rounded text-xs">
+                                                                Niwar: {entry.niwar.qty}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            {/* ======================
+                                BLINDS PREVIEW
+                            ====================== */}
+                            {room.blinds && room.blinds.length > 0 && (
+                                <div>
+                                    <h4 className="font-semibold text-lg mb-2">Blinds</h4>
+
+                                    <table className="w-full text-sm border">
+                                        <thead className="bg-gray-100">
+                                            <tr>
+                                                <th className="border p-2">Blind Type</th>
+                                                <th className="border p-2">Control</th>
+                                                <th className="border p-2">Width</th>
+                                                <th className="border p-2">Height</th>
+                                            </tr>
+                                        </thead>
+
+                                        <tbody>
+                                            {room.blinds.map((blind, bIndex) => (
+                                                <tr key={bIndex}>
+                                                    <td className="border p-2">{blind.blindType}</td>
+                                                    <td className="border p-2">{blind.control}</td>
+                                                    <td className="border p-2">{blind.width}</td>
+                                                    <td className="border p-2">{blind.height}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                        </div>
                     ))}
+
                 </CardContent>
             </div>
-             <CardFooter className="flex justify-end gap-2">
+
+            {/* FOOTER BUTTONS */}
+            <CardFooter className="flex justify-end gap-2">
                 <Button variant="ghost" onClick={onBack} disabled={loading}>
-                    <StepBack className="mr-2 h-4 w-4"/> Back to Edit
+                    <StepBack className="mr-2 h-4 w-4" /> Back to Edit
                 </Button>
                 <Button onClick={onSubmit} disabled={loading}>
                     {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Confirm & Save
                 </Button>
-             </CardFooter>
+            </CardFooter>
         </Card>
-    )
-}
+    );
+};
+
 
 const MEASUREMENT_TYPES = [
     "Curtains",
@@ -645,7 +1499,7 @@ export default function MeasurementPage() {
     const visitId = params.visitId as string;
     const dealId = searchParams.get('dealId');
     const customerId = searchParams.get('customerId');
-
+    const [visitDataState, setVisitDataState] = React.useState<any>(null);
     const [customer, setCustomer] = React.useState<Customer | null>(null);
     const [deal, setDeal] = React.useState<Deal | null>(null);
     const [loading, setLoading] = React.useState(true);
@@ -668,31 +1522,169 @@ export default function MeasurementPage() {
         name: "rooms"
     });
     
-    React.useEffect(() => {
-        if (!customerId || !dealId) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Missing customer or deal ID.' });
-            router.back();
-            return;
-        }
+React.useEffect(() => {
+    if (!customerId || !dealId || !visitId) {
+        toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'Missing customer, deal or visit ID.'
+        });
+        router.back();
+        return;
+    }
 
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const [customerData, dealData] = await Promise.all([
-                    getCustomerById(customerId),
-                    getDealById(customerId, dealId),
-                ]);
-                setCustomer(customerData);
-                setDeal(dealData);
-            } catch (error) {
-                console.error("Failed to fetch data:", error);
-                toast({ variant: "destructive", title: "Error", description: "Could not load required data." });
-            } finally {
-                setLoading(false);
+    const fetchData = async () => {
+        console.log("🟡 FETCH STARTED");
+        console.log("➡ customerId:", customerId);
+        console.log("➡ dealId:", dealId);
+        console.log("➡ visitId:", visitId);
+
+        setLoading(true);
+
+        try {
+            // -----------------------------
+            // 1. FETCH CUSTOMER + DEAL
+            // -----------------------------
+            const [customerData, dealData] = await Promise.all([
+                getCustomerById(customerId),
+                getDealById(customerId, dealId)
+            ]);
+
+            console.log("✅ CUSTOMER FETCHED:", customerData);
+            console.log("✅ DEAL FETCHED:", dealData);
+
+            setCustomer(customerData);
+            setDeal(dealData);
+
+            // -----------------------------
+            // 2. FETCH ALL VISITS & FIND CURRENT
+            // -----------------------------
+            const visitList = await getVisitsForDeal(customerId, dealId);
+            console.log("📘 ALL VISITS:", visitList);
+
+            if (!Array.isArray(visitList)) {
+                console.log("❌ visitList is not an array:", visitList);
+                return;
             }
-        };
-        fetchData();
-    }, [customerId, dealId, toast, router]);
+
+            const visitData = visitList.find(v => v.id === visitId);
+            setVisitDataState(visitData);
+            console.log("📙 CURRENT VISIT:", visitData);
+
+            if (!visitData) {
+                console.log("❌ Visit not found");
+                return;
+            }
+
+            // -----------------------------
+            // 3. CHECK SELECTION ID
+            // -----------------------------
+            if (!visitData.selectionId || visitData.selectionId === "none") {
+                console.log("🚫 No selectionId → skipping auto-fill");
+                return;
+            }
+
+            console.log("🎉 VALID selectionId FOUND:", visitData.selectionId);
+
+            // -----------------------------
+            // 4. FETCH SELECTION (WITH FULL PRODUCTS)
+            // -----------------------------
+            const selection = await getSelectionById(customerId, dealId, visitData.selectionId);
+            console.log("📦 SELECTION FETCHED:", selection);
+
+            if (!selection) {
+                console.log("❌ Selection not found");
+                return;
+            }
+
+            if (!selection.products || selection.products.length === 0) {
+                console.log("⚠ No products stored inside selection");
+                return;
+            }
+
+            const products = selection.products; // ⭐ CORRECT SOURCE
+            console.log("🟪 PRODUCTS INSIDE SELECTION:", products);
+
+            // -----------------------------
+            // 5. CONVERT PRODUCTS → ROOMS → ENTRIES
+            // -----------------------------
+            let groupedRooms: any = {};
+
+            products.forEach((prod: any, index: number) => {
+                const roomName = prod.room || `Room-${index + 1}`;
+
+                if (!groupedRooms[roomName]) {
+                    groupedRooms[roomName] = {
+                        roomName,
+                        blinds: [],
+                        entries: []
+                    };
+                }
+
+                // 🟦 BLIND PRODUCT
+                if (prod.isBlind === true) {
+                    groupedRooms[roomName].blinds.push({
+                        id: prod.id,
+                        blindType: prod.blindType || "",
+                        operating: prod.operating || "",
+                        control: prod.control || "",
+                        bottomChannel: prod.bottomChannel || "",
+                        bottomRailColor: prod.bottomRailColor || "",
+                        bracket: prod.bracket || "",
+                        shadeNo: prod.shadeNo || "",
+                        width: prod.width || "",
+                        height: prod.height || "",
+                        noOfBlind: prod.noOfBlind || "",
+                        usesType: prod.usesType || "",
+                        room: roomName,
+                        status: "blind-needed",
+                    });
+                }
+
+                // 🟩 NON-BLIND PRODUCT
+                if (!prod.isBlind) {
+                    groupedRooms[roomName].entries.push({
+                        id: `${prod.id}-${Date.now()}`,
+                        status: "item-needed",
+                        itemName: prod.salesDescription || "",
+                        height: prod.height || "",
+                        width: prod.width || "",
+                        noOfPannel: prod.noOfPcs || "",
+                        remark: prod.remarks || ""
+                    });
+                }
+            });
+
+            const finalRooms = Object.values(groupedRooms);
+            console.log("🟣 FINAL AUTO-MAPPED ROOMS:", finalRooms);
+
+            // -----------------------------
+            // 6. APPLY TO FORM
+            // -----------------------------
+            form.setValue("rooms", finalRooms);
+            console.log("🟢 ROOMS APPLIED:", form.getValues("rooms"));
+
+        } catch (err) {
+            console.error("❌ FETCH ERROR:", err);
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: "Could not load required data."
+            });
+        } finally {
+            setLoading(false);
+            console.log("🟢 FETCH COMPLETED");
+        }
+    };
+
+    fetchData();
+}, [customerId, dealId, visitId]);
+
+
+  
+
+
+
     
     const fileToB64 = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {
@@ -789,14 +1781,30 @@ export default function MeasurementPage() {
                 entries: simplifiedEntries as MeasurementEntry[],
             };
             
-            const result = await addMeasurementAction(customerId, dealId, visitId, measurementData as any, user.name, pdfUrl);
-    
-            if (result.success) {
-                toast({ title: 'Success', description: 'Measurement saved successfully.' });
-                router.push('/mobile');
-            } else {
-                toast({ variant: 'destructive', title: 'Error', description: result.message });
-            }
+            // MIDDLEWARE CALL HERE -------------------------
+                        const middlewareResult = await processMeasurementSubmission({
+                            dealId: dealId!,
+                             customerId,
+                            selectionId: deal?.latestSelectionId || undefined,   // you can adjust this later
+                            rooms: processedRooms,
+                            itemDetails: [],                                     // installer does NOT give item details
+                            createdBy: user.name
+                        });
+
+                        if (middlewareResult.success) {
+                            toast({
+                                title: "Measurement Saved",
+                                description: middlewareResult.message
+                            });
+                            router.push("/mobile");
+                        } else {
+                            toast({
+                                variant: "destructive",
+                                title: "Error",
+                                description: "Measurement saving failed."
+                            });
+                        }
+
         } catch (error: any) {
             console.error("Error submitting measurement:", error);
             toast({ 
@@ -849,7 +1857,7 @@ export default function MeasurementPage() {
             <FormProvider {...form}>
                 <form className="space-y-4">
                     <Card>
-                        <CardContent className="pt-6 grid grid-cols-1 gap-4">
+                        <CardContent className="pt-6 grid grid-cols-2 gap-4">
                             <div className="space-y-1">
                                 <FormLabel>Deal ID</FormLabel>
                                 <Input value={deal?.dealId || ''} readOnly disabled />
@@ -907,7 +1915,7 @@ export default function MeasurementPage() {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {fields.map((field, index) => (
-                               <RoomEntryCard key={field.id} index={index} remove={remove} />
+                               <RoomEntryCard key={field.id} index={index} remove={remove} customerId={customerId!} dealId={dealId!} selectionId={visitDataState?.selectionId!} />
                             ))}
                             <Button type="button" variant="outline" onClick={() => append({ id: new Date().toISOString(), roomName: '', entries: [{ id: new Date().toISOString() }], blinds: [] })} className="w-full">
                                 <PlusCircle className="mr-2 h-4 w-4"/>Add new Room

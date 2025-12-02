@@ -43,7 +43,11 @@ export function MeasurementForm({ onMeasurementAdded, customerId, dealId }: { on
     
     const form = useForm<MeasurementFormValues>({
         resolver: zodResolver(measurementSchema),
-        defaultValues: { room: "", measurementReference: "", noOfUnits: "1", measurement: "", file: null },
+        defaultValues: {
+                        rooms: existingMeasurement?.rooms || [],
+                        entries: existingMeasurement?.entries || [],
+                        }
+
     });
 
     const handleSaveNewRoom = (value: string, label: string) => {

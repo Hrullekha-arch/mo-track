@@ -51,6 +51,7 @@ import { format } from "date-fns";
 import { PrintableSelection } from "@/components/features/order-management/PrintableSelection";
 import { PrintableCpd, PrintableCustomerCpd } from "@/components/features/customer/PrintableCpd";
 import { Table, TableHeader, TableRow, TableBody, TableCell, TableHead } from "@/components/ui/table";
+import { processMeasurementSubmission } from "@/services/measurement-selection-middleware";
 
 
 function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreated }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[], onOrderCreated: () => void }) {
@@ -366,16 +367,47 @@ function MeasurementsTab({ customer, dealId, measurements }: { customer: Custome
         setLocalMeasurements(prev => [newMeasurement, ...prev]);
     };
 
-    const getMeasurementStatus = (measurement: DealMeasurement): { color: string; text: string; needsAction: boolean } => {
-        const totalEntries = measurement.entries?.length || 0;
-        if (totalEntries === 0) return { color: 'bg-gray-200', text: 'Empty', needsAction: false };
+    const getMeasurementStatus = (measurement: DealMeasurement) => {
+            const entries = measurement.entries || [];
 
-        const itemsNeededCount = measurement.entries.filter(e => e.status === 'item-needed').length;
+            if (entries.length === 0) {
+                return {
+                    color: 'border-red-500',
+                    badgeColor: 'bg-red-600',
+                    text: 'No Selection Linked',
+                    type: 'empty'
+                };
+            }
 
-        if (itemsNeededCount === 0) return { color: 'bg-green-500', text: 'Complete', needsAction: false };
-        if (itemsNeededCount === totalEntries) return { color: 'bg-red-500', text: 'Item Details Needed', needsAction: true };
-        return { color: 'bg-yellow-500', text: 'Partially Detailed', needsAction: true };
-    };
+            const itemNeeded = entries.filter(e => e.status === 'item-needed').length;
+            const total = entries.length;
+
+            if (itemNeeded === 0) {
+                return {
+                    color: 'border-green-500',
+                    badgeColor: 'bg-green-600',
+                    text: 'Complete',
+                    type: 'complete'
+                };
+            }
+
+            if (itemNeeded === total) {
+                return {
+                    color: 'border-red-500',
+                    badgeColor: 'bg-red-600',
+                    text: 'Item Details Needed',
+                    type: 'missing-all'
+                };
+            }
+
+            return {
+                color: 'border-yellow-500',
+                badgeColor: 'bg-yellow-500 text-black',
+                text: 'Partially Complete',
+                type: 'partial'
+            };
+        };
+
 
     return (
         <div>
@@ -402,7 +434,7 @@ function MeasurementsTab({ customer, dealId, measurements }: { customer: Custome
                                     {localMeasurements.map((m, i) => {
                                         const status = getMeasurementStatus(m);
                                         return (
-                                            <TableRow key={m.id}>
+                                            <TableRow key={m.id} className={`border-l-4 ${status.color}`}>
                                                 <TableCell>{i + 1}</TableCell>
                                                 <TableCell>{m.typeOf}</TableCell>
                                                 <TableCell>{m.doerName}</TableCell>
@@ -414,7 +446,10 @@ function MeasurementsTab({ customer, dealId, measurements }: { customer: Custome
                                                     </div>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Badge style={{ backgroundColor: status.color }} className="text-white">{status.text}</Badge>
+                                                    <Badge className={`${status.badgeColor} text-white`}>
+                                                        {status.text}
+                                                    </Badge>
+
                                                 </TableCell>
                                                  <TableCell className="space-x-1">
                                                     {m.pdfUrl && (
@@ -445,9 +480,28 @@ function MeasurementsTab({ customer, dealId, measurements }: { customer: Custome
             )}
              {role === 'installer' && <MeasurementForm onMeasurementAdded={handleMeasurementAdded} customerId={customer.id} dealId={dealId} />}
              {isEditing && (
-                <MeasurementForm 
-                    onMeasurementAdded={(updatedMeasurement) => {
-                        setLocalMeasurements(prev => prev.map(m => m.id === updatedMeasurement.id ? updatedMeasurement : m));
+                <MeasurementForm
+                    onMeasurementAdded={async (updatedMeasurement) => {
+
+                        // ---- Prepare middleware payload ----
+                        const payload = {
+                            dealId: dealId,
+                            selectionId: isEditing.selectionId || undefined,
+                            rooms: updatedMeasurement.rooms,
+                            itemDetails: updatedMeasurement.entries,   // CRM ADDS ITEM DETAILS
+                            createdBy: updatedMeasurement.createdBy || "CRM"
+                        };
+
+                        // ---- Call MIDDLEWARE ----
+                        const result = await processMeasurementSubmission(payload);
+
+                        if (result.success) {
+                            // Update UI with latest measurement from backend
+                            setLocalMeasurements(prev =>
+                                prev.map(m => m.id === result.savedMeasurement.id ? result.savedMeasurement : m)
+                            );
+                        }
+
                         setIsEditing(null);
                     }}
                     customerId={customer.id}
@@ -456,6 +510,7 @@ function MeasurementsTab({ customer, dealId, measurements }: { customer: Custome
                     onClose={() => setIsEditing(null)}
                 />
             )}
+
         </div>
     );
 }

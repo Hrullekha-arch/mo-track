@@ -15,9 +15,11 @@ export function PrintableSelection({ selection, deal, products }: PrintableSelec
     
     // Filter the products based on the selection's productIds
     const selectedProducts = products.filter(p => selection.productIds?.includes(p.id!));
+    console.log("Selected Products:", selectedProducts);
 
     const groupedProducts = selectedProducts.reduce((acc, product) => {
         const room = product.room || 'Unassigned';
+        console.log(`Grouping product ${product.id} under room: ${room}`);
         if (!acc[room]) {
             acc[room] = [];
         }
