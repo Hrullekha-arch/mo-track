@@ -484,23 +484,43 @@ const RoomEntryCard = ({
   // ==========================
   // UPDATE ITEMS IN DATABASE
   // ==========================
-  const handleUpdateItems = async () => {
-    const items = getValues(`rooms.${index}.entries`);
+const handleUpdateItems = async () => {
+  let items = getValues(`rooms.${index}.entries`);
 
-    const res = await updateItemsAction({
-      customerId,
-      dealId,
-      selectionId,
-      roomName,
-      items
-    });
+  // 🔥 FIX: Normalize IDs
+  items = items.map(item => {
+    let id = item.id || null;
 
-    if (res.success) {
-      toast({ title: "Items Updated", description: "Saved successfully!" });
-    } else {
-      toast({ variant: "destructive", title: "Error", description: res.error });
+    // ❌ Remove timestamp/auto-generated UI IDs
+    if (id && id.length > 25 && id.includes("-") && !id.startsWith("0") && !id.startsWith("1")) {
+      id = null;
     }
-  };
+
+    // ❌ Remove any ISO date string IDs
+    if (id && /\d{4}-\d{2}-\d{2}T/.test(id)) {
+      id = null;
+    }
+
+    return { ...item, id };
+  });
+
+  console.log("🔥 CLEAN ITEMS:", items);
+
+  const res = await updateItemsAction({
+    customerId,
+    dealId,
+    selectionId,
+    roomName,
+    items,
+  });
+
+  if (res.success) {
+    toast({ title: "Items Updated", description: "Saved successfully!" });
+  } else {
+    toast({ variant: "destructive", title: "Error", description: res.error });
+  }
+};
+
 
   // ==========================
   // UPDATE SOFAS IN DATABASE
@@ -541,7 +561,8 @@ const RoomEntryCard = ({
     } else {
       // For Curtain, Wall to Wall, Wallpaper
       appendEntry({
-        id: makeId(),
+        id: null,   // ⚠️ NEW ITEMS HAVE NO ID
+        isNew: true, // keep track
         itemType: type,
         itemName: "",
         noOfPannel: "",
@@ -1644,7 +1665,7 @@ React.useEffect(() => {
                 // 🟩 NON-BLIND PRODUCT
                 if (!prod.isBlind) {
                     groupedRooms[roomName].entries.push({
-                        id: `${prod.id}-${Date.now()}`,
+                        id: prod.id,
                         status: "item-needed",
                         itemName: prod.salesDescription || "",
                         height: prod.height || "",
@@ -1731,92 +1752,124 @@ React.useEffect(() => {
     };
 
     const onSubmit = async (values: MeasurementFormValues) => {
-        if (!user || !customerId || !dealId) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Missing critical information.' });
-            setIsSubmitting(false);
-            return;
-        }
-    
-        setIsSubmitting(true);
-    
-        try {
-            const pdfUrl = await generateAndUploadPdf();
-            
-            const processedRooms = await Promise.all(
-                values.rooms.map(async (room) => {
-                    const processedEntries = await Promise.all(
-                        room.entries.map(async (entry) => {
-                             const audioUrl = entry.recordAudio ? await handleFileUpload(entry.recordAudio) : undefined;
-                    
-                            let pictureUrls: string[] = [];
-                            const pictures = entry.pictures;
-                            if (pictures && pictures.length > 0) {
-                                const filesToUpload = Array.from(pictures as File[]);
-                                pictureUrls = await Promise.all(filesToUpload.map(file => handleFileUpload(file)));
-                            }
-            
-                            const cleanedEntry: Partial<MeasurementEntry> = { ...entry };
-                            delete cleanedEntry.recordAudio;
-                            delete cleanedEntry.pictures;
-            
-                            return { 
-                                ...cleanedEntry, 
-                                audioUrl, 
-                                pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined,
-                                status: 'item-needed', // Always set to item-needed on creation by installer
-                            };
-                        })
-                    );
-                    return { ...room, entries: processedEntries };
-                })
-            );
+    if (!user || !customerId || !dealId) {
+        toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'Missing critical information.',
+        });
+        setIsSubmitting(false);
+        return;
+    }
 
-            const measurementDataForDb = { ...values, rooms: processedRooms };
-            
-            const simplifiedEntries = processedRooms.flatMap(room => room.entries.map(entry => ({ ...entry, roomName: room.roomName })));
+    setIsSubmitting(true);
 
-            const measurementData: Omit<DealMeasurement, 'id' | 'createdAt' | 'createdBy' | 'pdfUrl'> = {
-                typeOf: values.typeOf,
-                doerName: values.doerName,
-                entries: simplifiedEntries as MeasurementEntry[],
-            };
-            
-            // MIDDLEWARE CALL HERE -------------------------
-                        const middlewareResult = await processMeasurementSubmission({
-                            dealId: dealId!,
-                             customerId,
-                            selectionId: deal?.latestSelectionId || undefined,   // you can adjust this later
-                            rooms: processedRooms,
-                            itemDetails: [],                                     // installer does NOT give item details
-                            createdBy: user.name
-                        });
+    try {
+        // 1️⃣ Generate PDF (your existing flow)
+        const pdfUrl = await generateAndUploadPdf();
 
-                        if (middlewareResult.success) {
-                            toast({
-                                title: "Measurement Saved",
-                                description: middlewareResult.message
-                            });
-                            router.push("/mobile");
-                        } else {
-                            toast({
-                                variant: "destructive",
-                                title: "Error",
-                                description: "Measurement saving failed."
-                            });
+        // 2️⃣ Process rooms, audio, pictures
+        const processedRooms = await Promise.all(
+            values.rooms.map(async (room) => {
+                const processedEntries = await Promise.all(
+                    room.entries.map(async (entry) => {
+                        const audioUrl = entry.recordAudio
+                            ? await handleFileUpload(entry.recordAudio)
+                            : undefined;
+
+                        let pictureUrls: string[] = [];
+                        if (entry.pictures && entry.pictures.length > 0) {
+                            const filesToUpload = Array.from(entry.pictures as File[]);
+                            pictureUrls = await Promise.all(
+                                filesToUpload.map((file) => handleFileUpload(file))
+                            );
                         }
 
-        } catch (error: any) {
-            console.error("Error submitting measurement:", error);
-            toast({ 
-                variant: 'destructive', 
-                title: 'Submission Failed', 
-                description: `An unexpected error occurred: ${error.message}`,
-                duration: 9000
-            });
-        } finally {
-            setIsSubmitting(false);
+                        const cleanedEntry: Partial<MeasurementEntry> = { ...entry };
+                        delete cleanedEntry.recordAudio;
+                        delete cleanedEntry.pictures;
+
+                        return {
+                            ...cleanedEntry,
+                            audioUrl,
+                            pictureUrls: pictureUrls.length > 0 ? pictureUrls : undefined,
+                            status: "item-needed",
+                        };
+                    })
+                );
+
+                return { ...room, entries: processedEntries };
+            })
+        );
+
+        // 3️⃣ Prepare simplified entries for DB
+        const simplifiedEntries = processedRooms.flatMap((room) =>
+            room.entries.map((entry) => ({
+                ...entry,
+                roomName: room.roomName,
+            }))
+        );
+
+        // ------------------------------------------
+        // ⭐ 4️⃣ GET LATEST SELECTION ID FROM DEAL
+        // ------------------------------------------
+        async function getLatestSelectionId(customerId, dealId) {
+            const res = await fetch(
+                `/api/mobile/latest-selection?customerId=${customerId}&dealId=${dealId}`
+            );
+            const data = await res.json();
+            return data.latestSelectionId || null;
         }
-    };
+
+        const latestSelectionId = await getLatestSelectionId(customerId, dealId);
+
+        console.log("⭐ Latest Selection ID:", latestSelectionId);
+
+        // ------------------------------------------
+        // ⭐ 5️⃣ CALL MIDDLEWARE
+        // ------------------------------------------
+        const middlewareResult = await processMeasurementSubmission({
+            customerId,
+            dealId,
+            visitId,   // ADD THIS if available in props
+            selectionId: latestSelectionId,   // ⭐ USE LATEST REAL SELECTION
+            rooms: processedRooms,
+            itemDetails: [],
+            createdBy: user.name,
+        });
+
+        if (!middlewareResult.success) {
+            toast({
+                variant: "destructive",
+                title: "Error",
+                description: middlewareResult.error || "Measurement saving failed.",
+            });
+            return;
+        }
+
+        // ------------------------------------------
+        // ⭐ 6️⃣ SUCCESS → redirect
+        // ------------------------------------------
+        toast({
+            title: "Measurement Saved",
+            description: middlewareResult.message,
+        });
+
+        router.push("/mobile");
+
+    } catch (error: any) {
+        console.error("Error submitting measurement:", error);
+        toast({
+            variant: "destructive",
+            title: "Submission Failed",
+            description: `An unexpected error occurred: ${error.message}`,
+            duration: 9000,
+        });
+    } finally {
+        setIsSubmitting(false);
+    }
+};
+
     
     const handlePreview = () => {
         form.trigger().then(isValid => {
@@ -1917,7 +1970,7 @@ React.useEffect(() => {
                             {fields.map((field, index) => (
                                <RoomEntryCard key={field.id} index={index} remove={remove} customerId={customerId!} dealId={dealId!} selectionId={visitDataState?.selectionId!} />
                             ))}
-                            <Button type="button" variant="outline" onClick={() => append({ id: new Date().toISOString(), roomName: '', entries: [{ id: new Date().toISOString() }], blinds: [] })} className="w-full">
+                            <Button type="button" variant="outline" onClick={() => append({ id: new Date().toISOString(), roomName: '', entries: [{ id: null, isNew: true }], blinds: [] })} className="w-full">
                                 <PlusCircle className="mr-2 h-4 w-4"/>Add new Room
                             </Button>
                         </CardContent>

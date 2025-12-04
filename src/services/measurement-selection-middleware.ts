@@ -2,75 +2,119 @@
 
 import {
   getSelectionById,
-  saveMeasurementToDeal   // ✅ FIXED: now imported correctly
+  saveMeasurementToDeal
 } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 
-import { generateQuotationFromSelection } from "@/components/features/order-management/autoQuotation";
-
 export type MeasurementPayload = {
+  customerId: string;
   dealId: string;
+  visitId?: string;
   selectionId?: string;
   rooms: any[];
   itemDetails?: any[];
   createdBy: string;
 };
 
-export async function processMeasurementSubmission(payload: MeasurementPayload) {
+// ==================================================
+// ⭐ FULL LOGGER FUNCTION
+// ==================================================
+function log(...args: any[]) {
+  console.log("📘 [MEASUREMENT-MW]", ...args);
+}
 
-  console.log("🔥 PROCESS PAYLOAD:", payload.customerId, payload.dealId);
+export async function processMeasurementSubmission(payload: MeasurementPayload) {
+  log("🔥 PROCESS START");
+  log("📦 Incoming Payload:", JSON.stringify(payload, null, 2));
 
   const hasSelection = !!payload.selectionId;
-  const hasItemDetails = payload.itemDetails && payload.itemDetails.length > 0;
+  const hasItemDetails = payload.itemDetails?.length > 0;
   let status = "complete";
   let flags: string[] = [];
   let selectionData = null;
 
-  // ------------ CASE 1: SELECTION FIRST, installer measures -------------
-  if (hasSelection && payload.rooms.length > 0) {
-    selectionData = await getSelectionById(payload.dealId, payload.selectionId!);
+  // ==================================================
+  // ⭐ CASE 1 — Validate selection
+  // ==================================================
+  if (hasSelection && payload.selectionId) {
+    log("🔍 Checking selection:", payload.selectionId);
 
-    const selectionRoomCount = selectionData.productIds.length;
-    const measurementRoomCount = payload.rooms.length;
+    try {
+      selectionData = await getSelectionById(
+        payload.customerId,
+        payload.dealId,
+        payload.selectionId
+      );
 
-    if (measurementRoomCount > selectionRoomCount) {
-      status = "item-detail-missing";
-      flags.push("extraRooms");
-    } else {
-      status = "complete";
+      log("📄 Selection Data:", selectionData);
+
+      if (!selectionData) {
+        log("❌ Selection NOT found!");
+        status = "selection-required";
+        flags.push("selectionNotFound");
+      }
+    } catch (err: any) {
+      log("❌ ERROR fetching selection:", err.message);
+      status = "selection-required";
+      flags.push("selectionFetchError");
     }
+  } else {
+    log("⚠ No selectionId provided by client.");
   }
 
-  // ------------ CASE 2: Missing item details in measurement -------------
-  if (hasSelection && !hasItemDetails) {
-    status = "item-detail-missing";
-    flags.push("missingItemDetails");
-  }
-
-  // ------------ CASE 3: Installer measured BEFORE selection ----------
+  // ==================================================
+  // ⭐ CASE 2 — No selection → installer measured first
+  // ==================================================
   if (!hasSelection) {
+    log("🛑 Installer measured BEFORE selection.");
     status = "selection-required";
     flags.push("noSelection");
   }
 
-  // ------------ SAVE MEASUREMENT DATA ----------------------------
-const saved = await saveMeasurementToDeal(payload.dealId, {
-    ...payload,
-    customerId: payload.customerId,   // 🔥 FIX
-    status,
-    flags,
-});
-
-
-  // ------------ AUTO QUOTATION -----------------------------
-  if (status === "complete") {
-    await generateQuotationFromSelection(payload.dealId, payload.selectionId);
+  // ==================================================
+  // ⭐ CASE 3 — Missing item details
+  // ==================================================
+  if (hasSelection && !hasItemDetails) {
+    log("⚠ Missing item details for a selection.");
+    status = "item-detail-missing";
+    flags.push("missingItemDetails");
   }
 
-  return {
+  // ==================================================
+  // ⭐ SAVE MEASUREMENT DATA
+  // ==================================================
+  log("💾 Saving measurement to DB...");
+
+  const savePayload = {
+    customerId: payload.customerId,
+    dealId: payload.dealId,
+    visitId: payload.visitId,
+    selectionId: payload.selectionId || null,
+    rooms: payload.rooms,
+    itemDetails: payload.itemDetails || [],
+    createdBy: payload.createdBy,
+    status,
+    flags
+  };
+
+  log("📝 Final Save Payload:", JSON.stringify(savePayload, null, 2));
+
+  const saved = await saveMeasurementToDeal(savePayload);
+
+  log("✅ Save Response:", saved);
+
+  // ==================================================
+  // ⭐ FINAL RETURN
+  // ==================================================
+  const finalResponse = {
     success: true,
     status,
     flags,
     savedMeasurement: saved,
-    message: `Measurement processed as: ${status}`,
+    message: `Measurement processed as: ${status}`
   };
+
+  log("📤 FINAL RESPONSE:", JSON.stringify(finalResponse, null, 2));
+  log("🔥 PROCESS END");
+
+  return finalResponse;
 }

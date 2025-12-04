@@ -358,55 +358,84 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders,
     );
 }
 
-function MeasurementsTab({ customer, dealId, measurements }: { customer: Customer; dealId: string, measurements: DealMeasurement[] }) {
+function MeasurementsTab({ customer, dealId, measurements, selections }: {
+    customer: Customer; 
+    dealId: string; 
+    measurements: DealMeasurement[];
+    selections: Selection[]; 
+}) {
     const [localMeasurements, setLocalMeasurements] = useState<DealMeasurement[]>(measurements);
     const [isEditing, setIsEditing] = useState<DealMeasurement | null>(null);
     const { role } = useAuth();
-    
+    const router = useRouter();
+
     const handleMeasurementAdded = (newMeasurement: DealMeasurement) => {
         setLocalMeasurements(prev => [newMeasurement, ...prev]);
     };
 
-    const getMeasurementStatus = (measurement: DealMeasurement) => {
-            const entries = measurement.entries || [];
+        // ⭐ Correct function – DO NOT modify measurement state here
+        const getSelectionEntryCount = (selectionId: string | undefined) => {
+            if (!selectionId) return "-";
 
-            if (entries.length === 0) {
-                return {
-                    color: 'border-red-500',
-                    badgeColor: 'bg-red-600',
-                    text: 'No Selection Linked',
-                    type: 'empty'
-                };
+            const sel = selections.find(
+                s => s.id === selectionId || s.selectionId === selectionId
+            );
+
+            console.log("🔎 Finding selection for ID:", selectionId, "Found:", sel);
+
+            // Selection exists → count products
+            if (sel) {
+                const count = sel.products?.length || 0;
+                return count;
             }
 
-            const itemNeeded = entries.filter(e => e.status === 'item-needed').length;
-            const total = entries.length;
-
-            if (itemNeeded === 0) {
-                return {
-                    color: 'border-green-500',
-                    badgeColor: 'bg-green-600',
-                    text: 'Complete',
-                    type: 'complete'
-                };
-            }
-
-            if (itemNeeded === total) {
-                return {
-                    color: 'border-red-500',
-                    badgeColor: 'bg-red-600',
-                    text: 'Item Details Needed',
-                    type: 'missing-all'
-                };
-            }
-
-            return {
-                color: 'border-yellow-500',
-                badgeColor: 'bg-yellow-500 text-black',
-                text: 'Partially Complete',
-                type: 'partial'
-            };
+            // No selection found
+            return "-";
         };
+
+
+
+    const getMeasurementStatus = (measurement: DealMeasurement) => {
+        const entries = measurement.entries || [];
+
+        if (entries.length === 0) {
+            return {
+                color: 'border-red-500',
+                badgeColor: 'bg-red-600',
+                text: 'No Selection Linked',
+                type: 'empty'
+            };
+        }
+
+        const itemNeeded = entries.filter(e => e.status === 'item-needed').length;
+        const total = entries.length;
+
+        if (itemNeeded === 0) {
+            return {
+                color: 'border-green-500',
+                badgeColor: 'bg-green-600',
+                text: 'Complete',
+                type: 'complete'
+            };
+        }
+
+        if (itemNeeded === total) {
+            return {
+                color: 'border-red-500',
+                badgeColor: 'bg-red-600',
+                text: 'Item Details Needed',
+                type: 'missing-all'
+            };
+        }
+            console.log("product",localMeasurements);
+        return {
+            color: 'border-yellow-500',
+            badgeColor: 'bg-yellow-500 text-black',
+            text: 'Partially Complete',
+            type: 'partial'
+        };
+    };
+
 
 
     return (
@@ -416,6 +445,7 @@ function MeasurementsTab({ customer, dealId, measurements }: { customer: Custome
                     <CardHeader>
                         <CardTitle>Measurement History</CardTitle>
                     </CardHeader>
+
                     <CardContent>
                         {localMeasurements.length > 0 ? (
                             <Table>
@@ -427,49 +457,77 @@ function MeasurementsTab({ customer, dealId, measurements }: { customer: Custome
                                         <TableHead>Entries</TableHead>
                                         <TableHead>Created</TableHead>
                                         <TableHead>Status</TableHead>
+                                        <TableHead>Selection ID</TableHead> {/* NEW */}
                                         <TableHead>Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
+
                                 <TableBody>
                                     {localMeasurements.map((m, i) => {
                                         const status = getMeasurementStatus(m);
+
                                         return (
                                             <TableRow key={m.id} className={`border-l-4 ${status.color}`}>
                                                 <TableCell>{i + 1}</TableCell>
-                                                <TableCell>{m.typeOf}</TableCell>
-                                                <TableCell>{m.doerName}</TableCell>
-                                                <TableCell>{m.entries?.length || 0}</TableCell>
+
+                                                {/* TYPE */}
+                                                <TableCell>{m.typeOf || "-"}</TableCell>
+
+                                                {/* DOER */}
+                                                <TableCell>{m.doerName || "-"}</TableCell>
+
+                                                {/* ENTRY COUNT */}
+                                               <TableCell>{getSelectionEntryCount(m.selectionId)}</TableCell>
+
+
+                                                {/* CREATED */}
                                                 <TableCell>
                                                     <div className="text-xs">
                                                         <p>{m.createdBy}</p>
-                                                        <p className="text-muted-foreground">{format(new Date(m.createdAt), 'dd/MM/yy')}</p>
+                                                        <p className="text-muted-foreground">
+                                                            {m.createdAt ? format(new Date(m.createdAt), "dd/MM/yy") : "-"}
+                                                        </p>
                                                     </div>
                                                 </TableCell>
+
+                                                {/* STATUS */}
                                                 <TableCell>
                                                     <Badge className={`${status.badgeColor} text-white`}>
-                                                        {status.text}
+                                                        {m.status || status.text}
                                                     </Badge>
-
                                                 </TableCell>
-                                                 <TableCell className="space-x-1">
-                                                    {m.pdfUrl && (
-                                                        <Button asChild variant="ghost" size="icon">
-                                                            <Link href={m.pdfUrl} target="_blank" rel="noopener noreferrer">
-                                                                <Eye className="h-4 w-4" />
-                                                            </Link>
-                                                        </Button>
+
+                                                {/* ⭐ NEW: SELECTION ID */}
+                                                <TableCell>
+                                                    {m.selectionId ? (
+                                                        <Badge variant="outline" className="text-blue-700 border-blue-700">
+                                                            {m.selectionId}
+                                                        </Badge>
+                                                    ) : (
+                                                        <Badge variant="destructive">None</Badge>
                                                     )}
-                                                    {status.needsAction && (
-                                                        <Button variant="ghost" size="icon" onClick={() => setIsEditing(m)}>
-                                                            <Pencil className="h-4 w-4 text-blue-500" />
-                                                        </Button>
-                                                    )}
+                                                </TableCell>
+
+                                                {/* ⭐ NEW: ACTIONS */}
+                                                <TableCell>
+                                                <Button
+                                                    variant="outline"
+                                                    size="icon"
+                                                    onClick={() =>
+                                                        router.push(
+                                                            `/dashboard/customers/${customer.id}/${dealId}/measurement/${m.id}/edit`
+                                                        )
+                                                    }
+                                                >
+                                                    <Pencil className="h-4 w-4 text-blue-600" />
+                                                </Button>
                                                 </TableCell>
                                             </TableRow>
-                                        )
+                                        );
                                     })}
                                 </TableBody>
                             </Table>
+
                         ) : (
                             <div className="text-center py-10 text-muted-foreground">
                                 No measurements have been logged for this deal yet.
@@ -701,7 +759,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           </TabsContent>
           
           <TabsContent value="measurement">
-            <MeasurementsTab customer={customer} dealId={dealId} measurements={measurements} />
+            <MeasurementsTab customer={customer} dealId={dealId} measurements={measurements} selections={selections} />
           </TabsContent>
 
           <TabsContent value="cpd">

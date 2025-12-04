@@ -13,6 +13,7 @@ import { Readable } from 'stream';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { firebase } from 'googleapis/build/src/apis/firebase';
 import { db } from '@/lib/firebase';
+import { firestore } from 'firebase-admin';
 
 
 // This function sends an SMS using the Fast2SMS API.
@@ -558,28 +559,43 @@ export async function addMeasurementAction(
 }
 
 
-export async function getMeasurementsForDeal(customerId: string, dealId: string): Promise<DealMeasurement[]> {
-    try {
-        const snapshot = await adminDb
-            .collection('customers')
-            .doc(customerId)
-            .collection('deals')
-            .doc(dealId)
-            .collection('measurements')
-            .orderBy('createdAt', 'desc')
-            .get();
+export async function getMeasurementsForDeal(customerId: string, dealId: string) {
+  try {
+    const ref = adminDb
+      .collection("customers")
+      .doc(customerId)
+      .collection("deals")
+      .doc(dealId)
+      .collection("measurements")
+      .orderBy("createdAt", "desc");
 
-        if (snapshot.empty) {
-            return [];
-        }
+    const snapshot = await ref.get();
 
-        const measurements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DealMeasurement));
-        return JSON.parse(JSON.stringify(measurements));
-    } catch (error) {
-        console.error("Error fetching measurements:", error);
-        return [];
-    }
+    const measurements = snapshot.docs.map(doc => {
+      const data = doc.data();
+
+      return {
+        id: doc.id,
+        typeOf: data.typeOf || "-",
+        doerName: data.doerName || data.createdBy || "-",
+        createdBy: data.createdBy || "-",
+        createdAt: data.createdAt || null,
+        entries: data.entries || [],
+        rooms: data.rooms || [],
+        selectionId: data.selectionId || null,       // ←🔥 IMPORTANT
+        status: data.status || "unknown",            // ←🔥 IMPORTANT
+        flags: data.flags || [],                     // ←🔥 OPTIONAL
+        pdfUrl: data.pdfUrl || null
+      };
+    });
+
+    return measurements;
+  } catch (err) {
+    console.error("❌ ERROR getMeasurementsForDeal:", err);
+    return [];
+  }
 }
+
 
 export async function addCpdAction(
   customerId: string,
@@ -1062,54 +1078,58 @@ export async function updateItemsAction({
     console.log("📄 Current Products Count:", existingProducts.length);
 
     // ----------------------------
-    // 🔥 UPDATE OR ADD ITEMS
+    // CLEAN existingProducts
     // ----------------------------
     const updatedProducts = [...existingProducts];
 
-    items.forEach((item) => {
-      const existingIndex = updatedProducts.findIndex((p) => p.id === item.id);
+    // ----------------------------
+    // PROCESS ITEMS
+    // ----------------------------
+      items.forEach(item => {
+        let id = item.id;
 
-      const itemData = {
-        id: item.id,
-        isBlind: false,
-        isSofa: false,
-        room: roomName,
+        // If item has no valid ID → generate new one
+        if (!id) {
+          id = adminDb.collection("_").doc().id;
+        }
 
-        itemType: item.itemType,
-        itemName: item.itemName,
-        noOfPannel: item.noOfPannel,
-        height: item.height,
-        width: item.width,
-        remark: item.remark,
+        // Find existing document
+        const index = updatedProducts.findIndex(p => p.id === id);
 
-        casement: item.casement || null,
-        marking: item.marking || null,
-        niwar: item.niwar || null,
-
-        quantity: "0",
-        noOfPcs: "1",
-        collectionBrand: "",
-        mrp: "0",
-        remarks: "",
-        salesDescription: "",
-        verticalRepeat: "",
-        horizontalRepeat: ""
-      };
-
-      if (existingIndex !== -1) {
-        console.log("🟢 Updating existing item:", item.id);
-        updatedProducts[existingIndex] = {
-          ...updatedProducts[existingIndex],
-          ...itemData
+        const itemData = {
+          id,
+          room: roomName,
+          itemType: item.itemType || "",
+          itemName: item.itemName || "",
+          noOfPannel: item.noOfPannel || "",
+          height: item.height || "",
+          width: item.width || "",
+          remark: item.remark || "",
+          casement: item.casement || null,
+          marking: item.marking || null,
+          niwar: item.niwar || null,
+          isBlind: false,
+          isSofa: false,
+          quantity: "0",
+          noOfPcs: "1",
+          collectionBrand: "",
+          mrp: "0",
+          remarks: "",
+          salesDescription: "",
+          verticalRepeat: "",
+          horizontalRepeat: ""
         };
-      } else {
-        console.log("🟡 Adding NEW item:", item.id);
-        updatedProducts.push(itemData);
-      }
-    });
+
+        if (index !== -1) {
+          updatedProducts[index] = { ...updatedProducts[index], ...itemData };
+        } else {
+          updatedProducts.push(itemData);
+        }
+      });
+
 
     // ----------------------------
-    // 🔥 SAVE TO FIRESTORE
+    // SAVE
     // ----------------------------
     await selectionRef.update({
       products: updatedProducts
@@ -1123,45 +1143,83 @@ export async function updateItemsAction({
     return { success: false, error: err.message };
   }
 }
-//////////////////////////////////////////
-// SAVE MEASUREMENT TO DEAL (REQUIRED)
-//////////////////////////////////////////
+
 //////////////////////////////////////////
 // CORRECT — SAVE MEASUREMENT TO DEAL
 //////////////////////////////////////////
 
-export async function saveMeasurementToDeal(
-  dealId: string,
-  payload: any
-) {
+export async function saveMeasurementToDeal({
+  customerId,
+  dealId,
+  visitId,
+  selectionId,
+  rooms,
+  itemDetails = [],
+  createdBy,
+  status,
+  flags
+}: {
+  customerId: string;
+  dealId: string;
+  visitId?: string;        // ⭐ NEW
+  selectionId?: string | null;
+  rooms: any[];
+  itemDetails?: any[];
+  createdBy: string;
+  status: string;
+  flags: string[];
+}) {
   try {
     console.log("🔥 saveMeasurementToDeal CALLED");
+    console.log("➡ customerId:", customerId);
     console.log("➡ dealId:", dealId);
-    console.log("➡ payload:", payload);
+    console.log("➡ visitId:", visitId);
 
-    const { customerId } = payload;
+    if (!customerId) throw new Error("customerId missing in payload");
+    if (!dealId) throw new Error("dealId missing in payload");
 
-    if (!customerId) {
-      throw new Error("customerId missing in payload");
-    }
-
-    // Path:
-    // customers/{customerId}/deals/{dealId}/measurements/{autoId}
-    const measurementRef = adminDb
+    const dealRef = adminDb
       .collection("customers")
       .doc(customerId)
       .collection("deals")
-      .doc(dealId)
-      .collection("measurements")
-      .doc(); // auto ID
+      .doc(dealId);
+
+    const measurementRef = dealRef.collection("measurements").doc(); // auto ID
 
     const saveData = {
-      ...payload,
       id: measurementRef.id,
       createdAt: new Date().toISOString(),
+      createdBy,
+      selectionId: selectionId || null,
+      rooms,
+      itemDetails,
+      status,
+      flags
     };
 
-    await measurementRef.set(saveData);
+    // -----------------------------
+    // ⭐ BATCH OPERATION
+    // -----------------------------
+    const batch = adminDb.batch();
+
+    // 1️⃣ Save Measurement
+    batch.set(measurementRef, saveData);
+
+    // 2️⃣ Update Visit Status → completed
+    if (visitId) {
+      const visitRef = dealRef.collection("visits").doc(visitId);
+
+      batch.update(visitRef, {
+        status: "completed",
+        measurementId: measurementRef.id,
+        measurementSavedAt: new Date().toISOString()
+      });
+    }
+
+    // 3️⃣ Update Deal.latestMeasurementId
+    batch.update(dealRef, { latestMeasurementId: measurementRef.id });
+
+    await batch.commit();
 
     console.log("✅ Measurement saved at:", measurementRef.path);
 
@@ -1172,3 +1230,77 @@ export async function saveMeasurementToDeal(
     return { success: false, error: err.message };
   }
 }
+
+//////////////////////Inventory look Up///////////////////
+export async function inventoryLookupAction({ bcnList }) {
+  try {
+    const results = {};
+
+    for (let raw of bcnList) {
+      const bcn = String(raw || "").trim();
+
+      // Skip missing or empty BCN
+      if (!bcn) {
+        console.log("⛔ Skipping invalid BCN:", raw);
+        results[bcn] = { mrp: 0 };
+        continue;
+      }
+
+      try {
+        const snap = await adminDb
+          .collection("stocks")     // <<<<<< CORRECT COLLECTION
+          .doc(bcn)
+          .get();
+
+        if (!snap.exists) {
+          console.log("⚠️ BCN not found in stocks:", bcn);
+          results[bcn] = { mrp: 0 };
+        } else {
+          results[bcn] = snap.data();  // contains {mrp, itemName, ... }
+        }
+
+      } catch (inner) {
+        console.log("🔥 Firestore error for BCN:", bcn, inner);
+        results[bcn] = { mrp: 0 };
+      }
+    }
+
+    return results;
+
+  } catch (e) {
+    console.log("🔥 inventoryLookupAction failed:", e);
+    return {};
+  }
+}
+
+
+/////////////////////get Selection id Action/////////////////// 
+
+export async function getMeasurementById(customerId, dealId, measurementId) {
+  console.log("SERVER getMeasurementById args:", {
+    customerId,
+    dealId,
+    measurementId
+  });
+
+  try {
+    const ref = adminDb
+      .collection("customers")
+      .doc(String(customerId))
+      .collection("deals")
+      .doc(String(dealId))
+      .collection("measurements")
+      .doc(String(measurementId));
+
+    const snap = await ref.get();
+
+    if (!snap.exists) return null;
+
+    return JSON.parse(JSON.stringify({ id: snap.id, ...snap.data() }));
+  } catch (e) {
+    console.log("🔥 error fetching measurement", e);
+    return null;
+  }
+}
+
+
