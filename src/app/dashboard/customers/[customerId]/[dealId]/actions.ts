@@ -986,37 +986,37 @@ export async function updateSofasAction({
 
     sofas.forEach((sofa) => {
       const existingIndex = updatedProducts.findIndex((p) => p.id === sofa.id);
+      const existing = existingIndex !== -1 ? updatedProducts[existingIndex] : null;
 
       const sofaData = {
+        ...(existing || {}),
         id: sofa.id,
         isSofa: true,
         room: roomName,
-        itemName: sofa.itemName,
-        noOfSeat: sofa.noOfSeat,
-        fabricQty: sofa.fabricQty,
-        stitchingRate: sofa.stitchingRate,
+        itemName: sofa.itemName ?? existing?.itemName ?? "",
+        noOfSeat: sofa.noOfSeat ?? existing?.noOfSeat ?? "",
+        fabricQty: sofa.fabricQty ?? existing?.fabricQty ?? "",
+        stitchingRate: sofa.stitchingRate ?? existing?.stitchingRate ?? "",
 
-        foam: sofa.foam || null,
-        casement: sofa.casement || null,
-        marking: sofa.marking || null,
+        foam: sofa.foam ?? existing?.foam ?? null,
+        casement: sofa.casement ?? existing?.casement ?? null,
+        marking: sofa.marking ?? existing?.marking ?? null,
 
-        // Default required firestore fields
-        quantity: "0",
-        noOfPcs: "1",
-        collectionBrand: "",
-        mrp: "0",
-        remarks: "",
-        salesDescription: "",
-        verticalRepeat: "",
-        horizontalRepeat: ""
+        // Preserve existing values when present
+        quantity: existing?.quantity ?? "0",
+        noOfPcs: existing?.noOfPcs ?? "1",
+        collectionBrand:
+          sofa.collectionBrand ?? existing?.collectionBrand ?? "",
+        mrp: existing?.mrp ?? "0",
+        remarks: existing?.remarks ?? "",
+        salesDescription: existing?.salesDescription ?? "",
+        verticalRepeat: existing?.verticalRepeat ?? "",
+        horizontalRepeat: existing?.horizontalRepeat ?? ""
       };
 
       if (existingIndex !== -1) {
         console.log("🟢 Updating existing sofa:", sofa.id);
-        updatedProducts[existingIndex] = {
-          ...updatedProducts[existingIndex],
-          ...sofaData
-        };
+        updatedProducts[existingIndex] = sofaData;
       } else {
         console.log("🟡 Adding NEW sofa:", sofa.id);
         updatedProducts.push(sofaData);
@@ -1095,33 +1095,36 @@ export async function updateItemsAction({
 
         // Find existing document
         const index = updatedProducts.findIndex(p => p.id === id);
+        const existing = index !== -1 ? updatedProducts[index] : null;
 
         const itemData = {
+          ...(existing || {}),
           id,
           room: roomName,
-          itemType: item.itemType || "",
-          itemName: item.itemName || "",
-          noOfPannel: item.noOfPannel || "",
-          height: item.height || "",
-          width: item.width || "",
-          remark: item.remark || "",
-          casement: item.casement || null,
-          marking: item.marking || null,
-          niwar: item.niwar || null,
+          itemType: item.itemType ?? existing?.itemType ?? "",
+          itemName: item.itemName ?? existing?.itemName ?? "",
+          noOfPannel: item.noOfPannel ?? existing?.noOfPannel ?? "",
+          height: item.height ?? existing?.height ?? "",
+          width: item.width ?? existing?.width ?? "",
+          remark: item.remark ?? existing?.remark ?? "",
+          casement: item.casement ?? existing?.casement ?? null,
+          marking: item.marking ?? existing?.marking ?? null,
+          niwar: item.niwar ?? existing?.niwar ?? null,
           isBlind: false,
           isSofa: false,
-          quantity: "0",
-          noOfPcs: "1",
-          collectionBrand: "",
-          mrp: "0",
-          remarks: "",
-          salesDescription: "",
-          verticalRepeat: "",
-          horizontalRepeat: ""
+          quantity: existing?.quantity ?? "0",
+          noOfPcs: existing?.noOfPcs ?? "1",
+          collectionBrand:
+            item.collectionBrand ?? existing?.collectionBrand ?? "",
+          mrp: existing?.mrp ?? "0",
+          remarks: existing?.remarks ?? "",
+          salesDescription: existing?.salesDescription ?? "",
+          verticalRepeat: existing?.verticalRepeat ?? "",
+          horizontalRepeat: existing?.horizontalRepeat ?? ""
         };
 
         if (index !== -1) {
-          updatedProducts[index] = { ...updatedProducts[index], ...itemData };
+          updatedProducts[index] = itemData;
         } else {
           updatedProducts.push(itemData);
         }

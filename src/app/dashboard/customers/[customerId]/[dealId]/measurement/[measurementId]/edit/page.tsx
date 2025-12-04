@@ -30,10 +30,154 @@ type EnrichedProduct = {
   bcn: string;
   shadeNo: string;     // ⭐ new
   isBlind: boolean;    // ⭐ new
+  width: string;
+  height: string;
+  noOfPannel?: string; // original panel count (for fabric)
   qty: number;
   mrp: number;
   amount: number;
   status?: "missing" | "complete";
+  // 🔥 Full Firestore object (all sofa / blind fields for future use)
+  raw: any;
+};
+
+const makeLocalId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const toNumber = (value: any) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const collectBcnsFromRooms = (rooms: any[] = []) => {
+  const ids: string[] = [];
+  rooms.forEach((room) => {
+    (room?.entries || []).forEach((entry: any) => {
+      if (entry?.bcn) ids.push(String(entry.bcn).trim());
+    });
+    (room?.blinds || []).forEach((blind: any) => {
+      if (blind?.shadeNo) ids.push(String(blind.shadeNo).trim());
+    });
+  });
+  return ids;
+};
+
+const buildEnrichedFromProducts = (
+  products: any[] = [],
+  mrpMap: Record<string, any> = {}
+): EnrichedProduct[] => {
+  return products.map((p: any) => {
+    const cleanBCN = String(p?.collectionBrand || "").trim();
+    const mrp = cleanBCN ? Number(mrpMap[cleanBCN]?.mrp || 0) : 0;
+
+    const isBlind = Boolean(
+      p?.isBlind ||
+        p?.blindType ||
+        p?.shadeNo ||
+        p?.noOfBlind ||
+        (p?.group && p.group.toLowerCase().includes("blind"))
+    );
+
+    let itemName = "-";
+    if (isBlind) {
+      itemName = p?.blindType || "Blind";
+    } else if (p?.salesDescription && p.salesDescription.trim() !== "") {
+      itemName = p.salesDescription.trim();
+    } else if (p?.itemName) {
+      itemName = p.itemName;
+    }
+
+    const shadeNo = isBlind ? String(p?.shadeNo || "-") : "-";
+    const qty = isBlind
+      ? toNumber(p?.noOfBlind || p?.quantity || 1)
+      : toNumber(p?.quantity || 1);
+
+    return {
+      id: p?.id || makeLocalId(),
+      room: p?.room || "",
+      itemName,
+      bcn: cleanBCN || "-",
+      isBlind,
+      shadeNo,
+      qty,
+      width: p?.width || "0",
+      height: p?.height || "0",
+      noOfPannel: p?.noOfPannel || p?.noOfPcs || "",
+      mrp,
+      amount: qty * mrp,
+      status: isBlind
+        ? itemName !== "-" && shadeNo !== "-" ? "complete" : "missing"
+        : itemName !== "-" && cleanBCN && qty && mrp
+          ? "complete"
+          : "missing",
+      raw: p,
+    };
+  });
+};
+
+const buildEnrichedFromRooms = (
+  rooms: any[] = [],
+  mrpMap: Record<string, any> = {}
+): EnrichedProduct[] => {
+  const items: EnrichedProduct[] = [];
+
+  rooms.forEach((room: any, roomIndex: number) => {
+    const roomName = room?.roomName || `Room-${roomIndex + 1}`;
+
+    (room?.entries || []).forEach((entry: any, entryIndex: number) => {
+      const cleanBCN = String(entry?.bcn || "").trim();
+      const mrp = cleanBCN ? Number(mrpMap[cleanBCN]?.mrp || 0) : 0;
+      const qty =
+        toNumber(
+          entry?.noOfPannel ||
+            entry?.qty ||
+            entry?.noOfSeat ||
+            entry?.noOfSheet ||
+            0
+        ) || 0;
+
+      items.push({
+        id: entry?.id || `${roomName}-entry-${entryIndex}-${makeLocalId()}`,
+        room: roomName,
+        itemName: entry?.itemName || entry?.itemType || "-",
+        bcn: cleanBCN || "-",
+        isBlind: false,
+        shadeNo: "-",
+        qty,
+        width: entry?.width || "0",
+        height: entry?.height || "0",
+        noOfPannel: entry?.noOfPannel || "",
+        mrp,
+        amount: qty * mrp,
+        status: entry?.itemName ? "complete" : "missing",
+        raw: entry,
+      });
+    });
+
+    (room?.blinds || []).forEach((blind: any, blindIndex: number) => {
+      const shadeNo = String(blind?.shadeNo || "").trim();
+      const qty =
+        toNumber(blind?.noOfBlind || blind?.quantity || blind?.qty || 0) || 0;
+      const mrp = shadeNo ? Number(mrpMap[shadeNo]?.mrp || 0) : 0;
+
+      items.push({
+        id: blind?.id || `${roomName}-blind-${blindIndex}-${makeLocalId()}`,
+        room: roomName,
+        itemName: blind?.blindType || "Blind",
+        bcn: shadeNo || "-",
+        isBlind: true,
+        shadeNo: shadeNo || "-",
+        qty,
+        width: blind?.width || "0",
+        height: blind?.height || "0",
+        mrp,
+        amount: qty * mrp,
+        status: blind?.blindType ? "complete" : "missing",
+        raw: blind,
+      });
+    });
+  });
+
+  return items;
 };
 
 export default function QuotationBuilderPage() {
@@ -61,61 +205,35 @@ export default function QuotationBuilderPage() {
       if (!selectionId) throw new Error("Selection missing");
 
       const selection = await getSelectionById(cid, did, String(selectionId));
-      if (!selection?.products) throw new Error("No products inside selection");
+      if (!selection) throw new Error("Selection not found");
 
-      const bcnList = selection.products
-        .map((p: any) => p.collectionBrand)
-        .filter((b: any) => b && b.trim());
+      const productBcns =
+        selection.products?.map((p: any) => p?.collectionBrand)?.filter(Boolean) ||
+        [];
+      const roomBcns = collectBcnsFromRooms(selection.rooms || []);
+      const uniqueBcns = Array.from(
+        new Set(
+          [...productBcns, ...roomBcns].map((b) => String(b || "").trim()).filter(Boolean)
+        )
+      );
 
-      const mrpMap = await inventoryLookupAction({ bcnList });
+      const mrpMap = uniqueBcns.length
+        ? await inventoryLookupAction({ bcnList: uniqueBcns })
+        : {};
 
-            const enriched = selection.products.map((p: any) => {
-              const cleanBCN = String(p.collectionBrand || "").trim();
-              const mrp = mrpMap[cleanBCN]?.mrp || 0;
+      let enriched: EnrichedProduct[] = [];
 
-              // 1️⃣ Detect Blind
-              const isBlind = Boolean(
-                p.isBlind ||
-                p.blindType ||
-                p.shadeNo ||
-                p.noOfBlind ||
-                (p.group && p.group.toLowerCase().includes("blind"))
-              );
+      if (selection.rooms && selection.rooms.length) {
+        enriched = buildEnrichedFromRooms(selection.rooms, mrpMap);
+      }
 
-              // 2️⃣ Item Name
-              let itemName = "-";
-              if (isBlind) {
-                itemName = p.blindType || "Blind";
-              } else if (p.salesDescription && p.salesDescription.trim() !== "") {
-                itemName = p.salesDescription.trim();
-              }
+      if ((!enriched || enriched.length === 0) && selection.products?.length) {
+        enriched = buildEnrichedFromProducts(selection.products, mrpMap);
+      }
 
-              // 3️⃣ Shade No for blinds
-              const shadeNo = isBlind ? String(p.shadeNo || "-") : "-";
-
-              // 4️⃣ Qty logic for blinds
-              const qty = isBlind
-                ? Number(p.noOfBlind || p.quantity || 1)
-                : Number(p.quantity || 1);
-
-              return {
-                id: p.id,
-                room: p.room || "",
-                itemName,
-                bcn: cleanBCN || "-",
-                isBlind,
-                shadeNo,
-                qty,
-                mrp,
-                amount: qty * mrp,
-                status:
-                  isBlind
-                    ? (itemName !== "-" && shadeNo !== "-" ? "complete" : "missing")
-                    : (itemName !== "-" && cleanBCN && qty && mrp ? "complete" : "missing"),
-              };
-            });
-
-
+      if (!enriched || enriched.length === 0) {
+        throw new Error("No measurement items available inside selection.");
+      }
 
       setItems(enriched);
 
@@ -169,7 +287,10 @@ export default function QuotationBuilderPage() {
     console.log("Open edit modal:", item);
   };
 
-  const subtotal = items.reduce((s, i) => s + i.amount, 0);
+  const subtotal = items.reduce(
+    (s: number, i: EnrichedProduct) => s + i.amount,
+    0
+  );
   const discountAmount = subtotal * (discount / 100);
   const taxable = subtotal - discountAmount;
   const gst = taxable * 0.18;
@@ -199,11 +320,33 @@ export default function QuotationBuilderPage() {
     const fabricItems = roomItems.filter((i: EnrichedProduct) => !i.isBlind);
     const blindItems = roomItems.filter((i: EnrichedProduct) => i.isBlind);
 
-    const fabricTotal = fabricItems.reduce((s, i) => s + i.amount, 0);
-    const blindTotal = blindItems.reduce((s, i) => s + i.amount, 0);
+    const fabricTotal = fabricItems.reduce(
+      (s: number, i: EnrichedProduct) => s + i.amount,
+      0
+    );
+    const blindTotal = blindItems.reduce(
+      (s: number, i: EnrichedProduct) => s + i.amount,
+      0
+    );
 
     const roomTotal = fabricTotal + blindTotal;
 
+    const fabricwidth  = fabricItems[0]?.width ;
+
+
+    const fabricheight = fabricItems[0]?.height;
+
+    const panelqty = fabricItems[0]?.noOfPannel;
+
+    const marginfabric  = Number(fabricwidth) + 16;
+
+    const fabricwidthinmeter = Number(fabricwidth) * 0.0254;
+
+    const totalfabricqty = fabricwidthinmeter * panelqty;
+
+    console.log(fabricwidth,"--->", fabricheight, "--->", panelqty, "--->", marginfabric, "--->", fabricwidthinmeter, "--->", totalfabricqty.toFixed(0));
+
+    
     return (
       <Card key={room} className="border-2 border-slate-400">
         <CardHeader>

@@ -432,20 +432,23 @@ const RoomEntryCard = ({
   // ==========================
   const { fields: fieldsEntries, append: appendEntry, remove: removeEntry } = useFieldArray({
     control,
-    name: `rooms.${index}.entries`
+    name: `rooms.${index}.entries`,
+    keyName: "fieldId"
   });
 
   const { fields: fieldsBlinds, append: appendBlind, remove: removeBlind } =
     useFieldArray({
       control,
-      name: `rooms.${index}.blinds`
+      name: `rooms.${index}.blinds`,
+      keyName: "fieldId"
     });
 
   // NEW: Sofa Field Array
   const { fields: fieldsSofas, append: appendSofa, remove: removeSofa } =
     useFieldArray({
       control,
-      name: `rooms.${index}.sofas`
+      name: `rooms.${index}.sofas`,
+      keyName: "fieldId"
     });
 
   const roomName = watch(`rooms.${index}.roomName`) || "";
@@ -484,29 +487,31 @@ const RoomEntryCard = ({
   // ==========================
   // UPDATE ITEMS IN DATABASE
   // ==========================
-const handleUpdateItems = async () => {
-  let items = getValues(`rooms.${index}.entries`);
+  const handleUpdateItems = async () => {
+    let items = getValues(`rooms.${index}.entries`);
 
-  // 🔥 FIX: Normalize IDs
-  items = items.map(item => {
-    let id = item.id || null;
+    // 🔥 FIX: Only normalize obvious temporary IDs (timestamp or ISO strings); keep UUIDs / Firestore IDs
+    items = items.map(item => {
+      let id = item.id || null;
 
-    // ❌ Remove timestamp/auto-generated UI IDs
-    if (id && id.length > 25 && id.includes("-") && !id.startsWith("0") && !id.startsWith("1")) {
-      id = null;
-    }
+      if (id) {
+        // Remove IDs that look like raw timestamps (13 digits) or long timestamp-prefixed strings
+        const isTimestampId = /^\d{13}$/.test(id) || /^\d{13}/.test(id);
 
-    // ❌ Remove any ISO date string IDs
-    if (id && /\d{4}-\d{2}-\d{2}T/.test(id)) {
-      id = null;
-    }
+        // Remove ISO date string IDs (e.g., "2024-01-15T12:30:00.000Z")
+        const isISODateId = /\d{4}-\d{2}-\d{2}T/.test(id);
 
-    return { ...item, id };
-  });
+        if (isTimestampId || isISODateId) {
+          id = null;
+        }
+      }
 
-  console.log("🔥 CLEAN ITEMS:", items);
+      return { ...item, id };
+    });
 
-  const res = await updateItemsAction({
+    console.log("🔥 CLEAN ITEMS BEING SENT:", items);
+
+    const res = await updateItemsAction({
     customerId,
     dealId,
     selectionId,
@@ -514,12 +519,17 @@ const handleUpdateItems = async () => {
     items,
   });
 
-  if (res.success) {
-    toast({ title: "Items Updated", description: "Saved successfully!" });
-  } else {
-    toast({ variant: "destructive", title: "Error", description: res.error });
-  }
-};
+    if (res.success) {
+      toast({ title: "Items Updated", description: "Saved successfully!" });
+
+      // 🎯 CRITICAL: Update form with returned IDs from backend
+      if (res.items && Array.isArray(res.items)) {
+        setValue(`rooms.${index}.entries`, res.items);
+      }
+    } else {
+      toast({ variant: "destructive", title: "Error", description: res.error });
+    }
+  };
 
 
   // ==========================
@@ -628,7 +638,7 @@ const handleUpdateItems = async () => {
 
               <TableBody>
                 {fieldsBlinds.map((blind, bIndex) => (
-                  <TableRow key={blind.id}>
+                  <TableRow key={blind.fieldId ?? blind.id ?? bIndex}>
                     <TableCell>
                       <Input {...register(`rooms.${index}.blinds.${bIndex}.blindType`)} />
                     </TableCell>
@@ -769,7 +779,7 @@ const handleUpdateItems = async () => {
         if (!hasExtras) return null;
 
         return (
-          <div key={sofa.id} className="flex gap-2 items-center flex-wrap">
+          <div key={sofa.fieldId ?? sofa.id ?? idx} className="flex gap-2 items-center flex-wrap">
             <span className="font-medium">{itemName}:</span>
 
             {foam && (
@@ -822,7 +832,7 @@ const handleUpdateItems = async () => {
                   const hasExtras = foam || casement || marking;
 
                   return (
-                    <TableRow key={sofa.id}>
+                    <TableRow key={sofa.fieldId ?? sofa.id ?? sofaIndex}>
                       <TableCell>
                         <Input
                           {...register(`rooms.${index}.sofas.${sofaIndex}.itemName`)}
@@ -935,7 +945,7 @@ const handleUpdateItems = async () => {
                   if (!hasExtras) return null;
                   
                   return (
-                    <div key={entry.id} className="flex gap-2 items-center flex-wrap">
+                    <div key={entry.fieldId ?? entry.id ?? idx} className="flex gap-2 items-center flex-wrap">
                       <span className="font-medium">{itemName}:</span>
                       {casement && <span className="text-xs bg-white px-2 py-1 rounded border">Casement: {casement.qty}</span>}
                       {marking && <span className="text-xs bg-white px-2 py-1 rounded border">Marking: {marking.qty}</span>}
@@ -971,7 +981,7 @@ const handleUpdateItems = async () => {
                   const hasExtras = casement || marking || niwar;
 
                   return (
-                    <TableRow key={entry.id}>
+                    <TableRow key={entry.fieldId ?? entry.id ?? entryIndex}>                  
                       <TableCell>
                         <Input
                           {...register(`rooms.${index}.entries.${entryIndex}.itemType`)}
@@ -1540,7 +1550,8 @@ export default function MeasurementPage() {
 
     const { fields, append, remove } = useFieldArray({
         control: form.control,
-        name: "rooms"
+        name: "rooms",
+        keyName: "fieldId"
     });
     
 React.useEffect(() => {
@@ -1968,7 +1979,7 @@ React.useEffect(() => {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {fields.map((field, index) => (
-                               <RoomEntryCard key={field.id} index={index} remove={remove} customerId={customerId!} dealId={dealId!} selectionId={visitDataState?.selectionId!} />
+                               <RoomEntryCard key={field.fieldId ?? field.id ?? index} index={index} remove={remove} customerId={customerId!} dealId={dealId!} selectionId={visitDataState?.selectionId!} />
                             ))}
                             <Button type="button" variant="outline" onClick={() => append({ id: new Date().toISOString(), roomName: '', entries: [{ id: null, isNew: true }], blinds: [] })} className="w-full">
                                 <PlusCircle className="mr-2 h-4 w-4"/>Add new Room
