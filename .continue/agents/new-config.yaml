@@ -1,0 +1,6 @@
+models:
+  - name: deepseek
+    provider: ollama
+    model: deepseek-coder
+    default: true
+    temperature: 0.2

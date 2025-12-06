@@ -939,6 +939,7 @@ const RoomEntryCard = ({
                   const casement = watch(`rooms.${index}.entries.${idx}.casement`);
                   const marking = watch(`rooms.${index}.entries.${idx}.marking`);
                   const niwar = watch(`rooms.${index}.entries.${idx}.niwar`);
+                  const width = watch(`rooms.${index}.entries.${idx}.width`);
                   
                   const hasExtras = casement || marking || niwar;
                   
@@ -979,6 +980,23 @@ const RoomEntryCard = ({
                   const marking = watch(`rooms.${index}.entries.${entryIndex}.marking`);
                   const niwar = watch(`rooms.${index}.entries.${entryIndex}.niwar`);
                   const hasExtras = casement || marking || niwar;
+                  const width = watch(`rooms.${index}.entries.${entryIndex}.width`);
+                  React.useEffect(() => {
+                    if (!width) return;
+
+                    const widthNum = parseFloat(width);
+                    if (isNaN(widthNum)) return;
+
+                    const panels = Math.ceil(widthNum / 20);
+
+                    setValue(
+                      `rooms.${index}.entries.${entryIndex}.noOfPannel`,
+                      String(panels),
+                      { shouldValidate: true }
+                    );
+                  }, [width]);
+
+
 
                   return (
                     <TableRow key={entry.fieldId ?? entry.id ?? entryIndex}>                  
@@ -1000,12 +1018,12 @@ const RoomEntryCard = ({
                       </TableCell>
 
                       <TableCell>
-                        <Input
-                          {...register(`rooms.${index}.entries.${entryIndex}.noOfPannel`)}
-                          placeholder="Panel"
-                          className="w-16"
-                        />
-                      </TableCell>
+                          <Input
+                            {...register(`rooms.${index}.entries.${entryIndex}.noOfPannel`)}
+                            readOnly
+                          />
+                        </TableCell>
+
 
                       <TableCell>
                         <Input
