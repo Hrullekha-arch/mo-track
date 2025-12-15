@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Customer, Deal, User, Quotation, DealOrder, DealVisit, DealMeasurement, Cpd, Selection, Order, MeasurementEntry } from "@/lib/types";
+import { Customer, Deal, User, Quotation, DealOrder, DealVisit, DealMeasurement, Cpd, Selection, Order, MeasurementEntry, DealProduct } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription,CardFooter } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -28,13 +28,14 @@ import {
   Loader2,
   RefreshCw,
   AlertTriangle,
-  Pencil
+  Pencil,
+  Printer
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction } from "./actions";
+import { getDealById, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction, createSelectionAction, updateDealProducts } from "./actions";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
@@ -52,6 +53,8 @@ import { PrintableSelection } from "@/components/features/order-management/Print
 import { PrintableCpd, PrintableCustomerCpd } from "@/components/features/customer/PrintableCpd";
 import { Table, TableHeader, TableRow, TableBody, TableCell, TableHead } from "@/components/ui/table";
 import { processMeasurementSubmission } from "@/services/measurement-selection-middleware";
+import AddedProduct from "@/components/features/customer/AddedProduct";
+import { CreateQuotationDialog, ItemDetailValues } from "@/components/features/order-management/CreateQuotationDialog";
 
 
 function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreated }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[], onOrderCreated: () => void }) {
@@ -609,6 +612,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const router = useRouter();
   const { customerId, dealId } = params;
   const { toast } = useToast();
+  const { user } = useAuth();
   
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [deal, setDeal] = useState<Deal | null>(null);
@@ -620,6 +624,48 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const [orders, setOrders] = useState<DealOrder[]>([]);
   const [selections, setSelections] = useState<Selection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fields, setFields] = useState<DealProduct[]>([]);
+  const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [selectionLoading, setSelectionLoading] = useState(false);
+  const [blindDialogState, setBlindDialogState] = useState<{ isOpen: boolean; roomName: string | null }>({ isOpen: false, roomName: null });
+  const [isQuotationDialogOpen, setIsQuotationDialogOpen] = useState(false);
+  const [selectedProductsForQuotation, setSelectedProductsForQuotation] = useState<ItemDetailValues[]>([]);
+  const [selectedSelection, setSelectedSelection] = useState<Selection | null>(null);
+
+  const normalizeProducts = useCallback((products: DealProduct[] = []) => {
+    return products.map((p, index) => ({
+      ...p,
+      id: p.id || p.collectionBrand || `product-${index}`,
+    }));
+  }, []);
+
+  const groupedProducts = useMemo(() => {
+    return fields.reduce((acc, product, index) => {
+      const roomKey = product.room || "Unassigned";
+      if (!acc[roomKey]) {
+        acc[roomKey] = [];
+      }
+      acc[roomKey].push({ ...product, originalIndex: index });
+      return acc;
+    }, {} as Record<string, (DealProduct & { originalIndex: number })[]>);
+  }, [fields]);
+
+  const selectedSelectionProducts = useMemo(() => {
+    if (!selectedSelection) return [];
+    return fields.filter(
+      (p) => p.id && Array.isArray(selectedSelection.productIds) && selectedSelection.productIds.includes(p.id)
+    );
+  }, [selectedSelection, fields]);
+
+  const handleProductsUpdated = useCallback(
+    (updatedProducts: DealProduct[]) => {
+      const normalized = normalizeProducts(updatedProducts);
+      setFields(normalized);
+      setDeal((prev) => (prev ? { ...prev, products: normalized } : prev));
+    },
+    [normalizeProducts]
+  );
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -639,8 +685,11 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       if (!customerData) throw new Error("Customer not found");
       if (!dealData) throw new Error("Deal not found");
 
+      const normalizedProducts = normalizeProducts(dealData.products || []);
+
       setCustomer(customerData);
-      setDeal(dealData);
+      setDeal({ ...dealData, products: normalizedProducts });
+      setFields(normalizedProducts);
       setSalesmen(salesmenData);
       setVisits(visitsData);
       setMeasurements(measurementsData);
@@ -648,6 +697,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       setQuotations(quotationsData);
       setOrders(ordersData);
       setSelections(selectionsData);
+      setSelectedRows({});
       
     } catch (error) {
       console.error("Failed to fetch CRM activity data:", error);
@@ -659,12 +709,98 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     } finally {
       setLoading(false);
     }
-  }, [customerId, dealId, toast]);
+  }, [customerId, dealId, normalizeProducts, toast]);
 
   useEffect(() => {
     if (!customerId || !dealId) return;
     fetchData();
   }, [customerId, dealId, fetchData]);
+
+  const handleUpdateActivity = useCallback(async () => {
+    setActivityLoading(true);
+    const result = await updateDealProducts(customerId, dealId, fields);
+    if (result.success) {
+      toast({ title: "Products Updated", description: "The product list has been saved." });
+      fetchData();
+    } else {
+      toast({ variant: "destructive", title: "Error", description: result.message });
+    }
+    setActivityLoading(false);
+  }, [customerId, dealId, fields, fetchData, toast]);
+
+  const handleDeleteItem = useCallback(
+    (index: number) => {
+      setFields((prev) => {
+        const removed = prev[index];
+        const next = prev.filter((_, i) => i !== index);
+        if (removed?.id) {
+          setSelectedRows((rows) => {
+            if (!rows[removed.id!]) return rows;
+            const updated = { ...rows };
+            delete updated[removed.id!];
+            return updated;
+          });
+        }
+        return next;
+      });
+      toast({ title: "Item Removed", description: "Click 'Update Activity' to save this change." });
+    },
+    [toast]
+  );
+
+  const handleViewSelection = useCallback((selection: Selection) => {
+    setSelectedSelection(selection);
+  }, []);
+
+  const handleCreateSelection = useCallback(async () => {
+    setSelectionLoading(true);
+    const selectedProductIds = Object.keys(selectedRows).filter((id) => selectedRows[id]);
+    if (selectedProductIds.length === 0) {
+      toast({ variant: "destructive", title: "No Products Selected" });
+      setSelectionLoading(false);
+      return;
+    }
+    const productsToSave = fields.filter((p) => p.id && selectedProductIds.includes(p.id));
+    const result = await createSelectionAction(customerId, dealId, productsToSave, user?.name || "Unknown");
+    if (result.success && result.selection) {
+      toast({ title: "Selection Saved", description: `Selection #${result.selection.id} created.` });
+      setSelections((prev) => [result.selection!, ...prev]);
+      setSelectedRows({});
+    } else {
+      toast({ variant: "destructive", title: "Error Saving Selection" });
+    }
+    setSelectionLoading(false);
+  }, [customerId, dealId, fields, selectedRows, toast, user?.name]);
+
+  const handleQuotationClick = useCallback(() => {
+    const selectedProductIds = Object.keys(selectedRows).filter((id) => selectedRows[id]);
+    if (selectedProductIds.length === 0) {
+      toast({ variant: "destructive", title: "No Products Selected", description: "Please select at least one product to create a quotation." });
+      return;
+    }
+    const productsToQuote = fields.filter((p) => p.id && selectedProductIds.includes(p.id));
+    setSelectedProductsForQuotation(
+      productsToQuote.map((p) => ({
+        ...p,
+        rate: parseFloat(p.mrp || "0"),
+        discountPercent: 0,
+      }))
+    );
+    setIsQuotationDialogOpen(true);
+  }, [fields, selectedRows, toast]);
+
+  const handleUpdateSelectionStatus = useCallback(
+    async (selectionId: string, status: "draft" | "final") => {
+      const result = await updateSelectionStatusAction(customerId, dealId, selectionId, status);
+      if (result.success) {
+        toast({ title: "Status Updated", description: result.message });
+        fetchData();
+      } else {
+        toast({ variant: "destructive", title: "Error", description: result.message });
+      }
+    },
+    [customerId, dealId, fetchData, toast]
+  );
 
   if (loading) {
     return <CrmActivitySkeleton />;
@@ -693,6 +829,10 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       <aside className="w-[300px] flex-shrink-0 border-r p-6 space-y-6 hidden lg:block overflow-y-auto">
         <h2 className="text-lg font-semibold">CRM Activity Tracker</h2>
         <div className="space-y-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Deal ID</p>
+            <p className="font-semibold text-primary">{deal.dealId}</p>
+          </div>
           <div>
             <p className="text-xs text-muted-foreground">Deal Name</p>
             <p className="font-semibold text-primary">{deal.dealName}</p>
@@ -745,6 +885,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
             <TabsTrigger value="visits"><Home className="mr-2 h-4 w-4" />Visits</TabsTrigger>
             <TabsTrigger value="measurement"><GanttChartSquare className="mr-2 h-4 w-4"/>Measurement</TabsTrigger>
             <TabsTrigger value="cpd"><Contact2 className="mr-2 h-4 w-4" />CPD</TabsTrigger>
+            <TabsTrigger value="AddedProduct"><ShoppingCart className="mr-2 h-4 w-4"/>Added Product</TabsTrigger>
             <TabsTrigger value="products"><ShoppingCart className="mr-2 h-4 w-4"/>Products</TabsTrigger>
             <TabsTrigger value="reminder"><Calendar className="mr-2 h-4 w-4"/>Reminder/Notes</TabsTrigger>
             <TabsTrigger value="receipt"><Receipt className="mr-2 h-4 w-4"/>Receipt</TabsTrigger>
@@ -765,19 +906,33 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
           <TabsContent value="cpd">
             <CpdTab customer={customer} salesmen={salesmen} deal={deal} onRefresh={fetchData} quotations={quotations} cpds={cpds} />
           </TabsContent>
+
+          <TabsContent value="AddedProduct">
+            <AddedProduct
+              groupedProducts={groupedProducts}
+              selections={selections}
+              fields={fields}
+              selectedRows={selectedRows}
+              setSelectedRows={setSelectedRows}
+              selectionLoading={selectionLoading}
+              activityLoading={activityLoading}
+              handleUpdateActivity={handleUpdateActivity}
+              handleDeleteItem={handleDeleteItem}
+              handleViewSelection={handleViewSelection}
+              handleCreateSelection={handleCreateSelection}
+              handleQuotationClick={handleQuotationClick}
+              handleUpdateSelectionStatus={handleUpdateSelectionStatus}
+              setBlindDialogState={setBlindDialogState}
+            />
+          </TabsContent>
           
           <TabsContent value="products">
-            <ProductForm 
-                initialProducts={deal.products || []}
-                customerId={customerId}
-                dealId={dealId}
-                onRefresh={fetchData}
-                deal={deal}
-                customer={customer}
-                cpds={cpds}
-                quotations={quotations}
-                orders={orders}
-                initialSelections={selections}
+            <ProductForm
+              initialProducts={fields}
+              onProductsUpdated={handleProductsUpdated}
+              onRefresh={fetchData}
+              blindDialogState={blindDialogState}
+              setBlindDialogState={setBlindDialogState}
             />
           </TabsContent>
 
@@ -796,6 +951,38 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
              <OrdersTab customerId={customerId} dealId={dealId} />
           </TabsContent>
         </Tabs>
+
+        <CreateQuotationDialog
+          isOpen={isQuotationDialogOpen}
+          onClose={() => setIsQuotationDialogOpen(false)}
+          onSuccess={fetchData}
+          deal={deal}
+          customer={customer}
+          initialItems={selectedProductsForQuotation}
+          cpds={cpds}
+        />
+
+        {selectedSelection && (
+          <Dialog open={!!selectedSelection} onOpenChange={() => setSelectedSelection(null)}>
+            <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle>Selection Details: #{selectedSelection.id}</DialogTitle>
+              </DialogHeader>
+              <div className="flex-grow overflow-y-auto">
+                <PrintableSelection selection={selectedSelection} deal={deal} products={selectedSelectionProducts} />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setSelectedSelection(null)}>
+                  Close
+                </Button>
+                <Button type="button">
+                  <Printer className="mr-2 h-4 w-4" />
+                  Print
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </main>
     </div>
   );

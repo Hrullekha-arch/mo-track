@@ -14,7 +14,7 @@ interface PrintableSelectionProps {
 export function PrintableSelection({ selection, deal, products }: PrintableSelectionProps) {
     
     // Filter the products based on the selection's productIds
-    const selectedProducts = products.filter(p => selection.productIds?.includes(p.id!));
+    const selectedProducts = selection.products;
     console.log("Selected Products:", selectedProducts);
 
     const groupedProducts = selectedProducts.reduce((acc, product) => {
@@ -42,7 +42,7 @@ export function PrintableSelection({ selection, deal, products }: PrintableSelec
 
             <div className="space-y-4">
                 {Object.entries(groupedProducts).map(([room, roomProducts]) => {
-                    const roomTotalAmount = roomProducts.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.mrp) || 0)), 0);
+                    const roomTotalAmount = roomProducts.reduce((sum, p) => sum + ((Number(p.quantity) || 1) * (Number(p.mrp) || 0)), 0);
                     const roomTotalItems = roomProducts.length;
 
                     return (

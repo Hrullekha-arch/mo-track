@@ -220,19 +220,20 @@ export default function QuotationBuilderPage() {
     }, {});
 
   const calculateFabricQty = (i: EnrichedProduct) => {
-    const widthCM = Number(i.width || 0) * 2.75; // convert to cm + added margin
-    const hrCM = Number(i.raw?.horizontalRepeat || 0); // always cm
+    const heightinch = Number(i.height || 0) + 16; // convert to inch + added margin
+    const heightCM = heightinch * 2.54; // convert to cm + added margin
+    const vrCM = Number(i.raw?.verticalRepeat || 0); // always cm
     const panelQty = Number(i.noOfPannel || 1);
     console.log("🧮 Qty calc start", {
       id: i.id,
-      widthCM,
-      hrCM,
+      heightCM,
+      vrCM,
       panelQty,
     });
 
     // No HR → simple width × panel qty
-    if (!hrCM || hrCM === 0) {
-      const basicMeters = (widthCM / 100) * panelQty;
+    if (!vrCM || vrCM === 0) {
+      const basicMeters = (heightCM / 100) * panelQty;
       console.log("➡️ No HR path", {
         basicMeters,
         ceil: Math.ceil(basicMeters),
@@ -241,7 +242,7 @@ export default function QuotationBuilderPage() {
     }
 
     // repeats needed
-    let repeatCount = widthCM / hrCM;
+    let repeatCount = heightCM / vrCM;
     console.log("Repeat count raw", repeatCount);
 
     // if result < 1 → treat as 1
@@ -249,7 +250,7 @@ export default function QuotationBuilderPage() {
     console.log("Repeat count adj", repeatCount);
 
     // effective width in cm to cover pattern
-    const effectiveWidth = repeatCount * hrCM;
+    const effectiveWidth = repeatCount * vrCM;
     console.log("Effective width cm", effectiveWidth);
 
     // total for all panels
@@ -977,14 +978,6 @@ export default function QuotationBuilderPage() {
                 <span>GST (5% Fabric, 18% Hardware/Blind)</span>
                 <span>₹ {gstTotal.toFixed(0)}</span>
               </div>
-              <div className="flex justify-between">
-                <span>CGST</span>
-                <span>₹ {cgst.toFixed(0)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>SGST</span>
-                <span>₹ {sgst.toFixed(0)}</span>
-              </div>
               <div className="flex justify-between font-bold text-lg border-t pt-2">
                 <span>Grand Total (Incl. GST)</span>
                 <span>₹ {grandTotal.toFixed(0)}</span>
@@ -1116,12 +1109,7 @@ export default function QuotationBuilderPage() {
                         </tr>
                       );
                     })}
-                    <tr className="font-semibold bg-gray-50">
-                      <td className="border text-right" colSpan={9}>
-                        Subtotal
-                      </td>
-                      <td className="border text-right">{formatCurrency(roomSubtotal)}</td>
-                    </tr>
+
                   </React.Fragment>
                 );
               })}
@@ -1149,14 +1137,6 @@ export default function QuotationBuilderPage() {
                   <tr>
                     <td className="border">GST (5% Fabric, 18% Hardware/Blind)</td>
                     <td className="border text-right">{formatCurrency(gstTotal)}</td>
-                  </tr>
-                  <tr>
-                    <td className="border">CGST</td>
-                    <td className="border text-right">{formatCurrency(cgst)}</td>
-                  </tr>
-                  <tr>
-                    <td className="border">SGST</td>
-                    <td className="border text-right">{formatCurrency(sgst)}</td>
                   </tr>
                   <tr className="font-semibold">
                     <td className="border">Grand Total (Incl. GST)</td>
