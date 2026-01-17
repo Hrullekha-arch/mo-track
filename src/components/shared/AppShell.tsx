@@ -28,6 +28,7 @@ import {
   PanelLeft,
   Factory,
   Download,
+  UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -58,11 +59,12 @@ export const navItems = [
     { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts'] },
     { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
     { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
-    { href: "/dashboard/orders", icon: ClipboardList, label: "Orders", roles: ['admin', 'employee'] },
+    { href: "/dashboard/walk-in", icon: UserPlus, label: "Walk-in", roles: ['admin', 'employee'] },
+    { href: "/dashboard/Sales", icon: ClipboardList, label: "Sales", roles: ['admin', 'employee'] },
     { href: "/dashboard/purchase", icon: ShoppingCart, label: "Purchase", roles: ['admin', 'employee'] },
     { href: "/dashboard/inbound", icon: Archive, label: "Inbound", roles: ['admin', 'employee'] },
     { href: "/dashboard/inventory", icon: Warehouse, label: "Inventory", roles: ['admin', 'employee'] },
-    { href: "/dashboard/invoice", icon: FileText, label: "Invoice", roles: ['admin', 'employee'] },
+    { href: "/dashboard/Billing", icon: FileText, label: "Invoice", roles: ['admin', 'employee'] },
     { href: "/dashboard/cutting", icon: Scissors, label: "Cutting & Details", roles: ['admin', 'employee'] },
     { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin'] },
     { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin'] },
@@ -272,7 +274,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         <span className="sr-only">Toggle Menu</span>
                     </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="w-64 p-0 bg-card/80 backdrop-blur-lg dark text-primary-foreground">
+                <SheetContent side="left" className="w-64 p-0 bg-card/10 dark backdrop-blur-lg text-primary-teal-800">
                      <SheetHeader className="p-4 border-b">
                         <SheetTitle className="flex items-center gap-2">
                              <Image src="/logo.png" alt="MoTrack Logo" width={32} height={32} className="rounded-md"/>

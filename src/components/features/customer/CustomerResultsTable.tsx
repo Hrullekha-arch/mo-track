@@ -14,9 +14,10 @@ interface CustomerResultsTableProps {
   customers: Customer[];
   isLoading: boolean;
   hasSearched: boolean;
+  onCustomerSelect?: (customer: Customer) => void;
 }
 
-export function CustomerResultsTable({ customers, isLoading, hasSearched }: CustomerResultsTableProps) {
+export function CustomerResultsTable({ customers, isLoading, hasSearched, onCustomerSelect }: CustomerResultsTableProps) {
   
   if (isLoading) {
     return (
@@ -78,14 +79,20 @@ export function CustomerResultsTable({ customers, isLoading, hasSearched }: Cust
                             </TableCell>
                             <TableCell>{format(new Date(customer.createdAt), "PPP")}</TableCell>
                             <TableCell className="text-right">
-                                {customer.id ? (
-                                    <Button asChild variant="ghost" size="icon">
-                                        <Link href={`/dashboard/customers/${customer.id}`}>
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Link>
+                                {onCustomerSelect ? (
+                                    <Button onClick={() => onCustomerSelect(customer)} size="sm">
+                                      Next <ChevronRight className="h-4 w-4 ml-2" />
                                     </Button>
                                 ) : (
-                                    <span className="text-xs text-destructive">No ID</span>
+                                    customer.id ? (
+                                        <Button asChild variant="ghost" size="icon">
+                                            <Link href={`/dashboard/customers/${customer.id}`}>
+                                                <ChevronRight className="h-4 w-4" />
+                                            </Link>
+                                        </Button>
+                                    ) : (
+                                        <span className="text-xs text-destructive">No ID</span>
+                                    )
                                 )}
                             </TableCell>
                         </TableRow>

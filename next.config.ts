@@ -1,31 +1,25 @@
-import type {NextConfig} from 'next';
-import withPWA from 'next-pwa';
+import type { NextConfig } from "next";
+import withPWA from "next-pwa";
 
 const pwaConfig = withPWA({
-  dest: 'public',
+  dest: "public",
   register: true,
   skipWaiting: true,
-  disable: process.env.NODE_ENV === 'development',
+  disable: process.env.NODE_ENV === "development",
 });
 
-
 const nextConfig: NextConfig = {
-  /* config options here */
+  reactStrictMode: true,
+  reactCompiler: true,
+
+  // 👇 THIS IS THE KEY LINE
+  turbopack: {},
+
   typescript: {
     ignoreBuildErrors: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
-  },
-  images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'placehold.co',
-        port: '',
-        pathname: '/**',
-      },
-    ],
   },
 };
 

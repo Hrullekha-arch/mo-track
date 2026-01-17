@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import { useState, useEffect, ReactNode, useMemo } from "react";
@@ -24,24 +23,13 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { roomOptions, vasOptions } from "@/lib/constants";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
+import { roomOptions, vasOptions, storeOptions } from "@/lib/constants";
 import { addDoc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 
-const companyOptions = [{ value: "mo-design", label: "Mo Design" }];
-const storeOptions = [
-    { value: "MO GCR BRANCH", label: "MO GCR BRANCH" },
-    { value: "MO MG ROAD", label: "MO MG ROAD" },
-    { value: "MO SULTANPUR", label: "MO SULTANPUR" },
-];
-const dealOptions = [{ value: "deal-1", label: "Deal 1" }, { value: "deal-2", label: "Deal 2" }];
-const billingOptions = [{ value: "billing-1", label: "Billing 1" }];
-const descriptionOptions = [{ value: "curtain", label: "Curtain" }, { value: "sofa-fabric", label: "Sofa Fabric" }];
-
-
-const itemDetailSchema = z.object({
+export const itemDetailSchema = z.object({
   id: z.string().optional(),
   collectionBrand: z.string().min(1, "Collection/Brand is required"),
   serialNo: z.string().optional(),
@@ -54,6 +42,7 @@ const itemDetailSchema = z.object({
     (val) => (typeof val === "string" ? parseFloat(val) : val),
     z.number().min(0, "Rate must be non-negative")
   ),
+  originalMrp: z.number().optional(), // Store the original fetched MRP
   subtotal: z.number().optional(),
   discountPercent: z.preprocess(
     (val) => (val === '' ? 0 : typeof val === "string" ? parseFloat(val) : val),
@@ -70,7 +59,7 @@ const itemDetailSchema = z.object({
   stitchingType: z.string().optional(),
 });
 
-const vasDetailSchema = z.object({
+export const vasDetailSchema = z.object({
     vasName: z.string().min(1, "VAS name is required"),
     rate: z.string().min(1, "Rate is required"),
     quantity: z.string().min(1, "Quantity is required"),
@@ -81,7 +70,7 @@ const vasDetailSchema = z.object({
     igst: z.number().optional(),
 });
 
-const formSchema = z.object({
+export const createQuotationFormSchema = z.object({
   company: z.string().optional(),
   store: z.string().min(1, "Store is required"),
   date: z.date({ required_error: "Date is required." }),
@@ -99,10 +88,12 @@ const formSchema = z.object({
   cpdId: z.string().optional(), // To link quotation with CPD
 });
 
-export type FormValues = z.infer<typeof formSchema>;
+export type FormValues = z.infer<typeof createQuotationFormSchema>;
 export interface ItemDetailValues extends DealProduct {
     rate?: number;
     discountPercent?: number; // Add discountPercent here
+    productType?: string; // To differentiate VAS
+    subCategory?: string; // For VAS details
 }
 
 
@@ -118,6 +109,12 @@ interface CreateQuotationDialogProps {
   selectedCpdId?: string;
 }
 
+const descriptionOptions = [
+    { value: 'Curtain', label: 'Curtain' },
+    { value: 'Sofa', label: 'Sofa' },
+    { value: 'Wallpaper', label: 'Wallpaper' },
+    { value: 'Blinds', label: 'Blinds' },
+];
 
 const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Control<FormValues>, setValue: UseFormReturn<FormValues>['setValue'], getValues: UseFormReturn<FormValues>['getValues'] }) => {
     const { fields, remove } = useFieldArray({ control, name: "items" });
@@ -160,35 +157,45 @@ const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Co
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {fields.map((field, index) => (
-                           <TableRow key={field.id}>
-                             <TableCell>{index + 1}</TableCell>
-                             <TableCell>
-                                <p className="font-medium text-primary cursor-pointer hover:underline">{getValues(`items.${index}.collectionBrand`)}</p>
-                                <FormField control={control} name={`items.${index}.salesDescription`} render={({ field }) => (
-                                    <Combobox options={descriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" />
-                                )} />
-                            </TableCell>
-                            <TableCell>
-                                 <FormField control={control} name={`items.${index}.quantity`} render={({ field }) => (<Input type="number" {...field} />)} />
-                            </TableCell>
-                            <TableCell>
-                                 <FormField control={control} name={`items.${index}.rate`} render={({ field }) => (<Input type="number" {...field} />)} />
-                            </TableCell>
-                            <TableCell>
-                                 <FormField control={control} name={`items.${index}.discountPercent`} render={({ field }) => (<Input type="number" {...field} />)} />
-                            </TableCell>
-                             <TableCell>
-                                <FormField control={control} name={`items.${index}.taxableAmt`} render={({ field }) => (<Input readOnly disabled value={Number(field.value || 0).toFixed(2)} />)} />
-                            </TableCell>
-                             <TableCell>
-                                <FormField control={control} name={`items.${index}.room`} render={({ field }) => (<Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" />)} />
-                            </TableCell>
-                            <TableCell><Button type="button" variant="ghost" size="icon" className="text-blue-500"><Edit className="h-4 w-4"/></Button></TableCell>
-                            <TableCell><Button type="button" variant="ghost" size="icon" className="text-blue-500"><PlusCircle className="h-4 w-4"/></Button></TableCell>
-                            <TableCell><Button type="button" variant="destructive" size="icon" className="text-destructive" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button></TableCell>
-                           </TableRow>
-                        ))}
+                        {fields.map((field, index) => {
+                           const currentItem = items[index];
+                           const rateIsLower = currentItem && typeof currentItem.originalMrp === 'number' && currentItem.rate < currentItem.originalMrp;
+                           return (
+                               <TableRow key={field.id}>
+                                 <TableCell>{index + 1}</TableCell>
+                                 <TableCell>
+                                    <p className="font-medium text-primary cursor-pointer hover:underline">{getValues(`items.${index}.collectionBrand`)}</p>
+                                    <FormField control={control} name={`items.${index}.salesDescription`} render={({ field }) => (
+                                        <Combobox options={descriptionOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" />
+                                    )} />
+                                </TableCell>
+                                <TableCell>
+                                     <FormField control={control} name={`items.${index}.quantity`} render={({ field }) => (<Input type="number" {...field} />)} />
+                                </TableCell>
+                                <TableCell>
+                                     <FormField control={control} name={`items.${index}.rate`} render={({ field }) => (
+                                         <Input 
+                                            type="number" 
+                                            {...field} 
+                                            className={rateIsLower ? 'border-red-500 ring-2 ring-red-200' : ''}
+                                         />
+                                     )} />
+                                </TableCell>
+                                <TableCell>
+                                     <FormField control={control} name={`items.${index}.discountPercent`} render={({ field }) => (<Input type="number" {...field} />)} />
+                                </TableCell>
+                                 <TableCell>
+                                    <FormField control={control} name={`items.${index}.taxableAmt`} render={({ field }) => (<Input readOnly disabled value={Number(field.value || 0).toFixed(2)} />)} />
+                                </TableCell>
+                                 <TableCell>
+                                    <FormField control={control} name={`items.${index}.room`} render={({ field }) => (<Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" />)} />
+                                </TableCell>
+                                <TableCell><Button type="button" variant="ghost" size="icon" className="text-blue-500"><Edit className="h-4 w-4"/></Button></TableCell>
+                                <TableCell><Button type="button" variant="ghost" size="icon" className="text-blue-500"><PlusCircle className="h-4 w-4"/></Button></TableCell>
+                                <TableCell><Button type="button" variant="destructive" size="icon" className="text-destructive" onClick={() => remove(index)}><Trash2 className="h-4 w-4"/></Button></TableCell>
+                               </TableRow>
+                           )
+                        })}
                     </TableBody>
                  </Table>
              </div>
@@ -232,7 +239,7 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
             const cgst = taxableAmt * 0.025;
             const sgst = taxableAmt * 0.025;
             const igst = 0; // Assuming IGST is 0 for now
-            return { ...item, discountPercent, subtotal, discount, taxableAmt, cgst, sgst, igst };
+            return { ...item, quantity, rate, discountPercent, subtotal, discount, taxableAmt, cgst, sgst, igst };
         });
     }, [values.items]);
 
@@ -450,7 +457,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
   const [view, setView] = useState<'edit' | 'preview'>('edit');
   
   const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(createQuotationFormSchema),
     defaultValues: {
       store: user?.store || "MO GCR BRANCH",
       company: 'MO DESIGNS PRIVATE LIMITED',
@@ -463,7 +470,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
   
   const handleCpdSelect = (cpdId: string) => {
     // Only set the ID for reference. Do not auto-populate.
-    form.setValue("selectedCpdId", cpdId === "none" ? undefined : cpdId);
+    form.setValue("selectedCpdId", cpdId === "none" ? "No CPD ID" : cpdId);
   };
   
   useEffect(() => {
@@ -478,6 +485,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
               salesDescription: description,
               quantity: parseFloat(item.quantity) || 0,
               rate: item.rate || 0,
+              originalMrp: item.mrp ? Number(item.mrp) : item.rate || 0, // Store original MRP
               discountPercent: item.discountPercent || 0,
               room: item.room || '',
               noOfPcs: item.noOfPcs || '1',
@@ -485,6 +493,14 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
               stitchingType: item.stitchingType || '',
           };
         });
+
+        const vasForForm = (initialVasDetails || []).map(vas => ({
+            vasName: vas.vasName,
+            rate: String(vas.rate),
+            quantity: String(vas.quantity),
+            room: vas.room,
+        }));
+
 
         form.reset({
           store: user?.store || "MO GCR BRANCH",
@@ -497,7 +513,7 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
           dealName: deal.dealName,
           selectedCpdId: selectedCpdId,
           items: itemsForForm,
-          vasDetails: initialVasDetails || [],
+          vasDetails: vasForForm,
           sendEmail: false,
           sendSms: false,
           representativeId: deal.representativeId,
@@ -534,28 +550,6 @@ export function CreateQuotationDialog({ isOpen, onClose, onSuccess, deal, custom
         const quotationResult = await createQuotationAction(customer.id, deal.id, values, totalAmount + vasTotal);
 
         if (quotationResult.success) {
-            // If there are VAS details, create a separate invoice batch for them
-            if (values.vasDetails && values.vasDetails.length > 0) {
-                const vasBatch: Omit<InvoiceBatch, 'id' | 'createdAt'> = {
-                    orderId: `MOTRACK-${quotationResult.quotation?.quotationNo}`, // Use the new quotation number to form an orderId
-                    customerName: customer.name,
-                    customerPhone: customer.mobileNo,
-                    status: 'pendingInvoice',
-                    isVas: true,
-                    items: values.vasDetails.map(vas => ({
-                        itemName: vas.vasName,
-                        bcn: vas.vasName, // Use VAS name as BCN for VAS items
-                        quantityAllocated: Number(vas.quantity),
-                        rate: Number(vas.rate),
-                        discountPercent: 0,
-                    }))
-                };
-                await addDoc(collection(db, "invoiceBatches"), {
-                    ...vasBatch,
-                    createdAt: new Date().toISOString()
-                });
-            }
-
             toast({ title: "Quotation Created", description: "The quotation has been sent for approval." });
             form.reset();
             onSuccess();

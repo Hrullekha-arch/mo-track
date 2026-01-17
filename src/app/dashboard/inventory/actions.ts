@@ -4,9 +4,15 @@
 import { adminDb } from '@/lib/firebase-admin';
 import { Stock, StockTransaction, CuttingTask, CuttingTaskItem } from '@/lib/types';
 import * as XLSX from "xlsx";
-import { writeBatch, FieldValue, collection, collectionGroup, getDocs, query, where } from 'firebase-admin/firestore';
+import {FieldValue } from 'firebase-admin/firestore';
 
 const BATCH_SIZE = 499; // Firestore batch limit is 500 operations
+const normalizeBcn = (value: string) =>
+  String(value ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+const extractBcnDigits = (value: string) =>
+  String(value ?? "").replace(/\D/g, "");
 
 export async function getStockData(): Promise<Stock[]> {
     try {
@@ -47,94 +53,335 @@ export async function getStockById(id: string): Promise<Stock | null> {
     }
 }
 
-export async function importStockData(base64Data: string): Promise<{ success: boolean; message: string; count?: number }> {
-    try {
-        const fileBuffer = Buffer.from(base64Data, 'base64');
-        const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+export async function importStockData(
+  base64Data: string
+): Promise<{ success: boolean; message: string; count?: number }> {
+  try {
+    const fileBuffer = Buffer.from(base64Data, "base64");
+    const workbook = XLSX.read(fileBuffer, { type: "buffer" });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-        if (json.length < 2) {
-            return { success: false, message: "The Excel sheet is empty or invalid." };
-        }
+    if (!json || json.length < 2) {
+      return { success: false, message: "The Excel sheet is empty or invalid." };
+    }
 
-        const headers: string[] = (json[0] as string[]).map(h => String(h).trim().toLowerCase());
-        const requiredHeaders = [
-            'bcn', 'distributor collection name', 'serial no', 'hsn code',
-            'rl price', 'cl price', 'mrp', 'category', 'vendor name', 'qty'
-        ];
-        const missingHeaders = requiredHeaders.filter(rh => !headers.includes(rh));
-        if (missingHeaders.length > 0) {
-            return { success: false, message: `Missing required columns: ${missingHeaders.join(', ')}` };
-        }
+    // ✅ Normalize headers: lowercase + remove spaces + remove special chars like () etc.
+    const norm = (v: any) =>
+      String(v ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .replace(/[()]/g, "")
+        .replace(/[^a-z0-9 ]/g, "") // remove symbols like /, -, etc (keeps spaces)
+        .trim();
 
-        const allItems = json.slice(1).map((row: any) => {
-            const qty = Number(row[headers.indexOf('qty')] || 1);
-            const bcn = String(row[headers.indexOf('bcn')] || '');
-            const stockItem = {
-                bcn: bcn,
-                itemName: String(row[headers.indexOf('distributor collection name')] || ''),
-                serialNo: String(row[headers.indexOf('serial no')] || ''),
-                hsnCode: String(row[headers.indexOf('hsn code')] || ''),
-                rlPrice: Number(row[headers.indexOf('rl price')] || 0),
-                clPrice: Number(row[headers.indexOf('cl price')] || 0),
-                mrp: Number(row[headers.indexOf('mrp')] || 0),
-                quantity: qty,
-                availableQty: qty,
-                reservedQty: 0,
-                cutQty: 0,
-                category: String(row[headers.indexOf('category')] || ''),
-                vendorName: String(row[headers.indexOf('vendor name')] || ''),
-                unit: 'Mtr', // Assuming Mtr for fabric
-                type: String(row[headers.indexOf('category')] || 'fabric').toLowerCase(),
-                lastUpdatedAt: new Date().toISOString(),
-            };
-            return stockItem;
-        }).filter(item => item.bcn);
+    const rawHeaders = (json[0] as any[]).map((h) => String(h ?? ""));
+    const headers = rawHeaders.map(norm);
 
-        const batch = adminDb.batch();
+    // ✅ Find header index by candidates (so small header changes won't break import)
+    const idx = (candidates: string[]) => {
+      const normalizedCandidates = candidates.map(norm);
+      for (const c of normalizedCandidates) {
+        const i = headers.indexOf(c);
+        if (i !== -1) return i;
+      }
+      return -1;
+    };
 
-        for (const stockItem of allItems) {
-            const bcnDocRef = adminDb.collection("stocks").doc(stockItem.bcn);
-            const lengthDocRef = bcnDocRef.collection("lengths").doc(); // Auto-generate ID for the length
+    // ✅ Required headers (core)
+    const required = [
+      { key: "bcn", candidates: ["bcn"] },
+      { key: "itemName", candidates: ["itemname", "item name"] },
+      { key: "closingStock", candidates: ["closing stock", "closingstock"] },
+    ];
 
-            batch.set(bcnDocRef, { bcn: stockItem.bcn }, { merge: true }); // Create parent doc if not exists
-            batch.set(lengthDocRef, { ...stockItem, id: lengthDocRef.id });
-        }
-        
+    const missing = required
+      .filter((r) => idx(r.candidates) === -1)
+      .map((r) => r.key);
+
+    if (missing.length > 0) {
+      return {
+        success: false,
+        message: `Missing required columns: ${missing.join(", ")}`,
+      };
+    }
+
+    // ✅ Column indexes
+    const COL = {
+      id: idx(["id"]),
+      bcn: idx(["bcn"]),
+      itemName: idx(["itemName", "item name"]),
+      categoryGroup: idx(["category group", "categorygroup"]),
+      category: idx(["category"]),
+      unit: idx(["unit"]),
+      type: idx(["type"]),
+      width: idx(["width"]),
+      moCollection: idx(["mo collection", "mocollection"]),
+      moCollectionCode: idx(["mo collection code", "mocollectioncode"]),
+      maxlevel: idx(["maxlevel", "max level"]),
+      closingStock: idx(["closing stock", "closingstock"]),
+      supplierCompanyName: idx(["supplier company name", "suppliercompanyname"]),
+      supplierCollectionName: idx(["supplier collection name", "suppliercollectionname"]),
+      supplierCollectionCode: idx(["supplier collection code", "suppliercollectioncode"]),
+      composition: idx(["composition"]),
+      martindale: idx(["martindale"]),
+      weightGsm: idx(["weigthgsm", "weightgsm", "weigth gsm", "weight gsm"]), // you wrote "weigth(gsm)"
+      horizontalRepeat: idx(["horizontal repeat cms", "horizontal repeat", "horizontal repeat cms "]),
+      verticalRepeat: idx(["vertical repeat cms", "vertical repeat"]),
+      costPrice: idx(["cost price rs", "cost price"]),
+      costMultiplier: idx(["cost multiplier rs", "cost multiplier"]),
+      rrpWithGst: idx(["rrp with gst rs", "rrp with gst"]),
+    };
+
+    // ✅ Helpers for safe value parsing
+    const s = (row: any[], i: number) => (i >= 0 ? String(row[i] ?? "").trim() : "");
+    const n = (row: any[], i: number, def = 0) => {
+      if (i < 0) return def;
+      const val = row[i];
+      const num = Number(String(val ?? "").replace(/,/g, "").trim());
+      return Number.isFinite(num) ? num : def;
+    };
+
+    const allItems = (json.slice(1) as any[])
+      .map((row) => {
+        const bcn = s(row, COL.bcn);
+        if (!bcn) return null;
+
+        const closingStock = n(row, COL.closingStock, 0);
+
+        const stockItem = {
+          // keep sheet id if present (stable), else will be auto id later
+          _sheetId: s(row, COL.id),
+          productId: s(row, COL.id),
+
+          bcn,
+          itemName: s(row, COL.itemName),
+
+          categoryGroup: s(row, COL.categoryGroup),
+          category: s(row, COL.category),
+
+          unit: s(row, COL.unit) || "Mtr",
+          type: (s(row, COL.type) || "fabric").toLowerCase(),
+
+          width: n(row, COL.width, 0),
+
+          moCollection: s(row, COL.moCollection),
+          moCollectionCode: s(row, COL.moCollectionCode),
+
+          maxlevel: n(row, COL.maxlevel, 0),
+
+          quantity: closingStock,
+          availableQty: closingStock,
+          reservedQty: 0,
+          cutQty: 0,
+
+          supplierCompanyName: s(row, COL.supplierCompanyName),
+          supplierCollectionName: s(row, COL.supplierCollectionName),
+          supplierCollectionCode: s(row, COL.supplierCollectionCode),
+
+          composition: s(row, COL.composition),
+          martindale: n(row, COL.martindale, 0),
+          weightGsm: n(row, COL.weightGsm, 0),
+
+          horizontalRepeatCms: n(row, COL.horizontalRepeat, 0),
+          verticalRepeatCms: n(row, COL.verticalRepeat, 0),
+          
+          costPriceRs: n(row, COL.costPrice, 0),
+          costMultiplierRs: n(row, COL.costMultiplier, 0),
+          rrpWithGstRs: n(row, COL.rrpWithGst, 0),
+
+          lastUpdatedAt: new Date().toISOString(),
+        };
+
+        return stockItem;
+      })
+      .filter(Boolean) as any[];
+
+    if (allItems.length === 0) {
+      return { success: false, message: "No valid rows found (BCN missing)." };
+    }
+
+    const MAX_ROWS_PER_BATCH = 200; // 200 rows = 400 writes (safe)
+    let batch = adminDb.batch();
+    let batchRowCount = 0;
+    let totalImported = 0;
+
+    for (const item of allItems) {
+    const bcnDocRef = adminDb.collection("stocks").doc(item.bcn);
+    const bcnDigits = extractBcnDigits(item.bcn);
+
+    // Parent doc
+    batch.set(
+        bcnDocRef,
+        {
+        bcn: item.bcn,
+        bcnDigits,
+        closingstock: item.quantity,
+        itemName: item.itemName,
+        categoryGroup: item.categoryGroup,
+        category: item.category,
+        unit: item.unit,
+        type: item.type,
+        width: item.width,
+        moCollection: item.moCollection,
+        moCollectionCode: item.moCollectionCode,
+        supplierCompanyName: item.supplierCompanyName,
+        supplierCollectionName: item.supplierCollectionName,
+        supplierCollectionCode: item.supplierCollectionCode,
+        composition: item.composition,
+        martindale: item.martindale,
+        weightGsm: item.weightGsm,
+        horizontalRepeatCms: item.horizontalRepeatCms,
+        verticalRepeatCms: item.verticalRepeatCms,
+        productId: item.productId,
+        costPriceRs: item.costPriceRs,
+        costMultiplierRs: item.costMultiplierRs,
+        rrpWithGstRs: item.rrpWithGstRs,
+        maxlevel: item.maxlevel,
+        updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+    );
+
+    // Length sub-doc
+    const lengthsCol = bcnDocRef.collection("lengths");
+    const lengthDocRef = item._sheetId
+        ? lengthsCol.doc(item._sheetId)
+        : lengthsCol.doc();
+
+    const { _sheetId, ...payload } = item;
+
+    batch.set(lengthDocRef, {
+        ...payload,
+        id: lengthDocRef.id,
+    });
+
+    batchRowCount++;
+    totalImported++;
+
+    // 🔥 Commit batch safely
+    if (batchRowCount >= MAX_ROWS_PER_BATCH) {
+        console.log(`✅ Committing batch of ${batchRowCount} rows...`);
         await batch.commit();
 
-        return { success: true, message: "Import successful!", count: allItems.length };
-
-    } catch (error: any) {
-        console.error("Error in importStockData server action:", error);
-        return { success: false, message: `Server-side import failed: ${error.message}` };
+        // reset
+        batch = adminDb.batch();
+        batchRowCount = 0;
     }
+    }
+
+    // 🔚 Commit remaining rows
+    if (batchRowCount > 0) {
+    console.log(`✅ Committing final batch of ${batchRowCount} rows...`);
+    await batch.commit();
+    }
+
+
+    return { success: true, message: "Import successful!", count: allItems.length };
+  } catch (error: any) {
+    console.error("Error in importStockData server action:", error);
+    return {
+      success: false,
+      message: `Server-side import failed: ${error.message}`,
+    };
+  }
 }
 
+
 export async function searchStockByBcn(query: string): Promise<Stock[]> {
-    if (!query) {
+    const trimmed = String(query ?? "").trim();
+    if (!trimmed || trimmed.length < 2) {
         return [];
     }
 
     try {
         const stockRef = adminDb.collection('stocks');
-        const q = stockRef
-            .where('bcn', '>=', query)
-            .where('bcn', '<=', query + '\uf8ff')
-            .limit(10); 
+        const normalizedQuery = normalizeBcn(trimmed);
+        const digitQuery = extractBcnDigits(trimmed);
+        const resultsMap = new Map<string, Stock>();
 
-        const snapshot = await q.get();
+        const addDocs = (docs: any[]) => {
+          docs.forEach(doc => {
+            resultsMap.set(doc.id, { id: doc.id, ...doc.data() } as Stock);
+          });
+        };
 
-        if (snapshot.empty) {
-            return [];
+        const bcnSnap = await stockRef
+            .where('bcn', '>=', trimmed)
+            .where('bcn', '<=', trimmed + '\uf8ff')
+            .limit(20)
+            .get();
+        addDocs(bcnSnap.docs);
+
+        if (digitQuery.length >= 2) {
+            const digitsSnap = await stockRef
+                .where('bcnDigits', '>=', digitQuery)
+                .where('bcnDigits', '<=', digitQuery + '\uf8ff')
+                .limit(20)
+                .get();
+            addDocs(digitsSnap.docs);
         }
 
-        const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stock));
-        return JSON.parse(JSON.stringify(results));
+        if (resultsMap.size === 0 && normalizedQuery.length >= 4) {
+            const scanSnap = await stockRef.get();
+            scanSnap.docs.forEach(doc => {
+                const data = doc.data();
+                const bcnValue = String(data.bcn || doc.id || "");
+                const bcnNormalized = normalizeBcn(bcnValue);
+                const bcnDigits = extractBcnDigits(bcnValue);
+                const matchesNormalized = normalizedQuery && bcnNormalized.includes(normalizedQuery);
+                const matchesDigits = digitQuery && bcnDigits.includes(digitQuery);
+                if (matchesNormalized || matchesDigits) {
+                    resultsMap.set(doc.id, { id: doc.id, ...data } as Stock);
+                }
+            });
+        }
+
+        return JSON.parse(JSON.stringify(Array.from(resultsMap.values()).slice(0, 20)));
     } catch (error) {
         console.error("Error searching stock by BCN:", error);
+        return [];
+    }
+}
+
+export async function searchStockById(productId: string): Promise<Stock[]> {
+    const trimmed = String(productId ?? "").trim();
+    if (!trimmed) {
+        return [];
+    }
+
+    try {
+        const stockRef = adminDb.collection('stocks');
+        const resultsMap = new Map<string, Stock>();
+
+        const addDocs = (docs: any[]) => {
+            docs.forEach(doc => {
+                resultsMap.set(doc.id, { id: doc.id, ...doc.data() } as Stock);
+            });
+        };
+
+        const productIdSnap = await stockRef
+            .where('productId', '==', trimmed)
+            .limit(10)
+            .get();
+        addDocs(productIdSnap.docs);
+
+        if (resultsMap.size === 0) {
+            const numericId = Number(trimmed);
+            if (Number.isFinite(numericId)) {
+                const numericSnap = await stockRef
+                    .where('productId', '==', numericId)
+                    .limit(10)
+                    .get();
+                addDocs(numericSnap.docs);
+            }
+        }
+
+        return JSON.parse(JSON.stringify(Array.from(resultsMap.values())));
+    } catch (error) {
+        console.error("Error searching stock by productId:", error);
         return [];
     }
 }
@@ -148,6 +395,7 @@ export async function updateStockQuantityAction(
   
   if (transaction.type === 'addition') {
     let finalStockData: Stock;
+    const bcnDigits = extractBcnDigits(transaction.bcn || stockId);
     
     try {
       // Let Firestore generate a unique ID for each new length document
@@ -156,8 +404,9 @@ export async function updateStockQuantityAction(
       await adminDb.runTransaction(async (tx) => {
           const stockDoc = await tx.get(stockRef); // READ FIRST
           
-          const newLengthData: Partial<Stock> = {
+          const newLengthData: Partial<Stock> & { bcnDigits?: string } = {
               bcn: transaction.bcn,
+              bcnDigits,
               itemName: transaction.bcn,
               quantity: transaction.quantityChange,
               availableQty: transaction.quantityChange,
@@ -174,6 +423,7 @@ export async function updateStockQuantityAction(
           if (!stockDoc.exists) {
               tx.set(stockRef, { // WRITE
                   bcn: stockId,
+                  bcnDigits,
                   itemName: transaction.bcn,
                   quantity: transaction.quantityChange,
                   availableQty: transaction.quantityChange,
@@ -189,6 +439,7 @@ export async function updateStockQuantityAction(
               }, { merge: true });
           } else {
               tx.update(stockRef, { // WRITE
+                  bcnDigits,
                   quantity: FieldValue.increment(transaction.quantityChange),
                   availableQty: FieldValue.increment(transaction.quantityChange),
               });

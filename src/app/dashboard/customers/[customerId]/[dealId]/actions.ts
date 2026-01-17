@@ -3,9 +3,9 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess, Selection, Stock } from '@/lib/types';
+import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess, Selection, Stock, Receipt } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
-import { VisitFormValues } from './page';
+
 import { getMilestonesForOrder } from '@/lib/constants';
 import { FieldValue } from 'firebase-admin/firestore';
 import { google } from 'googleapis';
@@ -14,6 +14,8 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { firebase } from 'googleapis/build/src/apis/firebase';
 import { db } from '@/lib/firebase';
 import { firestore } from 'firebase-admin';
+import { VisitFormValues } from '@/components/features/customer/VisitForm';
+import { CpdFormValues } from '@/components/features/customer/CpdForm';
 
 
 // This function sends an SMS using the Fast2SMS API.
@@ -124,7 +126,9 @@ export async function updateDealProducts(customerId: string, dealId: string, pro
 }
 
 
-export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormValues, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string, quotation?: Quotation }> {
+type QuotationFormWithMeta = QuotationFormValues & { createdBy?: string };
+
+export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormWithMeta, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string, quotation?: Quotation }> {
   try {
     const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
     
@@ -138,7 +142,7 @@ export async function createQuotationAction(customerId: string, dealId: string, 
         createdAt: new Date().toISOString(),
         status: 'Pending Approval', // Initially pending
         totalAmount: totalAmount,
-        cpdId: values.selectedCpdId || undefined,
+        cpdId: values.selectedCpdId || "No CPD ID",
     };
     
     // Automation: Mark Quotation Making (4) as complete in O2D
@@ -395,29 +399,71 @@ export async function addVisitAction(
       createdBy: creatorName,
 
       // ⭐ CRITICAL FIELD ADDED
-      selectionId: finalSelectionId,
+      selectionId: finalSelectionId ?? undefined,
+
 
       measurements: visitData.measurements || [],
       blinds: visitData.blinds || [],
       curtain: visitData.curtain || [],
       otherCurtain: visitData.otherCurtain || "",
 
-      deliveryInstallations: visitData.deliveryInstallations || [],
-      subDeliveryInstallations: visitData.subDeliveryInstallations || [],
+      deliveryInstallations: (visitData.deliveryInstallations || [])
+        .filter(Boolean) as DeliveryInstallationItem[],
+
+      subDeliveryInstallations: (visitData.subDeliveryInstallations || [])
+        .filter(Boolean) as DeliveryInstallationItem[],
+
       otherDelivery: visitData.otherDelivery || "",
 
       dealId: dealData.dealId,
-      status: "requested",          // your existing workflow
-      orderId: visitData.orderId || null,
+      status: "approved",          // your existing workflow
+      orderId: visitData.orderId ?? undefined,
+      remark: visitData.remark ?? undefined,
+
 
       // ⭐ REQUIRED EMPTY dueDate (your schema requires it)
-      dueDate: "",
+      dueDate: visitData.dueDate ?? "",
+      customerAddress: visitData.customerAddress ?? undefined,
+      customerLandmark: visitData.customerLandmark ?? undefined,
     };
 
     console.log("🧩 FINAL VISIT SAVING:", newVisit);
 
     const batch = adminDb.batch();
     batch.set(newVisitRef, newVisit);
+
+    const nextAddress = (visitData.customerAddress || "").trim();
+    const nextLandmark = (visitData.customerLandmark || "").trim();
+    if (nextAddress) {
+      const existingAddresses = Array.isArray(customerData.savedAddresses)
+        ? customerData.savedAddresses
+        : [];
+      const normalize = (value?: string) =>
+        String(value || "").trim().toLowerCase();
+      const alreadySaved = existingAddresses.some(
+        (addr: any) =>
+          normalize(addr?.address) === normalize(nextAddress) &&
+          normalize(addr?.landmark) === normalize(nextLandmark)
+      );
+
+      const customerUpdates: Record<string, any> = {
+        addressPinCode: nextAddress,
+        landmark: nextLandmark,
+      };
+
+      if (!alreadySaved) {
+        const savedAddress: Record<string, string> = {
+          address: nextAddress,
+          createdAt: new Date().toISOString(),
+        };
+        if (nextLandmark) {
+          savedAddress.landmark = nextLandmark;
+        }
+        customerUpdates.savedAddresses = FieldValue.arrayUnion(savedAddress);
+      }
+
+      batch.update(customerRef, customerUpdates);
+    }
 
     // Delivery logic (unchanged)
     if (visitData.typeOfVisit === "delivery") {
@@ -619,9 +665,57 @@ export async function addCpdAction(
       }
     } while (!isUnique);
 
+    // Normalize to satisfy Cpd types (ids required, arrays normalized)
+    const normalizeCpd = (data: CpdFormValues): Omit<Cpd, "id" | "cpdId" | "createdAt" | "createdBy"> => ({
+      representative: data.representative,
+      customerName: data.customerName,
+      telNo: data.telNo,
+      date: data.date,
+      rooms: (data.rooms || []).map((room) => ({
+        room: room.room,
+        items: (room.items || []).map((item) => ({
+          itemName: item.itemName,
+          type: item.type,
+          qty: item.qty,
+          rate: item.rate,
+          dis: item.dis,
+          amount: item.amount,
+          fabricType: item.fabricType,
+          hasDimension: item.hasDimension,
+          hasStitchDimension: item.hasStitchDimension,
+          dimensions: (item.dimensions || []).map((d) => ({
+            id: d.id ?? `${Date.now()}-${Math.random()}`,
+            length: d.length,
+            width: d.width,
+            type: Array.isArray(d.type) ? d.type : d.type ? [d.type] : [],
+            advanceDetails: (d.advanceDetails || []).map((a) => ({
+              id: a.id ?? `${Date.now()}-${Math.random()}`,
+              name: a.name,
+              pcs: a.pcs,
+              imageUrl: (a as any).imageUrl ?? (a as any).img ?? undefined,
+            })),
+          })),
+          stitchDimensions: (item.stitchDimensions || []).map((s) => ({
+            id: s.id ?? `${Date.now()}-${Math.random()}`,
+            vas: s.vas,
+            lengths: s.lengths,
+            width: s.width,
+            operation: s.operation,
+            noOfPanels: s.noOfPanels,
+            remark: s.remark,
+          })),
+        })),
+      })),
+    });
+
     const newCpdRef = cpdsRef.doc();
+    const normalized = normalizeCpd(cpdData);
     const fullCpdData: Omit<Cpd, 'id'> = {
-      ...cpdData,
+      representative: normalized.representative,
+      customerName: normalized.customerName,
+      telNo: normalized.telNo,
+      date: normalized.date,
+      rooms: normalized.rooms,
       cpdId: newCpdId,
       createdAt: new Date().toISOString(),
       createdBy: creatorName,
@@ -793,7 +887,11 @@ export async function updateSelectionStatusAction(
   }
 }
 
-export async function getSelectionById(customerId, dealId, selectionId) {
+export async function getSelectionById(
+  customerId: string,
+  dealId: string,
+  selectionId: string
+) {
   try {
     const ref = adminDb
       .collection("customers")
@@ -867,7 +965,7 @@ export async function updateBlindsAction({
       return { success: false, error: "Selection not found" };
     }
 
-    const selectionData = snap.data();
+    const selectionData = snap.data() || {};
     const existingProducts = selectionData.products || [];
 
     console.log("📄 CURRENT PRODUCTS:", existingProducts);
@@ -974,7 +1072,7 @@ export async function updateSofasAction({
       return { success: false, error: "Selection not found" };
     }
 
-    const selectionData = snap.data();
+    const selectionData = snap.data() || {};
     const existingProducts = selectionData.products || [];
 
     console.log("📄 Current Products Count:", existingProducts.length);
@@ -986,37 +1084,37 @@ export async function updateSofasAction({
 
     sofas.forEach((sofa) => {
       const existingIndex = updatedProducts.findIndex((p) => p.id === sofa.id);
-      const existing = existingIndex !== -1 ? updatedProducts[existingIndex] : null;
 
       const sofaData = {
-        ...(existing || {}),
         id: sofa.id,
         isSofa: true,
         room: roomName,
-        itemName: sofa.itemName ?? existing?.itemName ?? "",
-        noOfSeat: sofa.noOfSeat ?? existing?.noOfSeat ?? "",
-        fabricQty: sofa.fabricQty ?? existing?.fabricQty ?? "",
-        stitchingRate: sofa.stitchingRate ?? existing?.stitchingRate ?? "",
+        itemName: sofa.itemName,
+        noOfSeat: sofa.noOfSeat,
+        fabricQty: sofa.fabricQty,
+        stitchingRate: sofa.stitchingRate,
 
-        foam: sofa.foam ?? existing?.foam ?? null,
-        casement: sofa.casement ?? existing?.casement ?? null,
-        marking: sofa.marking ?? existing?.marking ?? null,
+        foam: sofa.foam || null,
+        casement: sofa.casement || null,
+        marking: sofa.marking || null,
 
-        // Preserve existing values when present
-        quantity: existing?.quantity ?? "0",
-        noOfPcs: existing?.noOfPcs ?? "1",
-        collectionBrand:
-          sofa.collectionBrand ?? existing?.collectionBrand ?? "",
-        mrp: existing?.mrp ?? "0",
-        remarks: existing?.remarks ?? "",
-        salesDescription: existing?.salesDescription ?? "",
-        verticalRepeat: existing?.verticalRepeat ?? "",
-        horizontalRepeat: existing?.horizontalRepeat ?? ""
+        // Default required firestore fields
+        quantity: "0",
+        noOfPcs: "1",
+        collectionBrand: "",
+        mrp: "0",
+        remarks: "",
+        salesDescription: "",
+        verticalRepeat: "",
+        horizontalRepeat: ""
       };
 
       if (existingIndex !== -1) {
         console.log("🟢 Updating existing sofa:", sofa.id);
-        updatedProducts[existingIndex] = sofaData;
+        updatedProducts[existingIndex] = {
+          ...updatedProducts[existingIndex],
+          ...sofaData
+        };
       } else {
         console.log("🟡 Adding NEW sofa:", sofa.id);
         updatedProducts.push(sofaData);
@@ -1072,8 +1170,13 @@ export async function updateItemsAction({
       return { success: false, error: "Selection not found" };
     }
 
-    const selectionData = snap.data();
-    const existingProducts = selectionData.products || [];
+    const selectionData = snap.data() || {};
+    const existingProducts = Array.isArray(selectionData.products)
+      ? selectionData.products
+      : [];
+
+    console.log("📄 Current Products Count:", existingProducts.length);
+
 
     console.log("📄 Current Products Count:", existingProducts.length);
 
@@ -1095,36 +1198,33 @@ export async function updateItemsAction({
 
         // Find existing document
         const index = updatedProducts.findIndex(p => p.id === id);
-        const existing = index !== -1 ? updatedProducts[index] : null;
 
         const itemData = {
-          ...(existing || {}),
           id,
           room: roomName,
-          itemType: item.itemType ?? existing?.itemType ?? "",
-          itemName: item.itemName ?? existing?.itemName ?? "",
-          noOfPannel: item.noOfPannel ?? existing?.noOfPannel ?? "",
-          height: item.height ?? existing?.height ?? "",
-          width: item.width ?? existing?.width ?? "",
-          remark: item.remark ?? existing?.remark ?? "",
-          casement: item.casement ?? existing?.casement ?? null,
-          marking: item.marking ?? existing?.marking ?? null,
-          niwar: item.niwar ?? existing?.niwar ?? null,
+          itemType: item.itemType || "",
+          itemName: item.itemName || "",
+          noOfPannel: item.noOfPannel || "",
+          height: item.height || "",
+          width: item.width || "",
+          remark: item.remark || "",
+          casement: item.casement || null,
+          marking: item.marking || null,
+          niwar: item.niwar || null,
           isBlind: false,
           isSofa: false,
-          quantity: item.quantity ?? existing?.quantity ?? "0",
-          noOfPcs: item.noOfPcs ?? existing?.noOfPcs ?? "1",
-          collectionBrand:
-            item.collectionBrand ?? existing?.collectionBrand ?? "",
-          mrp: item.mrp ?? existing?.mrp ?? "0",
-          remarks: existing?.remarks ?? "",
-          salesDescription: existing?.salesDescription ?? "",
-          verticalRepeat: existing?.verticalRepeat ?? "",
-          horizontalRepeat: existing?.horizontalRepeat ?? ""
+          quantity: "0",
+          noOfPcs: "1",
+          collectionBrand: "",
+          mrp: "0",
+          remarks: "",
+          salesDescription: "",
+          verticalRepeat: "",
+          horizontalRepeat: ""
         };
 
         if (index !== -1) {
-          updatedProducts[index] = itemData;
+          updatedProducts[index] = { ...updatedProducts[index], ...itemData };
         } else {
           updatedProducts.push(itemData);
         }
@@ -1151,99 +1251,225 @@ export async function updateItemsAction({
 // CORRECT — SAVE MEASUREMENT TO DEAL
 //////////////////////////////////////////
 
+import admin from "firebase-admin";
+
 export async function saveMeasurementToDeal({
   customerId,
   dealId,
   visitId,
   selectionId,
+  typeOf,
+  doerName,
   rooms,
   itemDetails = [],
   createdBy,
   status,
-  flags
+  flags,
 }: {
-  customerId: string;
-  dealId: string;
-  visitId?: string;        // ⭐ NEW
+  customerId?: string;
+  dealId?: string;
+  visitId?: string;
   selectionId?: string | null;
+  typeOf?: string | null;
+  doerName?: string | null;
   rooms: any[];
   itemDetails?: any[];
-  createdBy: string;
-  status: string;
-  flags: string[];
+  createdBy?: string;
+  status?: string;
+  flags?: string[];
 }) {
   try {
     console.log("🔥 saveMeasurementToDeal CALLED");
-    console.log("➡ customerId:", customerId);
-    console.log("➡ dealId:", dealId);
-    console.log("➡ visitId:", visitId);
+    console.log({ customerId, dealId, visitId, createdBy, doerName });
 
-    if (!customerId) throw new Error("customerId missing in payload");
-    if (!dealId) throw new Error("dealId missing in payload");
+    /* ---------------- FALLBACKS ---------------- */
 
-    const dealRef = adminDb
-      .collection("customers")
-      .doc(customerId)
-      .collection("deals")
-      .doc(dealId);
+    const safeCreatedBy =
+      (createdBy && createdBy.trim()) ||
+      (doerName && doerName.trim()) ||
+      "System";
 
-    const measurementRef = dealRef.collection("measurements").doc(); // auto ID
+    const safeStatus = status || "completed";
+    const safeFlags = Array.isArray(flags) ? flags : [];
+
+    /* ---------------- RESOLVE REFS ---------------- */
+
+    let dealRef:
+      | FirebaseFirestore.DocumentReference
+      | null = null;
+    let visitRef:
+      | FirebaseFirestore.DocumentReference
+      | null = null;
+
+    // ✅ If customerId + dealId (doc id) provided, use them
+    if (customerId && dealId) {
+      dealRef = adminDb
+        .collection("customers")
+        .doc(customerId)
+        .collection("deals")
+        .doc(dealId);
+
+      if (visitId) {
+        visitRef = dealRef.collection("visits").doc(visitId);
+      }
+    }
+
+    // ✅ Otherwise resolve from visitId (BEST for your new payload)
+    if (!dealRef) {
+      if (!visitId) throw new Error("visitId missing (cannot resolve deal)");
+
+      // 1) Nested visits: customers/{cid}/deals/{did}/visits/{visitId}
+      const cg = await adminDb
+        .collectionGroup("visits")
+        .where(admin.firestore.FieldPath.documentId(), "==", visitId)
+        .limit(1)
+        .get();
+
+      if (!cg.empty) {
+        visitRef = cg.docs[0].ref;
+        // visits -> parent is visits collection -> parent.parent is deal doc
+        dealRef = visitRef.parent.parent || null;
+      }
+
+      // 2) Optional fallback if you have top-level visits/{visitId}
+      if (!dealRef) {
+        const direct = await adminDb.collection("visits").doc(visitId).get();
+        if (direct.exists) {
+          visitRef = direct.ref;
+
+          const v = direct.data() || {};
+          const cid = v.customerId;
+          const did = v.dealId; // ⚠️ must be deal doc id to work
+
+          if (cid && did) {
+            dealRef = adminDb
+              .collection("customers")
+              .doc(cid)
+              .collection("deals")
+              .doc(did);
+          }
+        }
+      }
+
+      if (!dealRef) {
+        throw new Error(
+          "Could not resolve dealRef from visitId. Visit not found in Firestore."
+        );
+      }
+    }
+
+    /* ---------------- SANITIZE DATA ---------------- */
+
+    const stripPrivateKeys = (obj: any) => {
+      if (!obj || typeof obj !== "object") return {};
+      const out: any = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (k.startsWith("_")) continue; // removes _showPanelDropdown etc
+        out[k] = v;
+      }
+      return out;
+    };
+
+    const sanitizeRooms = (rooms || []).map((room) => ({
+      roomName: room.roomName || "",
+      items: (room.items || []).map((item: any) => ({
+        type: item.type || "",
+        data: stripPrivateKeys(item.data || {}),
+        remark: item.remark || "",
+        photos: Array.isArray(item.photos) ? item.photos.filter(Boolean) : [],
+      })),
+    }));
+
+    const safeItemDetails = Array.isArray(itemDetails)
+      ? itemDetails.filter(Boolean)
+      : [];
+
+    /* ---------------- SAVE ---------------- */
+
+    const measurementRef = dealRef.collection("measurements").doc();
 
     const saveData = {
       id: measurementRef.id,
       createdAt: new Date().toISOString(),
-      createdBy,
-      selectionId: selectionId || null,
-      rooms,
-      itemDetails,
-      status,
-      flags
+      createdBy: safeCreatedBy,
+
+      selectionId: selectionId ?? null,
+      typeOf: typeOf ?? null,
+      doerName: doerName ?? null,
+
+      rooms: sanitizeRooms,
+      itemDetails: safeItemDetails,
+
+      status: safeStatus,
+      flags: safeFlags,
     };
 
-    // -----------------------------
-    // ⭐ BATCH OPERATION
-    // -----------------------------
     const batch = adminDb.batch();
 
     // 1️⃣ Save Measurement
-    batch.set(measurementRef, saveData);
+    batch.set(measurementRef, saveData, { merge: true });
 
-    // 2️⃣ Update Visit Status → completed
-    if (visitId) {
-      const visitRef = dealRef.collection("visits").doc(visitId);
-
-      batch.update(visitRef, {
-        status: "completed",
-        measurementId: measurementRef.id,
-        measurementSavedAt: new Date().toISOString()
-      });
+    // 2️⃣ Update Visit (ONLY if visitRef resolved)
+    if (visitRef) {
+      batch.set(
+        visitRef,
+        {
+          status: "completed",
+          visitEndTime: new Date().toISOString(),
+          measurementId: measurementRef.id,
+          measurementSavedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
     }
 
-    // 3️⃣ Update Deal.latestMeasurementId
-    batch.update(dealRef, { latestMeasurementId: measurementRef.id });
+    // 3️⃣ Update Deal
+    batch.set(
+      dealRef,
+      {
+        latestMeasurementId: measurementRef.id,
+        latestMeasurementAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
 
     await batch.commit();
 
-    console.log("✅ Measurement saved at:", measurementRef.path);
+    console.log("✅ Measurement saved:", measurementRef.path);
 
-    return { success: true, measurementId: measurementRef.id };
-
+    return {
+      success: true,
+      measurementId: measurementRef.id,
+      dealPath: dealRef.path,
+      visitPath: visitRef?.path || null,
+    };
   } catch (err: any) {
-    console.log("❌ ERROR saveMeasurementToDeal:", err);
-    return { success: false, error: err.message };
+    console.error("❌ saveMeasurementToDeal ERROR:", err);
+    return {
+      success: false,
+      error: err.message || "Failed to save measurement",
+    };
   }
 }
 
+
 //////////////////////Inventory look Up///////////////////
-export async function inventoryLookupAction({ bcnList }) {
+export async function inventoryLookupAction({ bcnList }: { bcnList: string[] }) {
   try {
-    const results = {};
+    const results: Record<string, any> = {};
 
     for (let raw of bcnList) {
       const bcn = String(raw || "").trim();
+      console
 
-      // Skip missing or empty BCN
-      if (!bcn) {
+      // ⛔ SKIP invalid BCN values
+      if (
+        !bcn ||
+        bcn === "N/A" ||
+        bcn === "-" ||
+        bcn === "null" ||
+        bcn === "undefined"
+      ) {
         console.log("⛔ Skipping invalid BCN:", raw);
         results[bcn] = { mrp: 0 };
         continue;
@@ -1251,7 +1477,7 @@ export async function inventoryLookupAction({ bcnList }) {
 
       try {
         const snap = await adminDb
-          .collection("stocks")     // <<<<<< CORRECT COLLECTION
+          .collection("stocks")
           .doc(bcn)
           .get();
 
@@ -1259,9 +1485,8 @@ export async function inventoryLookupAction({ bcnList }) {
           console.log("⚠️ BCN not found in stocks:", bcn);
           results[bcn] = { mrp: 0 };
         } else {
-          results[bcn] = snap.data();  // contains {mrp, itemName, ... }
+          results[bcn] = snap.data();
         }
-
       } catch (inner) {
         console.log("🔥 Firestore error for BCN:", bcn, inner);
         results[bcn] = { mrp: 0 };
@@ -1279,7 +1504,7 @@ export async function inventoryLookupAction({ bcnList }) {
 
 /////////////////////get Selection id Action/////////////////// 
 
-export async function getMeasurementById(customerId, dealId, measurementId) {
+export async function getMeasurementById(customerId:string, dealId:string, measurementId:string): Promise<DealMeasurement | null> {
   console.log("SERVER getMeasurementById args:", {
     customerId,
     dealId,
@@ -1299,11 +1524,73 @@ export async function getMeasurementById(customerId, dealId, measurementId) {
 
     if (!snap.exists) return null;
 
-    return JSON.parse(JSON.stringify({ id: snap.id, ...snap.data() }));
+    // It's crucial to return a plain object, not a Firestore DocumentSnapshot
+    const data = { id: snap.id, ...snap.data() } as DealMeasurement;
+    return JSON.parse(JSON.stringify(data));
+    
   } catch (e) {
     console.log("🔥 error fetching measurement", e);
     return null;
   }
 }
 
+export async function addReceiptAction(
+  customerId: string,
+  dealId: string,
+  receiptData: Omit<Receipt, 'id'>
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
+    const receiptRef = dealRef.collection('receipts').doc();
 
+    await receiptRef.set({
+      ...receiptData,
+      id: receiptRef.id,
+    });
+    
+    return { success: true, message: 'Receipt added successfully.' };
+  } catch (error: any) {
+    console.error("Error adding receipt:", error);
+    return { success: false, message: `Failed to add receipt: ${error.message}` };
+  }
+}
+
+export async function getReceiptsForDeal(customerId: string, dealId: string): Promise<Receipt[]> {
+  try {
+      const snapshot = await adminDb
+          .collection('customers')
+          .doc(customerId)
+          .collection('deals')
+          .doc(dealId)
+          .collection('receipts')
+          .orderBy('date', 'desc')
+          .get();
+
+      if (snapshot.empty) {
+          return [];
+      }
+
+      const receipts = snapshot.docs.map(doc => doc.data() as Receipt);
+      return JSON.parse(JSON.stringify(receipts));
+  } catch (error) {
+      console.error("Error fetching receipts:", error);
+      return [];
+  }
+}
+
+export async function startVisitAction(customerId: string, dealDocId: string, visitId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const visitRef = adminDb.collection("customers").doc(customerId).collection("deals").doc(dealDocId).collection("visits").doc(visitId);
+    const visitSnap = await visitRef.get();
+    if (visitSnap.exists && !visitSnap.data()?.visitStartTime) {
+      await visitRef.update({
+        visitStartTime: new Date().toISOString(),
+        visitStatus: "Working",
+      });
+    }
+    return { success: true, message: "Visit started." };
+  } catch (error: any) {
+    console.error("Error starting visit:", error);
+    return { success: false, message: `Failed to start visit: ${error.message}` };
+  }
+}

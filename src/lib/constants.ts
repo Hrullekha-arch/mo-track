@@ -73,6 +73,11 @@ export const INBOUND_PROCESS_CONFIG = [
     { id: 5, name: 'Assign Rack/Location', time: "Variable", icon: Warehouse },
 ];
 
+export const storeOptions: ComboboxOption[] = [
+    { value: "MO GCR BRANCH", label: "MO GCR BRANCH" },
+    { value: "MO MG ROAD", label: "MO MG ROAD" },
+    { value: "MO SULTANPUR", label: "MO SULTANPUR" },
+];
 
 export const roomOptions: ComboboxOption[] = [
     { value: "kids-room", label: "KIDS ROOM" },
@@ -515,6 +520,3 @@ export const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
     
 
     
-
-
-

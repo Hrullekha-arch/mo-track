@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem, VasDetail, OrderType, Order } from "@/lib/types";
 import React, { useEffect, useState, useMemo } from "react";
 import { getCustomerById } from "@/app/dashboard/customers/actions";
-import { getDealById, getQuotationsForDeal, createDealOrderAction } from "./actions";
+import { getQuotationsForDeal, createDealOrderAction } from "./actions";
 import Link from "next/link";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -271,23 +271,102 @@ function ConvertToOrderContent() {
     form.reset({ ...form.getValues(), addProduct: { collectionBrand: "", serialNo: "", description: "", quantity: "", rate: "", discountPercent: "", discAmt: "", value: false, room: "", noOfPcs: "", remark: "", info1: "", info2: "" } });
   };
 
-  const onSubmit = (data: ConvertToOrderFormValues) => {
-    if (!quotation) return;
+const onSubmit = (data: ConvertToOrderFormValues) => {
+  if (!quotation) return;
 
-    const updatedQuotationData: Quotation = {
-      ...quotation,
-      items: data.products.map(p => ({
-        ...p,
-        discountPercent: Number(p.discountPercent) || 0,
-      })),
-      vasDetails: data.vasDetails,
-      billingName: data.billingName,
-      totalAmount: totals.grandTotal,
-    };
+  const mappedItems: QuotationItem[] = data.products.map((p) => ({
+    id: p.id ?? undefined,
+    collectionBrand: p.collectionBrand ?? "",
+    serialNo: p.serialNo ?? "",
+    salesDescription: p.description ?? "",
 
-    setDataForConfirmation(updatedQuotationData);
-    setIsConfirmOpen(true);
+    quantity: Number(p.quantity) || 0,
+    rate: Number(p.quotationRate) || 0,
+    discountPercent: Number(p.discountPercent) || 0,
+    amount: (Number(p.quantity) || 0) * (Number(p.quotationRate) || 0),
+    room: p.room ?? "",
+    remark: p.remark ?? "",
+  }));
+
+  const updatedQuotationData: Quotation = {
+    ...quotation,
+    items: mappedItems,
+    vasDetails: data.vasDetails,
+    billingName: data.billingName,
+    totalAmount: totals.grandTotal,
   };
+
+  setDataForConfirmation(updatedQuotationData);
+  setIsConfirmOpen(true);
+};
+function convertQuotationToTemporaryOrder(q: Quotation): Order {
+  return {
+    id: q.id ?? "",
+    crmOrderNo: "",
+
+    customerName: q.customerName ?? "",
+    customerPhone: "",              // quotation doesn't have phone
+    customerAddress: "",            // quotation doesn't have address
+    salesPerson: "",                // quotation doesn't have salesperson
+    storeName: q.store ?? "",
+
+    orderType: "stitching",
+
+    milestones: [],
+    o2dMilestones: [],
+    pmsMilestones: [],
+
+    fabricDetails: [],
+    furnitureDetails: [],
+    vasDetails: q.vasDetails ?? [],
+
+    totalAmount: q.totalAmount ?? 0,
+    status: "Pending Approval",
+    isAcknowledged: false,
+
+    remarks: "",
+    assignedTo: "",
+    handledByCrm: "",
+
+    createdAt: new Date().toISOString(),
+    createdBy: q.createdBy? undefined : { id: "", name: "" },
+
+    feedbackRating: undefined,
+    feedbackRemarks: undefined,
+    bypassedOtp: false,
+
+    customerFeedbackRating: undefined,
+    customerFeedbackRemarks: undefined,
+
+    otp: "",
+    completedAt: undefined,
+
+    customerId: undefined,
+    dealId: undefined,
+    dealOrderDocId: undefined,
+    representativeId: undefined,
+
+    balanceFollowUp: false,
+    paymentConfirmed: false,
+    fullKittingTime: "",
+    fullKittingTimeReupdated: false,
+
+    items: (q.items || []).map(item => ({
+      id: item.id ?? undefined,
+      collectionBrand: item.collectionBrand ?? "",
+      serialNo: item.serialNo ?? "",
+      salesDescription: item.salesDescription ?? "",
+      quantity: Number(item.quantity) || 0,
+      rate: Number(item.rate) || 0,
+      discountPercent: Number(item.discountPercent) || 0,
+      amount: Number(item.amount) || 0,
+      room: item.room ?? "",
+      remark: item.remark ?? "",
+    })),
+  };
+}
+
+
 
   const handleConfirmAndCreateOrder = async (order: Order, orderType: OrderType) => {
     if (!customerId || !dealId || !user || !dataForConfirmation) return;
@@ -309,6 +388,8 @@ function ConvertToOrderContent() {
       setIsConfirmOpen(false);
     }
   }
+
+  
 
 
   if (loading) {
@@ -507,15 +588,15 @@ function ConvertToOrderContent() {
         </form>
       </FormProvider>
     </div>
-    {quotation && (
-    <ConfirmOrderTypeDialog
-        isOpen={isConfirmOpen}
-        onClose={() => setIsConfirmOpen(false)}
-        // The dialog expects an order, but we can pass a simplified version
-        order={{ ...quotation, orderType: 'stitching', milestones: [], createdAt: '', isAcknowledged: false } as Order}
-        onConfirm={handleConfirmAndCreateOrder}
-    />
-    )}
+    {isConfirmOpen && dataForConfirmation && (
+        <ConfirmOrderTypeDialog
+          isOpen={isConfirmOpen}
+          onClose={() => setIsConfirmOpen(false)}
+          order={convertQuotationToTemporaryOrder(dataForConfirmation)}
+          onConfirm={handleConfirmAndCreateOrder}
+        />
+      )}
+
     </>
   );
 }

@@ -2,14 +2,14 @@
 "use client";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle, PhoneCall, Bell, ListOrdered, UserCheck, Dot, GitCommitHorizontal, CheckCheckIcon } from "lucide-react";
+import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle, PhoneCall, Bell, ListOrdered, UserCheck, Dot, GitCommitHorizontal, CheckCheckIcon, UserPlus, X, Briefcase } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
-import { collection, onSnapshot, query, where, collectionGroup, getDocs, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query, where, collectionGroup, getDocs, orderBy, doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Order, Quotation, PurchaseRequest, InboundRequest, DealVisit, CuttingTask, InvoiceBatch, User, PurchaseStatus } from "@/lib/types";
-import Image from "next/image";
+import { Order, Quotation, PurchaseRequest, User, PurchaseStatus, Walkin_Customer } from "@/lib/types";
+import Image from 'next/image';
 import { getFollowUpItems } from "./po-tracking/actions";
 import { useAuth } from "@/context/AuthContext";
 import { format, formatDistanceToNow } from "date-fns";
@@ -19,250 +19,258 @@ import { cn } from "@/lib/utils";
 import { PO_PROCESS_CONFIG } from "@/lib/constants";
 import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
 import { AccountsDashboard } from "@/components/features/dashboard/AccountsDashboard";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { addCustomerAction, addDealAction } from "./customers/actions";
 
-interface SummaryCardProps {
-    title: string;
-    count: number | null;
-    href: string;
-    icon: React.ElementType;
-    loading: boolean;
-}
-
-function SummaryCard({ title, count, href, icon: Icon, loading }: SummaryCardProps) {
-    return (
-        <Link href={href} className="block group">
-            <Card className="hover:bg-muted/50 hover:shadow-lg transition-all h-full">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium">{title}</CardTitle>
-                    <Icon className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                    {loading ? (
-                         <Skeleton className="h-7 w-12" />
-                    ) : (
-                        <div className="text-2xl font-bold">{count}</div>
-                    )}
-                </CardContent>
-            </Card>
-        </Link>
-    )
-}
 
 const SalesmanDashboard = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
+    const router = useRouter();
+
     const [orders, setOrders] = useState<Order[]>([]);
     const [notifications, setNotifications] = useState<any[]>([]);
+    const [walkinLeads, setWalkinLeads] = useState<Walkin_Customer[]>([]);
     const [loading, setLoading] = useState(true);
+
+    const [closingLead, setClosingLead] = useState<Walkin_Customer | null>(null);
+    const [closeRemark, setCloseRemark] = useState("");
+    const [isClosing, setIsClosing] = useState(false);
+
+    const [dealCreationLead, setDealCreationLead] = useState<Walkin_Customer | null>(null);
+    const [isCreatingDeal, setIsCreatingDeal] = useState(false);
 
     useEffect(() => {
         if (!user) return;
         setLoading(true);
+        const salesmanName = user.name;
 
-        const ordersQuery = query(collection(db, 'orders'), where('salesPerson', '==', user.name));
+        const ordersQuery = query(collection(db, 'orders'), where('salesPerson', '==', salesmanName));
         const quotesQuery = query(collectionGroup(db, 'quotations'), where('representativeId', '==', user.id));
-        const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('salesman', '==', user.name));
+        const purchaseRequestsQuery = query(collection(db, 'purchaseRequests'), where('salesman', '==', salesmanName));
+        const walkinQuery = query(collection(db, 'Walkin_Customer'), where('salesmanId', '==', user.id), where('status', '==', 'Handed Over'));
 
-        let localOrders: Order[] = [];
-        let localQuotes: Quotation[] = [];
-        let localPrs: PurchaseRequest[] = [];
-
-        const processNotifications = () => {
-            const allNotifications: any[] = [];
-            
-            localOrders.forEach(order => {
-                if (order.status === 'Pending Approval') {
-                    allNotifications.push({ type: 'Order Pending Approval', data: order, date: order.createdAt });
-                }
-                if (order.status === 'Approved') {
-                    allNotifications.push({ type: 'Order Approved', data: order, date: order.approvedAt || order.createdAt });
-                }
-                
-                (order.milestones || []).forEach(m => {
-                    if (m.completed && m.completedAt) {
-                         allNotifications.push({ type: 'Milestone Update', data: { ...order, milestone: m }, date: m.completedAt });
-                    }
-                });
-            });
-
-            localQuotes.forEach(quote => {
-                 if (quote.status === 'Approved') {
-                    allNotifications.push({ type: 'Quotation Approved', data: quote, date: quote.approvedAt || quote.createdAt });
-                }
-                 if (quote.status === 'Pending Approval') {
-                    allNotifications.push({ type: 'Quotation Sent for Approval', data: quote, date: quote.createdAt });
-                }
-            });
-            
-             localPrs.forEach(pr => {
-                if(pr.status === 'Approved') {
-                    allNotifications.push({ type: 'Purchase Request Created', data: pr, date: pr.createdAt });
-                }
-                (pr.poMilestones || []).forEach((m: PurchaseStatus) => {
-                     if (m.completedAt) {
-                         allNotifications.push({ type: 'PO Milestone Update', data: { ...pr, milestone: m }, date: m.completedAt });
-                    }
-                })
-            });
-
-            setNotifications(allNotifications.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-        };
-        
         const unsubs: (() => void)[] = [];
 
-        const ordersListener = onSnapshot(ordersQuery, (snapshot) => {
-            localOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-            setOrders(localOrders);
-            processNotifications();
+        unsubs.push(onSnapshot(ordersQuery, (snapshot) => setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)))));
+        unsubs.push(onSnapshot(quotesQuery, (snapshot) => { /* Handle quote updates if needed */ }));
+        unsubs.push(onSnapshot(purchaseRequestsQuery, (snapshot) => { /* Handle PR updates if needed */ }));
+        unsubs.push(onSnapshot(walkinQuery, (snapshot) => {
+            setWalkinLeads(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Walkin_Customer)));
             setLoading(false);
-        });
-        unsubs.push(ordersListener);
-
-        const quotesListener = onSnapshot(quotesQuery, (snapshot) => {
-            localQuotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quotation));
-            processNotifications();
-        });
-        unsubs.push(quotesListener);
-
-        const prListener = onSnapshot(purchaseRequestsQuery, (snapshot) => {
-            localPrs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-            processNotifications();
-        });
-        unsubs.push(prListener);
-
+        }));
 
         return () => unsubs.forEach(unsub => unsub());
     }, [user]);
 
-    const getStatusBadge = (status: string) => {
-        switch (status) {
-            case 'in stock':
-                return <Badge variant="default" className="bg-green-500">In Stock</Badge>;
-            case 'allocated':
-                 return <Badge variant="default" className="bg-blue-500">Allocated</Badge>;
-            case 'po generated':
-                return <Badge variant="secondary">PO Generated</Badge>;
-            case 'pending for po':
-                return <Badge variant="destructive">Pending for PO</Badge>;
-            default:
-                return <Badge variant="outline">{status}</Badge>;
+    const handleCreateDeal = async (lead: Walkin_Customer) => {
+        if (!user) return;
+        
+        setIsCreatingDeal(true);
+        setDealCreationLead(lead);
+
+        try {
+            // Step 1: Check if customer exists by mobile number
+            const customersRef = collection(db, "customers");
+            const q = query(customersRef, where("mobileNo", "==", lead.mobile));
+            const querySnapshot = await getDocs(q);
+
+            let customerId: string;
+
+            if (querySnapshot.empty) {
+                // Step 2a: Customer doesn't exist, so create them
+                const customerData = {
+                    name: `${lead.firstName} ${lead.familyName}`,
+                    mobileNo: lead.mobile,
+                    email: lead.email || '',
+                    createdAt: new Date().toISOString(),
+                    createdBy: user.name,
+                };
+                const customerResult = await addCustomerAction(customerData);
+                if (!customerResult.success || !customerResult.customer) {
+                    throw new Error(customerResult.message || "Failed to create a new customer record.");
+                }
+                customerId = customerResult.customer.id;
+            } else {
+                // Step 2b: Customer exists, use their ID
+                customerId = querySnapshot.docs[0].id;
+            }
+            
+            // Step 3: Create the deal
+            const dealData = {
+                customerId: customerId,
+                dealName: "WalkIn",
+                dealAmount: 1, // Default amount
+                representativeId: user.id,
+                description: `Deal created from walk-in lead for ${lead.firstName} ${lead.familyName}.`,
+                advanceForMeasurement: 'No' as const,
+            };
+            
+            const dealResult = await addDealAction(dealData);
+
+            if (dealResult.success && dealResult.deal) {
+                // Step 4: Update the lead status
+                await updateDoc(doc(db, "Walkin_Customer", lead.id), { status: "Deal Created" });
+                toast({ title: "Deal Created!", description: `Redirecting to deal #${dealResult.deal.dealId}...`});
+                // Step 5: Redirect to the product tab of the new deal
+                router.push(`/dashboard/customers/${customerId}/${dealResult.deal.id}?tab=products`);
+            } else {
+                 throw new Error(dealResult.message || "Failed to create deal.");
+            }
+
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Deal Creation Failed", description: error.message });
+        } finally {
+            setIsCreatingDeal(false);
+            setDealCreationLead(null);
         }
     };
-    
-    const renderNotification = (notification: any) => {
-        let title = '';
-        let description = '';
-        let icon = <GitCommitHorizontal />;
 
-        switch(notification.type) {
-            case 'Quotation Sent for Approval':
-                title = "Quotation Submitted";
-                description = `Quotation #${notification.data.quotationNo} for ${notification.data.customerName} is pending approval.`;
-                icon = <FileSignature className="text-blue-500"/>
-                break;
-            case 'Quotation Approved':
-                title = "Quotation Approved!";
-                description = `Quotation #${notification.data.quotationNo} for ${notification.data.customerName} has been approved.`;
-                icon = <CheckCheckIcon className="text-green-500"/>
-                break;
-            case 'Order Pending Approval':
-                title = "Order Submitted";
-                description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} is pending approval.`;
-                icon = <FileSignature className="text-blue-500" />
-                break;
-            case 'Order Approved':
-                title = "Order Approved";
-                description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} has been approved.`;
-                 icon = <CheckCheckIcon className="text-green-500"/>
-                break;
-            case 'Milestone Update':
-                title = notification.data.milestone.name;
-                description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} has been updated.`;
-                icon = <GitCommitHorizontal className="text-purple-500" />
-                break;
-            case 'Purchase Request Created':
-                title = `Purchase Request Created`;
-                description = `Materials for order #${notification.data.dealId} have been requested.`;
-                icon = <ShoppingCart className="text-orange-500" />;
-                break;
-            case 'PO Milestone Update':
-                const milestoneConfig = PO_PROCESS_CONFIG.find(p => p.id === notification.data.milestone.stepId);
-                title = milestoneConfig?.step || 'PO Updated';
-                const itemName = notification.data.milestone.itemName;
-                if (itemName) {
-                    const itemDetail = notification.data.fabricDetails?.find((f: any) => f.fabricName === itemName);
-                    const itemQty = itemDetail ? `(${itemDetail.quantity} Mtr)` : '';
-                    description = `"${itemName}" ${itemQty} for order #${notification.data.dealId} has been updated.`;
-                } else {
-                     description = `Purchase for order #${notification.data.dealId} has been updated.`;
-                }
-                icon = <Truck className="text-cyan-500" />;
-                break;
+    const handleCloseLead = async () => {
+        if (!closingLead) return;
+        setIsClosing(true);
+        try {
+            const leadRef = doc(db, "Walkin_Customer", closingLead.id);
+            await updateDoc(leadRef, {
+                status: 'Closed',
+                action: 'Close',
+                remarks: closeRemark,
+            });
+            toast({ title: "Lead Closed", description: "The lead has been marked as closed."});
+            setClosingLead(null);
+            setCloseRemark("");
+        } catch (error) {
+            toast({ variant: "destructive", title: "Error", description: "Failed to close the lead."});
+        } finally {
+            setIsClosing(false);
         }
+    };
 
-        return (
-            <div className="flex items-start gap-4">
-                 <div className="mt-1">{icon}</div>
-                <div>
-                    <p className="text-sm font-medium">{title}</p>
-                    <p className="text-xs text-muted-foreground">{description}</p>
-                    <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(notification.date), { addSuffix: true })}</p>
-                </div>
-            </div>
-        )
-    }
 
     return (
-        <div className="p-4 md:p-6 lg:p-8 space-y-6">
-             <header className="mb-2">
-                <h1 className="text-3xl font-bold tracking-tight">Welcome, {user?.name.split(' ')[0]}</h1>
-                <p className="text-muted-foreground">Here's a look at your active orders and recent notifications.</p>
-            </header>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <Card className="lg:col-span-2">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><ListOrdered /> All Orders And Updates</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4 max-h-[75vh] overflow-y-auto">
-                        {loading ? (
-                            Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
-                        ) : orders.length > 0 ? (
-                            orders.map(order => (
-                                <Link key={order.id} href={`/dashboard/orders/${order.id}`}>
-                                <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-                                    <div>
-                                        <p className="font-semibold text-primary">{order.customerName}</p>
-                                        <p className="text-sm text-muted-foreground">{order.id}</p>
-                                    </div>
-                                    <div className="text-right">
-                                         <Badge variant={order.milestones.every(m => m.completed) ? 'default' : 'secondary'} className={cn('capitalize', order.milestones.every(m => m.completed) ? 'bg-green-600' : '')}>
-                                            {order.milestones.slice().reverse().find(m => m.completed)?.name.toLowerCase() || 'Order Received'}
-                                        </Badge>
-                                        <p className="text-sm text-muted-foreground mt-1">{format(new Date(order.createdAt), 'dd MMM yyyy')}</p>
-                                    </div>
+        <>
+            <div className="p-4 md:p-6 lg:p-8 space-y-6">
+                <header className="mb-2">
+                    <h1 className="text-3xl font-bold tracking-tight">Welcome, {user?.name.split(' ')[0]}</h1>
+                    <p className="text-muted-foreground">Here are your active leads and orders.</p>
+                </header>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <Card className="lg:col-span-2">
+                         <CardHeader>
+                            <CardTitle className="flex items-center gap-2"><Briefcase /> Active Leads</CardTitle>
+                            <CardDescription>New walk-in customers assigned to you.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                             {loading ? (
+                                <Skeleton className="h-24 w-full" />
+                            ) : walkinLeads.length > 0 ? (
+                                <div className="space-y-3">
+                                    {walkinLeads.map(lead => (
+                                        <div key={lead.id} className="p-4 border rounded-lg flex justify-between items-center">
+                                            <div>
+                                                <p className="font-semibold">{lead.firstName} {lead.familyName}</p>
+                                                <p className="text-sm text-muted-foreground">{lead.mobile}</p>
+                                                {lead.lookingFor && <p className="text-xs text-muted-foreground pt-1">Looking for: {lead.lookingFor}</p>}
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                        <Button size="sm">Create Deal</Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>Create a New Deal?</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This will create a new deal named "WalkIn" for {lead.firstName} {lead.familyName}. Are you sure you want to proceed?
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={() => handleCreateDeal(lead)} disabled={isCreatingDeal && dealCreationLead?.id === lead.id}>
+                                                                {isCreatingDeal && dealCreationLead?.id === lead.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                                                Yes, Create Deal
+                                                            </AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                                <Button size="sm" variant="outline" onClick={() => setClosingLead(lead)}>Close</Button>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                                </Link>
-                            ))
-                        ) : (
-                            <p className="text-center text-muted-foreground py-10">No orders found.</p>
-                        )}
-                    </CardContent>
-                </Card>
-                <div className="space-y-6">
-                    <Card>
+                            ) : (
+                                <p className="text-center text-sm text-muted-foreground py-10">No new leads assigned.</p>
+                            )}
+                        </CardContent>
+                    </Card>
+                    <Card className="lg:col-span-1">
                         <CardHeader>
-                            <CardTitle className="flex items-center gap-2"><Bell /> Recent Notification</CardTitle>
+                            <CardTitle className="flex items-center gap-2"><Bell /> Recent Notifications</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4 max-h-[75vh] overflow-y-auto">
-                            {loading ? <Skeleton className="h-24 w-full" /> : (
-                                notifications.length > 0 ? notifications.slice(0, 10).map((n, i) => (
-                                    <div key={i}>{renderNotification(n)}</div>
-                                )) : <p className="text-center text-sm text-muted-foreground py-4">No new notifications.</p>
+                            {/* Notification rendering logic can be placed here if needed */}
+                             <p className="text-center text-sm text-muted-foreground py-4">No new notifications.</p>
+                        </CardContent>
+                    </Card>
+                    <Card className="lg:col-span-3">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2"><ListOrdered /> All Orders And Updates</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4 max-h-[75vh] overflow-y-auto">
+                            {loading ? (
+                                Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
+                            ) : orders.length > 0 ? (
+                                orders.map(order => (
+                                    <Link key={order.id} href={`/dashboard/orders/${order.id}`}>
+                                    <div className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                                        <div>
+                                            <p className="font-semibold text-primary">{order.customerName}</p>
+                                            <p className="text-sm text-muted-foreground">{order.id}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <Badge variant={order.milestones.every(m => m.completed) ? 'default' : 'secondary'} className={cn('capitalize', order.milestones.every(m => m.completed) ? 'bg-green-600' : '')}>
+                                                {order.milestones.slice().reverse().find(m => m.completed)?.name.toLowerCase() || 'Order Received'}
+                                            </Badge>
+                                            <p className="text-sm text-muted-foreground mt-1">{format(new Date(order.createdAt), 'dd MMM yyyy')}</p>
+                                        </div>
+                                    </div>
+                                    </Link>
+                                ))
+                            ) : (
+                                <p className="text-center text-muted-foreground py-10">No orders found.</p>
                             )}
                         </CardContent>
                     </Card>
                 </div>
             </div>
-        </div>
+
+            <Dialog open={!!closingLead} onOpenChange={() => setClosingLead(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Close Lead: {closingLead?.firstName} {closingLead?.familyName}</DialogTitle>
+                        <DialogDescription>Please provide a reason for closing this lead.</DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Label htmlFor="close-remark">Remark</Label>
+                        <Textarea id="close-remark" value={closeRemark} onChange={(e) => setCloseRemark(e.target.value)} placeholder="e.g., Customer not interested, will visit later..." />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setClosingLead(null)}>Cancel</Button>
+                        <Button onClick={handleCloseLead} disabled={isClosing || !closeRemark}>
+                            {isClosing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Confirm & Close
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     )
 }
 
@@ -384,6 +392,34 @@ const AdminDashboard = () => {
         </div>
     );
 };
+
+interface SummaryCardProps {
+    title: string;
+    count: number | null;
+    href: string;
+    icon: React.ElementType;
+    loading: boolean;
+}
+
+function SummaryCard({ title, count, href, icon: Icon, loading }: SummaryCardProps) {
+    return (
+        <Link href={href} className="block group">
+            <Card className="hover:bg-muted/50 hover:shadow-lg transition-all h-full">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-medium">{title}</CardTitle>
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                    {loading ? (
+                         <Skeleton className="h-7 w-12" />
+                    ) : (
+                        <div className="text-2xl font-bold">{count}</div>
+                    )}
+                </CardContent>
+            </Card>
+        </Link>
+    )
+}
 
 
 export default function DashboardPage() {

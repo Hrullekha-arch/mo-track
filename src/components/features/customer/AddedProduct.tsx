@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Eye, Loader2, MoreHorizontal, Trash2 } from "lucide-react";
 
 interface AddedProductProps {
-  groupedProducts: Record<string, (DealProduct & { originalIndex?: number; productType?: string; items?: any })[]>;
+  groupedProducts: Record<string, (DealProduct & { originalIndex?: number; productType?: string; items?: any, subCategory?: string })[]>;
   selections: Selection[];
   fields: DealProduct[];
   selectedRows: Record<string, boolean>;
@@ -20,7 +20,7 @@ interface AddedProductProps {
   handleViewSelection: (selection: Selection) => void;
   handleCreateSelection: () => void;
   handleQuotationClick: () => void;
-  handleUpdateSelectionStatus: (id: string, status: string) => void;
+  handleUpdateSelectionStatus: (id: string, status: 'draft' | 'final') => void;
   setBlindDialogState: (state: { isOpen: boolean; roomName: string | null }) => void;
 }
 
@@ -82,7 +82,11 @@ export default function AddedProduct({
             Update Activity
           </Button>
         </div>
-        {Object.entries(groupedProducts ?? {}).map(([room, productsInRoom]) => (
+        {Object.keys(groupedProducts ?? {}).length === 0 ? (
+             <div className="text-center py-10 text-muted-foreground border-2 border-dashed rounded-lg">
+                No products have been added to this deal yet.
+            </div>
+        ) : Object.entries(groupedProducts ?? {}).map(([room, productsInRoom]) => (
           <div key={room}>
             <div className="flex items-center justify-between bg-muted/50 p-2 rounded-t-md">
               <h4 className="font-semibold">{room}</h4>
@@ -116,6 +120,7 @@ export default function AddedProduct({
                 <TableBody>
                         {productsInRoom.map((product) => {
                             const isHardware = product.productSource === "Hardware" || product.productType === "Hardware";
+                            const isVAS = product.productType === "VAS";
 
                             return (
                             <TableRow key={product.id || product.collectionBrand}>
@@ -133,6 +138,8 @@ export default function AddedProduct({
                                 <TableCell>
                                 {isHardware ? (
                                     <Badge variant="destructive">Hardware</Badge>
+                                ) : isVAS ? (
+                                  <Badge variant="outline" className="text-blue-600 border-blue-600">VAS</Badge>
                                 ) : (
                                     <Badge variant={product.isBlind ? "secondary" : "outline"}>
                                     {getProductLabel(product)}
@@ -144,6 +151,7 @@ export default function AddedProduct({
                                 <TableCell>
                                 {isHardware
                                     ? product.type || product.label || "Hardware Item"
+                                    : isVAS ? <div className="flex flex-col gap-1">{product.productCategory}<Badge variant={"outline"}>{product.subCategory}</Badge></div> 
                                     : product.collectionBrand}
                                 </TableCell>
 
@@ -160,9 +168,14 @@ export default function AddedProduct({
                                     <p>Type: {product.blindType || "N/A"}</p>
                                     <p>Op: {product.operating || "N/A"}</p>
                                     </>
-                                ) : (
+                                ) :isVAS ? (
+                                  <>
+                                  <p>MRP: {product.rate}</p>
+                                  </>
+                                ):(
                                     <p>MRP: {product.mrp}</p>
                                 )}
+
                                 </TableCell>
 
                                 {/* Quantity */}
@@ -181,7 +194,11 @@ export default function AddedProduct({
                                     {product.type}
                                     {product.bcn ? ` (BCN: ${product.bcn})` : ""}
                                     </>
-                                ) : (
+                                ) : isVAS ? (
+                                  <>
+                                  {product.productCategory}
+                                  </>
+                              ) : (
                                     <>
                                     {product.salesDescription}
                                     {product.productSource === "flooring"
@@ -234,7 +251,7 @@ export default function AddedProduct({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(selections ?? []).map((selection) => (
+              {(selections ?? []).length > 0 ? (selections ?? []).map((selection) => (
                 <TableRow key={selection.id}>
                   <TableCell>
                     <Checkbox />
@@ -274,7 +291,13 @@ export default function AddedProduct({
                     </DropdownMenu>
                   </TableCell>
                 </TableRow>
-              ))}
+              )) : (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-24 text-center">
+                        No selections saved yet.
+                    </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </div>

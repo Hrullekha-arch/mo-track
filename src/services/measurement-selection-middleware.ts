@@ -10,6 +10,8 @@ export type MeasurementPayload = {
   dealId: string;
   visitId?: string;
   selectionId?: string;
+  typeOf?: string | null;
+  doerName?: string | null;
   rooms: any[];
   itemDetails?: any[];
   createdBy: string;
@@ -19,12 +21,34 @@ export type MeasurementPayload = {
 // ⭐ FULL LOGGER FUNCTION
 // ==================================================
 function log(...args: any[]) {
-  console.log("📘 [MEASUREMENT-MW]", ...args);
+    const formattedArgs = args.map(arg => {
+        if (typeof arg === 'object' && arg !== null) {
+            try {
+                // Safely stringify objects, handling circular references
+                return JSON.stringify(arg, (key, value) => {
+                    // Basic circular reference check
+                    if (typeof value === 'object' && value !== null) {
+                        if (seen.has(value)) {
+                            return '[Circular]';
+                        }
+                        seen.add(value);
+                    }
+                    return value;
+                }, 2); // Indent with 2 spaces for readability
+            } catch (e) {
+                return '[Unserializable Object]';
+            }
+        }
+        return arg;
+    });
+    const seen = new Set();
+    console.log("📘 [MEASUREMENT-MW]", ...formattedArgs);
 }
+
 
 export async function processMeasurementSubmission(payload: MeasurementPayload) {
   log("🔥 PROCESS START");
-  log("📦 Incoming Payload:", JSON.stringify(payload, null, 2));
+  log("📦 Incoming Payload:", payload);
 
   const hasSelection = !!payload.selectionId;
   const hasItemDetails = payload.itemDetails?.length > 0;
@@ -89,6 +113,8 @@ export async function processMeasurementSubmission(payload: MeasurementPayload) 
     dealId: payload.dealId,
     visitId: payload.visitId,
     selectionId: payload.selectionId || null,
+    typeOf: payload.typeOf || null,
+    doerName: payload.doerName || null,
     rooms: payload.rooms,
     itemDetails: payload.itemDetails || [],
     createdBy: payload.createdBy,
@@ -96,7 +122,7 @@ export async function processMeasurementSubmission(payload: MeasurementPayload) 
     flags
   };
 
-  log("📝 Final Save Payload:", JSON.stringify(savePayload, null, 2));
+  log("📝 Final Save Payload:", savePayload);
 
   const saved = await saveMeasurementToDeal(savePayload);
 
@@ -113,7 +139,7 @@ export async function processMeasurementSubmission(payload: MeasurementPayload) 
     message: `Measurement processed as: ${status}`
   };
 
-  log("📤 FINAL RESPONSE:", JSON.stringify(finalResponse, null, 2));
+  log("📤 FINAL RESPONSE:", finalResponse);
   log("🔥 PROCESS END");
 
   return finalResponse;

@@ -3,7 +3,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { collection, onSnapshot, query, where, orderBy, getDocs, Timestamp, collectionGroup, doc, getDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, where, orderBy, getDocs, Timestamp, collectionGroup, doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, DealVisit, User, Customer, Deal, PurchaseRequest, PurchaseStatus, Quotation, Milestone } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowRight, Calendar, CheckCircle, Clock, FileSignature, GitCommitHorizontal, ListOrdered, MessageSquare, Phone, Search, ShoppingCart, Truck } from "lucide-react";
+import { ArrowRight, Calendar, CheckCircle, Clock, FileSignature, GitCommitHorizontal, ListOrdered, MessageSquare, Phone, Search, ShoppingCart, Truck, UserPlus } from "lucide-react";
 import { PO_PROCESS_CONFIG } from "@/lib/constants";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -32,121 +32,46 @@ const OrderUpdatesFeed = ({ assignedSalesmen, salesmenUsers, dashboardType }: { 
     const [updates, setUpdates] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
+    const { user } = useAuth();
+
 
     useEffect(() => {
-        if (dashboardType === 'CRM' && assignedSalesmen.length === 0) {
-            setLoading(false);
-            setUpdates([]);
-            return;
-        }
-
-        const salesmenIds = salesmenUsers
-            .filter(u => assignedSalesmen.includes(u.name))
-            .map(u => u.id);
-
-        if (dashboardType === 'CRM' && salesmenIds.length === 0) {
-            setLoading(false);
-            setUpdates([]);
-            return;
-        }
-
-        const ordersQuery = dashboardType === 'PC' 
-            ? query(collection(db, "orders"), orderBy("createdAt", "desc"))
-            : query(collection(db, "orders"), where("salesPerson", "in", assignedSalesmen), orderBy("createdAt", "desc"));
-            
-        const purchaseRequestsQuery = dashboardType === 'PC'
-            ? query(collection(db, "purchaseRequests"), orderBy("createdAt", "desc"))
-            : query(collection(db, "purchaseRequests"), where("salesman", "in", assignedSalesmen), orderBy("createdAt", "desc"));
-
-        const quotesQuery = dashboardType === 'PC'
-            ? query(collectionGroup(db, 'quotations'))
-            : query(collectionGroup(db, 'quotations'), where('representativeId', 'in', salesmenIds));
-
-        let localOrders: Order[] = [];
-        let localPrs: PurchaseRequest[] = [];
-        let localQuotes: Quotation[] = [];
-
-        const processNotifications = () => {
-            const allNotifications: any[] = [];
-            
-            localOrders.forEach(order => {
-                if (order.status === 'Pending Approval') {
-                    allNotifications.push({ type: 'Order Pending Approval', data: order, date: order.createdAt });
-                }
-                if (order.status === 'Approved') {
-                    allNotifications.push({ type: 'Order Approved', data: order, date: order.approvedAt || order.createdAt });
-                }
-                
-                (order.milestones || []).forEach(m => {
-                    if (m.completed && m.completedAt) {
-                         allNotifications.push({ type: 'Milestone Update', data: { ...order, milestone: m }, date: m.completedAt });
-                    }
-                });
-            });
-
-            localQuotes.forEach(quote => {
-                 if (quote.status === 'Approved') {
-                    allNotifications.push({ type: 'Quotation Approved', data: quote, date: quote.approvedAt || quote.createdAt });
-                }
-                 if (quote.status === 'Pending Approval') {
-                    allNotifications.push({ type: 'Quotation Sent for Approval', data: quote, date: quote.createdAt });
-                }
-            });
-            
-             localPrs.forEach(pr => {
-                if(pr.status === 'Approved') {
-                    allNotifications.push({ type: 'Purchase Request Created', data: pr, date: pr.createdAt });
-                }
-                (pr.poMilestones || []).forEach((m: PurchaseStatus) => {
-                     if (m.completedAt) {
-                         allNotifications.push({ type: 'PO Milestone Update', data: { ...pr, milestone: m }, date: m.completedAt });
-                    }
-                })
-            });
-
-            setUpdates(allNotifications.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-        };
+        if (!user) return;
         
-        const unsubs: (() => void)[] = [];
-
-        const ordersListener = onSnapshot(ordersQuery, (snapshot) => {
-            localOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-            processNotifications();
+        const notificationQuery = query(collection(db, "users", user.id, "notifications"), orderBy("createdAt", "desc"));
+        
+        const unsubscribe = onSnapshot(notificationQuery, (snapshot) => {
+            const newNotifications = snapshot.docs.map(doc => ({id: doc.id, ...doc.data()}));
+            
+            setUpdates(prevUpdates => {
+                const existingIds = new Set(prevUpdates.map(u => u.id));
+                const filteredNew = newNotifications.filter(n => !existingIds.has(n.id));
+                return [...filteredNew, ...prevUpdates].sort((a,b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime())
+            });
             setLoading(false);
         });
-        unsubs.push(ordersListener);
+        
+        return () => unsubscribe();
+        
+    }, [user]);
 
-        const quotesListener = onSnapshot(quotesQuery, (snapshot) => {
-            localQuotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Quotation));
-            processNotifications();
-        });
-        unsubs.push(quotesListener);
-
-        const prListener = onSnapshot(purchaseRequestsQuery, (snapshot) => {
-            localPrs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PurchaseRequest));
-            processNotifications();
-        });
-        unsubs.push(prListener);
-
-
-        return () => unsubs.forEach(unsub => unsub());
-    }, [assignedSalesmen, salesmenUsers, dashboardType]);
+    const handleMarkAsRead = async (notificationId: string) => {
+        if (!user) return;
+        const notifRef = doc(db, "users", user.id, "notifications", notificationId);
+        await updateDoc(notifRef, { read: true });
+    };
 
     const filteredUpdates = useMemo(() => {
         if (!searchTerm) return updates;
         const lowercasedFilter = searchTerm.toLowerCase();
 
         return updates.filter(update => {
-            const customerName = (update.data.customerName || '').toLowerCase();
-            const orderId = (update.data.crmOrderNo || update.data.dealId || '').toLowerCase();
-            const itemName = (update.data.milestone?.itemName || update.data?.items?.[0]?.bcn || '').toLowerCase();
-            const poNumber = (update.data.milestone?.poNumber || '').toLowerCase();
+            const message = (update.message || '').toLowerCase();
+            const type = (update.type || '').toLowerCase();
             
             return (
-                customerName.includes(lowercasedFilter) ||
-                orderId.includes(lowercasedFilter) ||
-                itemName.includes(lowercasedFilter) ||
-                poNumber.includes(lowercasedFilter)
+                message.includes(lowercasedFilter) ||
+                type.includes(lowercasedFilter)
             );
         });
     }, [updates, searchTerm]);
@@ -156,65 +81,31 @@ const OrderUpdatesFeed = ({ assignedSalesmen, salesmenUsers, dashboardType }: { 
         let title = '';
         let description = '';
         let icon = <FileSignature />;
+        let link = notification.link || '#';
+        let cardClass = "border-transparent";
 
         switch(notification.type) {
-            case 'Quotation Sent for Approval':
-                title = "Quotation Submitted";
-                description = `Quotation #${notification.data.quotationNo} for ${notification.data.customerName} is pending approval.`;
-                icon = <FileSignature className="text-blue-500"/>
+            case 'new_walkin':
+                title = 'New Walk-in Customer';
+                description = notification.message;
+                icon = <UserPlus className="text-blue-500" />;
+                cardClass = "border-blue-500 bg-blue-500/5";
                 break;
-            case 'Quotation Approved':
-                title = "Quotation Approved!";
-                description = `Quotation #${notification.data.quotationNo} for ${notification.data.customerName} has been approved.`;
-                icon = <CheckCircle className="text-green-500"/>
-                break;
-            case 'new_order':
-                title = `New Order: ${notification.data.crmOrderNo}`;
-                description = `${notification.data.customerName}`;
-                icon = <FileSignature className="text-blue-500"/>
-                break;
-            case 'Order Pending Approval':
-                title = "Order Submitted";
-                description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} is pending approval.`;
-                icon = <FileSignature className="text-blue-500" />
-                break;
-            case 'Order Approved':
-                title = "Order Approved";
-                description = `Order #${notification.data.crmOrderNo} for ${notification.data.customerName} has been approved.`;
-                 icon = <CheckCircle className="text-green-500"/>
-                break;
-            case 'Milestone Update':
-                title = `Milestone: ${notification.data.milestone.name}`;
-                description = `For order ${notification.data.crmOrderNo}`;
-                icon = <CheckCircle className="text-green-500" />
-                break;
-            case 'Purchase Request Created':
-                title = `Purchase Request Created`;
-                description = `Materials for deal #${notification.data.dealId} have been requested.`;
-                icon = <ShoppingCart className="text-orange-500" />;
-                break;
-            case 'PO Milestone Update':
-                const milestoneConfig = PO_PROCESS_CONFIG.find(p => p.id === notification.data.milestone.stepId);
-                title = `PO: ${milestoneConfig?.step || 'Updated'}`;
-                const itemName = notification.data.milestone.itemName;
-                const poNumber = notification.data.milestone.poNumber;
-                let poDesc = `For ${poNumber ? `PO #${poNumber}`: ''} in Deal #${notification.data.dealId}`;
-                if (itemName) {
-                   poDesc = `For ${itemName} in Deal #${notification.data.dealId}`;
-                }
-                description = poDesc;
-                icon = <Truck className="text-cyan-500" />;
-                break;
+            default:
+                title = "Update";
+                description = notification.message || "A new update has occurred.";
         }
 
         return (
-             <Link href={notification.href || '#'} key={notification.date + notification.title} className="block hover:bg-muted/50 p-2 rounded-md">
-                <div className="flex items-start gap-3">
-                    <div className="mt-1">{icon}</div>
-                    <div>
-                        <p className="font-semibold text-sm">{title}</p>
-                        <p className="text-xs text-muted-foreground">{description}</p>
-                        <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(notification.date), { addSuffix: true })}</p>
+             <Link href={link} key={notification.id} className="block" onClick={() => handleMarkAsRead(notification.id)}>
+                <div className={`p-3 rounded-lg border hover:bg-muted/50 transition-colors ${cardClass} ${notification.read ? 'opacity-60' : ''}`}>
+                    <div className="flex items-start gap-3">
+                        <div className="mt-1">{icon}</div>
+                        <div>
+                            <p className="font-semibold text-sm">{title}</p>
+                            <p className="text-xs text-muted-foreground">{description}</p>
+                            <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}</p>
+                        </div>
                     </div>
                 </div>
             </Link>
@@ -224,11 +115,11 @@ const OrderUpdatesFeed = ({ assignedSalesmen, salesmenUsers, dashboardType }: { 
     return (
         <Card className="h-full">
             <CardHeader>
-                <CardTitle>Order and Deal Updates</CardTitle>
+                <CardTitle>Recent Updates</CardTitle>
                  <div className="relative pt-2">
                     <Search className="absolute left-2.5 top-4.5 h-4 w-4 text-muted-foreground" />
                     <Input 
-                        placeholder="Search by customer, deal or BCN..."
+                        placeholder="Search updates..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="pl-8"
@@ -465,4 +356,3 @@ export default function CrmDashboard({ dashboardType }: { dashboardType: 'CRM' |
         </div>
     );
 }
-

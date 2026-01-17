@@ -1,3 +1,5 @@
+
+
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -21,6 +23,7 @@ import {
   updateBlindsAction,
   updateItemsAction,
   getDealById,
+  createQuotationAction
 } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 
 import { getCustomerById } from "@/app/dashboard/customers/actions";
@@ -35,24 +38,70 @@ import { Label } from "@/components/ui/label";
 import { Pencil } from "lucide-react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import { useAuth } from "@/context/AuthContext";
+
+// ================= LOGGER =================
+const log = (...args: any[]) => console.log("✅ [QuotationBuilder]", ...args);
+const logError = (...args: any[]) => console.error("❌ [QuotationBuilder]", ...args);
+// ==========================================
 
 type EnrichedProduct = {
   id: string;
   room: string;
   itemName: string;
   bcn: string;
-  shadeNo: string;     // ⭐ new
-  isBlind: boolean;    // ⭐ new
+  shadeNo: string;
+  isBlind: boolean;
   width: string;
   height: string;
-  noOfPannel?: string; // original panel count (for fabric)
+  noOfPannel?: string;
   qty: number;
   mrp: number;
   amount: number;
-  status?: "missing" | "complete";
-  // 🔥 Full Firestore object (all sofa / blind fields for future use)
+  normalizedType: NormalizedType;
+  source: "measurement" | "selection" | "merged";
+  status?: "complete" | "attention";
+  issues?: string[];
   raw: any;
 };
+
+
+type NormalizedType =
+  | "fabric"
+  | "blind"
+  | "wallpaper"
+  | "stitching"
+  | "hardware"
+  | "service"
+  | "unknown";
+
+const detectItemType = (raw: any): NormalizedType => {
+  if (!raw) return "unknown";
+
+  if (
+    raw.isBlind ||
+    raw.blindType ||
+    raw.shadeNo ||
+    raw.noOfBlind ||
+    raw.type === "blind"
+  ) return "blind";
+
+  const src = String(raw.productSource || "").toLowerCase();
+  const cat = String(raw.productCategory || "").toLowerCase();
+  const grp = String(raw.group || "").toLowerCase();
+
+  if (src.includes("fabric")) return "fabric";
+  if (src.includes("wall")) return "wallpaper";
+  if (cat.includes("stitch")) return "stitching";
+  if (grp.includes("hardware") || grp.includes("track")) return "hardware";
+
+  return "unknown";
+};
+
+const normalizeRoom = (name: string = "") => {
+  return (name || "unassigned").trim().toLowerCase();
+};
+
 
 const makeLocalId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -63,23 +112,28 @@ const toNumber = (value: any) => {
 
 const collectBcnsFromRooms = (rooms: any[] = []) => {
   const ids: string[] = [];
-  rooms.forEach((room) => {
-    (room?.entries || []).forEach((entry: any) => {
-      if (entry?.bcn) ids.push(String(entry.bcn).trim());
-    });
-    (room?.blinds || []).forEach((blind: any) => {
-      if (blind?.shadeNo) ids.push(String(blind.shadeNo).trim());
+  (rooms || []).forEach((room) => {
+    (room?.items || []).forEach((item: any) => {
+      if (item?.data?.bcn) ids.push(String(item.data.bcn).trim());
+      if (item?.data?.shadeNo) ids.push(String(item.data.shadeNo).trim());
     });
   });
   return ids;
 };
 
+// Helper function to normalize room names for consistent matching
 const buildEnrichedFromProducts = (
   products: any[] = [],
   mrpMap: Record<string, any> = {}
 ): EnrichedProduct[] => {
   return products.map((p: any) => {
-    const cleanBCN = String(p?.collectionBrand || "").trim();
+    const cleanBCN = String(
+      p?.collectionBrand ||
+      p?.bcn ||
+      p?.BCN ||
+      p?.collectionCode ||
+      ""
+    ).trim();
     const mrp = cleanBCN ? Number(mrpMap[cleanBCN]?.mrp || 0) : 0;
 
     const isBlind = Boolean(
@@ -118,11 +172,14 @@ const buildEnrichedFromProducts = (
       mrp,
       amount: qty * mrp,
       status: isBlind
-        ? itemName !== "-" && shadeNo !== "-" ? "complete" : "missing"
+        ? itemName !== "-" && shadeNo !== "-" ? "complete" : "attention"
         : itemName !== "-" && cleanBCN && qty && mrp
           ? "complete"
-          : "missing",
+          : "attention",
       raw: p,
+      normalizedType: detectItemType(p),
+      source: 'selection',
+      issues: [],
     };
   });
 };
@@ -133,60 +190,38 @@ const buildEnrichedFromRooms = (
 ): EnrichedProduct[] => {
   const items: EnrichedProduct[] = [];
 
-  rooms.forEach((room: any, roomIndex: number) => {
-    const roomName = room?.roomName || `Room-${roomIndex + 1}`;
+  (rooms || []).forEach((room: any) => {
+    const roomName = room?.roomName || `Unnamed Room`;
 
-    (room?.entries || []).forEach((entry: any, entryIndex: number) => {
-      const cleanBCN = String(entry?.bcn || "").trim();
-      const mrp = cleanBCN ? Number(mrpMap[cleanBCN]?.mrp || 0) : 0;
-      const qty =
-        toNumber(
-          entry?.noOfPannel ||
-            entry?.qty ||
-            entry?.noOfSeat ||
-            entry?.noOfSheet ||
-            0
-        ) || 0;
+    (room?.items || []).forEach((entry: any) => {
+        const isBlind = entry.type === 'blind';
+        const rawData = entry.data || {};
+        
+        const bcn = isBlind ? String(rawData.shadeNo || "").trim() : String(rawData.bcn || "").trim();
+        const mrp = bcn ? Number(mrpMap[bcn]?.mrp || 0) : 0;
+        
+        // Use a more generic quantity detection
+        const qty = toNumber(rawData.qty || rawData.panels || rawData.noOfSeat || rawData.noOfSheet || 1);
 
-      items.push({
-        id: entry?.id || `${roomName}-entry-${entryIndex}-${makeLocalId()}`,
-        room: roomName,
-        itemName: entry?.itemName || entry?.itemType || "-",
-        bcn: cleanBCN || "-",
-        isBlind: false,
-        shadeNo: "-",
-        qty,
-        width: entry?.width || "0",
-        height: entry?.height || "0",
-        noOfPannel: entry?.noOfPannel || "",
-        mrp,
-        amount: qty * mrp,
-        status: entry?.itemName ? "complete" : "missing",
-        raw: entry,
-      });
-    });
-
-    (room?.blinds || []).forEach((blind: any, blindIndex: number) => {
-      const shadeNo = String(blind?.shadeNo || "").trim();
-      const qty =
-        toNumber(blind?.noOfBlind || blind?.quantity || blind?.qty || 0) || 0;
-      const mrp = shadeNo ? Number(mrpMap[shadeNo]?.mrp || 0) : 0;
-
-      items.push({
-        id: blind?.id || `${roomName}-blind-${blindIndex}-${makeLocalId()}`,
-        room: roomName,
-        itemName: blind?.blindType || "Blind",
-        bcn: shadeNo || "-",
-        isBlind: true,
-        shadeNo: shadeNo || "-",
-        qty,
-        width: blind?.width || "0",
-        height: blind?.height || "0",
-        mrp,
-        amount: qty * mrp,
-        status: blind?.blindType ? "complete" : "missing",
-        raw: blind,
-      });
+        items.push({
+            id: entry?.id || `${roomName}-item-${makeLocalId()}`,
+            room: roomName,
+            itemName: isBlind ? (rawData.blindType || 'Blind') : (rawData.name || entry.type || 'Measured Item'),
+            bcn: bcn || "-",
+            isBlind,
+            shadeNo: isBlind ? bcn : "-",
+            qty,
+            width: rawData.width || "0",
+            height: rawData.height || "0",
+            noOfPannel: rawData.panels || "",
+            mrp,
+            amount: qty * mrp,
+            status: 'complete',
+            raw: rawData,
+            normalizedType: detectItemType(entry),
+            source: 'measurement',
+            issues: [],
+        });
     });
   });
 
@@ -196,10 +231,11 @@ const buildEnrichedFromRooms = (
 export default function QuotationBuilderPage() {
   const { customerId, dealId, measurementId } = useParams();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<EnrichedProduct[]>([]);
-  const [groupedRooms, setGroupedRooms] = useState<any>({});
+  const [groupedRooms, setGroupedRooms] = useState<Record<string, EnrichedProduct[]>>({});
   const [discountMap, setDiscountMap] = useState<Record<string, number>>({});
   const [selectionId, setSelectionId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -212,56 +248,134 @@ export default function QuotationBuilderPage() {
   const pdfRef = useRef<HTMLDivElement | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
 
-  const groupByRoom = (list: EnrichedProduct[]) =>
-    list.reduce((acc: any, item) => {
-      if (!acc[item.room]) acc[item.room] = [];
-      acc[item.room].push(item);
-      return acc;
-    }, {});
+  // ================= MERGE LOGIC =================
+  const buildMergedItems = (
+    measurement: any,
+    selection: any,
+    mrpMap: Record<string, any>
+  ): EnrichedProduct[] => {
+    log("🚀 [buildMergedItems] Starting merge...");
+    log("  [Input] Measurement:", measurement);
+    log("  [Input] Selection:", selection);
+    log("  [Input] MRP Map:", mrpMap);
 
-  const calculateFabricQty = (i: EnrichedProduct) => {
-    const heightinch = Number(i.height || 0) + 16; // convert to inch + added margin
-    const heightCM = heightinch * 2.54; // convert to cm + added margin
-    const vrCM = Number(i.raw?.verticalRepeat || 0); // always cm
-    const panelQty = Number(i.noOfPannel || 1);
-    console.log("🧮 Qty calc start", {
-      id: i.id,
-      heightCM,
-      vrCM,
-      panelQty,
+    const measurementItems = buildEnrichedFromRooms(measurement?.rooms || [], mrpMap);
+    const selectionItems = buildEnrichedFromProducts(selection?.products || [], mrpMap);
+
+    log("  [Step 1] Normalized Measurement Items:", measurementItems);
+    log("  [Step 2] Normalized Selection Items:", selectionItems);
+
+    const allItems: EnrichedProduct[] = [];
+    const roomsFromSelection = new Set(selectionItems.map(item => normalizeRoom(item.room)));
+    const roomsFromMeasurement = new Set(measurementItems.map(item => normalizeRoom(item.room)));
+
+    const allRoomNames = new Set([...roomsFromSelection, ...roomsFromMeasurement]);
+    log("  [Step 3] All unique rooms found:", allRoomNames);
+
+
+    allRoomNames.forEach(roomName => {
+        log(`  [Step 4] Processing room: "${roomName}"`);
+        const selItemsInRoom = selectionItems.filter(item => normalizeRoom(item.room) === roomName);
+        const mesItemsInRoom = measurementItems.filter(item => normalizeRoom(item.room) === roomName);
+        log(`    - Found ${selItemsInRoom.length} items in Selection.`);
+        log(`    - Found ${mesItemsInRoom.length} items in Measurement.`);
+
+
+        if (selItemsInRoom.length > 0 && mesItemsInRoom.length > 0) {
+            log(`    - Room exists in BOTH. Merging items...`);
+            const matchedMeasurementIds = new Set<string>();
+            selItemsInRoom.forEach(sItem => {
+                const measurementMatch = mesItemsInRoom.find(mItem =>
+                    !mItem.isBlind && !sItem.isBlind && !matchedMeasurementIds.has(mItem.id)
+                ) || mesItemsInRoom.find(mItem =>
+                    mItem.isBlind === sItem.isBlind && !matchedMeasurementIds.has(mItem.id)
+                );
+
+                if (measurementMatch) {
+                    log(`      - ✅ MATCH: Selection item "${sItem.itemName}" (${sItem.id}) merged with Measurement item "${measurementMatch.itemName}" (${measurementMatch.id})`);
+                    matchedMeasurementIds.add(measurementMatch.id);
+                    
+                    // ✅ Merge: keep BCN + MRP from SELECTION, keep dimensions from MEASUREMENT
+                    const merged: EnrichedProduct = {
+                      ...sItem,                // start from selection (keeps BCN + MRP)
+                      ...measurementMatch,     // bring measurement fields (width/height/panels etc.)
+                      id: sItem.id,            // stable id
+                      source: "merged",
+                      issues: [],
+                      room: sItem.room,        // keep casing
+                    
+                      // ✅ HARD RULE: NEVER let measurement overwrite BCN/MRP for fabrics
+                      bcn: sItem.bcn,
+                      mrp: sItem.mrp,
+                    
+                      // ✅ For blinds, shadeNo should remain from selection if present
+                      shadeNo: sItem.isBlind ? (sItem.shadeNo || measurementMatch.shadeNo) : "-",
+                    
+                      // ✅ raw: keep both, but selection should win for pricing fields
+                      raw: { ...measurementMatch.raw, ...sItem.raw },
+                    };
+                    
+                    allItems.push(merged);
+
+                } else {
+                    log(`      - ⚠️ NO MATCH for Selection item "${sItem.itemName}". Adding with warning.`);
+                    allItems.push({ ...sItem, source: 'selection', status: 'attention', issues: ['Not measured yet'] });
+                }
+            });
+            mesItemsInRoom.forEach(mItem => {
+                if (!matchedMeasurementIds.has(mItem.id)) {
+                     log(`      - ⚠️ Measurement item "${mItem.itemName}" was measured but NOT in selection.`);
+                    allItems.push({ ...mItem, source: 'measurement', status: 'attention', issues: ['Not in selection'] });
+                }
+            });
+
+        } else if (selItemsInRoom.length > 0) {
+            log(`    - Room only exists in SELECTION. Adding all ${selItemsInRoom.length} items with warning.`);
+            selItemsInRoom.forEach(sItem => {
+                allItems.push({ ...sItem, source: 'selection', status: 'attention', issues: ['Not measured yet'] });
+            });
+        } else if (mesItemsInRoom.length > 0) {
+            log(`    - Room only exists in MEASUREMENT. Adding all ${mesItemsInRoom.length} items with warning.`);
+            mesItemsInRoom.forEach(mItem => {
+                allItems.push({ ...mItem, source: 'measurement', status: 'attention', issues: ['Not in selection'] });
+            });
+        }
     });
 
-    // No HR → simple width × panel qty
+    log("  [Step 5] Finished processing all rooms.");
+    log("📦 [buildMergedItems] Final merged items:", allItems);
+    return allItems;
+  };
+
+  const groupByRoom = (list: EnrichedProduct[]) =>
+    list.reduce((acc: Record<string, EnrichedProduct[]>, curr) => {
+      const roomKey = curr.room || 'Unassigned';
+      if (!acc[roomKey]) acc[roomKey] = [];
+      acc[roomKey].push(curr);
+      return acc;
+    }, {});
+    
+  const calculateFabricQty = (i: EnrichedProduct) => {
+    log(`  [calculateFabricQty] Calculating for item: "${i.itemName}"`);
+    const heightinch = Number(i.height || 0) + 16;
+    const heightCM = heightinch * 2.54;
+    const vrCM = Number(i.raw?.verticalRepeat || 0);
+    const panelQty = Number(i.noOfPannel || 1);
+    log(`    - Height (in): ${heightinch}, Height (cm): ${heightCM.toFixed(2)}, VR (cm): ${vrCM}, Panels: ${panelQty}`);
+
     if (!vrCM || vrCM === 0) {
       const basicMeters = (heightCM / 100) * panelQty;
-      console.log("➡️ No HR path", {
-        basicMeters,
-        ceil: Math.ceil(basicMeters),
-      });
+      log(`    - No VR. Basic calc: ((${heightCM.toFixed(2)} / 100) * ${panelQty}) = ${basicMeters.toFixed(2)} -> ceil -> ${Math.ceil(basicMeters)}`);
       return Math.ceil(basicMeters);
     }
 
-    // repeats needed
     let repeatCount = heightCM / vrCM;
-    console.log("Repeat count raw", repeatCount);
-
-    // if result < 1 → treat as 1
+    log(`    - With VR. Repeats needed: ${heightCM.toFixed(2)} / ${vrCM} = ${repeatCount.toFixed(2)}`);
     repeatCount = repeatCount < 1 ? 1 : Math.ceil(repeatCount);
-    console.log("Repeat count adj", repeatCount);
-
-    // effective width in cm to cover pattern
     const effectiveWidth = repeatCount * vrCM;
-    console.log("Effective width cm", effectiveWidth);
-
-    // total for all panels
     const totalCM = effectiveWidth * panelQty;
-    console.log("Total cm all panels", totalCM);
-
-    // convert to meter
     const meters = totalCM / 100;
-    console.log("Meters raw", meters, "ceil", Math.ceil(meters));
-
-    // final qty in meters (rounded)
+    log(`    - Final calc: Ceil(${repeatCount}) * ${vrCM} * ${panelQty} / 100 = ${meters.toFixed(2)} -> ceil -> ${Math.ceil(meters)}`);
     return Math.ceil(meters);
   };
 
@@ -273,6 +387,7 @@ export default function QuotationBuilderPage() {
   };
 
   const deriveRowAmounts = (item: EnrichedProduct) => {
+    log(`[deriveRowAmounts] Deriving amounts for item: "${item.itemName}"`);
     const qty = item.isBlind ? item.qty : calculateFabricQty(item);
     const gross = qty * item.mrp;
     const discountPercent = discountMap[item.id] ?? 0;
@@ -281,7 +396,10 @@ export default function QuotationBuilderPage() {
     const taxPercent = getGstPercent(item);
     const gstAmount = net * (taxPercent / 100);
     const totalWithTax = net + gstAmount;
-    return { qty, gross, discountAmount, net, discountPercent, taxPercent, gstAmount, totalWithTax };
+
+    const result = { qty, gross, discountAmount, net, discountPercent, taxPercent, gstAmount, totalWithTax };
+    log(`  - Results:`, result);
+    return result;
   };
 
   const formatCurrency = (value: number) =>
@@ -289,29 +407,38 @@ export default function QuotationBuilderPage() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
-
+    
   const loadData = async () => {
     try {
+      log("🔥 [loadData] Starting data fetch...");
       setLoading(true);
 
       const cid = String(customerId);
       const did = String(dealId);
       const mid = String(measurementId);
+      log(`  - Params: customerId=${cid}, dealId=${did}, measurementId=${mid}`);
 
       const measurement = await getMeasurementById(cid, did, mid);
       if (!measurement) throw new Error("Measurement not found");
+      log("  - ✅ Fetched Measurement:", measurement);
 
       const selectionId = measurement.selectionId;
-      if (!selectionId) throw new Error("Selection missing");
+      if (!selectionId) throw new Error("Selection missing from measurement data");
       setSelectionId(String(selectionId));
+      log(`  - ✅ Found Selection ID: ${selectionId}`);
+
 
       const selection = await getSelectionById(cid, did, String(selectionId));
       if (!selection) throw new Error("Selection not found");
+      log("  - ✅ Fetched Selection:", selection);
+
 
       const [customer, deal] = await Promise.all([
         getCustomerById(cid),
         getDealById(cid, did),
       ]);
+      log("  - ✅ Fetched Customer and Deal:", { customer, deal });
+
       if (customer) {
         setCustomerName(customer.name || "");
         setCustomerPhone(customer.mobileNo || "");
@@ -321,33 +448,24 @@ export default function QuotationBuilderPage() {
       }
 
       const productBcns =
-        selection.products?.map((p: any) => p?.collectionBrand)?.filter(Boolean) ||
-        [];
-      const roomBcns = collectBcnsFromRooms(selection.rooms || []);
+        (selection?.products || []).map((p: any) => p?.collectionBrand).filter(Boolean) || [];
+      const roomBcns = collectBcnsFromRooms(measurement?.rooms || []);
       const uniqueBcns = Array.from(
         new Set(
           [...productBcns, ...roomBcns].map((b) => String(b || "").trim()).filter(Boolean)
         )
       );
+      log("  - 💰 Collecting BCNs for MRP lookup:", uniqueBcns);
+
 
       const mrpMap = uniqueBcns.length
         ? await inventoryLookupAction({ bcnList: uniqueBcns })
         : {};
+      log("  - ✅ Fetched MRP Map:", mrpMap);
 
-      let enriched: EnrichedProduct[] = [];
 
-      if (selection.rooms && selection.rooms.length) {
-        enriched = buildEnrichedFromRooms(selection.rooms, mrpMap);
-      }
-
-      if ((!enriched || enriched.length === 0) && selection.products?.length) {
-        enriched = buildEnrichedFromProducts(selection.products, mrpMap);
-      }
-
-      if (!enriched || enriched.length === 0) {
-        throw new Error("No measurement items available inside selection.");
-      }
-
+      const enriched = buildMergedItems(measurement, selection, mrpMap);
+      log("  - ✨ Enriched & Merged Items:", enriched);
       setItems(enriched);
       setDiscountMap(
         enriched.reduce((acc: Record<string, number>, curr) => {
@@ -357,14 +475,12 @@ export default function QuotationBuilderPage() {
         }, {})
       );
 
-      const grouped = enriched.reduce((acc: any, item) => {
-        if (!acc[item.room]) acc[item.room] = [];
-        acc[item.room].push(item);
-        return acc;
-      }, {});
-
+      const grouped = groupByRoom(enriched);
+      log("  - 🏠 Grouped Items by Room:", grouped);
       setGroupedRooms(grouped);
+      log("✅ [loadData] Data loading complete.");
     } catch (e: any) {
+      logError("[loadData] Error during data fetch:", e);
       toast({
         variant: "destructive",
         title: "Error",
@@ -387,16 +503,29 @@ export default function QuotationBuilderPage() {
         obj.status =
           obj.bcn && obj.itemName && obj.qty && obj.mrp
             ? "complete"
-            : "missing";
+            : "attention";
         return obj;
       }
       return i;
     });
 
     setItems(updated);
-
     setGroupedRooms(groupByRoom(updated));
   };
+  
+  const updateNested = (id: string, nestedKey: string, nestedValue: any) => {
+      const updated = items.map((i) => {
+        if (i.id === id) {
+          const newRaw = { ...i.raw, [nestedKey]: nestedValue };
+          const newQty = calculateFabricQty({ ...i, raw: newRaw });
+          const newAmount = newQty * i.mrp;
+          return { ...i, raw: newRaw, qty: newQty, amount: newAmount };
+        }
+        return i;
+      });
+      setItems(updated);
+      setGroupedRooms(groupByRoom(updated));
+    };
 
   const openEdit = (item: EnrichedProduct) => {
     setEditingItem(item);
@@ -627,13 +756,22 @@ export default function QuotationBuilderPage() {
   const sgst = gstTotal / 2;
   const grandTotal = baseAmount + gstTotal;
 
+  const hasBlockingIssues = items.some(
+    (i) => i.issues && i.issues.length > 0
+  );
+  
+
   const downloadPdf = async () => {
     if (!pdfRef.current) return;
     try {
       setPdfLoading(true);
       const canvas = await html2canvas(pdfRef.current, { scale: 2 });
       const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
+      const pdf = new jsPDF({
+        orientation: "p",
+        unit: "mm",
+        format: "a4",
+      });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const imgWidth = pageWidth;
@@ -653,6 +791,86 @@ export default function QuotationBuilderPage() {
     }
   };
 
+  const handleCreateQuotation = async () => {
+    log("🚀 [handleCreateQuotation] Starting...");
+    if (hasBlockingIssues) {
+      toast({
+        variant: "destructive",
+        title: "Cannot Create Quotation",
+        description: "Please resolve all item issues before creating a quotation.",
+      });
+      return;
+    }
+    if (!user) {
+        toast({
+            variant: "destructive",
+            title: "Authentication Error",
+            description: "You must be logged in to create a quotation.",
+        });
+        return;
+    }
+
+    setSaving(true);
+    try {
+      // 1. Format data for the action
+      const quotationItems = items.map((item) => {
+        const { qty, mrp } = deriveRowAmounts(item);
+        return {
+          collectionBrand: item.bcn,
+          serialNo: item.raw?.serialNo || "",
+          salesDescription: item.itemName,
+          quantity: qty,
+          rate: mrp,
+          discountPercent: discountMap[item.id] ?? 0,
+          room: item.room,
+          remark: item.raw?.remarks || item.raw?.remark || "",
+        };
+      });
+
+      const quotationData = {
+          store: "MO GCR BRANCH", // Or derive this from somewhere
+          date: new Date(),
+          customerName: customerName,
+          dealName: dealCode,
+          items: quotationItems,
+          // We can leave out VAS for now as it's not in this builder
+          vasDetails: [],
+          createdBy: user.id
+      };
+
+      log("  - 📦 Payload for createQuotationAction:", quotationData);
+      
+      // 2. Call the server action
+      const result = await createQuotationAction(
+          String(customerId),
+          String(dealId),
+          quotationData as any, // Cast as any to match the expected FormValues type
+          grandTotal
+      );
+
+      log("  - ✅ Server action response:", result);
+
+      if (result.success) {
+        toast({
+          title: "Quotation Created!",
+          description: `Quotation #${result.quotation?.quotationNo} has been successfully created and is pending approval.`,
+        });
+        // Optionally, redirect or clear the form
+      } else {
+        throw new Error(result.message);
+      }
+    } catch (e: any) {
+      logError("[handleCreateQuotation] Error:", e);
+      toast({
+        variant: "destructive",
+        title: "Failed to Create Quotation",
+        description: e.message || "An unexpected error occurred.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) return <p className="p-6">Loading...</p>;
 
   return (
@@ -666,298 +884,235 @@ export default function QuotationBuilderPage() {
       </div>
 
       <div className="grid grid-cols-4 gap-6">
+        <div className="col-span-3 space-y-10">
+          {Object.keys(groupedRooms).map((room) => {
+            const roomItems = groupedRooms[room];
+            const fabricItems = roomItems.filter((i: EnrichedProduct) => !i.isBlind);
+            const blindItems = roomItems.filter((i: EnrichedProduct) => i.isBlind);
 
-        {/* LEFT SIDE ROOM CARDS */}
-{/* LEFT SIDE — ROOMS */}
-<div className="col-span-3 space-y-10">
-  {Object.keys(groupedRooms).map((room) => {
-    const roomItems = groupedRooms[room];
+            const fabricTotal = fabricItems.reduce((s: number, i: EnrichedProduct) => {
+              const { totalWithTax } = deriveRowAmounts(i);
+              return s + totalWithTax;
+            }, 0);
+            const blindTotal = blindItems.reduce((s: number, i: EnrichedProduct) => {
+              const { totalWithTax } = deriveRowAmounts(i);
+              return s + totalWithTax;
+            }, 0);
 
+            const roomTotal = fabricTotal + blindTotal;
+            
+            return (
+              <Card key={room} className="border-2 border-slate-400">
+                <CardHeader>
+                  <div className="font-semibold text-xl mb-3">Room Name</div>
+                  <Input defaultValue={room} className="w-60 border-2" />
+                </CardHeader>
 
-    // SPLIT FABRIC & BLINDS
-    const fabricItems = roomItems.filter((i: EnrichedProduct) => !i.isBlind);
-    const blindItems = roomItems.filter((i: EnrichedProduct) => i.isBlind);
+                <CardContent className="space-y-10">
 
-    const fabricTotal = fabricItems.reduce((s: number, i: EnrichedProduct) => {
-      const { totalWithTax } = deriveRowAmounts(i);
-      return s + totalWithTax;
-    }, 0);
-    const blindTotal = blindItems.reduce((s: number, i: EnrichedProduct) => {
-      const { totalWithTax } = deriveRowAmounts(i);
-      return s + totalWithTax;
-    }, 0);
+                  {/* FABRIC TABLE */}
+                  <div>
+                    <div className="font-semibold text-lg mb-2">Fabric Items</div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-b border-slate-500">
+                          <TableHead>BCN / Item Name</TableHead>
+                          <TableHead>No. of Seat / Panel</TableHead>
+                          <TableHead>Qty</TableHead>
+                          <TableHead>Rate</TableHead>
+                          <TableHead>Discount</TableHead>
+                          <TableHead>GST</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
 
-    const roomTotal = fabricTotal + blindTotal;
-    
-    const updateNested = (id: string, nestedKey: string, nestedValue: any) => {
-      const updated = items.map((i) => {
-        if (i.id === id) {
-          const newRaw = { ...i.raw, [nestedKey]: nestedValue };
+                      <TableBody>
+                        {fabricItems.map((i: EnrichedProduct) => {
+                                const { qty, discountAmount: rowDiscount, net: amount, taxPercent, gstAmount, totalWithTax } = deriveRowAmounts(i);
+                          return(
+                          <TableRow key={i.id}>
+                           <TableCell>
+                            {i.issues && i.issues.length > 0 && (
+                              <div className="text-xs text-red-600 font-semibold mb-1">
+                                ⚠ {i.issues.join(", ")}
+                              </div>
+                            )}
+                            <div className="flex flex-col">
+                              <span className="font-medium">{i.itemName || "-"}</span>
+                              <span className="text-xs text-gray-500">{i.bcn || "-"}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                               {i.noOfPannel ? (
+                                <Input
+                                    type="text"
+                                    defaultValue={i.noOfPannel || ""}
+                                    onChange={(e) => updateNested(i.id, "noOfPannel", e.target.value)}
+                                    className="w-24"
+                                />
+                                ) : (
+                                <span>-</span>
+                                )}
+                            </TableCell>
 
-          // Recalculate qty after raw update
-          const newQty = calculateFabricQty({ ...i, raw: newRaw });
-          console.log("Recalculated Qty:", newQty);
-          const newAmount = newQty * i.mrp;
+                            <TableCell className="flex justify-center items-center gap-1 w-32">
+                              <Input
+                                type="number"
+                                defaultValue={qty}
+                                onChange={(e) => updateField(i.id, "qty", Number(e.target.value))}
+                              />Mtr
+                              </TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                defaultValue={i.mrp}
+                                onChange={(e) =>
+                                  updateField(i.id, "mrp", Number(e.target.value))
+                                }
+                                className="w-24"
+                              />
+                            </TableCell>
 
-          return {
-            ...i,
-            raw: newRaw,
-            qty: newQty,
-            amount: newAmount,
-          };
-        }
-        return i;
-      });
+                            <TableCell className="font-semibold text-blue-600">
+                              <Input
+                                type="number"
+                                defaultValue={discountMap[i.id] ?? 0}
+                                onChange={(e) =>
+                                  setDiscountMap((prev) => ({
+                                    ...prev,
+                                    [i.id]: Number(e.target.value) || 0,
+                                  }))
+                                }
+                                className="w-20"
+                              />
+                            </TableCell>
 
-      setItems(updated);
-      setGroupedRooms(groupByRoom(updated));
-    };
+                            <TableCell className="text-center">
+                              {taxPercent}%
+                            </TableCell>
 
+                            <TableCell  className="font-semibold">{totalWithTax.toFixed(0)}</TableCell>
 
-    return (
-      <Card key={room} className="border-2 border-slate-400">
-        <CardHeader>
-          <div className="font-semibold text-xl mb-3">Room Name</div>
-          <Input value={room} className="w-60 border-2" />
-        </CardHeader>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEdit(i)}
+                              > 
+                                <Pencil className="h-5 w-5 text-blue-600" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
 
-        <CardContent className="space-y-10">
+                    {fabricItems.length === 0 && (
+                      <p className="text-gray-400 text-sm">No fabric items</p>
+                    )}
 
-          {/* FABRIC TABLE */}
-          <div>
-            <div className="font-semibold text-lg mb-2">Fabric Items</div>
-            <Table>
-              <TableHeader>
-                <TableRow className="border-b border-slate-500">
-                  <TableHead>BCN / Item Name</TableHead>
-                  <TableHead>No. of Seat / Panel</TableHead>
-                  <TableHead>Qty</TableHead>
-                  <TableHead>Rate</TableHead>
-                  <TableHead>Discount</TableHead>
-                  <TableHead>GST</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Action</TableHead>
-                </TableRow>
-              </TableHeader>
+                    <div className="text-right font-semibold mt-2">
+                      Fabric Total: ₹ {fabricTotal.toFixed(2)}
+                    </div>
+                  </div>
 
-              <TableBody>
-                {fabricItems.map((i: EnrichedProduct) => {
-              
-                        const { qty, discountAmount: rowDiscount, net: amount, taxPercent, gstAmount, totalWithTax } = deriveRowAmounts(i);
+                  {/* BLINDS TABLE */}
+                  <div>
+                    <div className="font-semibold text-lg mb-2">Blind Items</div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-b border-slate-500">
+                          <TableHead>Item Name</TableHead>
+                          <TableHead>Shade No</TableHead>
+                          <TableHead>Qty</TableHead>
+                          <TableHead>Rate</TableHead>
+                          <TableHead>Discount</TableHead>
+                          <TableHead>Gst</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {blindItems.map((i: EnrichedProduct) => {
+                          const { discountAmount: rowDiscount, net, qty, taxPercent, totalWithTax } = deriveRowAmounts(i);
+                          return (
+                          <TableRow key={i.id}>
+                            <TableCell>
+                                {i.issues?.length && (
+                                <div className="text-xs text-red-600 font-semibold mb-1">
+                                    ⚠ {i.issues.join(", ")}
+                                </div>
+                                )}
+                                {i.itemName}
+                            </TableCell>
+                            <TableCell>{i.shadeNo || "-"}</TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                defaultValue={qty}
+                                onChange={(e) =>
+                                  updateField(i.id, "qty", Number(e.target.value))
+                                }
+                                className="w-20"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                defaultValue={i.mrp}
+                                onChange={(e) =>
+                                  updateField(i.id, "mrp", Number(e.target.value))
+                                }
+                                className="w-24"
+                              />
+                            </TableCell>
+                            <TableCell className="font-semibold text-blue-600">
+                              <Input
+                                type="number"
+                                defaultValue={discountMap[i.id] ?? 0}
+                                onChange={(e) =>
+                                  setDiscountMap((prev) => ({
+                                    ...prev,
+                                    [i.id]: Number(e.target.value) || 0,
+                                  }))
+                                }
+                                className="w-20"
+                              />
+                            </TableCell>
+                            <TableCell className="text-center">{taxPercent}%</TableCell>
+                            <TableCell className="font-semibold">{totalWithTax.toFixed(0)}</TableCell>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEdit(i)}
+                              >
+                                <Pencil className="h-5 w-5 text-blue-600" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        )})}
+                      </TableBody>
+                    </Table>
 
-                  return(
-                  <TableRow key={i.id}>
-                    {/* BCN / Item Name */}
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span className="font-medium">{i.itemName || "-"}</span>
-                        <span className="text-xs text-gray-500">{i.bcn || "-"}</span>
-                      </div>
-                    </TableCell>
-                          {/* ⭐ NEW: SEAT / PANEL COLUMN */}
-                    <TableCell>
-                      <Input
-                        type="text"
-                        value={
-                          i.raw?.noOfSeat || 
-                          i.raw?.noOfSheet || 
-                          i.raw?.noOfPannel || 
-                          ""
-                        }
-                        onChange={(e) => {
-                          const val = e.target.value;
+                    {blindItems.length === 0 && (
+                      <p className="text-gray-400 text-sm">No blinds</p>
+                    )}
 
-                          if (i.raw?.noOfSeat !== undefined) {
-                            updateNested(i.id, "noOfSeat", val);
-                          } else if (i.raw?.noOfSheet !== undefined) {
-                            updateNested(i.id, "noOfSheet", val);
-                          } else {
-                            updateNested(i.id, "noOfPannel", val);
-                          }
-                        }}
-                        className="w-24"
-                      />
-                    </TableCell>
-
-                    {/* QTY */}
-                    <TableCell className="flex justify-center items-center gap-1 w-32">
-                      <Input
-                        type="number"
-                        value={qty}
-                        onChange={(e) => updateField(i.id, "qty", Number(e.target.value))}
-                      />Mtr
-                      </TableCell>
-
-                    {/* RATE */}
-                    <TableCell>
-                      <Input
-                        type="number"
-                        value={i.mrp}
-                        onChange={(e) =>
-                          updateField(i.id, "mrp", Number(e.target.value))
-                        }
-                        className="w-24"
-                      />
-                    </TableCell>
-
-                    {/* DISCOUNT */}
-                    <TableCell className="font-semibold text-blue-600">
-                      <Input
-                        type="number"
-                        value={discountMap[i.id] ?? 0}
-                        onChange={(e) =>
-                          setDiscountMap((prev) => ({
-                            ...prev,
-                            [i.id]: Number(e.target.value) || 0,
-                          }))
-                        }
-                        className="w-20"
-                      />
-                    </TableCell>
-
-                    {/* GST */}
-                    <TableCell className="text-center">
-                      {taxPercent}%
-                    </TableCell>
-
-                    {/* AMOUNT */}
-                    <TableCell  className="font-semibold">{totalWithTax.toFixed(0)}</TableCell>
-
-                    {/* ACTION */}
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => openEdit(i)}
-                      > 
-                        <Pencil className="h-5 w-5 text-blue-600" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-
-            {fabricItems.length === 0 && (
-              <p className="text-gray-400 text-sm">No fabric items</p>
-            )}
-
-            <div className="text-right font-semibold mt-2">
-              Fabric Total: ₹ {fabricTotal.toFixed(2)}
-            </div>
-          </div>
-
-          {/* BLINDS TABLE */}
-          <div>
-            <div className="font-semibold text-lg mb-2">Blind Items</div>
-
-            <Table>
-              <TableHeader>
-                <TableRow className="border-b border-slate-500">
-                  <TableHead>Item Name</TableHead>
-                  <TableHead>Shade No</TableHead>
-                  <TableHead>Qty</TableHead>
-                  <TableHead>Rate</TableHead>
-                  <TableHead>Discount</TableHead>
-                  <TableHead>Gst</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Action</TableHead>
-                </TableRow>
-              </TableHeader>
-
-              <TableBody>
-                {blindItems.map((i: EnrichedProduct) => {
-                  const { discountAmount: rowDiscount, net, qty, taxPercent, totalWithTax } = deriveRowAmounts(i);
-                  return (
-                  <TableRow key={i.id}>
-                    {/* BLIND NAME */}
-                    <TableCell>{i.itemName}</TableCell>
-
-                    {/* SHADE NUMBER */}
-                    <TableCell>{i.shadeNo || "-"}</TableCell>
-                    
-
-                    {/* QTY */}
-                    <TableCell>
-                      <Input
-                        type="number"
-                        value={qty}
-                        onChange={(e) =>
-                          updateField(i.id, "qty", Number(e.target.value))
-                        }
-                        className="w-20"
-                      />
-                    </TableCell>
-
-                    {/* RATE */}
-                    <TableCell>
-                      <Input
-                        type="number"
-                        value={i.mrp}
-                        onChange={(e) =>
-                          updateField(i.id, "mrp", Number(e.target.value))
-                        }
-                        className="w-24"
-                      />
-                    </TableCell>
-
-                    {/* DISCOUNT */}
-                    <TableCell className="font-semibold text-blue-600">
-                      <Input
-                        type="number"
-                        value={discountMap[i.id] ?? 0}
-                        onChange={(e) =>
-                          setDiscountMap((prev) => ({
-                            ...prev,
-                            [i.id]: Number(e.target.value) || 0,
-                          }))
-                        }
-                        className="w-20"
-                      />
-                    </TableCell>
-
-                    {/* GST */}
-                    <TableCell className="text-center">{taxPercent}%</TableCell>
-
-                    {/* AMOUNT */}
-                    <TableCell className="font-semibold">{totalWithTax.toFixed(0)}</TableCell>
-
-                    {/* ACTION */}
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => openEdit(i)}
-                      >
-                        <Pencil className="h-5 w-5 text-blue-600" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                )})}
-              </TableBody>
-            </Table>
-
-            {blindItems.length === 0 && (
-              <p className="text-gray-400 text-sm">No blinds</p>
-            )}
-
-            <div className="text-right font-semibold mt-2">
-              Blinds Total (incl. GST): ₹ {blindTotal.toFixed(2)}
-            </div>
-          </div>
-
-          {/* ROOM TOTAL */}
-          <div className="text-right font-bold text-lg mt-4">
-            Total Room Amount (incl. GST): ₹ {roomTotal.toFixed(2)}
-          </div>
-
-        </CardContent>
-      </Card>
-    );
-  })}
-</div>
- {/*========================= RIGHT SIDE EMPTY PANEL=========================================================================================== */}
+                    <div className="text-right font-semibold mt-2">
+                      Blinds Total (incl. GST): ₹ {blindTotal.toFixed(2)}
+                    </div>
+                  </div>
+                  <div className="text-right font-bold text-lg mt-4">
+                    Total Room Amount (incl. GST): ₹ {roomTotal.toFixed(2)}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
         <div className="border-2 border-slate-400 rounded-xl h-[85vh] p-4 flex flex-col justify-end gap-4">
           <div className="space-y-4">
             <div className="text-lg font-semibold border-b pb-2">
@@ -986,17 +1141,13 @@ export default function QuotationBuilderPage() {
           </div>
 
           <div className="flex gap-3">
-            <Button
-              className="flex-1"
-              onClick={() =>
-                toast({
-                  title: "Create Quotation",
-                  description: "Hook this to your quotation flow.",
-                })
-              }
-            >
-              Create Quotation
-            </Button>
+          <Button
+            className="flex-1"
+            disabled={hasBlockingIssues || saving}
+            onClick={handleCreateQuotation}
+          >
+            Create Quotation
+            </Button> 
             <Button
               variant="outline"
               className="flex-1"
@@ -1010,7 +1161,6 @@ export default function QuotationBuilderPage() {
 
       </div>
 
-      {/* ===== HIDDEN PDF LAYOUT ===== */}
       <div className="fixed -left-[9999px] top-0 bg-white text-black" ref={pdfRef}>
         <div className="w-[794px] min-h-[1123px] p-6 text-xs font-sans">
           <div className="flex justify-between items-start border-b pb-3">
@@ -1073,11 +1223,6 @@ export default function QuotationBuilderPage() {
               )}
               {Object.entries(groupedRooms).map(([roomName, roomItems], roomIndex) => {
                 let serial = 1;
-                const roomSubtotal = (roomItems as EnrichedProduct[]).reduce((s, item) => {
-                  const { totalWithTax } = deriveRowAmounts(item);
-                  return s + totalWithTax;
-                }, 0);
-
                 return (
                   <React.Fragment key={roomName}>
                     <tr className="bg-gray-50 font-semibold">
@@ -1109,7 +1254,6 @@ export default function QuotationBuilderPage() {
                         </tr>
                       );
                     })}
-
                   </React.Fragment>
                 );
               })}
@@ -1225,7 +1369,7 @@ export default function QuotationBuilderPage() {
                     <Label className="text-sm">Qty</Label>
                     <Input
                       type="number"
-                      value={editForm.noOfBlind || editForm.qty || ""}
+                      defaultValue={editForm.noOfBlind || editForm.qty || ""}
                       onChange={(e) =>
                         handleEditChange("noOfBlind", e.target.value)
                       }
@@ -1301,7 +1445,7 @@ export default function QuotationBuilderPage() {
                     <Label className="text-sm">Qty (Mtr)</Label>
                     <Input
                       type="number"
-                      value={editForm.qty || ""}
+                      defaultValue={editForm.qty || ""}
                       onChange={(e) =>
                         handleEditChange("qty", e.target.value)
                       }
@@ -1311,7 +1455,7 @@ export default function QuotationBuilderPage() {
                     <Label className="text-sm">Rate</Label>
                     <Input
                       type="number"
-                      value={editForm.mrp || ""}
+                      defaultValue={editForm.mrp || ""}
                       onChange={(e) =>
                         handleEditChange("mrp", e.target.value)
                       }

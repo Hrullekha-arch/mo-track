@@ -570,6 +570,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         onAssign={handleAssignInstaller}
         installers={installers}
         currentInstallerId={currentOrder.assignedTo}
+        enableSlotBooking={false}
     />
      <AssignCrmDialog
         isOpen={isAssigningCrm}

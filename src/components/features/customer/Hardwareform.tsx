@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useCallback, useState } from "react";
@@ -25,12 +26,11 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
   const mainCategories = [    
     { id: 1, name: "Hardware" },
     { id: 2, name: "Accessories" },
-    { id: 4, name: "Stitching Details" },];
+  ];
   const categories = [
     { id: 1, name: "Rod" },
     { id: 2, name: "Accessories" },
     { id: 3, name: "Pelmet" },
-    { id: 4, name: "Stitching Details" },
   ];
 
   const hardwareMain = [
@@ -68,15 +68,6 @@ const PelmetOptions = [
   { id: 3, name: "Blind Pelmet" },
 
 ];
-const StitchingOptions = [
-  { id: 1, name: "French Pleat" },
-  { id: 2, name: "Goblet" },
-  { id: 3, name: "Eyelet" },
-  { id: 4, name: "Roman Blind Pleat" },
-  { id: 5, name: "Valance" },
-
-];
-
 
   const [open, setOpen] = useState(false);
   const [bcnOptions, setBcnOptions] = useState<ComboboxOption[]>([]);
@@ -144,7 +135,6 @@ const handleFinalSave = () => {
 
   if (step.includes("accessories")) mainCategory = "Accessories";
   else if (step.includes("pelmet")) mainCategory = "Pelmet";
-  else if (step.includes("stitching")) mainCategory = "Stitching";
   else if (step.includes("roman")) mainCategory = "Roman Track";
   else if (step.includes("track")) mainCategory = "Track";
 
@@ -204,13 +194,6 @@ const handleFinalSave = () => {
       setStep("pelmet");   // new step
       setOpen(true);
     }
-    if (category === "Stitching Details") {
-      setDialogTitle("Stitching Details");
-      setUploadImageAllowed(true);
-      setStep("stitching");   // new step
-      setOpen(true);
-    }
-
   };
 
   const handleHardwareClick = (optionName) => {
@@ -1221,131 +1204,6 @@ const handleFinalSave = () => {
             </div>
           )}
 {/* ///////////////======================Pelemet End here============================//////////////////////////////  */}
-{/* //////================================Stitching Options Start Here=================////////////////////////////// */}
-            {step === "stitching" && (
-            <div className="grid gap-3 py-4">
-              {StitchingOptions.map((opt) => (
-                <Button
-                  key={opt.id}
-                  variant="outline"
-                  className="w-full py-4 rounded-xl"
-                  onClick={() => {
-                                     // existing logic for Rod / Final
-                                      setSelectedItem(opt.name);
-                                      setFinalItem(opt.name);
-                                      setStep("stitchingsubitem");
-                                      setDialogTitle(`${opt.name} Details`);
-                                    
-                                  }}
-                >
-                  {opt.name}
-                </Button>
-              ))}
-            </div>
-          )}
-
-          {/* //================Stitching Sub Menu //================== */}
-                    {step === "stitchingsubitem" && (
-                    <div className="grid gap-3 py-4">
-                      {[{ id: 1, name: "Noramal Pleat" },
-                        { id: 2, name: "Designs Pleat" },].map((opt) => (
-                        <Button
-                          key={opt.id}
-                          variant="outline"
-                          className="w-full py-4 rounded-xl"
-                          onClick={() => {
-                            setSelectedBracketType(opt.name);     // Single / Double / Corner
-                            setStep("stitchingitem");               // go to new screen
-                            setDialogTitle(`${opt.name} Details`);
-                          }}
-
-                        >
-                          {opt.name}
-                        </Button>
-                      ))}
-
-                      <Button
-                        variant="outline"
-                        className="w-full mt-2"
-                        onClick={() => {
-                          setStep("stitching");
-                          setDialogTitle("Pleat Type");
-                        }}
-                      >
-                        ← Back
-                      </Button>
-                    </div>
-                  )} 
-
- {/* //====================stitching Item Details ================== */}
-          {step === "stitchingitem" && (
-            <div className="grid gap-4 py-4">
-
-              {/* Label + Dropdown */}
-              <div>
-                <Label>Select Final</Label>
-                <Input
-                  // options={bracketItemsOptions}   // <- create this array
-                  // value={selectedItemValue}
-                  // onSelect={(value) => {
-                  //   setSelectedItemValue(value);
-                  //   handleHardwareItemSelect(value);   // <-- auto-fill MRP here
-                  // }}
-                  placeholder="Search Item"
-                />
-              </div>
-
-              {/* MRP */}
-              <div>
-                <Label>MRP</Label>
-                <Input
-                  placeholder="Enter rate/panel"
-                  value={rate}
-                  onChange={(e) => setRate(e.target.value)}
-                />
-              </div>
-
-              {/* Qty */}
-              <div>
-                <Label>Qty</Label>
-                <Input
-                  placeholder="Enter quantity"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                />
-              </div>
-              {/* image Only show when necessary */}
-              {uploadImageAllowed && (
-                <div>
-                  <Label>Upload Image</Label>
-                  <Input 
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                  />
-                  {image && (
-                    <img
-                      src={image}
-                      className="mt-2 h-20 w-20 object-cover rounded-md border"
-                    />
-                  )}
-                </div>
-              )}
-
-              {/* Buttons */}
-              <div className="flex justify-between mt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => setStep("stitchingsubitem")}
-                >
-                  ← Back
-                </Button>
-
-                <Button onClick={handleFinalSave}>Save</Button>
-
-              </div>
-            </div>
-          )}
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline">Close</Button>

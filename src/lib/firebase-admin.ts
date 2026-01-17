@@ -2,6 +2,7 @@
 import { initializeApp, getApps, cert, App } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import { getMessaging } from 'firebase-admin/messaging';
 
 if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set. Please create a .env file and add it.');
@@ -31,3 +32,4 @@ if (!getApps().length) {
 
 export const adminDb = getFirestore(adminApp);
 export const adminAuth = getAuth(adminApp);
+export const adminMessaging = getMessaging(adminApp);

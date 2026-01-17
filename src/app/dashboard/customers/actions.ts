@@ -103,7 +103,7 @@ export async function getSalesmen(): Promise<User[]> {
         if (snapshot.empty) {
             return [];
         }
-        const salesmen = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const salesmen = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
         return JSON.parse(JSON.stringify(salesmen));
     } catch (error) {
         console.error('Error fetching salesmen:', error);
@@ -126,8 +126,15 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
     }
 
     const newContactRef = customersRef.doc();
+    const savedAddresses = (data.savedAddresses && data.savedAddresses.length > 0)
+      ? data.savedAddresses
+      : data.addressPinCode
+        ? [{ address: data.addressPinCode, landmark: data.landmark }]
+        : [];
+
     const newCustomerData: Omit<Customer, 'id'> = {
       ...data,
+      savedAddresses,
       createdAt: new Date().toISOString(),
     };
 

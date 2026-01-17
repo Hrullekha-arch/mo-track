@@ -6,12 +6,15 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from 'next-themes';
+import { initializeFirebase, FirebaseClientProvider } from '@/firebase';
+import { FcmProvider } from '@/components/FcmProvider';
 
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { app, auth, firestore } = initializeFirebase();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -29,10 +32,13 @@ export default function RootLayout({
           defaultTheme="light"
           disableTransitionOnChange
         >
-          <AuthProvider>
-            {children}
-            <Toaster />
-          </AuthProvider>
+          <FirebaseClientProvider firebaseApp={app} auth={auth} firestore={firestore}>
+            <AuthProvider>
+              <FcmProvider />
+              {children}
+              <Toaster />
+            </AuthProvider>
+          </FirebaseClientProvider>
         </ThemeProvider>
       </body>
     </html>

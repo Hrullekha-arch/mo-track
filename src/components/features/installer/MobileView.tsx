@@ -6,11 +6,11 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight, Truck } from "lucide-react";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight, Truck, UserIcon, UserCircle, Dock, CalendarSync, PlayCircle } from "lucide-react";
 import { Order, Milestone, DealVisit, User, Customer, Deal, O2DStatus } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { collection, onSnapshot, query, where, doc, updateDoc, writeBatch, getDocs, limit, collectionGroup, getDoc, arrayUnion } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, updateDoc, writeBatch, getDocs, limit, collectionGroup, getDoc, arrayUnion, runTransaction } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -23,6 +23,12 @@ import Link from "next/link";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AssignInstallerDialog, SLOT_OPTIONS, SlotId, type SlotSelection } from "../order-management/AssignInstallerDialog";
+import { startVisitAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+
+const LOCATION_PING_INTERVAL_MS = 20000;
+
 
 
 type InstallerTask = 
@@ -42,25 +48,71 @@ export function MobileView() {
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [repNameMap, setRepNameMap] = useState<Record<string, string>>({});
+  const [isTransferOpen, setIsTransferOpen] = useState(false);
+    const [transferVisit, setTransferVisit] = useState<EnrichedInstallerVisit | null>(null);
+
 
   useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocation({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          });
-          setLocationError(null);
-        },
-        (error) => {
-          setLocationError(error.message);
-        }
-      );
-    } else {
+    if (!user) return;
+    if (!navigator.geolocation) {
       setLocationError("Geolocation is not supported by this browser.");
+      return;
     }
-  }, []);
+
+    let active = true;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const sendPing = async (coords: GeolocationCoordinates) => {
+      try {
+        await fetch("/api/tracking/ping", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            installerId: user.id,
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            accuracy: coords.accuracy,
+            speed: coords.speed,
+            timestamp: coords.timestamp,
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to send tracking ping:", error);
+      }
+    };
+
+    const handleSuccess = (position: GeolocationPosition) => {
+      if (!active) return;
+      setLocation({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      });
+      setLocationError(null);
+      void sendPing(position.coords);
+    };
+
+    const handleError = (error: GeolocationPositionError) => {
+      if (!active) return;
+      setLocationError(error.message);
+    };
+
+    const requestPosition = () => {
+      navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
+        enableHighAccuracy: true,
+        maximumAge: 10000,
+        timeout: 10000,
+      });
+    };
+
+    requestPosition();
+    intervalId = setInterval(requestPosition, LOCATION_PING_INTERVAL_MS);
+
+    return () => {
+      active = false;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -109,10 +161,10 @@ export function MobileView() {
             if (!dealData) {
                     const dealRef = doc(db, 'customers', customerId, 'deals', dealDocId);
                     const dealSnap = await getDoc(dealRef);
-                    if (dealSnap.exists()) {
-                    dealData = { id: dealSnap.id, ...dealSnap.data() } as Deal;
-                    dealCache.set(dealCacheKey, dealData);
-                }
+                     if (dealSnap.exists()) {
+                        dealData = { id: dealSnap.id, ...dealSnap.data() } as Deal;
+                        dealCache.set(dealCacheKey, dealData);
+                    }
             }
 
             return {
@@ -140,6 +192,7 @@ export function MobileView() {
         unsubscribeVisits();
     };
   }, [user]);
+  
 
   const activeTasks = useMemo(() => {
     return tasks
@@ -159,6 +212,211 @@ export function MobileView() {
         return dateA.getTime() - dateB.getTime();
       });
   }, [tasks]);
+
+  //===============Rep Fetch Fun
+  async function fetchUserNames(ids: string[]) {
+  const res = await fetch("/api/users/names", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  return res.json();
+}
+
+
+
+useEffect(() => {
+  // Collect ids from VISITS only (representative + assignedTo)
+  const visitTasks = tasks.filter((t) => t.type === "visit") as { type: "visit"; data: EnrichedInstallerVisit }[];
+
+  const ids = Array.from(
+    new Set(
+      visitTasks
+        .flatMap((t) => [t.data.representative, t.data.assignedTo])
+        .filter(Boolean) as string[]
+    )
+  );
+
+  const missing = ids.filter((id) => !repNameMap[id]);
+  if (missing.length === 0) return;
+
+  let cancelled = false;
+
+  (async () => {
+    const json = await fetchUserNames(missing);
+    if (cancelled) return;
+
+    if (json?.success && json?.map) {
+      setRepNameMap((prev) => ({ ...prev, ...json.map }));
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [tasks]); // ✅ depends on tasks
+
+//==================Handle Transfer Visit===================
+const handleTransferVisit = async (visit: EnrichedInstallerVisit, slot: SlotSelection) => {
+  if (!user?.id) return;
+
+  const installerId = user.id; // transfer for current installer
+  const assignedAt = new Date().toISOString();
+
+  const visitRef = doc(
+    db,
+    "customers",
+    visit.customerId,
+    "deals",
+    visit.dealDocId,
+    "visits",
+    visit.id
+  );
+
+  const newDateRef = doc(db, "installers", installerId, "dates", slot.slotDate);
+
+  const previousInstallerId = visit.assignedTo || installerId;
+  const previousSlotDate = visit.slotDate || "";
+  const previousSlotId = (visit.slotId || "") as SlotId | "";
+
+  // no-op
+  if (
+    previousInstallerId === installerId &&
+    previousSlotDate === slot.slotDate &&
+    previousSlotId === slot.slotId
+  ) {
+    return;
+  }
+
+  await runTransaction(db, async (tx) => {
+    // 1) remove booking from previous date (same installer usually)
+    if (previousInstallerId && previousSlotDate) {
+      const prevRef = doc(db, "installers", previousInstallerId, "dates", previousSlotDate);
+      const prevSnap = await tx.get(prevRef);
+      const prevSlots = prevSnap.exists() && Array.isArray((prevSnap.data() as any)?.slots)
+        ? (prevSnap.data() as any).slots
+        : [];
+
+      const cleanedPrev = prevSlots.filter((s: any) => s?.visitId !== visit.id);
+
+      tx.set(
+        prevRef,
+        {
+          slotDate: previousSlotDate,
+          slots: SLOT_OPTIONS.map((opt) => {
+            const existing = cleanedPrev.find((s: any) => (s?.slotId || s?.id) === opt.id);
+            if (existing) {
+              return {
+                ...existing,
+                slotId: opt.id,
+                id: opt.id, // keep old shape compatible
+                slotLabel: existing.slotLabel || opt.label,
+                slotStart: existing.slotStart || opt.start,
+                slotEnd: existing.slotEnd || opt.end,
+                slotDate: previousSlotDate,
+                status: existing.status || (existing.visitId ? "booked" : "free"),
+              };
+            }
+            return {
+              slotId: opt.id,
+              id: opt.id,
+              slotLabel: opt.label,
+              slotStart: opt.start,
+              slotEnd: opt.end,
+              slotDate: previousSlotDate,
+              status: "free",
+            };
+          }),
+        },
+        { merge: true }
+      );
+    }
+
+    // 2) book new slot (block if already booked by someone else)
+    const newSnap = await tx.get(newDateRef);
+    const newSlots = newSnap.exists() && Array.isArray((newSnap.data() as any)?.slots)
+      ? (newSnap.data() as any).slots
+      : [];
+
+    const blocking = newSlots.find(
+      (s: any) => (s?.slotId || s?.id) === slot.slotId && s?.visitId && s.visitId !== visit.id
+    );
+    if (blocking) {
+      throw new Error(`Slot ${slot.slotLabel} already booked.`);
+    }
+
+    const filteredNew = newSlots.filter(
+      (s: any) => s && (s.slotId || s.id) !== slot.slotId && s.visitId !== visit.id
+    );
+
+    const slotPayload = {
+      slotId: slot.slotId,
+      id: slot.slotId, // keep old field too
+      slotLabel: slot.slotLabel,
+      slotStart: slot.slotStart,
+      slotEnd: slot.slotEnd,
+      slotDate: slot.slotDate,
+
+      // booking meta
+      visitId: visit.id,
+      customerId: visit.customerId,
+      customerName: visit.customer?.name || "",
+      dealId: visit.deal?.dealId || visit.dealId || "",
+      dealDocId: visit.dealDocId,
+      dealName: visit.deal?.dealName || "",
+      assignedAt,
+      assignedTo: installerId,
+      status: "booked",
+    };
+
+    const slotsForDay = SLOT_OPTIONS.map((opt) => {
+      if (opt.id === slot.slotId) return slotPayload;
+
+      const existing = filteredNew.find((s: any) => (s?.slotId || s?.id) === opt.id);
+      if (existing) {
+        return {
+          ...existing,
+          slotId: opt.id,
+          id: opt.id,
+          slotLabel: existing.slotLabel || opt.label,
+          slotStart: existing.slotStart || opt.start,
+          slotEnd: existing.slotEnd || opt.end,
+          slotDate: slot.slotDate,
+          status: existing.status || (existing.visitId ? "booked" : "free"),
+        };
+      }
+
+      return {
+        slotId: opt.id,
+        id: opt.id,
+        slotLabel: opt.label,
+        slotStart: opt.start,
+        slotEnd: opt.end,
+        slotDate: slot.slotDate,
+        status: "free",
+      };
+    });
+
+    tx.set(
+      newDateRef,
+      { slotDate: slot.slotDate, slots: slotsForDay },
+      { merge: true }
+    );
+
+    // 3) update visit doc
+    tx.update(visitRef, {
+      assignedTo: installerId,
+      slotDate: slot.slotDate,
+      slotId: slot.slotId,
+      slotLabel: slot.slotLabel,
+      slotStart: slot.slotStart,
+      slotEnd: slot.slotEnd,
+      assignedAt,
+    });
+  });
+};
+
+
 
 
   if (loading) {
@@ -221,7 +479,8 @@ export function MobileView() {
                  <span className="absolute -top-2 -left-2 bg-primary text-primary-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs font-bold z-10">
                     {index + 1}
                 </span>
-                <InstallerTaskCard task={task} location={location} />
+                <InstallerTaskCard task={task} location={location} repNameMap={repNameMap} onTransfer={(v) => { setTransferVisit(v); setIsTransferOpen(true); }} />
+
             </div>
           ))}
         </div>
@@ -231,24 +490,100 @@ export function MobileView() {
           <p className="text-sm text-muted-foreground">You have no active assignments.</p>
         </div>
       )}
+
+      {/* //================render Slot Dialog ================= */}
+
+      <AssignInstallerDialog
+                isOpen={isTransferOpen}
+                onClose={() => {
+                    setIsTransferOpen(false);
+                    setTransferVisit(null);
+                }}
+                installers={user ? [{ ...(user as any), role: "installer" }] : []} // single installer (current)
+                currentInstallerId={user?.id}
+                currentVisitId={transferVisit?.id}
+                currentSlotSelection={
+                    transferVisit
+                    ? {
+                        slotDate: transferVisit.slotDate || transferVisit.dueDate,
+                        slotId: transferVisit.slotId as SlotId | undefined,
+                        slotLabel: transferVisit.slotLabel,
+                        slotStart: transferVisit.slotStart,
+                        slotEnd: transferVisit.slotEnd,
+                        }
+                    : undefined
+                }
+                onAssign={async (_installerId, slot) => {
+                    if (!transferVisit || !slot) return;
+                    try {
+                    await handleTransferVisit(transferVisit, slot);
+                    setIsTransferOpen(false);
+                    setTransferVisit(null);
+                    } catch (e: any) {
+                    console.error(e);
+                    // optionally toast
+                    }
+                }}
+                />
     </div>
   );
 }
 
-const InstallerTaskCard = ({ task, location }: { task: InstallerTask, location: { latitude: number; longitude: number; } | null }) => {
-    if (task.type === 'order') {
-        return <InstallerOrderCard order={task.data} location={location} />;
-    }
-    if (task.type === 'visit') {
-        return <InstallerVisitCard visit={task.data} />;
-    }
-    return null;
-}
+const InstallerTaskCard = ({
+  task,
+  location,
+  repNameMap,
+  onTransfer,
+}: {
+  task: InstallerTask;
+  location: { latitude: number; longitude: number } | null;
+  repNameMap: Record<string, string>;
+  onTransfer: (v: EnrichedInstallerVisit) => void;
+}) => {
+  if (task.type === "order") return <InstallerOrderCard order={task.data} location={location} />;
 
-const InstallerVisitCard = ({ visit }: { visit: EnrichedInstallerVisit }) => {
+  if (task.type === "visit")
+    return (
+      <InstallerVisitCard
+        visit={task.data}
+        repNameMap={repNameMap}
+        onTransfer={onTransfer}
+      />
+    );
+
+  return null;
+};
+
+
+
+const InstallerVisitCard = ({
+  visit,
+  repNameMap,
+  onTransfer,
+}: {
+  visit: EnrichedInstallerVisit;
+  repNameMap: Record<string, string>;
+  onTransfer: (v: EnrichedInstallerVisit) => void;
+}) => {
     const router = useRouter();
+    const { toast } = useToast();
 
-    const handleStartVisit = () => {
+    const handleStartVisit = async () => {
+        // Geo data to send
+        let geo;
+    if (navigator.geolocation) {
+    await new Promise<void>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+        (pos) => { geo = { lat: pos.coords.latitude, lng: pos.coords.longitude, radiusM: 150 }; resolve(); },
+        () => resolve(),
+        { enableHighAccuracy: true, timeout: 8000 }
+        );
+    });
+    }
+
+    await startVisitAction(visit.customerId, visit.dealDocId, visit.id, geo);
+
+        // Optimistically navigate
         let path = '';
         if (visit.typeOfVisit === 'measurement') {
             path = `/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}`;
@@ -257,9 +592,30 @@ const InstallerVisitCard = ({ visit }: { visit: EnrichedInstallerVisit }) => {
             path = `/mobile/delivery/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}&orderId=${visit.orderId}`;
         }
         router.push(path);
+
+        // Then, update the status in the background
+        try {
+            const result = await startVisitAction(visit.customerId, visit.dealDocId, visit.id);
+            if (!result.success) {
+                toast({
+                    variant: "destructive",
+                    title: "Could not log visit start",
+                    description: result.message,
+                });
+            }
+        } catch (e) {
+            toast({
+                variant: "destructive",
+                title: "Network Error",
+                description: "Could not connect to the server to log visit start.",
+            });
+        }
     };
 
     const getButtonContent = () => {
+        if (visit.visitStatus === 'Working') {
+            return { text: 'Continue Visit', icon: <PlayCircle className="ml-2 h-4 w-4" /> };
+        }
         switch(visit.typeOfVisit) {
             case 'measurement':
                 return { text: 'Start Measurement', icon: <ArrowRight className="ml-2 h-4 w-4" /> };
@@ -276,6 +632,8 @@ const InstallerVisitCard = ({ visit }: { visit: EnrichedInstallerVisit }) => {
     };
 
     const buttonContent = getButtonContent();
+    const phone = (visit.customer?.mobileNo || "").trim();
+    const address = (visit.customer?.addressPinCode || visit.customer?.city || "").trim();
     
     return (
         <Card>
@@ -287,15 +645,59 @@ const InstallerVisitCard = ({ visit }: { visit: EnrichedInstallerVisit }) => {
             </CardHeader>
             <CardContent className="text-sm space-y-3">
                  <p className="flex items-center gap-2 font-semibold"><CalendarCheck className="h-4 w-4 text-muted-foreground" /> <span>{format(new Date(visit.dueDate), 'PPP p')}</span></p>
-                 <p className="flex items-center gap-2"><Phone className="h-4 w-4 text-muted-foreground" /> {visit.customer?.mobileNo || 'N/A'}</p>
-                 <p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-muted-foreground" /> {visit.customer?.addressPinCode || visit.customer?.city || 'N/A'}</p>
+                 <p className="flex items-center gap-2">
+                    <Phone color="blue" className="h-4 w-4 text-muted-foreground " />
+                {phone ? (
+                    <a 
+                    href={`tel:${phone.replace(/\s+/g, "")}`}
+                    className="font-medium text-blue-600"
+                    >
+                    {phone}
+                    </a>
+                ) : (
+                    <span>N/A</span>
+                )}
+                </p>
+                 <p className="flex items-center gap-2">
+                <MapPin color="green" className="h-4 w-4 text-muted-foreground" />
+
+                {address ? (
+                    <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                        address
+                    )}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-green-600"
+                    >
+                    {address}
+                    </a>
+                ) : (
+                    <span>N/A</span>
+                )}
+                </p>
+                 <p className="flex items-center gap-2"><Dock className="h-4 w-4 text-muted-foreground" /> {visit.remark || 'N/A'}</p>
+                 <div className="flex justify-between items-center">
+                    <div>Urgency</div>
+                    <Badge variant={"outline"} className="flex items-center gap-2"><UserCircle className="h-4 w-4 text-muted-foreground" />CRM: {visit.createdBy || 'N/A'}</Badge>
+                    <Badge variant={"outline"} className="flex items-center gap-2"><UserIcon className="h-4 w-4 text-muted-foreground" />SM: {repNameMap[visit.representative] || <Skeleton className="h-6 w-28 rounded-full" />}</Badge>
+                 </div>
             </CardContent>
-             <CardFooter>
-                 <Button className="w-full" onClick={handleStartVisit}>
+             <CardFooter className="flex gap-2">
+                 <Button className="w-full rounded-lg" onClick={handleStartVisit}>
                     {buttonContent.text}
                     {buttonContent.icon}
                 </Button>
+                <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => onTransfer(visit)}
+                    >
+                    <CalendarSync className="mr-2 h-4 w-4" />
+                    Transfer Visit
+                    </Button>
             </CardFooter>
+            
         </Card>
     );
 }
@@ -462,7 +864,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
                 </div>
                 <Badge className="w-fit mt-1" variant="outline">{order.orderType.replace('+', ' + ')}</Badge>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm">
+            <CardContent className="text-sm space-y-3">
                 <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" /><span>{order.customerAddress}</span></div>
                 <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" /><span>{order.customerPhone}</span></div>
                 
@@ -598,6 +1000,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
                     </div>
                 )}
             </CardContent>
+            
         </Card>
     );
 }

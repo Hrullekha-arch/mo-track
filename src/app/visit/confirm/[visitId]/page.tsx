@@ -5,7 +5,7 @@
 import * as React from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { doc, getDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { arrayUnion, doc, getDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Customer, Deal, DealVisit } from '@/lib/types';
 import { getCustomerById } from '@/app/dashboard/customers/actions';
@@ -123,12 +123,11 @@ export default function ConfirmVisitPage() {
                     throw new Error("Could not find visit details.");
                 }
 
-                setCustomer(customerData);
-                setAddress(customerData.addressPinCode || '');
-                setLandmark(customerData.landmark || '');
-
                 const visitDoc = { id: visitData.id, ...visitData.data() } as DealVisit;
                 setVisit(visitDoc);
+                setCustomer(customerData);
+                setAddress(visitDoc.customerAddress || customerData.addressPinCode || '');
+                setLandmark(visitDoc.customerLandmark || customerData.landmark || '');
                 if (visitDoc.status === 'approved' && visitDoc.dueDate) {
                     setView('confirmed');
                 }
@@ -167,18 +166,44 @@ export default function ConfirmVisitPage() {
             
             const batch = writeBatch(db);
 
+            const nextAddress = address.trim();
+            const nextLandmark = landmark.trim();
+
             batch.update(visitRef, {
                 status: 'approved',
                 dueDate: combinedDateTime.toISOString(),
-                customerAddress: address,
-                customerLandmark: landmark
+                customerAddress: nextAddress,
+                customerLandmark: nextLandmark
             });
             
+            const normalize = (value?: string) =>
+                String(value || "").trim().toLowerCase();
+            const alreadySaved = Array.isArray(customer?.savedAddresses)
+                ? customer!.savedAddresses!.some(
+                    (addr) =>
+                        normalize(addr?.address) === normalize(nextAddress) &&
+                        normalize(addr?.landmark) === normalize(nextLandmark)
+                )
+                : false;
+
+            const customerUpdates: Record<string, any> = {
+                addressPinCode: nextAddress,
+                landmark: nextLandmark
+            };
+
+            if (!alreadySaved) {
+                const savedAddress: Record<string, string> = {
+                    address: nextAddress,
+                    createdAt: new Date().toISOString()
+                };
+                if (nextLandmark) {
+                    savedAddress.landmark = nextLandmark;
+                }
+                customerUpdates.savedAddresses = arrayUnion(savedAddress);
+            }
+            
             // Also update the main customer profile with the new address
-            batch.update(customerRef, {
-                addressPinCode: address,
-                landmark: landmark
-            });
+            batch.update(customerRef, customerUpdates);
             
             await batch.commit();
             

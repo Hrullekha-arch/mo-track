@@ -4,9 +4,10 @@ import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp as AdminTimestamp } from "firebase-admin/firestore";
 
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
+export type InstallerStatus = 'DRIVING' | 'WORKING' | 'IDLE';
 
 export interface User {
-  id: string;
+  id: string; // Document ID, same as Firebase Auth UID
   name: string;
   email: string;
   role: UserRole;
@@ -15,6 +16,46 @@ export interface User {
   salesmanCode?: string;
   permissions?: string[]; // Array of allowed module keys
   store?: string;
+  fcmTokens?: string[]; // For push notifications
+}
+
+export interface InstallerTracking {
+  id: string; // Document ID (installer user id)
+  installerId: string;
+  status: InstallerStatus;
+  statusSince?: string;
+  lastPingAt?: string;
+  location?: {
+    latitude: number;
+    longitude: number;
+  };
+  accuracyM?: number;
+  speedKmh?: number;
+  lastMovementAt?: string;
+  currentVisitId?: string;
+  currentCustomerId?: string;
+  currentDealDocId?: string;
+  currentVisitType?: string;
+  updatedAt?: string;
+}
+
+export interface Walkin_Customer {
+    id: string;
+    firstName: string;
+    familyName: string;
+    mobile: string;
+    email?: string;
+    lookingFor?: string;
+    createdAt: string; // ISO Date
+    status?: 'Pending' | 'Attended' | 'Handed Over' | 'Deal Created' | 'Closed';
+    action?: 'Create Deal' | 'Close';
+    remarks?: string;
+    attendedBy?: {
+        id: string;
+        name: string;
+    };
+    salesmanId?: string;
+    salesmanName?: string;
 }
 
 export type OrderType = 'delivery' | 'stitching' | 'stitching+installation';
@@ -167,6 +208,7 @@ export interface Order {
   // Full kitting time
   fullKittingTime?: string;
   fullKittingTimeReupdated?: boolean;
+  approvedAt?: string;
 }
 
 export interface SalesmanCrmAssignment {
@@ -264,7 +306,27 @@ export interface PurchaseStep {
 export interface Stock {
   id: string; // Document ID of the length, e.g. "Length1"
   bcn: string; // The BCN, which is the parent document's ID
+  bcnDigits?: string;
+  productId?: string;
   itemName: string;
+  categoryGroup?: string;
+  closingstock?: number;
+  composition?: string;
+  costMultiplierRs?: number;
+  costPriceRs?: number;
+  horizontalRepeatCms?: number;
+  verticalRepeatCms?: number;
+  martindale?: number;
+  maxlevel?: number;
+  moCollection?: string;
+  moCollectionCode?: string;
+  rrpWithGstRs?: number;
+  supplierCollectionCode?: string;
+  supplierCollectionName?: string;
+  supplierCompanyName?: string;
+  updatedAt?: string;
+  weightGsm?: number;
+  width?: number;
   serialNo?: string;
   hsnCode?: string;
   rlPrice?: number;
@@ -334,6 +396,13 @@ export interface StockTransaction {
   cutHistory?: StockTransaction[];
 }
 
+export interface CustomerAddress {
+    address: string;
+    landmark?: string;
+    label?: string;
+    createdAt?: string;
+}
+
 export interface Customer {
     id: string;
     name: string;
@@ -345,6 +414,7 @@ export interface Customer {
     city?: string;
     state?: string;
     addressPinCode?: string;
+    savedAddresses?: CustomerAddress[];
     gstin?: string;
     panNo?: string;
     referenceName?: string;
@@ -377,6 +447,14 @@ export interface DeliveryInstallationItem {
     noOfPcs?: string;
 }
 
+export interface VisitGeo {
+    latitude: number;
+    longitude: number;
+    radiusM?: number;
+    source?: 'customer' | 'installer' | 'geocode';
+    updatedAt?: string;
+}
+
 export interface DealVisit {
     id: string;
     dealId: string; // The 4-digit numeric deal ID
@@ -397,11 +475,33 @@ export interface DealVisit {
     subDeliveryInstallations?: DeliveryInstallationItem[];
     otherDelivery?: string;
     status?: 'requested' | 'approved' | 'completed'; // New status flow
-    visitStatus?: 'Out for Delivery';
+    visitStatus?: 'Out for Delivery' | 'Working';
+    visitStartTime?: string;
+    visitEndTime?: string;
     measurementPdfUrl?: string;
     orderId?: string;
     customerAddress?: string; // Added for customer confirmation
     customerLandmark?: string; // Added for customer confirmation
+    slotDate?: string;     // "YYYY-MM-DD"
+    slotId?: string;       // "S1" | "S2" ...
+    slotLabel?: string;    // "S1 (10:00 - 12:00)"
+    slotStart?: string;    // "10:00"
+    slotEnd?: string; 
+    geo?: VisitGeo;
+    geoAttemptedAt?: string;
+}
+
+export interface VisitTracking {
+    id: string;
+    visitId: string;
+    installerId: string;
+    customerId?: string;
+    dealDocId?: string;
+    travelStartAt?: string;
+    travelEndAt?: string;
+    workStartAt?: string;
+    workEndAt?: string;
+    updatedAt?: string;
 }
 
 export interface MeasurementEntry {
@@ -658,6 +758,27 @@ export interface TaxDetail {
     igst: number;
 }
 
+export interface Receipt {
+    id: string;
+    amount: number;
+    date: string; // ISO string
+    mode: 'Cash' | 'Card' | 'UPI' | 'Cheque';
+    referenceNo?: string;
+    remarks?: string;
+    createdBy: string;
+    createdAt: string;
+}
+
 
 export { type ComboboxOption };
 
+// Slot booking types for installer scheduling
+export type SlotId = 'S1' | 'S2' | 'S3' | 'S4' | 'S5';
+
+export type SlotSelection = {
+  slotDate: string;
+  slotId: SlotId;
+  slotLabel: string;
+  slotStart: string;
+  slotEnd: string;
+};

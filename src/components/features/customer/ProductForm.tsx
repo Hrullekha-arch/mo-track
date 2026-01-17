@@ -1,6 +1,7 @@
+
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useForm, FormProvider } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,18 +9,21 @@ import { DealProduct } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Trash2 } from "lucide-react";
+import { PlusCircle, Trash2, ScanLine, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
-import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
+import { searchStockByBcn, searchStockById } from "@/app/dashboard/inventory/actions";
 import { roomOptions } from "@/lib/constants";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import Hardwareform from "./Hardwareform";
+import { VasForm } from "./VasForm";
+import { Html5Qrcode } from "html5-qrcode";
+import { Label } from "@/components/ui/label";
 
 const blindEntrySchema = z.object({
   id: z.string(),
@@ -45,6 +49,7 @@ const blindEntrySchema = z.object({
 });
 
 const newProductEntrySchema = z.object({
+  Type: z.string().optional().default(""), // ✅ ADD (used in flooring)
   collectionBrand: z.string().min(1, "BCN is required."),
   salesDescription: z.string().optional().default(""),
   mrp: z.string().optional().default(""),
@@ -323,24 +328,28 @@ const AddBlindsDialog = ({
 };
 
 type ProductFormProps = {
-  initialProducts: DealProduct[];
-  onProductsUpdated: (products: DealProduct[]) => void;
+  initialProducts?: DealProduct[];
+  onProductsUpdated?: (products: DealProduct[]) => void;
   onRefresh: () => void;
-  blindDialogState: { isOpen: boolean; roomName: string | null };
-  setBlindDialogState: (state: { isOpen: boolean; roomName: string | null }) => void;
 };
+
 
 export function ProductForm({
   initialProducts,
   onProductsUpdated,
-  onRefresh: _onRefresh,
-  blindDialogState,
-  setBlindDialogState,
 }: ProductFormProps) {
   const { toast } = useToast();
   const [bcnOptions, setBcnOptions] = useState<ComboboxOption[]>([]);
   const [stagedItems, setStagedItems] = useState<any[]>([]);
   const [activeMainSection, setActiveMainSection] = useState("main");
+  const [currentProducts, setCurrentProducts] = useState<DealProduct[]>(initialProducts || []);
+  
+  const [internalBlindDialogState, setInternalBlindDialogState] = useState<{ isOpen: boolean; roomName: string | null; }>({ isOpen: false, roomName: null });
+
+  useEffect(() => {
+    setCurrentProducts(initialProducts || []);
+  }, [initialProducts]);
+  
 
   const form = useForm<ProductListFormValues>({
     resolver: zodResolver(productListSchema),
@@ -385,31 +394,44 @@ export function ProductForm({
     if (selectedOption) {
       const stockItem = selectedOption.stockItem;
       form.setValue("newProduct.collectionBrand", stockItem.bcn || stockItem.id);
-      form.setValue("newProduct.mrp", (stockItem.mrp || 0).toString());
-      form.setValue("newProduct.salesDescription", "");
+      form.setValue("newProduct.mrp", (stockItem.rrpWithGstRs || 0).toString());
+      form.setValue("newProduct.salesDescription", stockItem.categoryGroup || "");
+      form.setValue("newProduct.verticalRepeat", stockItem.verticalRepeatCms || "");
+      form.setValue("newProduct.horizontalRepeat", stockItem.horizontalRepeatCms || "");
+      console.log("✅ BCN selected:", stockItem);
     }
   };
 
-  // ⭐ ADD THIS INSIDE ProductForm (top-level inside the component)
-const handleSaveHardware = (payload) => {
-  console.log("✔️ Hardware Saved:", payload);
+  const handleSaveHardware = (payload: any) => {
+    console.log("✔️ Hardware Saved:", payload);
 
-  setStagedItems((prev) => [
-    ...prev,
-    {
-      id: `hardware-${Date.now()}`, 
-      productType: "Hardware",
-      productCategory: payload.productCategory,
-      subCategory: payload.subCategory,
-      bcn: payload.bcn || null,
-      rate: payload.rate || "",
-      quantity: payload.quantity || "",
-      image: payload.image || null,
-      timestamp: payload.timestamp,
-    },
-  ]);
-};
+    setStagedItems((prev) => [
+      ...prev,
+      {
+        id: `hardware-${Date.now()}`, 
+        productType: "Hardware",
+        productCategory: payload.productCategory,
+        subCategory: payload.subCategory,
+        bcn: payload.bcn || null,
+        rate: payload.rate || "",
+        quantity: payload.quantity || "",
+        image: payload.image || null,
+        timestamp: payload.timestamp,
+      },
+    ]);
+  };
 
+  const handleSaveVas = (payload: any) => {
+    console.log("✔️ VAS Saved:", payload);
+    setStagedItems((prev) => [
+        ...prev,
+        {
+          id: `vas-${Date.now()}`,
+          productType: "VAS",
+          ...payload,
+        }
+    ]);
+  }
 
 useEffect(() => {
   const raw = localStorage.getItem("hardwarePayload");
@@ -471,8 +493,6 @@ useEffect(() => {
   localStorage.removeItem("hardwarePayload");
 }, []);
 
-
-
 const handleStageItem = () => {
   const newProduct = form.getValues("newProduct");
 
@@ -511,12 +531,6 @@ const handleStageItem = () => {
 
   const [step, setStep] = useState("main");
 
-  const choose = (type) => {
-    onSelect(type);   // send selected type
-    setStep("main");  // reset
-    onClose();        // close dialog
-  };
-
   const handleAddProductsToList = () => {
     const room = form.getValues("room");
     if (!room) {
@@ -540,38 +554,364 @@ const handleStageItem = () => {
       };
     });
 
-    onProductsUpdated([...initialProducts, ...newProductsForForm]);
+    setCurrentProducts((prev) => {
+      const merged = [...prev, ...newProductsForForm];
+      if (typeof onProductsUpdated === "function") {
+        onProductsUpdated(merged);
+      } else {
+        console.warn("onProductsUpdated not provided; products updated locally only.");
+      }
+      return merged;
+    });
     setStagedItems([]);
     toast({ title: "Products Added", description: `${newProductsForForm.length} item(s) added to the list.` });
   };
 
   const handleBlindsAdded = (blinds: DealProduct[]) => {
-    onProductsUpdated([...initialProducts, ...blinds]);
+    setCurrentProducts((prev) => {
+      const merged = [...prev, ...blinds];
+      if (typeof onProductsUpdated === "function") {
+        onProductsUpdated(merged);
+      } else {
+        console.warn("onProductsUpdated not provided; products updated locally only.");
+      }
+      return merged;
+    });
   };
 
   const selectedRoom = form.watch("room");
     const [flooringDialogOpen, setFlooringDialogOpen] = useState(false);
     const [selectedFlooringType, setSelectedFlooringType] = useState("");
 
-    const handleSelectFlooring = (type) => {
+    const handleSelectFlooring = (type: string) => {
     setSelectedFlooringType(type);
     setActiveMainSection("flooring");
     setFlooringDialogOpen(false);
     };
 
+    const resolvedBlindDialogState = internalBlindDialogState;
+    const scannerContainerId = "product-scan-container";
+    const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+    const scanLockRef = useRef(false);
+    const scanCompletedRef = useRef(false);
+    const [scanOpen, setScanOpen] = useState(false);
+    const [scanInput, setScanInput] = useState("");
+    const [scanError, setScanError] = useState<string | null>(null);
+    const [scanLoading, setScanLoading] = useState(false);
+    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+
+    const extractProductIdFromValue = useCallback((value: string) => {
+      const trimmed = String(value || "").trim();
+      if (!trimmed) return null;
+
+      const directMatch = trimmed.match(/product\/detail\/([^/?#]+)/i);
+      if (directMatch?.[1]) return directMatch[1];
+
+      try {
+        const url = new URL(trimmed);
+        const parts = url.pathname.split("/").filter(Boolean);
+        const detailIndex = parts.findIndex((part) => part.toLowerCase() === "detail");
+        if (detailIndex !== -1 && parts[detailIndex + 1]) {
+          return parts[detailIndex + 1];
+        }
+        return parts[parts.length - 1] || null;
+      } catch {
+        const parts = trimmed.split("/").filter(Boolean);
+        return parts[parts.length - 1] || null;
+      }
+    }, []);
+
+    const resolveStockSource = useCallback((stock: any) => {
+      const rawType = String(stock?.type || "").toLowerCase();
+      if (rawType.includes("wall")) return "wallpaper";
+      if (rawType.includes("floor")) return "flooring";
+      return "fabric";
+    }, []);
+
+    const playBeep = useCallback((variant: "success" | "error") => {
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = "sine";
+        osc.frequency.value = variant === "success" ? 880 : 220;
+        gain.gain.value = 0.08;
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+        osc.stop(ctx.currentTime + 0.25);
+        osc.onended = () => ctx.close();
+      } catch (error) {
+        console.error("Beep failed:", error);
+      }
+    }, []);
+
+    const stageStockItem = useCallback(
+      (stock: any, productId: string) => {
+        const collectionBrand = stock?.bcn || stock?.id || productId;
+
+        // ✅ extra lock (camera sometimes calls twice before stop completes)
+        if (stageLockRef.current) return;
+        stageLockRef.current = true;
+
+        setStagedItems((prev) => {
+          const alreadyStaged = prev.some(
+            (x: any) =>
+              String(x?.productId || "") === String(stock?.productId || productId) ||
+              String(x?.collectionBrand || "") === String(collectionBrand)
+          );
+          if (alreadyStaged) return prev;
+
+          const salesDescription = stock?.itemName || stock?.categoryGroup || "";
+          const mrp = stock?.rrpWithGstRs != null ? String(stock.rrpWithGstRs) : "";
+          const verticalRepeat = stock?.verticalRepeatCms != null ? String(stock.verticalRepeatCms) : "";
+          const horizontalRepeat = stock?.horizontalRepeatCms != null ? String(stock.horizontalRepeatCms) : "";
+          const productSource = resolveStockSource(stock);
+
+          return [
+            ...prev,
+            {
+              collectionBrand,
+              salesDescription,
+              mrp,
+              quantity: "",
+              remarks: "",
+              verticalRepeat,
+              horizontalRepeat,
+              productId: stock?.productId || productId,
+              productSource,
+            },
+          ];
+        });
+
+        // ✅ release lock next tick
+        setTimeout(() => {
+          stageLockRef.current = false;
+        }, 0);
+
+        toast({
+          title: "Product staged",
+          description: `${collectionBrand} added to staging.`,
+        });
+      },
+      [resolveStockSource, toast]
+    );
 
 
+    const stopScanner = useCallback(async () => {
+    if (stoppingRef.current) return;
+    stoppingRef.current = true;
+
+    const inst = html5QrCodeRef.current;
+    if (!inst) {
+      stoppingRef.current = false;
+      return;
+    }
+
+    try {
+      // stop only if scanning
+      if (inst.isScanning) {
+        await inst.stop().catch(() => {});
+      }
+
+      // ✅ clear only if container still exists in DOM
+      const container = document.getElementById(scannerContainerId);
+      if (container) {
+        try {
+          await inst.clear();
+        } catch (err: any) {
+          // ignore "removeChild" style errors
+          console.warn("html5-qrcode clear ignored:", err?.message || err);
+        }
+      }
+    } finally {
+      stoppingRef.current = false;
+    }
+  }, [scannerContainerId]);
+
+
+    const handleScanPayload = useCallback(async (value: string): Promise<boolean> => {
+      const productId = extractProductIdFromValue(value);
+      if (!productId) {
+        setScanError("Invalid QR code. Expected a product detail link.");
+        playBeep("error");
+        return false;
+      }
+
+      setScanError(null);
+      setScanLoading(true);
+      try {
+        const results = await searchStockById(productId);
+        if (!results || results.length === 0) {
+          setScanError(`No stock found for product ID ${productId}.`);
+          playBeep("error");
+          return false;
+        }
+        scanCompletedRef.current = true;
+        await stopScanner();
+        stageStockItem(results[0], productId);
+        playBeep("success");
+        setScanOpen(false);
+        return true;
+      } catch (error) {
+        console.error("Failed to fetch stock by product ID:", error);
+        setScanError("Failed to fetch stock for this product ID.");
+        playBeep("error");
+        return false;
+      } finally {
+        setScanLoading(false);
+      }
+    }, [extractProductIdFromValue, playBeep, stageStockItem, stopScanner]);
+
+    const lastDecodedRef = useRef<{ text: string; ts: number } | null>(null);
+    const stageLockRef = useRef(false); // extra safety against double staging
+    const stoppingRef = useRef(false);
+
+
+
+    const handleScanSuccess = useCallback(
+      (decodedText: string) => {
+        const now = Date.now();
+        const last = lastDecodedRef.current;
+
+        // ✅ Ignore same QR firing repeatedly within 1500ms
+        if (last && last.text === decodedText && now - last.ts < 1500) {
+          return;
+        }
+        lastDecodedRef.current = { text: decodedText, ts: now };
+
+        // ✅ Also block if already in progress / completed
+        if (scanLockRef.current || scanCompletedRef.current) return;
+
+        scanLockRef.current = true;
+
+        handleScanPayload(decodedText)
+          .then((success) => {
+            if (!success) {
+              // allow retry only if it failed
+              scanLockRef.current = false;
+            }
+          })
+          .catch(() => {
+            scanLockRef.current = false;
+          });
+      },
+      [handleScanPayload]
+    );
+
+
+    const startScanner = useCallback(() => {
+      if (!html5QrCodeRef.current || html5QrCodeRef.current.isScanning) {
+        return;
+      }
+
+      const config = {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        rememberLastUsedCamera: true,
+      };
+
+      html5QrCodeRef.current.start(
+        { facingMode: "environment" },
+        config,
+        handleScanSuccess,
+        () => {}
+      ).catch((error) => {
+        console.error("Scanner start error:", error);
+        setHasCameraPermission(false);
+        toast({ variant: "destructive", title: "Scanner Error", description: "Could not start the camera." });
+      });
+    }, [handleScanSuccess, toast]);
+
+    useEffect(() => {
+      if (!scanOpen) {
+        setScanError(null);
+        setScanInput("");
+        setHasCameraPermission(null);
+        scanLockRef.current = false;
+        scanCompletedRef.current = false;
+        stopScanner();
+        return;
+      }
+      scanLockRef.current = false;
+      scanCompletedRef.current = false;
+
+      if (hasCameraPermission === null) {
+        Html5Qrcode.getCameras()
+          .then((devices) => {
+            setHasCameraPermission(!!devices?.length);
+          })
+          .catch(() => setHasCameraPermission(false));
+      }
+
+      let cancelled = false;
+      let rafId: number | null = null;
+
+      const ensureScanner = () => {
+        if (cancelled) return;
+        const container = document.getElementById(scannerContainerId);
+        if (!container) {
+          rafId = requestAnimationFrame(ensureScanner);
+          return;
+        }
+        if (!html5QrCodeRef.current) {
+          html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, { experimentalFeatures: { useOffscreenCanvas: true }, verbose: false });
+        }
+        if (hasCameraPermission) {
+          startScanner();
+        }
+      };
+
+      ensureScanner();
+
+      return () => {
+        cancelled = true;
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+        }
+        stopScanner();
+      };
+    }, [scanOpen, hasCameraPermission, scannerContainerId, startScanner, stopScanner]);
 
   return (
     <FormProvider {...form}>
       <Card className="mt-6">
         <CardContent className="p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Products</h2>
+              <p className="text-sm text-muted-foreground">Add items and stage them for this deal.</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                // ✅ reset before opening
+                setScanInput("");
+                setScanError(null);
+                setScanLoading(false);
+                lastDecodedRef.current = null;
+                scanLockRef.current = false;
+                scanCompletedRef.current = false;
+                setScanOpen(true);
+              }}
+            >
+              <ScanLine className="mr-2 h-4 w-4" />
+              Scan QR
+            </Button>
+          </div>
+
+          <Separator className="my-4" />
+
           <form className="space-y-4">
             <div className="space-y-4">
               {activeMainSection === "main" && (
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Add More Products</h3>
-
                   <div className="p-4 border rounded-lg space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                       <div className="p-4 border rounded-xl flex flex-col gap-3">
@@ -605,6 +945,7 @@ const handleStageItem = () => {
 
                       <div className="p-4 border rounded-xl flex flex-col gap-3">
                         <Hardwareform form={form} onSaveHardware={handleSaveHardware}/>
+                        <VasForm form={form} onSaveVas={handleSaveVas}/>
                       </div>
                     </div>
                   </div>
@@ -617,7 +958,19 @@ const handleStageItem = () => {
                   <div className="p-4 border rounded-lg space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       
+                      
                       <div className="md:col-span-2 flex items-end gap-2">
+                        <FormField
+                        control={form.control}
+                        name="room"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Room*</FormLabel>
+                            <Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="Select Room..." />
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                         <Button type="button" variant="outline">
                           <PlusCircle className="mr-2 h-4 w-4" /> Add new Room
                         </Button>
@@ -626,7 +979,7 @@ const handleStageItem = () => {
                           variant="outline"
                           onClick={() => {
                             if (selectedRoom) {
-                              setBlindDialogState({ isOpen: true, roomName: selectedRoom });
+                              setInternalBlindDialogState({ isOpen: true, roomName: selectedRoom as any });
                             } else {
                               toast({ variant: "destructive", title: "No Room Selected" });
                             }
@@ -774,7 +1127,7 @@ const handleStageItem = () => {
                           variant="outline"
                           onClick={() => {
                             if (selectedRoom) {
-                              setBlindDialogState({ isOpen: true, roomName: selectedRoom });
+                              setInternalBlindDialogState({ isOpen: true, roomName: selectedRoom as any });
                             } else {
                               toast({ variant: "destructive", title: "No Room Selected" });
                             }
@@ -963,7 +1316,7 @@ const handleStageItem = () => {
                           variant="outline"
                           onClick={() => {
                             if (selectedRoom) {
-                              setBlindDialogState({ isOpen: true, roomName: selectedRoom });
+                              setInternalBlindDialogState({ isOpen: true, roomName: selectedRoom as any });
                             } else {
                               toast({ variant: "destructive", title: "No Room Selected" });
                             }
@@ -1112,30 +1465,29 @@ const handleStageItem = () => {
                   <ul className="text-xs list-disc list-inside p-2 border rounded-md bg-muted/50">
                     {stagedItems.map((item, i) => (
                       <li key={i}>
-                        {!("productType" in item) ? (
+                        {item.productType === "VAS" ? (
+                          <span>
+                            <strong>{item.productCategory}</strong>
+                            {" → "}
+                            {item.subCategory}
+                            {item.quantity && <span>{` (Qty: ${item.quantity})`}</span>}
+                          </span>
+                        ) : item.productType === "Hardware" ? (
+                          <span>
+                            <strong>{item.productCategory}</strong>
+                            {" → "}
+                            {item.subCategory}
+                            {item.quantity && <span>{` (Qty: ${item.quantity})`}</span>}
+                            {item.bcn && <span>{` | BCN: ${item.bcn}`}</span>}
+                          </span>
+                        ) : item.productSource === "flooring" ? (
+                          <span>
+                            Flooring → <strong>{item.flooringType}</strong> — Qty: {item.quantity}
+                          </span>
+                        ) : (
                           <span>
                             {item.collectionBrand} - Qty: {(item as any).quantity || "N/A"}
                           </span>
-                        ) : null}
-
-                        {item.productType === "Hardware" && (
-                            <span>
-                                <strong>{item.productCategory}</strong>
-                                {" → "}{item.subCategory}
-
-                                {item.quantity && (
-                                    <span>{` (Qty: ${item.quantity})`}</span>
-                                )}
-
-                                {item.bcn && (
-                                    <span>{` | BCN: ${item.bcn}`}</span>
-                                )}
-                            </span>
-                        )}
-                        {item.productSource === "flooring" && (
-                        <span>
-                            Flooring → <strong>{item.flooringType}</strong> — Qty: {item.quantity}
-                        </span>
                         )}
                       </li>
                     ))}
@@ -1151,14 +1503,74 @@ const handleStageItem = () => {
           </form>
         </CardContent>
       </Card>
-      {blindDialogState.isOpen && blindDialogState.roomName && (
-        <AddBlindsDialog
-          isOpen={blindDialogState.isOpen}
-          onClose={() => setBlindDialogState({ isOpen: false, roomName: null })}
-          roomName={blindDialogState.roomName}
-          onSave={handleBlindsAdded}
-        />
-      )}
+      <Dialog
+        open={scanOpen}
+        onOpenChange={(open) => {
+          setScanOpen(open);
+          if (!open) {
+            setScanInput("");
+            setScanError(null);
+            setScanLoading(false);
+            lastDecodedRef.current = null;
+            scanLockRef.current = false;
+            scanCompletedRef.current = false;
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Scan Product QR</DialogTitle>
+            <DialogDescription>
+              Scan a QR code that links to{" "}
+              <code>https://modesign.in/product/detail/{"{id}"}</code>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div
+              id={scannerContainerId}
+              className="aspect-square rounded-md border bg-muted flex items-center justify-center text-sm text-muted-foreground"
+            >
+              {hasCameraPermission === false && <span>Camera access is required to scan.</span>}
+              {hasCameraPermission === null && <span>Initializing camera...</span>}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="product-scan-input">Paste link or product ID</Label>
+              <Input
+                id="product-scan-input"
+                value={scanInput}
+                onChange={(event) => setScanInput(event.target.value)}
+                placeholder="https://modesign.in/product/detail/30415"
+              />
+            </div>
+
+            {scanError && <p className="text-sm text-destructive">{scanError}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setScanOpen(false)}>
+              Close
+            </Button>
+            <Button
+              type="button"
+              onClick={() => handleScanPayload(scanInput)}
+              disabled={scanLoading || !scanInput.trim()}
+            >
+              {scanLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Add Product
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {resolvedBlindDialogState.isOpen && resolvedBlindDialogState.roomName && (
+      <AddBlindsDialog
+        isOpen={resolvedBlindDialogState.isOpen}
+        onClose={() => setInternalBlindDialogState({ isOpen: false, roomName: null })}
+        roomName={resolvedBlindDialogState.roomName}
+        onSave={handleBlindsAdded}
+      />
+    )}
     </FormProvider>
   );
 }

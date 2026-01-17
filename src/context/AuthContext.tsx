@@ -5,8 +5,9 @@ import React, { createContext, useContext, useState, ReactNode, useEffect } from
 import { User, UserRole } from '@/lib/types';
 import { useRouter } from 'next/navigation';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, User as FirebaseUser } from "firebase/auth";
-import { auth, db } from '@/lib/firebase';
+import { useAuth as useFirebaseAuth } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 
 interface AuthContextType {
@@ -26,6 +27,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const { toast } = useToast();
+  const auth = useFirebaseAuth();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
@@ -47,7 +49,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [auth]);
 
 
   const login = async (email: string, password: string): Promise<boolean> => {
