@@ -38,6 +38,7 @@ import { MeasurementPreviewDialog } from "@/components/features/measurement/Meas
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { SelectItem } from "@radix-ui/react-select";
 
 function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreated }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[], onOrderCreated: () => void }) {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
@@ -997,6 +998,21 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     }
   };
 
+  const savedAddresses = useMemo(() => {
+      const list = Array.isArray(customer?.savedAddresses)
+        ? customer.savedAddresses.filter((addr) => addr?.address)
+        : [];
+      if (list.length > 0) return list;
+      if (customer?.addressPinCode) {
+        return [{ address: customer.addressPinCode, landmark: customer.landmark }];
+      }
+      return [];
+    }, [customer]);
+  
+    const [addressMode, setAddressMode] = useState<"saved" | "new">(
+      savedAddresses.length > 0 ? "saved" : "new"
+    );
+
 
   useEffect(() => {
     if (!customerId || !dealId) return;
@@ -1037,6 +1053,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     { value: 'receipt', label: 'Receipt', icon: ReceiptIcon },
     { value: 'reminder', label: 'Reminder/Notes', icon: MessageSquare },
   ];
+
+  
 
 
   return (
@@ -1118,7 +1136,9 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                   <div className="space-y-1">
                     <div className="flex items-center gap-3 flex-wrap">
                       <h3 className="text-2xl font-bold">{deal.dealName}</h3>
-                      <Badge className="h-6">{deal.dealStage || 'DEAL CREATED'}</Badge>
+                      <Badge className="h-6">
+                       {deal.status || 'Deal Created'}
+                      </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">ID: {deal.dealId}</p>
                   </div>
@@ -1138,14 +1158,26 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                   {/* Store Info */}
                   <div className="flex items-start gap-3">
                     <div className="p-2 bg-primary/10 rounded-lg">
-                      <Home className="h-5 w-5 text-primary" />
+                      <MapPin className="h-5 w-5 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">
-                        Store Location
+                        Customer Address
                       </div>
-                      <div className="font-semibold text-foreground truncate">
-                        {customer.state || 'MO GCR BRANCH'}
+                      <div className="font-semibold text-foreground flex flex-wrap gap-1 w-1/2 break-words">
+                        {savedAddresses.map((addr, index) => {
+                          const addressText = addr.address || `Address ${index + 1}`;
+                          const landmarkText = addr.landmark ? ` - ${addr.landmark}` : "";
+
+                          return (
+                            <div
+                              key={`${addressText}-${index}`}
+                              className="whitespace-normal"
+                            >
+                              {`${addressText}${landmarkText}`}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -1182,15 +1214,6 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                           <Phone className="h-3 w-3" />
                           {customer.mobileNo}
                         </span>
-                        {customer.city && (
-                          <>
-                            <span className="text-muted-foreground/50">•</span>
-                            <span className="flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
-                              {customer.city}
-                            </span>
-                          </>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -1233,12 +1256,12 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
               <Separator />
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Store:</span>
-                  <span className="font-medium">{customer.state || 'MO GCR BRANCH'}</span>
+                  <span className="text-muted-foreground">Customer Address:</span>
+                  <span className="font-medium flex flex-wrap gap-1 w-1/2 break-words">{customer.addressPinCode || '-'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Representative:</span>
-                  <span className="font-medium">{representative?.name || 'N/A'}</span>
+                  <span className="font-medium ">{representative?.name || 'N/A'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Contact:</span>

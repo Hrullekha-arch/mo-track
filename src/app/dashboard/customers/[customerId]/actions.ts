@@ -5,6 +5,7 @@
 import { adminDb } from '@/lib/firebase-admin';
 import { Customer, Deal, User, Quotation, O2DProcess } from '@/lib/types';
 import { query, where } from 'firebase/firestore';
+import { revalidatePath } from 'next/cache';
 
 export async function searchCustomersAction(filters: {
   customerName?: string;
@@ -112,7 +113,11 @@ export async function getSalesmen(): Promise<User[]> {
 }
 
 
-interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {}
+interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {
+  savedAddresses?: Array<{ address: string; landmark?: string }>;
+  addressPinCode?: string;
+  landmark?: string;
+}
 
 export async function addCustomerAction(data: AddCustomerInput): Promise<{ success: boolean; message: string; customer?: Customer }> {
   try {
@@ -126,15 +131,13 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
     }
 
     const newContactRef = customersRef.doc();
-    const savedAddresses = (data.savedAddresses && data.savedAddresses.length > 0)
-      ? data.savedAddresses
-      : data.addressPinCode
-        ? [{ address: data.addressPinCode, landmark: data.landmark }]
-        : [];
 
     const newCustomerData: Omit<Customer, 'id'> = {
-      ...data,
-      savedAddresses,
+      name: data.name,
+      mobileNo: data.mobileNo,
+      email: data.email,
+      salesSupport: data.salesSupport,
+      createdBy: data.createdBy,
       createdAt: new Date().toISOString(),
     };
 
@@ -147,6 +150,64 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
     console.error("Error creating contact in server action:", error);
     return { success: false, message: `Server error: ${error.message}` };
   }
+}
+
+type UpdateCustomerPayload = {
+  name: string;
+  mobileNo: string;
+  email?: string;
+  address?: string;
+};
+
+export async function updateCustomerAction(
+  customerId: string,
+  payload: UpdateCustomerPayload
+): Promise<Customer> {
+  if (!customerId) throw new Error("Missing customerId");
+
+  const clean: any = {
+    name: (payload.name || "").trim(),
+    mobileNo: (payload.mobileNo || "").trim(),
+    addressPinCode: (payload.address || "").trim(),
+  };
+
+  const email = (payload.email || "").trim();
+  if (email) clean.email = email;
+  else clean.email = adminDb.fieldValue?.delete?.() ?? undefined; 
+  // If your wrapper doesn't expose fieldValue, use admin.firestore.FieldValue.delete() below.
+
+  const ref = adminDb.collection("customers").doc(customerId);
+  const snap = await ref.get();
+
+  if (!snap.exists) throw new Error("Customer not found");
+
+  // ✅ if you want to enforce unique mobile
+  const dupSnap = await adminDb
+    .collection("customers")
+    .where("mobileNo", "==", clean.mobileNo)
+    .limit(1)
+    .get();
+
+  const dup = dupSnap.docs.find((d) => d.id !== customerId);
+  if (dup) throw new Error("Mobile number already exists for another customer.");
+
+  // ✅ update
+  await ref.set(
+    {
+      ...clean,
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true }
+  );
+
+  const updatedSnap = await ref.get();
+  const updated = { id: updatedSnap.id, ...(updatedSnap.data() as any) } as Customer;
+
+  // ✅ optional cache revalidate
+  revalidatePath(`/dashboard/customers`);
+  revalidatePath(`/dashboard/customers/${customerId}`);
+
+  return JSON.parse(JSON.stringify(updated));
 }
 
 type AddDealInput = Omit<Deal, 'id' | 'createdAt' | 'dealId'> & { customerId: string };

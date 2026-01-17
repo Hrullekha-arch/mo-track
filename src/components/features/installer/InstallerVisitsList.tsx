@@ -14,7 +14,7 @@ import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import Link from 'next/link';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { deliveryInstallationItems as allDeliveryItems, subDeliveryInstallationItems as allSubDeliveryItems } from "@/app/dashboard/customers/[customerId]/[dealId]/page";
+import { deliveryInstallationItems, subDeliveryInstallationItems } from "@/lib/visit-options";
 
 
 interface EnrichedInstallerVisit extends DealVisit {

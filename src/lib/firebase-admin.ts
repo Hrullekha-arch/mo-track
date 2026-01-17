@@ -1,35 +1,46 @@
 
-import { initializeApp, getApps, cert, App } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
-import { getMessaging } from 'firebase-admin/messaging';
+import { initializeApp, getApps, cert, App } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
+import { getMessaging } from "firebase-admin/messaging";
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
 
-if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-    throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set. Please create a .env file and add it.');
-}
-
+const isBuildPhase = process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD;
 const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
-let serviceAccount;
-try {
-  // The key is often stored with escaped newlines, so we need to parse it carefully
-  serviceAccount = JSON.parse(serviceAccountString);
-} catch (e) {
-  console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY. Make sure it's a valid JSON string in your .env file.");
-  throw new Error("Invalid FIREBASE_SERVICE_ACCOUNT_KEY format.");
+let serviceAccount: any = null;
+
+if (!serviceAccountString && getApps().length === 0) {
+  if (!isBuildPhase) {
+    throw new Error(
+      "The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set. Please create a .env file and add it."
+    );
+  }
+  console.warn("FIREBASE_SERVICE_ACCOUNT_KEY is not set. Admin SDK disabled during build.");
+} else if (serviceAccountString) {
+  try {
+    // The key is often stored with escaped newlines, so we need to parse it carefully
+    serviceAccount = JSON.parse(serviceAccountString);
+  } catch (e) {
+    console.error(
+      "Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY. Make sure it's a valid JSON string in your .env file."
+    );
+    if (!isBuildPhase) {
+      throw new Error("Invalid FIREBASE_SERVICE_ACCOUNT_KEY format.");
+    }
+  }
 }
 
+let adminApp: App | null = null;
 
-let adminApp: App;
-
-if (!getApps().length) {
+if (getApps().length) {
+  adminApp = getApps()[0];
+} else if (serviceAccount) {
   adminApp = initializeApp({
     credential: cert(serviceAccount),
   });
-} else {
-  adminApp = getApps()[0];
 }
 
-export const adminDb = getFirestore(adminApp);
-export const adminAuth = getAuth(adminApp);
-export const adminMessaging = getMessaging(adminApp);
+export const adminDb = adminApp ? getFirestore(adminApp) : (null as any);
+export const adminAuth = adminApp ? getAuth(adminApp) : (null as any);
+export const adminMessaging = adminApp ? getMessaging(adminApp) : (null as any);

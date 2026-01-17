@@ -34,6 +34,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { addVisitAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import {
+  deliveryInstallationItems,
+  subDeliveryInstallationItems,
+} from "@/lib/visit-options";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -95,19 +99,8 @@ export const subMeasurementBlinds = [
 ];
 
 // UI list (label needed) but saved payload remains { id, noOfPcs }
-const deliveryInstallationOptions = [
-  { id: "curtain-installation", label: "Curtain Installation" },
-  { id: "blind-installation", label: "Blind Installation" },
-  { id: "wallpaper-installation", label: "Wallpaper Installation" },
-  { id: "flooring-installation", label: "Flooring Installation" },
-  { id: "other-installation", label: "Other Installation" },
-];
-
-const subDeliveryInstallationOptions = [
-  { id: "roman-blind", label: "Roman Blind" },
-  { id: "roller-blind", label: "Roller Blind" },
-  { id: "zebra-blind", label: "Zebra Blind" },
-];
+const deliveryInstallationOptions = deliveryInstallationItems;
+const subDeliveryInstallationOptions = subDeliveryInstallationItems;
 
 const VISIT_TYPES = [
   { value: "measurement", label: "Measurements" },

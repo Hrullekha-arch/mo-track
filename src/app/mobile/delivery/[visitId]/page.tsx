@@ -18,7 +18,7 @@ import { Loader2, ArrowLeft, Package, User, Phone, MapPin, Truck, Check, Circle,
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { deliveryInstallationItems as allDeliveryItems, subDeliveryInstallationItems as allSubDeliveryItems } from '@/app/dashboard/customers/[customerId]/[dealId]/page';
+import { deliveryInstallationItems, subDeliveryInstallationItems } from "@/lib/visit-options";
 
 type CheckListItem = {
     id: string;
@@ -104,14 +104,18 @@ export default function DeliveryVisitPage() {
                 const items: CheckListItem[] = [];
                 currentVisit.deliveryInstallations?.forEach(item => {
                     if (!item) return;
-                    const deliveryItemConfig = allDeliveryItems.find(config => config.id === item.id);
+                    const deliveryItemConfig = deliveryInstallationItems.find(
+                        (config) => config.id === item.id
+                    );
                     if (deliveryItemConfig) {
                         items.push({ id: item.id, name: deliveryItemConfig.label, quantity: item.noOfPcs || '1', gathered: false });
                     }
                 });
                  currentVisit.subDeliveryInstallations?.forEach(item => {
                     if (!item) return;
-                    const subDeliveryItemConfig = allSubDeliveryItems.find(config => config.id === item.id);
+                    const subDeliveryItemConfig = subDeliveryInstallationItems.find(
+                        (config) => config.id === item.id
+                    );
                      if (subDeliveryItemConfig) {
                         items.push({ id: item.id, name: subDeliveryItemConfig.label, quantity: item.noOfPcs || '1', gathered: false });
                     }

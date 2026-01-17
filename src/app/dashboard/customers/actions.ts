@@ -126,17 +126,43 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
     }
 
     const newContactRef = customersRef.doc();
-    const savedAddresses = (data.savedAddresses && data.savedAddresses.length > 0)
+    const normalizeAddress = (addr?: { address?: string; landmark?: string; label?: string; createdAt?: string }) => {
+      const address = String(addr?.address || "").trim();
+      if (!address) return null;
+      const cleaned: Record<string, string> = { address };
+      const landmark = String(addr?.landmark || "").trim();
+      if (landmark) cleaned.landmark = landmark;
+      const label = String(addr?.label || "").trim();
+      if (label) cleaned.label = label;
+      if (addr?.createdAt) cleaned.createdAt = String(addr.createdAt);
+      return cleaned;
+    };
+
+    const providedAddresses = Array.isArray(data.savedAddresses)
       ? data.savedAddresses
-      : data.addressPinCode
-        ? [{ address: data.addressPinCode, landmark: data.landmark }]
+          .map((addr) => normalizeAddress(addr))
+          .filter(Boolean)
+      : [];
+
+    const fallbackAddress = data.addressPinCode
+      ? normalizeAddress({ address: data.addressPinCode, landmark: data.landmark })
+      : null;
+
+    const savedAddresses =
+      providedAddresses.length > 0
+        ? providedAddresses
+        : fallbackAddress
+        ? [fallbackAddress]
         : [];
 
-    const newCustomerData: Omit<Customer, 'id'> = {
+    const newCustomerDataRaw: Omit<Customer, "id"> = {
       ...data,
       savedAddresses,
       createdAt: new Date().toISOString(),
     };
+    const newCustomerData = Object.fromEntries(
+      Object.entries(newCustomerDataRaw).filter(([, value]) => value !== undefined)
+    ) as Omit<Customer, "id">;
 
     await newContactRef.set(newCustomerData);
     
