@@ -1,7 +1,8 @@
 'use server';
 
 import { adminDb, adminMessaging } from '@/lib/firebase-admin';
-import { User } from '@/lib/types';
+import { User, OwnerRef } from '@/lib/types';
+import { computeAssignment } from '@/lib/handover';
 
 interface WalkinCustomerData {
     firstName: string;
@@ -20,22 +21,18 @@ export async function addWalkinCustomer(data: WalkinCustomerData): Promise<{ suc
             return { success: false, message: "A record with this mobile number already exists." };
         }
 
-        const newCustomerDoc = await walkinRef.add({
-            ...data,
-            createdAt: new Date().toISOString(),
-            status: 'Pending', // Initial status
-        });
-
         const usersRef = adminDb.collection('users');
         const crmQuery = usersRef.where('role', '==', 'employee').where('designation', '==', 'CRM');
         const crmSnapshot = await crmQuery.get();
 
+        const crmAvailabilities: OwnerRef[] = [];
         if (!crmSnapshot.empty) {
             const tokens: string[] = [];
             const crmUserIds: string[] = [];
             crmSnapshot.forEach(doc => {
                 const user = doc.data() as User;
                 crmUserIds.push(doc.id);
+                crmAvailabilities.push({ type: 'CRM', id: doc.id });
                 if (user.fcmTokens && Array.isArray(user.fcmTokens)) {
                     tokens.push(...user.fcmTokens);
                 }
@@ -73,6 +70,37 @@ export async function addWalkinCustomer(data: WalkinCustomerData): Promise<{ suc
             await batch.commit();
             console.log('In-app notifications created for CRM users.');
         }
+
+        // Determine initial assignment (default to first available CRM; fallback to unassigned CRM)
+        const primaryOwner: OwnerRef = crmAvailabilities.length > 0
+            ? crmAvailabilities[0]
+            : { type: 'CRM', id: 'unassigned' };
+
+        const assignment = computeAssignment({
+            primaryOwner,
+            availability: crmAvailabilities.map((owner) => ({
+                owner,
+                status: 'AVAILABLE',
+              })),
+            handovers: [],
+            teamPool: crmAvailabilities.slice(1).map((owner) => ({
+                owner,
+                status: 'AVAILABLE',
+              })),
+        });
+
+        const newCustomerDoc = await walkinRef.add({
+            ...data,
+            createdAt: new Date().toISOString(),
+            status: 'Pending', // Initial status
+            originalOwnerType: assignment.originalOwner.type,
+            originalOwnerId: assignment.originalOwner.id,
+            assignedOwnerType: assignment.assignedOwner.type,
+            assignedOwnerId: assignment.assignedOwner.id,
+            assignmentReason: assignment.assignmentReason,
+            handoverRequestId: assignment.handoverRequestId ?? null,
+            assignedAt: assignment.assignedAt,
+        });
 
         return { success: true, message: "Customer data saved and notifications sent." };
 
@@ -123,6 +151,11 @@ export async function handoverToSalesman(
             status: 'Handed Over',
             salesmanId: salesman.id,
             salesmanName: salesman.name,
+            assignedOwnerType: 'SALESMAN',
+            assignedOwnerId: salesman.id,
+            assignmentReason: 'ADMIN_OVERRIDE',
+            handoverRequestId: null,
+            assignedAt: new Date().toISOString(),
         });
 
         // Get salesman's user data to find FCM tokens

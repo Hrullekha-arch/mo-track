@@ -9,10 +9,13 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import {
+  Check,
+  Edit,
   Loader2,
   RefreshCw,
   Tag,
@@ -22,6 +25,7 @@ import {
   Layers,
   BadgePercent,
   ChevronRight,
+  X,
 } from "lucide-react";
 import {
   Table,
@@ -40,6 +44,7 @@ import {
   searchStockByBcn,
   getStockTransactions,
   getStockById,
+  updateStockBatchAction,
 } from "@/app/dashboard/inventory/actions";
 
 /** ✅ Updated Inventory Types (match new fields) */
@@ -74,6 +79,7 @@ type InventoryItem = {
   costPriceRs?: number;
   costMultiplierRs?: number;
   rrpWithGstRs?: number;
+  rack?: string;
 };
 
 type StockTransaction = {
@@ -87,6 +93,98 @@ type StockTransaction = {
   status?: string;
   note?: string;
 };
+
+type EditableStockFields = {
+  itemName: string;
+  closingstock: string;
+  maxlevel: string;
+  category: string;
+  categoryGroup: string;
+  width: string;
+  unit: string;
+  type: string;
+  moCollection: string;
+  moCollectionCode: string;
+  supplierCompanyName: string;
+  supplierCollectionName: string;
+  supplierCollectionCode: string;
+  composition: string;
+  martindale: string;
+  weightGsm: string;
+  horizontalRepeatCms: string;
+  verticalRepeatCms: string;
+  costPriceRs: string;
+  costMultiplierRs: string;
+  rrpWithGstRs: string;
+  rack: string;
+};
+
+type QuickEditField = "costPriceRs" | "costMultiplierRs" | "rrpWithGstRs" | "rack";
+
+const emptyEditValues: EditableStockFields = {
+  itemName: "",
+  closingstock: "",
+  maxlevel: "",
+  category: "",
+  categoryGroup: "",
+  width: "",
+  unit: "",
+  type: "",
+  moCollection: "",
+  moCollectionCode: "",
+  supplierCompanyName: "",
+  supplierCollectionName: "",
+  supplierCollectionCode: "",
+  composition: "",
+  martindale: "",
+  weightGsm: "",
+  horizontalRepeatCms: "",
+  verticalRepeatCms: "",
+  costPriceRs: "",
+  costMultiplierRs: "",
+  rrpWithGstRs: "",
+  rack: "",
+};
+
+const toInputValue = (value: number | string | undefined | null) => {
+  if (value === 0) return "0";
+  if (value == null) return "";
+  return String(value);
+};
+
+const toNumberValue = (value: string) => {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return 0;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const toEditValues = (stock: InventoryItem): EditableStockFields => ({
+  itemName: toInputValue(stock.itemName),
+  closingstock: toInputValue(stock.closingstock),
+  maxlevel: toInputValue(stock.maxlevel),
+  category: toInputValue(stock.category),
+  categoryGroup: toInputValue(stock.categoryGroup),
+  width: toInputValue(stock.width),
+  unit: toInputValue(stock.unit),
+  type: toInputValue(stock.type),
+  moCollection: toInputValue(stock.moCollection),
+  moCollectionCode: toInputValue(stock.moCollectionCode),
+  supplierCompanyName: toInputValue(stock.supplierCompanyName),
+  supplierCollectionName: toInputValue(stock.supplierCollectionName),
+  supplierCollectionCode: toInputValue(stock.supplierCollectionCode),
+  composition: toInputValue(stock.composition),
+  martindale: toInputValue(stock.martindale),
+  weightGsm: toInputValue(stock.weightGsm),
+  horizontalRepeatCms: toInputValue(stock.horizontalRepeatCms),
+  verticalRepeatCms: toInputValue(stock.verticalRepeatCms),
+  costPriceRs: toInputValue(stock.costPriceRs),
+  costMultiplierRs: toInputValue(stock.costMultiplierRs),
+  rrpWithGstRs: toInputValue(stock.rrpWithGstRs),
+  rack: toInputValue(stock.rack),
+});
+
+const getStockDocId = (stock: InventoryItem) => stock.id || stock.bcn;
 
 const money = (v: any) => {
   const n = Number(v);
@@ -141,8 +239,190 @@ export function StockManagement() {
   const [isSearching, setIsSearching] = React.useState(false);
   const [isLoadingDetails, setIsLoadingDetails] = React.useState(false);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [isEditingAll, setIsEditingAll] = React.useState(false);
+  const [quickEditField, setQuickEditField] = React.useState<QuickEditField | null>(null);
+  const [editValues, setEditValues] = React.useState<EditableStockFields>(emptyEditValues);
+  const [isSavingEdits, setIsSavingEdits] = React.useState(false);
 
   const { toast } = useToast();
+
+  React.useEffect(() => {
+    if (!selectedStock) {
+      setEditValues(emptyEditValues);
+      setIsEditingAll(false);
+      setQuickEditField(null);
+      return;
+    }
+    setEditValues(toEditValues(selectedStock));
+    setIsEditingAll(false);
+    setQuickEditField(null);
+  }, [selectedStock?.id, selectedStock?.bcn]);
+
+  const updateEditValue = (field: keyof EditableStockFields, value: string) => {
+    setEditValues((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const startEditAll = () => {
+    if (!selectedStock) return;
+    setEditValues(toEditValues(selectedStock));
+    setIsEditingAll(true);
+    setQuickEditField(null);
+  };
+
+  const cancelEditAll = () => {
+    if (selectedStock) {
+      setEditValues(toEditValues(selectedStock));
+    }
+    setIsEditingAll(false);
+  };
+
+  const startQuickEdit = (field: QuickEditField) => {
+    if (!selectedStock) return;
+    setEditValues(toEditValues(selectedStock));
+    setQuickEditField(field);
+    setIsEditingAll(false);
+  };
+
+  const cancelQuickEdit = () => {
+    if (selectedStock) {
+      setEditValues(toEditValues(selectedStock));
+    }
+    setQuickEditField(null);
+  };
+
+  const handleSaveAll = async () => {
+    if (!selectedStock) return;
+    setIsSavingEdits(true);
+    try {
+      const stockDocId = getStockDocId(selectedStock);
+      const updates: Partial<InventoryItem> = {
+        itemName: editValues.itemName.trim(),
+        closingstock: toNumberValue(editValues.closingstock),
+        maxlevel: toNumberValue(editValues.maxlevel),
+        category: editValues.category.trim(),
+        categoryGroup: editValues.categoryGroup.trim(),
+        width: toNumberValue(editValues.width),
+        unit: editValues.unit.trim(),
+        type: editValues.type.trim(),
+        moCollection: editValues.moCollection.trim(),
+        moCollectionCode: editValues.moCollectionCode.trim(),
+        supplierCompanyName: editValues.supplierCompanyName.trim(),
+        supplierCollectionName: editValues.supplierCollectionName.trim(),
+        supplierCollectionCode: editValues.supplierCollectionCode.trim(),
+        composition: editValues.composition.trim(),
+        martindale: toNumberValue(editValues.martindale),
+        weightGsm: toNumberValue(editValues.weightGsm),
+        horizontalRepeatCms: toNumberValue(editValues.horizontalRepeatCms),
+        verticalRepeatCms: toNumberValue(editValues.verticalRepeatCms),
+        costPriceRs: toNumberValue(editValues.costPriceRs),
+        costMultiplierRs: toNumberValue(editValues.costMultiplierRs),
+        rrpWithGstRs: toNumberValue(editValues.rrpWithGstRs),
+        rack: editValues.rack.trim(),
+      };
+
+      const result = await updateStockBatchAction([{ id: stockDocId, ...updates }]);
+
+      if (result.success) {
+        setSelectedStock((prev) => (prev ? { ...prev, ...updates } : prev));
+        setIsEditingAll(false);
+        toast({ title: "Stock updated" });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Update Failed",
+          description: result.message,
+        });
+      }
+    } catch (error) {
+      console.error("Error updating stock:", error);
+      toast({
+        variant: "destructive",
+        title: "Update Failed",
+        description: "An unexpected server error occurred.",
+      });
+    } finally {
+      setIsSavingEdits(false);
+    }
+  };
+
+  const handleSaveQuickEdit = async (field: QuickEditField) => {
+    if (!selectedStock) return;
+    setIsSavingEdits(true);
+    try {
+      const stockDocId = getStockDocId(selectedStock);
+      const updates: Partial<InventoryItem> = {};
+      if (field === "rack") {
+        updates.rack = editValues.rack.trim();
+      } else {
+        updates[field] = toNumberValue(editValues[field]) as InventoryItem[QuickEditField];
+      }
+      const result = await updateStockBatchAction([{ id: stockDocId, ...updates }]);
+      if (result.success) {
+        setSelectedStock((prev) => (prev ? { ...prev, ...updates } : prev));
+        setQuickEditField(null);
+        toast({ title: "Stock updated" });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Update Failed",
+          description: result.message,
+        });
+      }
+    } catch (error) {
+      console.error("Error updating stock:", error);
+      toast({
+        variant: "destructive",
+        title: "Update Failed",
+        description: "An unexpected server error occurred.",
+      });
+    } finally {
+      setIsSavingEdits(false);
+    }
+  };
+
+  const renderQuickEditControls = (field: QuickEditField) => {
+    if (isEditingAll) return null;
+    if (quickEditField === field) {
+      return (
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => handleSaveQuickEdit(field)}
+            disabled={isSavingEdits}
+          >
+            {isSavingEdits ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Check className="h-3 w-3" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={cancelQuickEdit}
+            disabled={isSavingEdits}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6"
+        onClick={() => startQuickEdit(field)}
+        disabled={isSavingEdits || (!!quickEditField && quickEditField !== field)}
+      >
+        <Edit className="h-3 w-3" />
+      </Button>
+    );
+  };
 
   const handleBcnSearch = async (query: string) => {
     if (query.length < 2) {
@@ -182,7 +462,7 @@ export function StockManagement() {
       setSelectedStock(stockItem);
       setIsLoadingDetails(true);
       try {
-        const stockDocId = stockItem.id || stockItem.bcn;
+        const stockDocId = getStockDocId(stockItem);
         const tx = (await getStockTransactions(stockDocId)) as any[];
         setTransactions(tx || []);
       } catch (error) {
@@ -199,7 +479,7 @@ export function StockManagement() {
     if (!selectedStock) return;
     setIsRefreshing(true);
     try {
-      const stockDocId = selectedStock.id || selectedStock.bcn;
+      const stockDocId = getStockDocId(selectedStock);
       const freshStock = (await getStockById(stockDocId)) as any;
       if (freshStock) {
         await handleSelectStock(freshStock);
@@ -270,35 +550,86 @@ export function StockManagement() {
         {selectedStock && (
           <div className="space-y-4">
             <Card className="p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-lg font-semibold">
-                      {selectedStock.itemName || "Unnamed Item"}
-                    </p>
+                    {isEditingAll ? (
+                      <Input
+                        value={editValues.itemName}
+                        onChange={(event) => updateEditValue("itemName", event.target.value)}
+                        className="h-8 w-full max-w-sm"
+                        placeholder="Item name"
+                      />
+                    ) : (
+                      <p className="text-lg font-semibold">
+                        {selectedStock.itemName || "Unnamed Item"}
+                      </p>
+                    )}
                     {lowStock ? (
                       <Badge variant="destructive">Low Stock</Badge>
                     ) : (
-                      <Badge variant="secondary">Active</Badge>
+                      <Badge variant="default" className="bg-green-800 text-white">Active</Badge>
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground">
                     BCN: <span className="font-medium">{selectedStock.bcn}</span>
                   </p>
+
+                  <p className="text-sm text-muted-foreground flex gap-2 items-center">
+                    Rack:
+                    <div >{renderQuickEditControls("rack")}</div>
+                    {isEditingAll || quickEditField === "rack" ? (
+                      <Input
+                        value={editValues.rack}
+                        onChange={(event) => updateEditValue("rack", event.target.value)}
+                        className="h-8"
+                        placeholder="Enter rack"
+                      />
+                    ) : (
+                      <span className="text-blue-600">{selectedStock.rack || "—"}</span>
+                    )}
+                  </p>
                 </div>
 
-                <Button
-                  variant="outline"
-                  onClick={handleRefresh}
-                  disabled={isRefreshing}
-                >
-                  {isRefreshing ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleRefresh}
+                    disabled={isRefreshing || isEditingAll || !!quickEditField || isSavingEdits}
+                  >
+                    {isRefreshing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Refresh
+                  </Button>
+                  {isEditingAll ? (
+                    <>
+                      <Button onClick={handleSaveAll} disabled={isSavingEdits}>
+                        {isSavingEdits ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Check className="mr-2 h-4 w-4" />
+                        )}
+                        Save
+                      </Button>
+                      <Button variant="ghost" onClick={cancelEditAll} disabled={isSavingEdits}>
+                        <X className="mr-2 h-4 w-4" />
+                        Cancel
+                      </Button>
+                    </>
                   ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
+                    <Button
+                      variant="outline"
+                      onClick={startEditAll}
+                      disabled={isSavingEdits || !!quickEditField}
+                    >
+                      <Edit className="mr-2 h-4 w-4" />
+                      Edit
+                    </Button>
                   )}
-                  Refresh
-                </Button>
+                </div>
               </div>
 
               <Separator className="my-4" />
@@ -308,135 +639,324 @@ export function StockManagement() {
                   <strong className="block text-muted-foreground">
                     Closing Stock
                   </strong>
-                  <span className={cn(lowStock && "text-red-600 font-semibold")}>
-                    {num(selectedStock.closingstock)}
-                  </span>
+                  {isEditingAll ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editValues.closingstock}
+                      onChange={(event) => updateEditValue("closingstock", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    <span className={cn(lowStock && "text-red-600 font-semibold")}>
+                      {num(selectedStock.closingstock)}
+                    </span>
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">
                     Max Level
                   </strong>
-                  {num(selectedStock.maxlevel)}
+                  {isEditingAll ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editValues.maxlevel}
+                      onChange={(event) => updateEditValue("maxlevel", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    num(selectedStock.maxlevel)
+                  )}
                 </p>
 
                 <p className="text-sm flex items-center gap-1">
                   <Tag className="h-3 w-3 text-muted-foreground" />
                   <strong className="text-muted-foreground">Category:</strong>{" "}
-                  {selectedStock.category || "—"}
+                  {isEditingAll ? (
+                    <Input
+                      value={editValues.category}
+                      onChange={(event) => updateEditValue("category", event.target.value)}
+                      className="h-7 flex-1 min-w-[120px]"
+                    />
+                  ) : (
+                    selectedStock.category || "—"
+                  )}
                 </p>
 
                 <p className="text-sm flex items-center gap-1">
                   <Layers className="h-3 w-3 text-muted-foreground" />
                   <strong className="text-muted-foreground">Group:</strong>{" "}
-                  {selectedStock.categoryGroup || "—"}
+                  {isEditingAll ? (
+                    <Input
+                      value={editValues.categoryGroup}
+                      onChange={(event) => updateEditValue("categoryGroup", event.target.value)}
+                      className="h-7 flex-1 min-w-[120px]"
+                    />
+                  ) : (
+                    selectedStock.categoryGroup || "—"
+                  )}
                 </p>
 
                 <p className="text-sm flex items-center gap-1">
                   <Ruler className="h-3 w-3 text-muted-foreground" />
                   <strong className="text-muted-foreground">Width:</strong>{" "}
-                  {num(selectedStock.width)}
+                  {isEditingAll ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editValues.width}
+                      onChange={(event) => updateEditValue("width", event.target.value)}
+                      className="h-7 flex-1 min-w-[100px]"
+                    />
+                  ) : (
+                    num(selectedStock.width)
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">Unit</strong>
-                  {selectedStock.unit || "—"}
+                  {isEditingAll ? (
+                    <Input
+                      value={editValues.unit}
+                      onChange={(event) => updateEditValue("unit", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    selectedStock.unit || "—"
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">Type</strong>
-                  {selectedStock.type || "—"}
+                  {isEditingAll ? (
+                    <Input
+                      value={editValues.type}
+                      onChange={(event) => updateEditValue("type", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    selectedStock.type || "—"
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">
                     MO Collection
                   </strong>
-                  {selectedStock.moCollection || "—"}
+                  {isEditingAll ? (
+                    <Input
+                      value={editValues.moCollection}
+                      onChange={(event) => updateEditValue("moCollection", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    selectedStock.moCollection || "—"
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">
                     MO Collection Code
                   </strong>
-                  {selectedStock.moCollectionCode || "—"}
+                  {isEditingAll ? (
+                    <Input
+                      value={editValues.moCollectionCode}
+                      onChange={(event) => updateEditValue("moCollectionCode", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    selectedStock.moCollectionCode || "—"
+                  )}
                 </p>
 
                 <p className="text-sm flex items-center gap-1">
                   <Building className="h-3 w-3 text-muted-foreground" />
                   <strong className="text-muted-foreground">Supplier:</strong>{" "}
-                  {selectedStock.supplierCompanyName || "—"}
+                  {isEditingAll ? (
+                    <Input
+                      value={editValues.supplierCompanyName}
+                      onChange={(event) => updateEditValue("supplierCompanyName", event.target.value)}
+                      className="h-7 flex-1 min-w-[120px]"
+                    />
+                  ) : (
+                    selectedStock.supplierCompanyName || "—"
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">
                     Supplier Collection Name
                   </strong>
-                  {selectedStock.supplierCollectionName || "—"}
+                  {isEditingAll ? (
+                    <Input
+                      value={editValues.supplierCollectionName}
+                      onChange={(event) => updateEditValue("supplierCollectionName", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    selectedStock.supplierCollectionName || "—"
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">
                     Supplier Collection Code
                   </strong>
-                  {selectedStock.supplierCollectionCode || "—"}
+                  {isEditingAll ? (
+                    <Input
+                      value={editValues.supplierCollectionCode}
+                      onChange={(event) => updateEditValue("supplierCollectionCode", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    selectedStock.supplierCollectionCode || "—"
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">
                     Composition
                   </strong>
-                  {selectedStock.composition || "—"}
+                  {isEditingAll ? (
+                    <Input
+                      value={editValues.composition}
+                      onChange={(event) => updateEditValue("composition", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    selectedStock.composition || "—"
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">
                     Martindale
                   </strong>
-                  {num(selectedStock.martindale)}
+                  {isEditingAll ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editValues.martindale}
+                      onChange={(event) => updateEditValue("martindale", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    num(selectedStock.martindale)
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">
                     Weight (GSM)
                   </strong>
-                  {num(selectedStock.weightGsm)}
+                  {isEditingAll ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editValues.weightGsm}
+                      onChange={(event) => updateEditValue("weightGsm", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    num(selectedStock.weightGsm)
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">
                     H Repeat (cms)
                   </strong>
-                  {num(selectedStock.horizontalRepeatCms)}
+                  {isEditingAll ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editValues.horizontalRepeatCms}
+                      onChange={(event) => updateEditValue("horizontalRepeatCms", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    num(selectedStock.horizontalRepeatCms)
+                  )}
                 </p>
 
                 <p className="text-sm">
                   <strong className="block text-muted-foreground">
                     V Repeat (cms)
                   </strong>
-                  {num(selectedStock.verticalRepeatCms)}
+                  {isEditingAll ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editValues.verticalRepeatCms}
+                      onChange={(event) => updateEditValue("verticalRepeatCms", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    num(selectedStock.verticalRepeatCms)
+                  )}
                 </p>
 
-                <p className="text-sm">
-                  <strong className="block text-muted-foreground">
-                    Cost Price
-                  </strong>
-                  {money(selectedStock.costPriceRs)}
-                </p>
+                <div className="text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <strong className="block text-muted-foreground">
+                      Cost Price
+                    </strong>
+                    {renderQuickEditControls("costPriceRs")}
+                  </div>
+                  {isEditingAll || quickEditField === "costPriceRs" ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editValues.costPriceRs}
+                      onChange={(event) => updateEditValue("costPriceRs", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    money(selectedStock.costPriceRs)
+                  )}
+                </div>
 
-                <p className="text-sm">
-                  <strong className="block text-muted-foreground">
-                    Cost Multiplier
-                  </strong>
-                  {num(selectedStock.costMultiplierRs)}
-                </p>
+                <div className="text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <strong className="block text-muted-foreground">
+                      Cost Multiplier
+                    </strong>
+                    {renderQuickEditControls("costMultiplierRs")}
+                  </div>
+                  {isEditingAll || quickEditField === "costMultiplierRs" ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editValues.costMultiplierRs}
+                      onChange={(event) => updateEditValue("costMultiplierRs", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    num(selectedStock.costMultiplierRs)
+                  )}
+                </div>
 
-                <p className="text-sm">
-                  <strong className="block text-muted-foreground">
-                    RRP with GST
-                  </strong>
-                  {money(selectedStock.rrpWithGstRs)}
-                </p>
+                <div className="text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <strong className="block text-muted-foreground">
+                      RRP with GST
+                    </strong>
+                    {renderQuickEditControls("rrpWithGstRs")}
+                  </div>
+                  {isEditingAll || quickEditField === "rrpWithGstRs" ? (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={editValues.rrpWithGstRs}
+                      onChange={(event) => updateEditValue("rrpWithGstRs", event.target.value)}
+                      className="h-8"
+                    />
+                  ) : (
+                    money(selectedStock.rrpWithGstRs)
+                  )}
+                </div>
               </div>
             </Card>
 

@@ -913,10 +913,9 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       }
     };
 
-    // ✅ Quotation click should read from CURRENT UI products
+    // Quotation click should read from CURRENT UI products
     const handleQuotationClick = () => {
-      const selectedProductIds = Object.keys(selectedRows).filter((id) => selectedRows[id]);
-      const itemsToQuote = (products || []).filter((p) => p.id && selectedProductIds.includes(p.id));
+      const itemsToQuote = (products || []).filter((p) => p.id && selectedRows[p.id]);
 
       if (itemsToQuote.length === 0) {
         toast({
@@ -941,10 +940,6 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       setQuotationInitialVas(initialVas);
       setIsQuotationDialogOpen(true);
     };
-
-
-
-
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -1516,8 +1511,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
 
       {/* Quotation Dialog */}
       <CreateQuotationDialog
-        open={isQuotationDialogOpen}
-        onOpenChange={() => setIsQuotationDialogOpen(false)}
+        isOpen={isQuotationDialogOpen}
+        onOpenChange={setIsQuotationDialogOpen}
         onSuccess={fetchData}
         deal={deal}
         customer={customer}

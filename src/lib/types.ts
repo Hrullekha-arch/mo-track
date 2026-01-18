@@ -6,6 +6,69 @@ import { Timestamp as AdminTimestamp } from "firebase-admin/firestore";
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 export type InstallerStatus = 'DRIVING' | 'WORKING' | 'IDLE';
 
+// --- Universal ownership & handover model ---
+export type OwnerType = 'CRM' | 'SALESMAN' | 'ACCOUNT' | 'ALLOCATOR';
+
+export interface OwnerRef {
+  type: OwnerType;
+  id: string;
+}
+
+export type AssignmentReason = 'NORMAL' | 'HANDOVER' | 'EMERGENCY' | 'ADMIN_OVERRIDE';
+
+export type OwnerAvailabilityStatus =
+  | 'AVAILABLE'
+  | 'HANDOVER_REQUESTED'
+  | 'ON_HANDOVER'
+  | 'OFFLINE_EMERGENCY';
+
+export interface OwnerAvailability {
+  owner: OwnerRef;
+  status: OwnerAvailabilityStatus;
+  teamId?: string;
+  backupOwnerId?: string;
+  lastSeenAt?: string;
+}
+
+export type HandoverScopeType = 'ALL_WORK' | 'TEAM_WORK' | 'SELECTED_WORK_ITEMS' | 'CHILD_OWNERS';
+export type HandoverStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED' | 'ENDED';
+
+export interface HandoverRequest {
+  id: string;
+  fromOwner: OwnerRef;
+  toOwner: OwnerRef;
+  fromOwnerName?: string;
+  toOwnerName?: string;
+  scopeType: HandoverScopeType;
+  childOwnerType?: OwnerType;
+  childOwnerIds?: string[];
+  startAt: string;
+  endAt?: string | null;
+  status: HandoverStatus;
+  note?: string;
+  createdAt: string;
+  acceptedAt?: string;
+  endedAt?: string;
+}
+
+export interface AssignmentLogEntry {
+  workItemId: string;
+  fromOwner?: OwnerRef;
+  toOwner: OwnerRef;
+  reason: AssignmentReason;
+  handoverRequestId?: string | null;
+  triggeredBy: 'SYSTEM' | 'ADMIN' | 'USER';
+  timestamp: string;
+}
+
+export interface AssignmentEnvelope {
+  originalOwner: OwnerRef;
+  assignedOwner: OwnerRef;
+  assignmentReason: AssignmentReason;
+  handoverRequestId?: string | null;
+  assignedAt: string;
+}
+
 export interface User {
   id: string; // Document ID, same as Firebase Auth UID
   name: string;
@@ -56,6 +119,14 @@ export interface Walkin_Customer {
     };
     salesmanId?: string;
     salesmanName?: string;
+    // Universal ownership envelope
+    originalOwnerType?: OwnerType;
+    originalOwnerId?: string;
+    assignedOwnerType?: OwnerType;
+    assignedOwnerId?: string;
+    assignmentReason?: AssignmentReason;
+    handoverRequestId?: string | null;
+    assignedAt?: string;
 }
 
 export type OrderType = 'delivery' | 'stitching' | 'stitching+installation';

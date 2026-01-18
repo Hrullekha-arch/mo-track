@@ -158,6 +158,12 @@ function UserProfile() {
                         <span>Install App</span>
                     </DropdownMenuItem>
                 )}
+                <DropdownMenuItem asChild>
+                    <Link href="/dashboard/account" className="flex items-center gap-2">
+                        <UserCog className="h-4 w-4" />
+                        <span>Profile &amp; Handover</span>
+                    </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="cursor-pointer">
                     <div className="flex items-center justify-between w-full">
                       <div className="flex items-center">

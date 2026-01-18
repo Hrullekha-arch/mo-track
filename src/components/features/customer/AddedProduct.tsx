@@ -43,10 +43,9 @@ export default function AddedProduct({
   const toggleRoomSelection = (productsInRoom: any[], checked: boolean) => {
     const newSelection = { ...selectedRows };
     productsInRoom.forEach((p) => {
-      if (p.id) {
-        if (checked) newSelection[p.id] = true;
-        else delete newSelection[p.id];
-      }
+      if (!p.id) return;
+      if (checked) newSelection[p.id] = true;
+      else delete newSelection[p.id];
     });
     setSelectedRows(newSelection);
   };
@@ -128,9 +127,8 @@ export default function AddedProduct({
                                 <TableCell>
                                 <Checkbox
                                     checked={!!product.id && !!selectedRows[product.id]}
-                                    onCheckedChange={(checked) =>
-                                    product.id && toggleRow(product.id, !!checked)
-                                    }
+                                    disabled={!product.id}
+                                    onCheckedChange={(checked) => product.id && toggleRow(product.id, !!checked)}
                                 />
                                 </TableCell>
 
