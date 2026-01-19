@@ -123,13 +123,19 @@ export async function POST(request: Request) {
     : trackingData.lastMovementAt || trackingData.lastPingAt || nowIso;
 
   // ---- Visits ----
-  const visitsSnap = await adminDb
-    .collectionGroup("visits")
-    .where("assignedTo", "==", installerId)
-    .get();
+  let visitDocs: any[] = [];
+  try {
+    const visitsSnap = await adminDb
+      .collectionGroup("visits")
+      .where("assignedTo", "==", installerId)
+      .get();
+    visitDocs = visitsSnap.docs;
+  } catch (error) {
+    console.error("Tracking ping: failed to query visits", error);
+  }
 
   const visitCandidates = await Promise.all(
-    visitsSnap.docs.map(async (docSnap) => {
+    visitDocs.map(async (docSnap) => {
       const visit = docSnap.data() || {};
       if (visit.status === "completed") return null;
 
