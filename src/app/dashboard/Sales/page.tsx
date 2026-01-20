@@ -14,13 +14,6 @@ const actions = [
     color: "text-purple-600",
   },
   {
-    title: "Quotation",
-    description: "Create & manage customer quotations",
-    icon: FileText,
-    path: "/dashboard/customers",
-    color: "text-blue-600",
-  },
-  {
     title: "Sales Order",
     description: "Convert quotation into sales order",
     icon: ShoppingCart,

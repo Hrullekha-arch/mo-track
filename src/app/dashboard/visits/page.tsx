@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { AssignInstallerDialog, SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History } from "lucide-react";
+import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { getAuth } from "firebase/auth";
+import { useAuth } from "@/context/AuthContext";
 
 
     interface EnrichedDealVisit extends DealVisit {
@@ -77,11 +78,14 @@ const renderVisitStatus = (visit: EnrichedDealVisit) => {
     if (visit.status === 'completed') {
         return <Badge className="mt-1 bg-green-500">Completed</Badge>;
     }
-    if (visit.visitStatus === 'Working') {
-        return <Badge className="mt-1 bg-blue-500 animate-pulse">Working</Badge>;
-    }
+    // if (visit.visitStatus === 'Working') {
+    //     return <Badge className="mt-1 bg-blue-500 animate-pulse">Working</Badge>;
+    // }
     if (visit.status === 'approved') {
-        return <Badge className="mt-1" variant="secondary">Assigned</Badge>;
+        return <Badge className="mt-1" variant="secondary">Approved</Badge>;
+    }
+    if (visit.status === 'CWC') {
+        return <Badge className="mt-1 bg-amber-700 text-gray-800" variant="secondary">Customer will Call</Badge>;
     }
     return <Badge className="mt-1" variant="outline">{visit.status || 'Pending'}</Badge>;
     
@@ -117,6 +121,7 @@ const InstallerCard = ({
   onShare: (visit: EnrichedDealVisit) => void;
   onViewDetails: (visit: EnrichedDealVisit) => void;
 }) => {
+          const { user, logout } = useAuth();
     // Filter out completed visits - only show active/pending visits
     const activeVisits = visits.filter(visit => visit.status !== 'completed');
 
@@ -153,6 +158,160 @@ const InstallerCard = ({
         : baseEta != null
         ? baseEta + avgDelay
         : null;
+
+    //=================Handle Transfer Visit ===================
+      const handleTransferVisit = async (visit: EnrichedDealVisit, slot: SlotSelection) => {
+        if (!user?.id) return;
+    
+        const installerId = user.id;
+        const assignedAt = new Date().toISOString();
+    
+        const visitRef = doc(
+          db,
+          "customers",
+          visit.customerId,
+          "deals",
+          visit.dealDocId,
+          "visits",
+          visit.id
+        );
+    
+        const newDateRef = doc(db, "installers", installerId, "dates", slot.slotDate);
+    
+        const previousInstallerId = visit.assignedTo || installerId;
+        const previousSlotDate = visit.slotDate || "";
+        const previousSlotId = (visit.slotId || "") as SlotId | "";
+    
+        if (
+          previousInstallerId === installerId &&
+          previousSlotDate === slot.slotDate &&
+          previousSlotId === slot.slotId
+        ) {
+          return;
+        }
+    
+        await runTransaction(db, async (tx) => {
+          if (previousInstallerId && previousSlotDate) {
+            const prevRef = doc(db, "installers", previousInstallerId, "dates", previousSlotDate);
+            const prevSnap = await tx.get(prevRef);
+            const prevSlots = prevSnap.exists() && Array.isArray((prevSnap.data() as any)?.slots)
+              ? (prevSnap.data() as any).slots
+              : [];
+    
+            const cleanedPrev = prevSlots.filter((s: any) => s?.visitId !== visit.id);
+    
+            tx.set(
+              prevRef,
+              {
+                slotDate: previousSlotDate,
+                slots: SLOT_OPTIONS.map((opt) => {
+                  const existing = cleanedPrev.find((s: any) => (s?.slotId || s?.id) === opt.id);
+                  if (existing) {
+                    return {
+                      ...existing,
+                      slotId: opt.id,
+                      id: opt.id,
+                      slotLabel: existing.slotLabel || opt.label,
+                      slotStart: existing.slotStart || opt.start,
+                      slotEnd: existing.slotEnd || opt.end,
+                      slotDate: previousSlotDate,
+                      status: existing.status || (existing.visitId ? "booked" : "free"),
+                    };
+                  }
+                  return {
+                    slotId: opt.id,
+                    id: opt.id,
+                    slotLabel: opt.label,
+                    slotStart: opt.start,
+                    slotEnd: opt.end,
+                    slotDate: previousSlotDate,
+                    status: "free",
+                  };
+                }),
+              },
+              { merge: true }
+            );
+          }
+    
+          const newSnap = await tx.get(newDateRef);
+          const newSlots = newSnap.exists() && Array.isArray((newSnap.data() as any)?.slots)
+            ? (newSnap.data() as any).slots
+            : [];
+    
+          const blocking = newSlots.find(
+            (s: any) => (s?.slotId || s?.id) === slot.slotId && s?.visitId && s.visitId !== visit.id
+          );
+          if (blocking) {
+            throw new Error(`Slot ${slot.slotLabel} already booked.`);
+          }
+    
+          const filteredNew = newSlots.filter(
+            (s: any) => s && (s.slotId || s.id) !== slot.slotId && s.visitId !== visit.id
+          );
+    
+          const slotPayload = {
+            slotId: slot.slotId,
+            id: slot.slotId,
+            slotLabel: slot.slotLabel,
+            slotStart: slot.slotStart,
+            slotEnd: slot.slotEnd,
+            slotDate: slot.slotDate,
+            visitId: visit.id,
+            customerId: visit.customerId,
+            customerName: visit.customer?.name || "",
+            dealId: visit.deal?.dealId || visit.dealId || "",
+            dealDocId: visit.dealDocId,
+            dealName: visit.deal?.dealName || "",
+            assignedAt,
+            assignedTo: installerId,
+            status: "booked",
+          };
+    
+          const slotsForDay = SLOT_OPTIONS.map((opt) => {
+            if (opt.id === slot.slotId) return slotPayload;
+    
+            const existing = filteredNew.find((s: any) => (s?.slotId || s?.id) === opt.id);
+            if (existing) {
+              return {
+                ...existing,
+                slotId: opt.id,
+                id: opt.id,
+                slotLabel: existing.slotLabel || opt.label,
+                slotStart: existing.slotStart || opt.start,
+                slotEnd: existing.slotEnd || opt.end,
+                slotDate: slot.slotDate,
+                status: existing.status || (existing.visitId ? "booked" : "free"),
+              };
+            }
+    
+            return {
+              slotId: opt.id,
+              id: opt.id,
+              slotLabel: opt.label,
+              slotStart: opt.start,
+              slotEnd: opt.end,
+              slotDate: slot.slotDate,
+              status: "free",
+            };
+          });
+    
+          tx.set(
+            newDateRef,
+            { slotDate: slot.slotDate, slots: slotsForDay },
+            { merge: true }
+          );
+    
+          tx.update(visitRef, {
+            assignedTo: installerId,
+            slotDate: slot.slotDate,
+            slotId: slot.slotId,
+            slotLabel: slot.slotLabel,
+            slotStart: slot.slotStart,
+            slotEnd: slot.slotEnd,
+            assignedAt,
+          });
+        });
+      };    
 
 
 
@@ -432,7 +591,7 @@ const InstallerCard = ({
 }
 
 
-function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDetails }: { visits: EnrichedDealVisit[], assigneeNameById: Record<string, string>, onAssign: (visit: EnrichedDealVisit) => void, onShare: (visit: EnrichedDealVisit) => void, onViewDetails: (visit: EnrichedDealVisit) => void }) {
+function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDetails, onTransfer }: { visits: EnrichedDealVisit[], assigneeNameById: Record<string, string>, onAssign: (visit: EnrichedDealVisit) => void, onShare: (visit: EnrichedDealVisit) => void, onViewDetails: (visit: EnrichedDealVisit) => void, onTransfer: (v: EnrichedDealVisit) => void; }) {
     return (
         <Card>
             <CardHeader>
@@ -452,6 +611,7 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDet
                             <TableHead>Created By</TableHead>
                             <TableHead>Assign</TableHead>
                             <TableHead>View</TableHead>
+                            <TableHead>Action</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -477,11 +637,41 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDet
                                 <TableCell>{renderVisitStatus(visit)}</TableCell>
                                 <TableCell>{visit.createdBy}</TableCell>
                                 <TableCell>
-                                    <Button size="sm" variant="default" className="bg-blue-700" onClick={() => onAssign(visit)}>Assign</Button>
-                                    {/* <Button size="sm" variant="ghost" onClick={() => onShare(visit)}><Share2 className="h-4 w-4" /></Button> */}
+                                    <Button
+                                        size="sm"
+                                        variant="default"
+                                        disabled={visit.status === "completed" || visit.status === "CWC"}
+                                        className={
+                                        visit.status === "completed"
+                                            ? "bg-green-600 hover:bg-green-700 cursor-not-allowed"
+                                            :visit.assignedTo
+                                            ? "bg-orange-600 hover:bg-orange-700"
+                                            : "bg-blue-700 hover:bg-blue-800"
+                                        }
+                                        onClick={() => onAssign(visit)}
+                                    >
+                                        {
+                                            visit.status === "completed"
+                                                ? "Completed"
+                                                : visit.assignedTo
+                                                ? "Reassign"
+                                                : "Assign"
+                                            }
+                                    </Button>
                                 </TableCell>
                                 <TableCell className="flex gap-1">
                                     <Button size="sm" variant="ghost" onClick={() => onViewDetails(visit)}><Eye className="h-4 w-4" /></Button>
+                                </TableCell>
+                                <TableCell>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        disabled={visit.status === "completed" || visit.status === "CWC"}
+                                        onClick={() => onTransfer(visit)}
+                                    >
+                                        <CalendarSync className="mr-2 h-4 w-4" />
+                                        Transfer Visit
+                                    </Button>
                                 </TableCell>
                             </TableRow>
                         ))}
@@ -932,6 +1122,7 @@ export default function AllVisitsPage() {
                             onAssign={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
                             onShare={handleShareClick}
                             onViewDetails={(visit) => setDetailsVisit(visit)}
+                            onTransfer={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
                         />
                     </div>
                 </TabsContent>

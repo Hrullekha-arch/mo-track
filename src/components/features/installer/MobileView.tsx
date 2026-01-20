@@ -1,12 +1,10 @@
-
-
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight, Truck, UserIcon, UserCircle, Dock, CalendarSync, PlayCircle } from "lucide-react";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight, Truck, UserIcon, UserCircle, Dock, CalendarSync, PlayCircle, HistoryIcon } from "lucide-react";
 import { Order, Milestone, DealVisit, User, Customer, Deal, O2DStatus } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState, useMemo, useCallback } from "react";
@@ -29,8 +27,6 @@ import { startVisitAction } from "@/app/dashboard/customers/[customerId]/[dealId
 
 const LOCATION_PING_INTERVAL_MS = 20000;
 
-
-
 type InstallerTask = 
     | { type: 'order'; data: Order }
     | { type: 'visit'; data: EnrichedInstallerVisit };
@@ -44,14 +40,14 @@ interface EnrichedInstallerVisit extends DealVisit {
 
 export function MobileView() {
   const { user, logout } = useAuth();
+  const { toast } = useToast();
   const [tasks, setTasks] = useState<InstallerTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [location, setLocation] = useState<{latitude: number, longitude: number} | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [repNameMap, setRepNameMap] = useState<Record<string, string>>({});
   const [isTransferOpen, setIsTransferOpen] = useState(false);
-    const [transferVisit, setTransferVisit] = useState<EnrichedInstallerVisit | null>(null);
-
+  const [transferVisit, setTransferVisit] = useState<EnrichedInstallerVisit | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -118,7 +114,6 @@ export function MobileView() {
     if (!user) return;
     setLoading(true);
 
-    // Fetch Orders
     const ordersQuery = query(collection(db, "orders"), where("assignedTo", "==", user.id));
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
         const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
@@ -129,8 +124,7 @@ export function MobileView() {
         });
         setLoading(false);
     });
-    
-    // Fetch Visits
+
     const visitsQuery = query(
         collectionGroup(db, "visits"),
         where("assignedTo", "==", user.id),
@@ -139,7 +133,7 @@ export function MobileView() {
      const unsubscribeVisits = onSnapshot(visitsQuery, async (snapshot) => {
         const customerCache = new Map<string, Customer>();
         const dealCache = new Map<string, Deal>();
-        
+
         const visitsDataPromises = snapshot.docs.map(async (docSnap) => {
             const visit = docSnap.data() as DealVisit;
             const pathParts = docSnap.ref.path.split('/');
@@ -155,7 +149,7 @@ export function MobileView() {
                     customerCache.set(customerId, customerData);
                 }
             }
-            
+
             const dealCacheKey = `${customerId}-${dealDocId}`;
             let dealData: Deal | null = dealCache.get(dealCacheKey) || null;
             if (!dealData) {
@@ -176,7 +170,7 @@ export function MobileView() {
                 customerId: customerId,
             } as EnrichedInstallerVisit;
         });
-        
+
         const visitsData = await Promise.all(visitsDataPromises);
         setTasks(prevTasks => {
             const otherTasks = prevTasks.filter(t => t.type !== 'visit');
@@ -186,13 +180,11 @@ export function MobileView() {
         setLoading(false);
     });
 
-
     return () => {
         unsubscribeOrders();
         unsubscribeVisits();
     };
   }, [user]);
-  
 
   const activeTasks = useMemo(() => {
     return tasks
@@ -202,7 +194,7 @@ export function MobileView() {
           return !isCompleted;
         }
         if (task.type === 'visit') {
-          return task.data.status !== 'completed';
+          return task.data.status !== 'completed' && task.data.status !== 'CWC';
         }
         return false;
       })
@@ -213,211 +205,235 @@ export function MobileView() {
       });
   }, [tasks]);
 
-  //===============Rep Fetch Fun
+
   async function fetchUserNames(ids: string[]) {
-  const res = await fetch("/api/users/names", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ids }),
-  });
-  return res.json();
-}
-
-
-
-useEffect(() => {
-  // Collect ids from VISITS only (representative + assignedTo)
-  const visitTasks = tasks.filter((t) => t.type === "visit") as { type: "visit"; data: EnrichedInstallerVisit }[];
-
-  const ids = Array.from(
-    new Set(
-      visitTasks
-        .flatMap((t) => [t.data.representative, t.data.assignedTo])
-        .filter(Boolean) as string[]
-    )
-  );
-
-  const missing = ids.filter((id) => !repNameMap[id]);
-  if (missing.length === 0) return;
-
-  let cancelled = false;
-
-  (async () => {
-    const json = await fetchUserNames(missing);
-    if (cancelled) return;
-
-    if (json?.success && json?.map) {
-      setRepNameMap((prev) => ({ ...prev, ...json.map }));
-    }
-  })();
-
-  return () => {
-    cancelled = true;
-  };
-}, [tasks]); // ✅ depends on tasks
-
-//==================Handle Transfer Visit===================
-const handleTransferVisit = async (visit: EnrichedInstallerVisit, slot: SlotSelection) => {
-  if (!user?.id) return;
-
-  const installerId = user.id; // transfer for current installer
-  const assignedAt = new Date().toISOString();
-
-  const visitRef = doc(
-    db,
-    "customers",
-    visit.customerId,
-    "deals",
-    visit.dealDocId,
-    "visits",
-    visit.id
-  );
-
-  const newDateRef = doc(db, "installers", installerId, "dates", slot.slotDate);
-
-  const previousInstallerId = visit.assignedTo || installerId;
-  const previousSlotDate = visit.slotDate || "";
-  const previousSlotId = (visit.slotId || "") as SlotId | "";
-
-  // no-op
-  if (
-    previousInstallerId === installerId &&
-    previousSlotDate === slot.slotDate &&
-    previousSlotId === slot.slotId
-  ) {
-    return;
+    const res = await fetch("/api/users/names", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    return res.json();
   }
 
-  await runTransaction(db, async (tx) => {
-    // 1) remove booking from previous date (same installer usually)
-    if (previousInstallerId && previousSlotDate) {
-      const prevRef = doc(db, "installers", previousInstallerId, "dates", previousSlotDate);
-      const prevSnap = await tx.get(prevRef);
-      const prevSlots = prevSnap.exists() && Array.isArray((prevSnap.data() as any)?.slots)
-        ? (prevSnap.data() as any).slots
-        : [];
+  useEffect(() => {
+    const visitTasks = tasks.filter((t) => t.type === "visit") as { type: "visit"; data: EnrichedInstallerVisit }[];
 
-      const cleanedPrev = prevSlots.filter((s: any) => s?.visitId !== visit.id);
-
-      tx.set(
-        prevRef,
-        {
-          slotDate: previousSlotDate,
-          slots: SLOT_OPTIONS.map((opt) => {
-            const existing = cleanedPrev.find((s: any) => (s?.slotId || s?.id) === opt.id);
-            if (existing) {
-              return {
-                ...existing,
-                slotId: opt.id,
-                id: opt.id, // keep old shape compatible
-                slotLabel: existing.slotLabel || opt.label,
-                slotStart: existing.slotStart || opt.start,
-                slotEnd: existing.slotEnd || opt.end,
-                slotDate: previousSlotDate,
-                status: existing.status || (existing.visitId ? "booked" : "free"),
-              };
-            }
-            return {
-              slotId: opt.id,
-              id: opt.id,
-              slotLabel: opt.label,
-              slotStart: opt.start,
-              slotEnd: opt.end,
-              slotDate: previousSlotDate,
-              status: "free",
-            };
-          }),
-        },
-        { merge: true }
-      );
-    }
-
-    // 2) book new slot (block if already booked by someone else)
-    const newSnap = await tx.get(newDateRef);
-    const newSlots = newSnap.exists() && Array.isArray((newSnap.data() as any)?.slots)
-      ? (newSnap.data() as any).slots
-      : [];
-
-    const blocking = newSlots.find(
-      (s: any) => (s?.slotId || s?.id) === slot.slotId && s?.visitId && s.visitId !== visit.id
-    );
-    if (blocking) {
-      throw new Error(`Slot ${slot.slotLabel} already booked.`);
-    }
-
-    const filteredNew = newSlots.filter(
-      (s: any) => s && (s.slotId || s.id) !== slot.slotId && s.visitId !== visit.id
+    const ids = Array.from(
+      new Set(
+        visitTasks
+          .flatMap((t) => [t.data.representative, t.data.assignedTo])
+          .filter(Boolean) as string[]
+      )
     );
 
-    const slotPayload = {
-      slotId: slot.slotId,
-      id: slot.slotId, // keep old field too
-      slotLabel: slot.slotLabel,
-      slotStart: slot.slotStart,
-      slotEnd: slot.slotEnd,
-      slotDate: slot.slotDate,
+    const missing = ids.filter((id) => !repNameMap[id]);
+    if (missing.length === 0) return;
 
-      // booking meta
-      visitId: visit.id,
-      customerId: visit.customerId,
-      customerName: visit.customer?.name || "",
-      dealId: visit.deal?.dealId || visit.dealId || "",
-      dealDocId: visit.dealDocId,
-      dealName: visit.deal?.dealName || "",
-      assignedAt,
-      assignedTo: installerId,
-      status: "booked",
+    let cancelled = false;
+
+    (async () => {
+      const json = await fetchUserNames(missing);
+      if (cancelled) return;
+
+      if (json?.success && json?.map) {
+        setRepNameMap((prev) => ({ ...prev, ...json.map }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
+  }, [tasks, repNameMap]);
 
-    const slotsForDay = SLOT_OPTIONS.map((opt) => {
-      if (opt.id === slot.slotId) return slotPayload;
+  const handleTransferVisit = async (visit: EnrichedInstallerVisit, slot: SlotSelection) => {
+    if (!user?.id) return;
 
-      const existing = filteredNew.find((s: any) => (s?.slotId || s?.id) === opt.id);
-      if (existing) {
-        return {
-          ...existing,
-          slotId: opt.id,
-          id: opt.id,
-          slotLabel: existing.slotLabel || opt.label,
-          slotStart: existing.slotStart || opt.start,
-          slotEnd: existing.slotEnd || opt.end,
-          slotDate: slot.slotDate,
-          status: existing.status || (existing.visitId ? "booked" : "free"),
-        };
+    const installerId = user.id;
+    const assignedAt = new Date().toISOString();
+
+    const visitRef = doc(
+      db,
+      "customers",
+      visit.customerId,
+      "deals",
+      visit.dealDocId,
+      "visits",
+      visit.id
+    );
+
+    const newDateRef = doc(db, "installers", installerId, "dates", slot.slotDate);
+
+    const previousInstallerId = visit.assignedTo || installerId;
+    const previousSlotDate = visit.slotDate || "";
+    const previousSlotId = (visit.slotId || "") as SlotId | "";
+
+    if (
+      previousInstallerId === installerId &&
+      previousSlotDate === slot.slotDate &&
+      previousSlotId === slot.slotId
+    ) {
+      return;
+    }
+
+    await runTransaction(db, async (tx) => {
+      if (previousInstallerId && previousSlotDate) {
+        const prevRef = doc(db, "installers", previousInstallerId, "dates", previousSlotDate);
+        const prevSnap = await tx.get(prevRef);
+        const prevSlots = prevSnap.exists() && Array.isArray((prevSnap.data() as any)?.slots)
+          ? (prevSnap.data() as any).slots
+          : [];
+
+        const cleanedPrev = prevSlots.filter((s: any) => s?.visitId !== visit.id);
+
+        tx.set(
+          prevRef,
+          {
+            slotDate: previousSlotDate,
+            slots: SLOT_OPTIONS.map((opt) => {
+              const existing = cleanedPrev.find((s: any) => (s?.slotId || s?.id) === opt.id);
+              if (existing) {
+                return {
+                  ...existing,
+                  slotId: opt.id,
+                  id: opt.id,
+                  slotLabel: existing.slotLabel || opt.label,
+                  slotStart: existing.slotStart || opt.start,
+                  slotEnd: existing.slotEnd || opt.end,
+                  slotDate: previousSlotDate,
+                  status: existing.status || (existing.visitId ? "booked" : "free"),
+                };
+              }
+              return {
+                slotId: opt.id,
+                id: opt.id,
+                slotLabel: opt.label,
+                slotStart: opt.start,
+                slotEnd: opt.end,
+                slotDate: previousSlotDate,
+                status: "free",
+              };
+            }),
+          },
+          { merge: true }
+        );
       }
 
-      return {
-        slotId: opt.id,
-        id: opt.id,
-        slotLabel: opt.label,
-        slotStart: opt.start,
-        slotEnd: opt.end,
+      const newSnap = await tx.get(newDateRef);
+      const newSlots = newSnap.exists() && Array.isArray((newSnap.data() as any)?.slots)
+        ? (newSnap.data() as any).slots
+        : [];
+
+      const blocking = newSlots.find(
+        (s: any) => (s?.slotId || s?.id) === slot.slotId && s?.visitId && s.visitId !== visit.id
+      );
+      if (blocking) {
+        throw new Error(`Slot ${slot.slotLabel} already booked.`);
+      }
+
+      const filteredNew = newSlots.filter(
+        (s: any) => s && (s.slotId || s.id) !== slot.slotId && s.visitId !== visit.id
+      );
+
+      const slotPayload = {
+        slotId: slot.slotId,
+        id: slot.slotId,
+        slotLabel: slot.slotLabel,
+        slotStart: slot.slotStart,
+        slotEnd: slot.slotEnd,
         slotDate: slot.slotDate,
-        status: "free",
+        visitId: visit.id,
+        customerId: visit.customerId,
+        customerName: visit.customer?.name || "",
+        dealId: visit.deal?.dealId || visit.dealId || "",
+        dealDocId: visit.dealDocId,
+        dealName: visit.deal?.dealName || "",
+        assignedAt,
+        assignedTo: installerId,
+        status: "booked",
       };
+
+      const slotsForDay = SLOT_OPTIONS.map((opt) => {
+        if (opt.id === slot.slotId) return slotPayload;
+
+        const existing = filteredNew.find((s: any) => (s?.slotId || s?.id) === opt.id);
+        if (existing) {
+          return {
+            ...existing,
+            slotId: opt.id,
+            id: opt.id,
+            slotLabel: existing.slotLabel || opt.label,
+            slotStart: existing.slotStart || opt.start,
+            slotEnd: existing.slotEnd || opt.end,
+            slotDate: slot.slotDate,
+            status: existing.status || (existing.visitId ? "booked" : "free"),
+          };
+        }
+
+        return {
+          slotId: opt.id,
+          id: opt.id,
+          slotLabel: opt.label,
+          slotStart: opt.start,
+          slotEnd: opt.end,
+          slotDate: slot.slotDate,
+          status: "free",
+        };
+      });
+
+      tx.set(
+        newDateRef,
+        { slotDate: slot.slotDate, slots: slotsForDay },
+        { merge: true }
+      );
+
+      tx.update(visitRef, {
+        assignedTo: installerId,
+        slotDate: slot.slotDate,
+        slotId: slot.slotId,
+        slotLabel: slot.slotLabel,
+        slotStart: slot.slotStart,
+        slotEnd: slot.slotEnd,
+        assignedAt,
+      });
     });
+  };
 
-    tx.set(
-      newDateRef,
-      { slotDate: slot.slotDate, slots: slotsForDay },
-      { merge: true }
-    );
+  //======================Cwc Handler =======================
+  const handleCwcVisit = async (visit: EnrichedInstallerVisit) => {
+      if (!user?.id) return;
 
-    // 3) update visit doc
-    tx.update(visitRef, {
-      assignedTo: installerId,
-      slotDate: slot.slotDate,
-      slotId: slot.slotId,
-      slotLabel: slot.slotLabel,
-      slotStart: slot.slotStart,
-      slotEnd: slot.slotEnd,
-      assignedAt,
-    });
-  });
-};
+      const visitRef = doc(
+          db,
+          "customers",
+          visit.customerId,
+          "deals",
+          visit.dealDocId,
+          "visits",
+          visit.id
+      );
 
+      try {
+          await runTransaction(db, async (tx) => {
+              tx.update(visitRef, {
+                  status: 'CWC',
+                  updatedAt: new Date().toISOString(),
+                  updatedBy: user.id
+              });
+          });
 
-
+          toast({
+              title: "Visit Marked as CWC",
+              description: `Visit for ${visit.customer?.name} has been marked as CWC successfully.`,
+          });
+      } catch (error) {
+          console.error("Error updating visit status:", error);
+          toast({
+              variant: "destructive",
+              title: "Failed to Mark as CWC",
+              description: "Could not update the visit status. Please try again.",
+          });
+      }
+  };
 
   if (loading) {
     return (
@@ -454,7 +470,7 @@ const handleTransferVisit = async (visit: EnrichedInstallerVisit, slot: SlotSele
           <LogOut className="h-5 w-5" />
         </Button>
       </header>
-      
+
       <div className="flex justify-between items-center">
         <div>
             <h1 className="text-2xl font-bold">Your Tasks</h1>
@@ -479,8 +495,13 @@ const handleTransferVisit = async (visit: EnrichedInstallerVisit, slot: SlotSele
                  <span className="absolute -top-2 -left-2 bg-primary text-primary-foreground rounded-full h-6 w-6 flex items-center justify-center text-xs font-bold z-10">
                     {index + 1}
                 </span>
-                <InstallerTaskCard task={task} location={location} repNameMap={repNameMap} onTransfer={(v) => { setTransferVisit(v); setIsTransferOpen(true); }} />
-
+                <InstallerTaskCard 
+                  task={task} 
+                  location={location} 
+                  repNameMap={repNameMap} 
+                  onTransfer={(v) => { setTransferVisit(v); setIsTransferOpen(true); }}
+                  onCwc={handleCwcVisit}
+                />
             </div>
           ))}
         </div>
@@ -491,15 +512,13 @@ const handleTransferVisit = async (visit: EnrichedInstallerVisit, slot: SlotSele
         </div>
       )}
 
-      {/* //================render Slot Dialog ================= */}
-
       <AssignInstallerDialog
                 isOpen={isTransferOpen}
                 onClose={() => {
                     setIsTransferOpen(false);
                     setTransferVisit(null);
                 }}
-                installers={user ? [{ ...(user as any), role: "installer" }] : []} // single installer (current)
+                installers={user ? [{ ...(user as any), role: "installer" }] : []}
                 currentInstallerId={user?.id}
                 currentVisitId={transferVisit?.id}
                 currentSlotSelection={
@@ -521,7 +540,6 @@ const handleTransferVisit = async (visit: EnrichedInstallerVisit, slot: SlotSele
                     setTransferVisit(null);
                     } catch (e: any) {
                     console.error(e);
-                    // optionally toast
                     }
                 }}
                 />
@@ -534,11 +552,13 @@ const InstallerTaskCard = ({
   location,
   repNameMap,
   onTransfer,
+  onCwc,
 }: {
   task: InstallerTask;
   location: { latitude: number; longitude: number } | null;
   repNameMap: Record<string, string>;
   onTransfer: (v: EnrichedInstallerVisit) => void;
+  onCwc: (v: EnrichedInstallerVisit) => void;
 }) => {
   if (task.type === "order") return <InstallerOrderCard order={task.data} location={location} />;
 
@@ -548,52 +568,49 @@ const InstallerTaskCard = ({
         visit={task.data}
         repNameMap={repNameMap}
         onTransfer={onTransfer}
+        onCwc={onCwc}
       />
     );
 
   return null;
 };
 
-
-
 const InstallerVisitCard = ({
   visit,
   repNameMap,
   onTransfer,
+  onCwc,
 }: {
   visit: EnrichedInstallerVisit;
   repNameMap: Record<string, string>;
   onTransfer: (v: EnrichedInstallerVisit) => void;
+  onCwc: (v: EnrichedInstallerVisit) => void;
 }) => {
     const router = useRouter();
     const { toast } = useToast();
 
     const handleStartVisit = async () => {
-        // Geo data to send
         let geo;
-    if (navigator.geolocation) {
-    await new Promise<void>((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-        (pos) => { geo = { lat: pos.coords.latitude, lng: pos.coords.longitude, radiusM: 150 }; resolve(); },
-        () => resolve(),
-        { enableHighAccuracy: true, timeout: 8000 }
-        );
-    });
-    }
+        if (navigator.geolocation) {
+            await new Promise<void>((resolve) => {
+                navigator.geolocation.getCurrentPosition(
+                (pos) => { geo = { lat: pos.coords.latitude, lng: pos.coords.longitude, radiusM: 150 }; resolve(); },
+                () => resolve(),
+                { enableHighAccuracy: true, timeout: 8000 }
+                );
+            });
+        }
 
-    await startVisitAction(visit.customerId, visit.dealDocId, visit.id, geo);
+        await startVisitAction(visit.customerId, visit.dealDocId, visit.id, geo);
 
-        // Optimistically navigate
         let path = '';
         if (visit.typeOfVisit === 'measurement') {
             path = `/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}`;
         } else {
-             // For any other type of visit like 'delivery', 'fittings', etc.
             path = `/mobile/delivery/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}&orderId=${visit.orderId}`;
         }
         router.push(path);
 
-        // Then, update the status in the background
         try {
             const result = await startVisitAction(visit.customerId, visit.dealDocId, visit.id);
             if (!result.success) {
@@ -634,7 +651,7 @@ const InstallerVisitCard = ({
     const buttonContent = getButtonContent();
     const phone = (visit.customer?.mobileNo || "").trim();
     const address = (visit.customer?.addressPinCode || visit.customer?.city || "").trim();
-    
+
     return (
         <Card>
             <CardHeader>
@@ -677,27 +694,50 @@ const InstallerVisitCard = ({
                 )}
                 </p>
                  <p className="flex items-center gap-2"><Dock className="h-4 w-4 text-muted-foreground" /> {visit.remark || 'N/A'}</p>
-                 <div className="flex justify-between items-center">
-                    <div>Urgency</div>
+                 <div className="flex justify-between items-center gap-2">
                     <Badge variant={"outline"} className="flex items-center gap-2"><UserCircle className="h-4 w-4 text-muted-foreground" />CRM: {visit.createdBy || 'N/A'}</Badge>
                     <Badge variant={"outline"} className="flex items-center gap-2"><UserIcon className="h-4 w-4 text-muted-foreground" />SM: {repNameMap[visit.representative] || <Skeleton className="h-6 w-28 rounded-full" />}</Badge>
                  </div>
             </CardContent>
-             <CardFooter className="flex gap-2">
-                 <Button className="w-full rounded-lg" onClick={handleStartVisit}>
+             <CardFooter className="grid grid-cols-2 gap-2">
+                <Button className="rounded-lg" onClick={handleStartVisit}>
                     {buttonContent.text}
                     {buttonContent.icon}
                 </Button>
-                <Button
+                                <Button
                     type="button"
                     variant="outline"
                     onClick={() => onTransfer(visit)}
-                    >
+                >
                     <CalendarSync className="mr-2 h-4 w-4" />
                     Transfer Visit
-                    </Button>
+                </Button>
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button
+                            type="button"
+                            variant="outline"
+                        >
+                            <HistoryIcon className="mr-2 h-4 w-4" />
+                            CwC
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Mark Visit as CwC?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Are you sure you want to mark the visit for <strong>{visit.customer?.name}</strong> as "Customer will Call"? This will update the visit status.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => onCwc(visit)}>
+                                Confirm
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </CardFooter>
-            
         </Card>
     );
 }
@@ -711,10 +751,10 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
     const [remarks, setRemarks] = useState("");
     const [otp, setOtp] = useState("");
     const [isOtpDialogOpen, setIsOtpDialogOpen] = useState(false);
-    
+
     const installerMilestoneIds = [7, 8]; 
     const nextInstallerMilestone = order.milestones.find(m => installerMilestoneIds.includes(m.id) && !m.completed);
-    
+
     const canUpdate = (milestone: Milestone) => {
         const currentIndex = order.milestones.findIndex(m => m.id === milestone.id);
         if (currentIndex === 0) return true;
@@ -748,32 +788,28 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
             );
             batch.update(orderRef, { milestones: updatedMilestones });
 
-            // If this is the final installation milestone, also update the related visit.
             if (milestoneToUpdate.id === 8 && order.customerId && order.dealId) {
-                // Find the associated Deal Document ID
                 const dealQuery = query(collection(db, 'customers', order.customerId, 'deals'), where('dealId', '==', order.dealId), limit(1));
                 const dealSnapshot = await getDocs(dealQuery);
 
                 if (!dealSnapshot.empty) {
                     const dealDocId = dealSnapshot.docs[0].id;
 
-                    // Query for the specific visit linked to this order
                     const visitQuery = query(collection(db, 'customers', order.customerId, 'deals', dealDocId, 'visits'), where('orderId', '==', order.id), limit(1));
                     const visitSnapshot = await getDocs(visitQuery);
-                    
+
                     if (!visitSnapshot.empty) {
                         const visitRef = visitSnapshot.docs[0].ref;
                         batch.update(visitRef, { status: 'completed' });
                     }
-                    
-                    // Also update the final O2D step
+
                     const o2dQuery = query(collection(db, 'o2d'), where('dealId', '==', order.dealId));
                     const o2dSnapshot = await getDocs(o2dQuery);
 
                     if (!o2dSnapshot.empty) {
                          const o2dDocRef = o2dSnapshot.docs[0].ref;
                          const o2dDoneMilestone: O2DStatus = {
-                            stepId: 13, // Installation Done
+                            stepId: 13,
                             status: 'completed', 
                             completedAt: new Date().toISOString(), 
                             completedBy: user.name, 
@@ -784,7 +820,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
                     }
                 }
             }
-            
+
             await batch.commit();
 
             toast({ title: `Order updated: ${milestoneToUpdate.name}` });
@@ -795,10 +831,10 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
             setIsUpdating(false);
         }
     };
-    
+
     const handleFeedbackSubmit = async () => {
         if (otp !== order.otp) {
-            feedbackForm.setError("otp", { message: "Incorrect OTP."});
+            toast({ variant: "destructive", title: "Incorrect OTP", description: "Please enter the correct OTP."});
             return;
         }
 
@@ -819,7 +855,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
             setIsUpdating(false);
         }
     }
-    
+
     const handleBypassOtp = async () => {
          setIsUpdating(true);
         try {
@@ -840,15 +876,13 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
 
     const handleRefresh = () => {
         setIsRefreshing(true);
-        // This is a simulated refresh for user experience.
         setTimeout(() => {
             setIsRefreshing(false);
             toast({title: "Data is up to date."});
         }, 700);
     }
-    
-    const isOrderComplete = order.milestones.every(m => m.completed);
 
+    const isOrderComplete = order.milestones.every(m => m.completed);
 
     return (
         <Card>
@@ -867,7 +901,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
             <CardContent className="text-sm space-y-3">
                 <div className="flex items-center gap-2 text-muted-foreground"><MapPin className="h-4 w-4" /><span>{order.customerAddress}</span></div>
                 <div className="flex items-center gap-2 text-muted-foreground"><Phone className="h-4 w-4" /><span>{order.customerPhone}</span></div>
-                
+
                 {nextInstallerMilestone && (
                      <div className="pt-2">
                         <p className="text-xs font-semibold text-muted-foreground uppercase">Next Step</p>
@@ -906,7 +940,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
                 {!nextInstallerMilestone && !isOrderComplete && (
                     <p className="text-sm text-muted-foreground text-center pt-4">Waiting for other departments to complete their tasks.</p>
                  )}
-                 
+
                 {isOrderComplete && !order.feedbackRating && !order.bypassedOtp && (
                     <Dialog open={isOtpDialogOpen} onOpenChange={setIsOtpDialogOpen}>
                         <div className="pt-4 space-y-4">
@@ -986,7 +1020,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
                     <div className="pt-4 space-y-2">
                         <p className="font-semibold">Feedback Submitted</p>
                         {order.bypassedOtp ? (
-                             <p className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">"Submitted without customer OTP."</p>
+                             <p className="text-sm text-muted-foreground p-2 border rounded-md bg-muted/50">&quot;Submitted without customer OTP.&quot;</p>
                         ) : (
                             <>
                                 <div className="flex items-center gap-1">
@@ -994,13 +1028,12 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
                                         <Star key={star} className={cn("h-5 w-5", order.feedbackRating! >= star ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground")}/>
                                     ))}
                                 </div>
-                                {order.feedbackRemarks && <p className="text-xs text-muted-foreground mt-1 p-1.5 border rounded-md bg-muted/50">"{order.feedbackRemarks}"</p>}
+                                {order.feedbackRemarks && <p className="text-xs text-muted-foreground mt-1 p-1.5 border rounded-md bg-muted/50">&quot;{order.feedbackRemarks}&quot;</p>}
                            </>
                         )}
                     </div>
                 )}
             </CardContent>
-            
         </Card>
     );
 }

@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from "react";
@@ -14,18 +13,14 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronDown, Download, MoreHorizontal, ShieldAlert, Trash2, CalendarIcon, Search, X, PlusCircle, Check, Clock, Loader2 } from "lucide-react";
-import * as XLSX from "xlsx";
+import { ArrowUpDown, ShieldAlert, Trash2, CalendarIcon, Search, X, PlusCircle, Loader2, MoreHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -38,24 +33,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, deleteDoc, where, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, deleteDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, User } from "@/lib/types";
+import { Order } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
-import { format, isWithinInterval, addHours, differenceInHours } from "date-fns";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { DateRange } from "react-day-picker";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
-import { NewOrderDialog } from "./NewOrderDialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { setFullKittingTime } from "./actions";
+import { format } from "date-fns";
 
 function OrderTableComponent({ data, columns, loading }: { data: Order[], columns: ColumnDef<Order>[], loading: boolean }) {
     const [sorting, setSorting] = React.useState<SortingState>([
@@ -64,19 +51,13 @@ function OrderTableComponent({ data, columns, loading }: { data: Order[], column
     const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
     const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
     const [rowSelection, setRowSelection] = React.useState({});
-    const [orderNoFilter, setOrderNoFilter] = React.useState("");
-    const [dateRangeFilter, setDateRangeFilter] = React.useState<DateRange | undefined>();
-    const [storeFilter, setStoreFilter] = React.useState("all");
 
     const filteredData = React.useMemo(() => {
         return data.filter(order => {
-          const orderNoMatch = orderNoFilter ? order.crmOrderNo.includes(orderNoFilter) : true;
-          const dateMatch = dateRangeFilter?.from ? isWithinInterval(new Date(order.createdAt), { start: dateRangeFilter.from, end: dateRangeFilter.to || dateRangeFilter.from }) : true;
-          const storeMatch = storeFilter === 'all' ? true : order.storeName === storeFilter;
-
-          return orderNoMatch && dateMatch && storeMatch;
+            const statusMatch = order.status === "Pending Approval";
+            return statusMatch;
         });
-    }, [data, orderNoFilter, dateRangeFilter, storeFilter]);
+    }, [data]);
 
     const table = useReactTable({
         data: filteredData,
@@ -97,114 +78,12 @@ function OrderTableComponent({ data, columns, loading }: { data: Order[], column
         },
     });
 
-    const uniqueStores = ["MO GCR BRANCH", "MO MG ROAD", "MO SULTANPUR"];
-
-    const clearFilters = () => {
-        setOrderNoFilter("");
-        setDateRangeFilter(undefined);
-        setStoreFilter("all");
-    }
-
     return (
          <Card>
             <CardContent className="p-4">
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <Input
-                      placeholder="Order No"
-                      value={orderNoFilter}
-                      onChange={(e) => setOrderNoFilter(e.target.value)}
-                    />
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          id="date"
-                          variant={"outline"}
-                          className={cn(
-                            "justify-start text-left font-normal",
-                            !dateRangeFilter && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {dateRangeFilter?.from ? (
-                            dateRangeFilter.to ? (
-                              <>
-                                {format(dateRangeFilter.from, "LLL dd, y")} -{" "}
-                                {format(dateRangeFilter.to, "LLL dd, y")}
-                              </>
-                            ) : (
-                              format(dateRangeFilter.from, "LLL dd, y")
-                            )
-                          ) : (
-                            <span>From Date</span>
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          initialFocus
-                          mode="range"
-                          defaultMonth={dateRangeFilter?.from}
-                          selected={dateRangeFilter}
-                          onSelect={setDateRangeFilter}
-                          numberOfMonths={1}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          id="date-to"
-                          variant={"outline"}
-                          className={cn(
-                            "justify-start text-left font-normal",
-                            !dateRangeFilter?.to && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {dateRangeFilter?.to ? (
-                              format(dateRangeFilter.to, "LLL dd, y")
-                          ) : (
-                            <span>To Date</span>
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          initialFocus
-                          mode="range"
-                          defaultMonth={dateRangeFilter?.from}
-                          selected={dateRangeFilter}
-                          onSelect={setDateRangeFilter}
-                          numberOfMonths={1}
-                        />
-                      </PopoverContent>
-                    </Popover>
-
-                    <Select value={storeFilter} onValueChange={setStoreFilter}>
-                        <SelectTrigger><SelectValue placeholder="Store*" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Stores</SelectItem>
-                            {uniqueStores.map(store => <SelectItem key={store} value={store!}>{store}</SelectItem>)}
-                        </SelectContent>
-                    </Select>
-                    <Select>
-                        <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
-                        <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
-                    </Select>
-                    <Select>
-                        <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
-                        <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button><Search className="mr-2 h-4 w-4"/>Search</Button>
-                    <Button variant="outline" onClick={clearFilters}><X className="mr-2 h-4 w-4"/>Clear</Button>
-                  </div>
-                </div>
                 <div className="flex items-center py-4 gap-4">
                      <div className="ml-auto relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                          <Input
                             placeholder="Search in results..."
                             value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
@@ -292,70 +171,6 @@ function OrderTableComponent({ data, columns, loading }: { data: Order[], column
                 </div>
             </CardContent>
         </Card>
-    )
-}
-
-function KittingTimePicker({ order }: { order: Order }) {
-    const { toast } = useToast();
-    const sentToStitchingMilestone = order.milestones.find(m => m.id === 3);
-
-    const [kittingDate, setKittingDate] = React.useState<Date | undefined>(
-        order.fullKittingTime ? new Date(order.fullKittingTime) : undefined
-    );
-    const [isLoading, setIsLoading] = React.useState(false);
-
-    const handleDateChange = async (date: Date | undefined) => {
-        if (!date) return;
-        setKittingDate(date);
-        setIsLoading(true);
-
-        const result = await setFullKittingTime(order.id, date.toISOString());
-        if (result.success) {
-            toast({ title: "Kitting Time Saved!" });
-        } else {
-            toast({ variant: 'destructive', title: "Error", description: result.message });
-        }
-        setIsLoading(false);
-    }
-    
-    if (!sentToStitchingMilestone?.completed) {
-        return <span className="text-xs text-muted-foreground">-</span>;
-    }
-
-    const timeSinceStitching = differenceInHours(new Date(), new Date(sentToStitchingMilestone.completedAt!));
-    const isPastGracePeriod = timeSinceStitching > 1;
-
-    let colorClass = "text-foreground";
-    if(order.fullKittingTimeReupdated) {
-        colorClass = "text-orange-500";
-    } else if (order.fullKittingTime && isPastGracePeriod) {
-        colorClass = "text-destructive";
-    }
-
-    return (
-        <Popover>
-            <PopoverTrigger asChild>
-                <Button
-                    variant={"outline"}
-                    className={cn(
-                        "w-[200px] justify-start text-left font-normal",
-                        !kittingDate && "text-muted-foreground",
-                        colorClass
-                    )}
-                >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (kittingDate ? format(kittingDate, "PPP") : <span>Set Time</span>)}
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-                <Calendar
-                    mode="single"
-                    selected={kittingDate}
-                    onSelect={handleDateChange}
-                    initialFocus
-                />
-            </PopoverContent>
-        </Popover>
     );
 }
 
@@ -373,15 +188,12 @@ export function SaleOrdersTable() {
   React.useEffect(() => {
     if (!user) return;
 
-    let ordersQuery;
-    
-    // Admins and PCs see all acknowledged orders.
-    // CRMs only see orders assigned to them.
-    if (user.designation === 'CRM') {
-        ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id), where("isAcknowledged", "==", true), where("status", "==", "Approved"));
-    } else {
-        ordersQuery = query(collection(db, "orders"), where("isAcknowledged", "==", true), where("status", "==", "Approved"));
-    }
+    // Fetch only orders that are "Pending Approval"
+    const ordersQuery = query(
+      collection(db, "orders"),
+      where("isAcknowledged", "==", true),
+      where("status", "==", "Pending Approval")
+    );
 
     const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
       const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
@@ -438,59 +250,17 @@ export function SaleOrdersTable() {
       ),
     },
     {
-        id: "fullKittingTime",
-        header: "Full Kitting Time",
-        cell: ({ row }) => <KittingTimePicker order={row.original} />,
-    },
-    {
-      id: "noOfItems",
-      header: "No Of Items",
-      cell: ({ row }) => {
-        const fabricCount = row.original.fabricDetails?.length || 0;
-        return <span>{fabricCount}</span>;
-      },
-    },
-    {
-        id: "allocatedStatus",
-        header: "Allocated Status",
-        cell: ({ row }) => {
-          const order = row.original;
-          const totalItems = order.fabricDetails?.length || 0;
-          if (totalItems === 0) return <Badge variant="outline">N/A</Badge>;
-      
-          const allocatedItemsCount = order.fabricDetails?.filter(item => item.status === 'allocated').length || 0;
-          
-          if (allocatedItemsCount === totalItems) {
-            return <Badge className="bg-green-600">Allocated</Badge>;
-          }
-
-          const inStockOrAllocatedItems = order.fabricDetails?.filter(item => item.status === 'in stock' || item.status === 'allocated').length || 0;
-      
-          const allAvailable = inStockOrAllocatedItems === totalItems;
-          const someAvailable = inStockOrAllocatedItems > 0;
-      
-          let badgeClass = "bg-red-500";
-          if (allAvailable) {
-            badgeClass = "bg-green-500";
-          } else if (someAvailable) {
-            badgeClass = "bg-yellow-500 text-black";
-          }
-      
-          return <Badge className={badgeClass}>{`${inStockOrAllocatedItems} / ${totalItems}`}</Badge>;
-        }
-    },
-    {
-      accessorKey: "remarks",
+      accessorKey: "customerName",
       header: ({ column }) => (
         <Button
           variant="ghost"
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
-          Remark
+          Customer
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
-      cell: ({ row }) => row.original.remarks || '-',
+      cell: ({ row }) => <span>{row.getValue("customerName")}</span>,
     },
     {
       id: "status",
@@ -505,79 +275,10 @@ export function SaleOrdersTable() {
       ),
       cell: ({ row }) => {
         const order = row.original;
-        let status = "NEW";
-        const lastCompleted = order.milestones.slice().reverse().find(m => m.completed);
-        if (lastCompleted) {
-          status = lastCompleted.name.toUpperCase();
-        } else if (order.status === 'Pending Approval') {
-            status = 'PENDING APPROVAL';
-        }
-        
-        return <Badge variant={status === 'PENDING APPROVAL' ? 'destructive' : 'secondary'}>{status}</Badge>;
-      }
+        return <Badge variant="destructive">{order.status}</Badge>;
+      },
     },
-    {
-      accessorKey: "salesPerson",
-       header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          Salesman
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-      cell: ({ row }) => <div className="uppercase">{row.original.salesPerson.split(' ')[0]}</div>
-    },
-    {
-      accessorKey: "createdAt",
-      header: "Created On",
-      cell: ({ row }) => format(new Date(row.getValue("createdAt")), "dd/MM/yyyy"),
-    },
-    {
-      accessorKey: "storeName",
-      header: "Store Name",
-      cell: ({ row }) => row.original.storeName || "N/A",
-    },
-    {
-      accessorKey: "customerName",
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          Contact Name
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-    },
-    {
-      accessorKey: "customerPhone",
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          Contact No
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-    },
-    {
-      id: "dealName",
-       header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          Deal Name
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-      cell: ({ row }) => {
-        return `${row.original.orderType.toUpperCase()} (${row.original.crmOrderNo})`
-      }
-    },
+    // add other necessary columns here...
      {
       id: "actions",
       enableHiding: false,
@@ -608,17 +309,6 @@ export function SaleOrdersTable() {
       },
     },
   ];
-  
-  const isInstallationDone = (order: Order) => {
-    if (!Array.isArray(order.milestones)) return false;
-    // Find the highest milestone ID for the given order type
-    const milestoneIds = order.milestones.map(m => m.id);
-    const lastMilestoneId = Math.max(...milestoneIds);
-    const lastMilestone = order.milestones.find(m => m.id === lastMilestoneId);
-    return !!lastMilestone?.completed;
-  };
-
-  const activeOrders = React.useMemo(() => orders.filter(o => !isInstallationDone(o)), [orders]);
 
   if (loading) {
     return (
@@ -628,7 +318,7 @@ export function SaleOrdersTable() {
             <Skeleton className="h-64 w-full" />
             <Skeleton className="h-10 w-full" />
         </div>
-    )
+    );
   }
   
   if (!isAuthorized) {
@@ -642,7 +332,7 @@ export function SaleOrdersTable() {
                 </CardHeader>
             </Card>
         </div>
-    )
+    );
   }
 
   return (
@@ -650,8 +340,8 @@ export function SaleOrdersTable() {
     <div className="w-full">
         <header className="mb-8 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Orders Dashboard</h1>
-            <p className="text-muted-foreground">A detailed, searchable view of all acknowledged orders.</p>
+            <h1 className="text-3xl font-bold tracking-tight">Pending Approval Orders</h1>
+            <p className="text-muted-foreground">A detailed, searchable view of orders pending approval.</p>
           </div>
           <Button onClick={() => setIsQuotationDialogOpen(true)}>
               <PlusCircle className="mr-2 h-4 w-4" />
@@ -659,18 +349,7 @@ export function SaleOrdersTable() {
           </Button>
         </header>
 
-        <Tabs defaultValue="active">
-            <TabsList>
-                <TabsTrigger value="active">Active Order</TabsTrigger>
-                <TabsTrigger value="all">All Order</TabsTrigger>
-            </TabsList>
-            <TabsContent value="active" className="mt-4">
-                 <OrderTableComponent data={activeOrders} columns={columns} loading={loading} />
-            </TabsContent>
-            <TabsContent value="all" className="mt-4">
-                <OrderTableComponent data={orders} columns={columns} loading={loading} />
-            </TabsContent>
-        </Tabs>
+        <OrderTableComponent data={orders} columns={columns} loading={loading} />
     </div>
      <AlertDialog open={!!deletingOrder} onOpenChange={() => setDeletingOrder(null)}>
         <AlertDialogContent>

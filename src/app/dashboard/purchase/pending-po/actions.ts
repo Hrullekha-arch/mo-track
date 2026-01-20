@@ -9,6 +9,7 @@ import { addDays } from 'date-fns';
 
 export interface PendingPoItem {
     id: string; // Combination of orderId and itemName
+    purchaseRequestId?: string;
     orderId: string;
     salesman: string;
     collectionBrand: string;
@@ -46,6 +47,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
                 
                 pendingItems.push({
                     id: `${requestDoc.id}-${itemName}`, // Use requestDoc.id which is the Firestore document ID
+                    purchaseRequestId: requestDoc.id,
                     orderId: request.dealId,
                     salesman: request.salesman,
                     collectionBrand: itemName, // This is the BCN
@@ -91,7 +93,7 @@ export async function createPurchaseRequestAction(
         const batch = adminDb.batch();
         const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
         const { item, vendor, courier, mode, isNewVendor, promiseDeliveryDate } = poData;
-        const purchaseRequestId = item.id.split('-')[0]; // Extract the original request ID
+        const purchaseRequestId = item.purchaseRequestId || item.id.split('-')[0]; // Extract the original request ID
 
         const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
         const originalRequestDoc = await requestRef.get();

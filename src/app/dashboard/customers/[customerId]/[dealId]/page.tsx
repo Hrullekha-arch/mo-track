@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { ArrowLeft, Calendar, Contact, FileText, GanttChartSquare, Home, MessageSquare, Package, Plane, Receipt as ReceiptIcon, ShoppingCart, User as UserIcon, Contact2, Eye, Loader2, RefreshCw, AlertTriangle, Pencil, Download, Menu, X, Phone, MapPin } from "lucide-react";
+import { ArrowLeft, Calendar, Contact, FileText, GanttChartSquare, Home, MessageSquare, Package, Plane, Receipt as ReceiptIcon, ShoppingCart, User as UserIcon, Contact2, Eye, Loader2, RefreshCw, AlertTriangle, Pencil, Download, Menu, X, Phone, MapPin, MoreHorizontal } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
@@ -98,6 +98,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead >Action</TableHead>
                       <TableHead className="w-12">#</TableHead>
                       <TableHead>Quotation No</TableHead>
                       <TableHead>Date</TableHead>
@@ -110,6 +111,39 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
                   <TableBody>
                     {quotations.map((q, i) => (
                       <TableRow key={q.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedQuotation(q)}>
+                        <TableCell onClick={(event) => event.stopPropagation()}>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                className="h-8 w-8 p-0"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <span className="sr-only">Open menu</span>
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+                              <DropdownMenuItem
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedQuotation(q);
+                                }}
+                              >
+                                View / Print
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleConvertToOrder(q);
+                                }}
+                                disabled={q.status === "Converted to Order"}
+                              >
+                                Convert to Order
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
                         <TableCell>{i + 1}</TableCell>
                         <TableCell className="font-medium">{q.quotationNo}</TableCell>
                         <TableCell>{format(parseDate(q.date), 'dd/MM/yyyy')}</TableCell>
@@ -135,7 +169,40 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
                           <p className="font-semibold text-sm">{q.quotationNo}</p>
                           <p className="text-xs text-muted-foreground">{format(parseDate(q.date), 'dd/MM/yyyy')}</p>
                         </div>
-                        <Badge variant="outline" className="text-xs">{q.status}</Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs">{q.status}</Badge>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                className="h-8 w-8 p-0"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <span className="sr-only">Open menu</span>
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+                              <DropdownMenuItem
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedQuotation(q);
+                                }}
+                              >
+                                View / Print
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleConvertToOrder(q);
+                                }}
+                                disabled={q.status === "Converted to Order"}
+                              >
+                                Convert to Order
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </div>
                       <Separator />
                       <div className="space-y-1 text-sm">
@@ -168,8 +235,8 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
 
       {selectedQuotation && (
         <QuotationDetailDialog
-          open={!!selectedQuotation}
-          onOpenChange={() => setSelectedQuotation(null)}
+          isOpen={!!selectedQuotation}
+          onClose={() => setSelectedQuotation(null)}
           quotation={selectedQuotation}
           deal={deal}
           salesmen={salesmen}
@@ -834,6 +901,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       setProducts((deal?.products as DealProduct[]) || []);
     }, [deal?.products]);
 
+    const getProductKey = (p: any) => p.id || p.collectionBrand || p.label || p.bcn ||p.rrpWithGstRs || p.type || `${products.indexOf(p)}`;
+
     // ✅ derive groupedProducts from products
     const groupedProducts = useMemo(() => {
       return (products || []).reduce((acc, product, index) => {
@@ -913,33 +982,78 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       }
     };
 
-    // Quotation click should read from CURRENT UI products
+    // ✅ Quotation click should read from CURRENT UI products
     const handleQuotationClick = () => {
-      const itemsToQuote = (products || []).filter((p) => p.id && selectedRows[p.id]);
+  console.group("🧾 [CREATE QUOTATION] Click Flow");
 
-      if (itemsToQuote.length === 0) {
-        toast({
-          variant: "destructive",
-          title: "No Products Selected",
-          description: "Please select products to create a quotation.",
-        });
-        return;
-      }
+  console.log("1️⃣ Raw selectedRows:", selectedRows);
 
-      const regularItems = itemsToQuote.filter((item) => item.productType !== "VAS");
-      const vasItems = itemsToQuote.filter((item) => item.productType === "VAS");
+  const selectedProductIds = Object.keys(selectedRows).filter(
+    (id) => selectedRows[id]
+  );
 
-      const initialVas = vasItems.map((item) => ({
-        vasName: item.subCategory || item.collectionBrand,
-        rate: item.rate?.toString() || "0",
-        quantity: item.quantity?.toString() || "1",
-        room: item.room || "",
-      }));
+  console.log("2️⃣ Selected Product IDs (from selectedRows):", selectedProductIds);
 
-      setQuotationInitialItems(regularItems);
-      setQuotationInitialVas(initialVas);
-      setIsQuotationDialogOpen(true);
-    };
+  console.log(
+    "3️⃣ All Products Keys:",
+    (products || []).map((p) => ({
+      product: p,
+      key: getProductKey(p),
+    }))
+  );
+
+  const itemsToQuote = (products || []).filter((p) =>
+    selectedProductIds.includes(getProductKey(p))
+  );
+
+  console.log("4️⃣ Matched itemsToQuote:", itemsToQuote);
+
+  if (itemsToQuote.length === 0) {
+    console.warn("❌ NO ITEMS MATCHED FOR QUOTATION");
+
+    toast({
+      variant: "destructive",
+      title: "No Products Selected",
+      description: "Please select products to create a quotation.",
+    });
+
+    console.groupEnd();
+    return;
+  }
+
+  const regularItems = itemsToQuote.filter(
+    (item) => item.productType !== "VAS"
+  );
+
+  const vasItems = itemsToQuote.filter(
+    (item) => item.productType === "VAS"
+  );
+
+  console.log("5️⃣ Regular Items:", regularItems);
+  console.log("6️⃣ VAS Items:", vasItems);
+
+  const initialVas = vasItems.map((item, index) => ({
+    vasName: item.subCategory || item.collectionBrand,
+    rate: item.rate?.toString() || "0",
+    quantity: item.quantity?.toString() || "1",
+    room: item.room || "",
+  }));
+
+  console.log("7️⃣ Initial VAS Payload:", initialVas);
+
+  setQuotationInitialItems(regularItems);
+  setQuotationInitialVas(initialVas);
+  setIsQuotationDialogOpen(true);
+
+  console.log("✅ Quotation Dialog Opened Successfully");
+
+  console.groupEnd();
+};
+
+
+
+
+
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -1349,6 +1463,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 handleQuotationClick={handleQuotationClick}
                 handleUpdateSelectionStatus={handleUpdateSelectionStatus}
                 setBlindDialogState={setBlindDialogState}
+                getProductKey={getProductKey}
               />
             </TabsContent>
 
@@ -1457,6 +1572,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 handleQuotationClick={handleQuotationClick}
                 handleUpdateSelectionStatus={handleUpdateSelectionStatus}
                 setBlindDialogState={setBlindDialogState}
+                getProductKey={getProductKey}
               />
             )}
 
