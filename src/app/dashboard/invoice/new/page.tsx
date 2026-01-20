@@ -440,13 +440,13 @@ function convertQuotationToTemporaryOrder(q: Quotation): Order {
                       <TableCell><Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
                       <TableCell>{item.collectionBrand}</TableCell>
                       <TableCell>{item.serialNo}</TableCell>
-                      <TableCell><Input type="number" {...form.register(`products.${index}.quantity`)} /></TableCell>
+                      <TableCell><Input type="number" step="0.01" {...form.register(`products.${index}.quantity`)} /></TableCell>
                       <TableCell>{item.mrp.toFixed(2)}</TableCell>
-                      <TableCell><Input type="number" {...form.register(`products.${index}.discountPercent`)} /></TableCell>
+                      <TableCell><Input type="number" step="0.01" {...form.register(`products.${index}.discountPercent`)} /></TableCell>
                       <TableCell>{item.quotationRate.toFixed(2)}</TableCell>
-                      <TableCell><Input type="number" {...form.register(`products.${index}.orderRate`)} /></TableCell>
+                      <TableCell><Input type="number" step="0.01" {...form.register(`products.${index}.orderRate`)} /></TableCell>
                       <TableCell>{item.room}</TableCell>
-                      <TableCell><Input type="number" {...form.register(`products.${index}.noOfPcs`)} /></TableCell>
+                      <TableCell><Input type="number" step="1" {...form.register(`products.${index}.noOfPcs`)} /></TableCell>
                       <TableCell>{item.amount.toFixed(2)}</TableCell>
                       <TableCell><Input {...form.register(`products.${index}.description`)} /></TableCell>
                       <TableCell><Button type="button" variant="ghost" size="icon"><Edit className="h-4 w-4 text-blue-500" /></Button></TableCell>

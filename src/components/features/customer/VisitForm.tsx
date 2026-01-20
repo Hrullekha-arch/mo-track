@@ -36,6 +36,7 @@ import { addVisitAction } from "@/app/dashboard/customers/[customerId]/[dealId]/
 import {
   deliveryInstallationItems,
   subDeliveryInstallationItems,
+  FittingInstallationItems,
 } from "@/lib/visit-options";
 import {
   Dialog,
@@ -45,7 +46,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Share2, Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
@@ -65,6 +66,8 @@ const visitSchema = z.object({
   otherCurtain: z.string().optional(),
   customerAddress: z.string().optional(),
   customerLandmark: z.string().optional(),
+  
+  // Delivery fields
   deliveryInstallations: z
     .array(deliveryInstallationItemSchema.nullable().optional())
     .optional(),
@@ -72,6 +75,29 @@ const visitSchema = z.object({
     .array(deliveryInstallationItemSchema.nullable().optional())
     .optional(),
   otherDelivery: z.string().optional(),
+  
+  // Fitting fields
+  fittingInstallations: z
+    .array(deliveryInstallationItemSchema.nullable().optional())
+    .optional(),
+  subFittingInstallations: z
+    .array(deliveryInstallationItemSchema.nullable().optional())
+    .optional(),
+  otherFitting: z.string().optional(),
+  
+  // Complaint fields
+  complaintType: z.string().optional(),
+  complaintDescription: z.string().optional(),
+  complaintPriority: z.string().optional(),
+  
+  // Sample Showing fields
+  sampleShowingItems: z.array(z.string()).optional(),
+  sampleShowingNotes: z.string().optional(),
+  
+  // Collection fields
+  collectionItems: z.string().optional(),
+  collectionNotes: z.string().optional(),
+  
   orderId: z.string().optional(),
   remark: z.string().optional(),
   dueDate: z.string().min(1, "Due Date is required."),
@@ -98,17 +124,42 @@ export const subMeasurementBlinds = [
   { id: "wooden-blind", label: "Wooden Blind" },
 ];
 
-// UI list (label needed) but saved payload remains { id, noOfPcs }
+export const complaintTypes = [
+  { id: "product-defect", label: "Product Defect" },
+  { id: "installation-issue", label: "Installation Issue" },
+  { id: "measurement-error", label: "Measurement Error" },
+  { id: "color-mismatch", label: "Color Mismatch" },
+  { id: "damaged-delivery", label: "Damaged During Delivery" },
+  { id: "delay-complaint", label: "Delay Complaint" },
+  { id: "other-complaint", label: "Other" },
+];
+
+export const sampleShowingCategories = [
+  { id: "curtain-fabric", label: "Curtain Fabric" },
+  { id: "sofa-fabric", label: "Sofa Fabric" },
+  { id: "wallpaper-samples", label: "Wallpaper Samples" },
+  { id: "flooring-samples", label: "Flooring Samples" },
+  { id: "blinds-samples", label: "Blinds Samples" },
+  { id: "mattress-samples", label: "Mattress Samples" },
+  { id: "cushion-fabric", label: "Cushion Fabric" },
+  { id: "other-samples", label: "Other Samples" },
+];
+
 const deliveryInstallationOptions = deliveryInstallationItems;
 const subDeliveryInstallationOptions = subDeliveryInstallationItems;
+const fittingInstallationOptions = FittingInstallationItems;
 
 const VISIT_TYPES = [
   { value: "measurement", label: "Measurements" },
   { value: "delivery", label: "Delivery" },
   { value: "fittings", label: "Fittings" },
   { value: "complaint", label: "Complaint" },
+  { value: "Collection", label: "Collection" },
+  { value: "Sample Showing", label: "Sample Showing" },
   { value: "other", label: "Other" },
 ] as const;
+
+const NO_ORDER_VALUE = "__none__";
 
 /* ================= COMPONENT ================= */
 
@@ -135,15 +186,12 @@ export function VisitForm({
   autoOpen?: boolean;
   hideCreateButton?: boolean;
 }) {
-
   const [loading, setLoading] = useState(false);
-
-  // dialog for creating visit
   const [createOpen, setCreateOpen] = useState(!!autoOpen);
 
-React.useEffect(() => {
-  if (autoOpen) setCreateOpen(true);
-}, [autoOpen]);
+  React.useEffect(() => {
+    if (autoOpen) setCreateOpen(true);
+  }, [autoOpen]);
 
   const savedAddresses = useMemo(() => {
     const list = Array.isArray(customer?.savedAddresses)
@@ -173,14 +221,9 @@ React.useEffect(() => {
     });
   }, [createOpen, savedAddresses, customer]);
 
-  // keep your original meaning: this controls `typeOfVisit`
   const [activeTab, setActiveTab] = useState<
-    "measurement" | "delivery" | "fittings" | "complaint" | "other"
+    "measurement" | "delivery" | "fittings" | "complaint" | "Collection" | "Sample Showing" | "other"
   >("measurement");
-
-  // share dialog
-  const [showShareDialog, setShowShareDialog] = useState(false);
-  const [whatsAppUrl, setWhatsAppUrl] = useState("");
 
   const { toast } = useToast();
   const { user } = useAuth();
@@ -202,14 +245,25 @@ React.useEffect(() => {
       deliveryInstallations: deliveryInstallationOptions.map(() => null),
       subDeliveryInstallations: subDeliveryInstallationOptions.map(() => null),
       otherDelivery: "",
+      fittingInstallations: fittingInstallationOptions.map(() => null),
+      subFittingInstallations: subDeliveryInstallationOptions.map(() => null),
+      otherFitting: "",
+      complaintType: "",
+      complaintDescription: "",
+      complaintPriority: "medium",
+      sampleShowingItems: [],
+      sampleShowingNotes: "",
+      collectionItems: "",
+      collectionNotes: "",
       orderId: "",
-       remark: "", // ✅ NEW
-       dueDate: "",
+      remark: "",
+      dueDate: "",
     },
   });
 
   const watchedMeasurements = form.watch("measurements");
   const watchedDeliveryInstallations = form.watch("deliveryInstallations");
+  const watchedFittingInstallations = form.watch("fittingInstallations");
 
   async function onSubmit(data: VisitFormValues) {
     console.log("🟢 SUBMIT CLICKED", data);
@@ -244,10 +298,10 @@ React.useEffect(() => {
           title: "Missing Address",
           description: "Please select or add a customer address.",
         });
+        setLoading(false);
         return;
       }
 
-      // ✅ KEEP PAYLOAD SAME
       const clean = (arr?: any[]) => (arr || []).filter(Boolean);
       const visitDataForDb = {
         ...data,
@@ -255,15 +309,16 @@ React.useEffect(() => {
         selectionId: data.selectionId === "none" ? null : data.selectionId,
         deliveryInstallations: clean(data.deliveryInstallations),
         subDeliveryInstallations: clean(data.subDeliveryInstallations),
+        fittingInstallations: clean(data.fittingInstallations),
+        subFittingInstallations: clean(data.subFittingInstallations),
         customerAddress: nextAddress.address,
         customerLandmark: nextAddress.landmark || "",
-        };
-      // 🔥 FRONTEND LOG (what you are sending)
-        console.log("📦 [VISIT->BACKEND] payload =", visitDataForDb);
-        console.log("📦 [VISIT->BACKEND] payload (pretty) =\n", JSON.stringify(visitDataForDb, null, 2));
+      };
 
-        // optional: store last payload for quick checking
-        localStorage.setItem("LAST_VISIT_PAYLOAD", JSON.stringify(visitDataForDb));
+      console.log("📦 [VISIT->BACKEND] payload =", visitDataForDb);
+      console.log("📦 [VISIT->BACKEND] payload (pretty) =\n", JSON.stringify(visitDataForDb, null, 2));
+
+      localStorage.setItem("LAST_VISIT_PAYLOAD", JSON.stringify(visitDataForDb));
 
       const result = await addVisitAction(
         customerId,
@@ -272,23 +327,14 @@ React.useEffect(() => {
         user.name
       );
 
-
       if (result.success && result.visit) {
         toast({
           title: "Visit Request Created",
-          description: "Share the link with the customer to confirm.",
+          description: "The visit has been successfully created.",
         });
 
         onVisitAdded(result.visit);
-
-        // close create dialog
         setCreateOpen(false);
-
-        if (result.whatsAppUrl) {
-          setWhatsAppUrl(result.whatsAppUrl);
-          setShowShareDialog(false);
-        }
-
         form.reset();
       } else {
         toast({
@@ -308,7 +354,7 @@ React.useEffect(() => {
     }
   }
 
-  /* ================= CONTENT BLOCKS (same logic as earlier) ================= */
+  /* ================= CONTENT BLOCKS ================= */
 
   const MeasurementVisitContent = (
     <div className="space-y-6">
@@ -371,14 +417,11 @@ React.useEffect(() => {
                   )}
                 />
               ))}
-              
             </div>
             <FormMessage />
           </FormItem>
         )}
       />
-      
-
 
       {watchedMeasurements?.includes("blinds-measurement") && (
         <FormField
@@ -423,7 +466,6 @@ React.useEffect(() => {
           )}
         />
       )}
-
     </div>
   );
 
@@ -513,7 +555,6 @@ React.useEffect(() => {
         )}
       />
 
-      {/* same trigger style as your earlier code */}
       {watchedDeliveryInstallations?.some(
         (d) => d?.id === "blind-installation"
       ) && (
@@ -567,6 +608,401 @@ React.useEffect(() => {
     </div>
   );
 
+  const FittingVisitContent = (
+    <div className="space-y-6">
+      <FormField
+        control={form.control}
+        name="orderId"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Select Order Number</FormLabel>
+            <Select onValueChange={field.onChange} value={field.value || ""}>
+              <FormControl>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an order to associate with this visit" />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                {orders.map((order) => (
+                  <SelectItem key={order.id} value={order.orderNo}>
+                    {order.orderNo}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name="fittingInstallations"
+        render={() => (
+          <FormItem>
+            <FormLabel>Type of Fitting/Installation</FormLabel>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {fittingInstallationOptions.map((opt, index) => (
+                <Controller
+                  key={opt.id}
+                  control={form.control}
+                  name={`fittingInstallations.${index}`}
+                  render={({ field }) => (
+                    <div className="flex items-center gap-2 p-2 border rounded-md">
+                      <Checkbox
+                        checked={!!field.value}
+                        onCheckedChange={(checked) => {
+                          field.onChange(
+                            checked ? { id: opt.id, noOfPcs: "1" } : null
+                          );
+                        }}
+                      />
+                      <Label className="flex-grow">{opt.label}</Label>
+
+                      {field.value && (
+                        <Input
+                          type="number"
+                          className="w-16 h-8"
+                          placeholder="Pcs"
+                          value={field.value.noOfPcs || "1"}
+                          onChange={(e) =>
+                            field.onChange({
+                              ...field.value,
+                              noOfPcs: e.target.value,
+                            })
+                          }
+                        />
+                      )}
+                    </div>
+                  )}
+                />
+              ))}
+
+              <FormField
+                control={form.control}
+                name="otherFitting"
+                render={({ field }) => (
+                  <FormItem className="col-span-full">
+                    <FormControl>
+                      <Input placeholder="Other fitting type..." {...field} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </div>
+          </FormItem>
+        )}
+      />
+
+      {watchedFittingInstallations?.some(
+        (d) => d?.id === "blind-installation"
+      ) && (
+        <FormField
+          control={form.control}
+          name="subFittingInstallations"
+          render={() => (
+            <FormItem>
+              <FormLabel>Select Sub Fitting Installation</FormLabel>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {subDeliveryInstallationOptions.map((opt, index) => (
+                  <Controller
+                    key={opt.id}
+                    control={form.control}
+                    name={`subFittingInstallations.${index}`}
+                    render={({ field }) => (
+                      <div className="flex items-center gap-2 p-2 border rounded-md">
+                        <Checkbox
+                          checked={!!field.value}
+                          onCheckedChange={(checked) =>
+                            field.onChange(
+                              checked ? { id: opt.id, noOfPcs: "1" } : null
+                            )
+                          }
+                        />
+                        <Label className="flex-grow">{opt.label}</Label>
+
+                        {field.value && (
+                          <Input
+                            type="number"
+                            className="w-16 h-8"
+                            placeholder="Pcs"
+                            value={field.value.noOfPcs || "1"}
+                            onChange={(e) =>
+                              field.onChange({
+                                ...field.value,
+                                noOfPcs: e.target.value,
+                              })
+                            }
+                          />
+                        )}
+                      </div>
+                    )}
+                  />
+                ))}
+              </div>
+            </FormItem>
+          )}
+        />
+      )}
+    </div>
+  );
+
+  const ComplaintVisitContent = (
+    <div className="space-y-6">
+      <FormField
+        control={form.control}
+        name="orderId"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Related Order Number (Optional)</FormLabel>
+            <Select
+              onValueChange={(value) =>
+                field.onChange(value === NO_ORDER_VALUE ? "" : value)
+              }
+              value={field.value || NO_ORDER_VALUE}
+            >
+              <FormControl>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select related order if applicable" />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                <SelectItem value={NO_ORDER_VALUE}>No related order</SelectItem>
+                {orders.map((order) => (
+                  <SelectItem key={order.id} value={order.orderNo}>
+                    {order.orderNo}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name="complaintType"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Type of Complaint *</FormLabel>
+            <Select onValueChange={field.onChange} value={field.value || ""}>
+              <FormControl>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select complaint type" />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                {complaintTypes.map((type) => (
+                  <SelectItem key={type.id} value={type.id}>
+                    {type.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name="complaintPriority"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Priority Level</FormLabel>
+            <Select onValueChange={field.onChange} value={field.value || "medium"}>
+              <FormControl>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select priority" />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+                <SelectItem value="urgent">Urgent</SelectItem>
+              </SelectContent>
+            </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name="complaintDescription"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Complaint Details *</FormLabel>
+            <FormControl>
+              <Textarea
+                placeholder="Describe the complaint in detail..."
+                className="min-h-[120px]"
+                {...field}
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+    </div>
+  );
+
+  const SampleShowingContent = (
+  <div className="space-y-6">
+    <FormField
+      control={form.control}
+      name="sampleShowingItems"
+      render={() => (
+        <FormItem>
+          <FormLabel>Sample Categories to Show</FormLabel>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {sampleShowingCategories.map((item) => (
+              <FormField
+                key={item.id}
+                control={form.control}
+                name="sampleShowingItems"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value?.includes(item.id)}
+                        onCheckedChange={(checked) =>
+                          checked
+                            ? field.onChange([...(field.value || []), item.id])
+                            : field.onChange(
+                                field.value?.filter((v) => v !== item.id)
+                              )
+                        }
+                      />
+                    </FormControl>
+                    <FormLabel className="font-normal">
+                      {item.label}
+                    </FormLabel>
+                  </FormItem>
+                )}
+              />
+            ))}
+          </div>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+
+    <FormField
+      control={form.control}
+      name="sampleShowingNotes"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Additional Notes</FormLabel>
+          <FormControl>
+            <Textarea
+              placeholder="Specify particular designs, colors, or styles to show..."
+              className="min-h-[100px]"
+              {...field}
+            />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  </div>
+);
+
+const CollectionContent = (
+  <div className="space-y-6">
+    <FormField
+      control={form.control}
+      name="orderId"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Related Order Number (Optional)</FormLabel>
+          <Select
+            onValueChange={(value) =>
+              field.onChange(value === NO_ORDER_VALUE ? "" : value)
+            }
+            value={field.value || NO_ORDER_VALUE}
+          >
+            <FormControl>
+              <SelectTrigger>
+                <SelectValue placeholder="Select related order if applicable" />
+              </SelectTrigger>
+            </FormControl>
+            <SelectContent>
+              <SelectItem value={NO_ORDER_VALUE}>No related order</SelectItem>
+              {orders.map((order) => (
+                <SelectItem key={order.id} value={order.orderNo}>
+                  {order.orderNo}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+
+    <FormField
+      control={form.control}
+      name="collectionItems"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Items to Collect</FormLabel>
+          <FormControl>
+            <Textarea
+              placeholder="List items to be collected from customer..."
+              className="min-h-[100px]"
+              {...field}
+            />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+
+    <FormField
+      control={form.control}
+      name="collectionNotes"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Collection Notes</FormLabel>
+          <FormControl>
+            <Textarea
+              placeholder="Any special instructions for collection..."
+              className="min-h-[80px]"
+              {...field}
+            />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  </div>
+);
+
+const OtherVisitContent = (
+  <div className="space-y-6">
+    <FormField
+      control={form.control}
+      name="remark"
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>Visit Purpose & Details *</FormLabel>
+          <FormControl>
+            <Textarea
+              placeholder="Describe the purpose and details of this visit..."
+              className="min-h-[150px]"
+              {...field}
+            />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  </div>
+);
+
   /* ================= UI ================= */
 
   return (
@@ -574,16 +1010,15 @@ React.useEffect(() => {
       {/* Trigger button */}
       {!hideCreateButton && (
         <div className="mt-6 flex justify-end">
-            <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => setCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Create Visit
-            </Button>
+          </Button>
         </div>
-        )}
-
+      )}
 
       {/* Create Visit Dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen} >
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-5xl overflow-hidden">
           <DialogHeader>
             <DialogTitle>Create New Visit</DialogTitle>
@@ -594,26 +1029,28 @@ React.useEffect(() => {
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              {/* Top grid like your example */}
+              {/* Top grid */}
               <div className="grid grid-cols-3 gap-4">
-                {/* Representative* (same as old) */}
+                {/* Due Date */}
                 <FormField
-                control={form.control}
-                name="dueDate"
-                render={({ field }) => (
+                  control={form.control}
+                  name="dueDate"
+                  render={({ field }) => (
                     <FormItem className="col-span-2 sm:col-span-1">
-                    <FormLabel>Visit Day / Due Date</FormLabel>
-                    <FormControl>
+                      <FormLabel>Visit Day / Due Date</FormLabel>
+                      <FormControl>
                         <Input
-                        type="date"
-                        value={field.value || ""}
-                        onChange={(e) => field.onChange(e.target.value)}
+                          type="date"
+                          value={field.value || ""}
+                          onChange={(e) => field.onChange(e.target.value)}
                         />
-                    </FormControl>
-                    <FormMessage />
+                      </FormControl>
+                      <FormMessage />
                     </FormItem>
-                )}
+                  )}
                 />
+
+                {/* Representative */}
                 <FormField
                   control={form.control}
                   name="representative"
@@ -639,13 +1076,12 @@ React.useEffect(() => {
                   )}
                 />
 
-                {/* Category* -> sets activeTab (same meaning as before: typeOfVisit) */}
+                {/* Category */}
                 <div className="col-span-2 sm:col-span-1 space-y-2">
                   <Label>Category *</Label>
                   <Select
                     value={activeTab}
                     onValueChange={(val) => {
-                      // prevent measurement if already created
                       if (val === "measurement" && hasMeasurementVisit) return;
                       setActiveTab(val as any);
                     }}
@@ -671,82 +1107,88 @@ React.useEffect(() => {
                     </p>
                   )}
                 </div>
+
+                {/* Address Source */}
                 <div>
                   {savedAddresses.length > 0 && (
-                      <div className="space-y-2">
-                        <Label className="text-xs text-muted-foreground">
-                          Address Source
-                        </Label>
-                        <Select
-                          value={addressMode}
-                          onValueChange={(val) =>
-                            setAddressMode(val as "saved" | "new")
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Choose address source" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="saved">Saved address</SelectItem>
-                            <SelectItem value="new">Add new address</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">
+                        Address Source
+                      </Label>
+                      <Select
+                        value={addressMode}
+                        onValueChange={(val) =>
+                          setAddressMode(val as "saved" | "new")
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose address source" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="saved">Saved address</SelectItem>
+                          <SelectItem value="new">Add new address</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
+
+                {/* Address Selection/Input */}
                 {addressMode === "saved" && savedAddresses.length > 0 ? (
-                      <div className="space-y-2">
-                        <Label className="text-xs text-muted-foreground">
-                          Saved Addresses
-                        </Label>
-                        <Select
-                          value={selectedAddressIndex}
-                          onValueChange={setSelectedAddressIndex}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select saved address" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {savedAddresses.map((addr, index) => {
-                              const addressText = addr.address || `Address ${index + 1}`;
-                              const landmarkText = addr.landmark
-                                ? ` - ${addr.landmark}`
-                                : "";
-                              return (
-                                <SelectItem key={`${addressText}-${index}`} value={`${index}`}>
-                                  {`Address ${index + 1}: ${addressText}${landmarkText}`}
-                                </SelectItem>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <Input
-                          placeholder="Full address"
-                          value={addressDraft.address}
-                          onChange={(e) =>
-                            setAddressDraft((prev) => ({
-                              ...prev,
-                              address: e.target.value,
-                            }))
-                          }
-                        />
-                        <Input
-                          placeholder="Landmark (optional)"
-                          value={addressDraft.landmark}
-                          onChange={(e) =>
-                            setAddressDraft((prev) => ({
-                              ...prev,
-                              landmark: e.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                    )}
-                <div>
-                </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">
+                      Saved Addresses
+                    </Label>
+                    <Select
+                      value={selectedAddressIndex}
+                      onValueChange={setSelectedAddressIndex}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select saved address" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {savedAddresses.map((addr, index) => {
+                          const addressText = addr.address || `Address ${index + 1}`;
+                          const landmarkText = addr.landmark
+                            ? ` - ${addr.landmark}`
+                            : "";
+                          return (
+                            <SelectItem
+                              key={`${addressText}-${index}`}
+                              value={`${index}`}
+                            >
+                              {`Address ${index + 1}: ${addressText}${landmarkText}`}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="Full address"
+                      value={addressDraft.address}
+                      onChange={(e) =>
+                        setAddressDraft((prev) => ({
+                          ...prev,
+                          address: e.target.value,
+                        }))
+                      }
+                    />
+                    <Input
+                      placeholder="Landmark (optional)"
+                      value={addressDraft.landmark}
+                      onChange={(e) =>
+                        setAddressDraft((prev) => ({
+                          ...prev,
+                          landmark: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                )}
+                <div></div>
               </div>
 
               <Separator />
@@ -754,40 +1196,32 @@ React.useEffect(() => {
               {/* Dynamic section based on category */}
               {activeTab === "measurement" && MeasurementVisitContent}
               {activeTab === "delivery" && DeliveryVisitContent}
+              {activeTab === "fittings" && FittingVisitContent}
+              {activeTab === "complaint" && ComplaintVisitContent}
+              {activeTab === "Collection" && CollectionContent}
+              {activeTab === "Sample Showing" && SampleShowingContent}
+              {activeTab === "other" && OtherVisitContent}
 
-              {activeTab === "fittings" && (
-                <p className="text-muted-foreground text-center py-4">
-                  Fittings visit form fields will appear here.
-                </p>
+              {/* Remark field (only show if not "other" since other has its own remark) */}
+              {activeTab !== "other" && (
+                <FormField
+                  control={form.control}
+                  name="remark"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Remark / Additional Note</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Any special instruction, note, landmark, etc..."
+                          className="min-h-[90px]"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               )}
-              {activeTab === "complaint" && (
-                <p className="text-muted-foreground text-center py-4">
-                  Complaint visit form fields will appear here.
-                </p>
-              )}
-              {activeTab === "other" && (
-                <p className="text-muted-foreground text-center py-4">
-                  Other visit form fields will appear here.
-                </p>
-              )}
-              <FormField
-                    control={form.control}
-                    name="remark"
-                    render={({ field }) => (
-                        <FormItem>
-                        <FormLabel>Remark / Additional Note</FormLabel>
-                        <FormControl>
-                            <Textarea
-                            placeholder="Any special instruction, note, landmark, etc..."
-                            className="min-h-[90px]"
-                            {...field}
-                            />
-                        </FormControl>
-                        <FormMessage />
-                        </FormItem>
-                    )}
-                    />
-
 
               <DialogFooter>
                 <Button
@@ -802,9 +1236,7 @@ React.useEffect(() => {
                 </Button>
 
                 <Button type="submit" disabled={loading}>
-                  {loading && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
+                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Create Visit
                 </Button>
               </DialogFooter>
@@ -812,46 +1244,6 @@ React.useEffect(() => {
           </Form>
         </DialogContent>
       </Dialog>
-
-      {/* Share dialog (same as yours) */}
-      {/* <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Share Visit Confirmation Link</DialogTitle>
-            <DialogDescription>
-              Copy the link below and share it with the customer via WhatsApp so
-              they can confirm their visit details.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4">
-            <Input value={whatsAppUrl} readOnly />
-          </div>
-          
-
-          <DialogFooter>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                navigator.clipboard.writeText(whatsAppUrl);
-                toast({ title: "Link Copied!" });
-              }}
-            >
-              Copy Link
-            </Button>
-
-            <Button asChild>
-              <a
-                href={whatsAppUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Share2 className="mr-2 h-4 w-4" /> Open WhatsApp
-              </a>
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog> */}
     </>
   );
 }

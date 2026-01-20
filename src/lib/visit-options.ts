@@ -1,4 +1,9 @@
 export const deliveryInstallationItems = [
+  { id: "Fabric", label: "Fabric" },
+  { id: "Hardware", label: "Hardware" },
+
+];
+export const FittingInstallationItems = [
   { id: "curtain-installation", label: "Curtain Installation" },
   { id: "blind-installation", label: "Blind Installation" },
   { id: "wallpaper-installation", label: "Wallpaper Installation" },
