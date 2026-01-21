@@ -1147,16 +1147,11 @@ const handleStageItem = () => {
                         name="newProduct.collectionBrand"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>BCN*</FormLabel>
-                            <Combobox
-                              options={bcnOptions}
-                              value={field.value}
-                              onSelect={(value) => {
-                                field.onChange(value);
-                                handleBcnSelect(value);
-                              }}
-                              onSearch={handleBcnSearch}
-                              placeholder="Search by BCN..."
+                            <FormLabel>WallPaper Code*</FormLabel>
+                            <Input
+                              value={field.value ?? ""}
+                              onChange={(e) => field.onChange(e.target.value)}
+                              placeholder="Wallpaper Code .."
                             />
                             <FormMessage />
                           </FormItem>

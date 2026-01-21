@@ -219,6 +219,7 @@ export interface VasDetail {
     rate: string;
     quantity: string;
     room?: string;
+    gstPercent?: number;
     taxableAmt?: number;
     cgst?: number;
     sgst?: number;

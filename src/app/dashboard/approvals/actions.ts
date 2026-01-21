@@ -12,159 +12,173 @@ export async function approveOrderAndCreatePurchaseRequest(
     approver: { id: string; name: string }
 ): Promise<{ success: boolean; message: string }> {
     try {
-        const orderRef = adminDb.collection('orders').doc(orderId);
-        
+        console.log("🚀 [ORDER APPROVAL START]", { orderId, approver });
+
+        const orderRef = adminDb.collection("orders").doc(orderId);
         const orderSnap = await orderRef.get();
+
         if (!orderSnap.exists) {
+            console.error("❌ Order not found", orderId);
             return { success: false, message: "Order not found." };
         }
+
         const orderData = orderSnap.data() as Order;
-        
+        console.log("📄 Order fetched", {
+            crmOrderNo: orderData.crmOrderNo,
+            customer: orderData.customerName,
+            dealId: orderData.dealId,
+        });
+
         const batch = adminDb.batch();
 
-        // 1. Update the root Order status with approver details
-        batch.update(orderRef, { 
-            status: 'Approved', 
-            approvedBy: approver, 
-            approvedAt: new Date().toISOString() 
+        // 1️⃣ Approve root order
+        batch.update(orderRef, {
+            status: "Approved",
+            approvedBy: approver,
+            approvedAt: new Date().toISOString(),
         });
 
-        // 2. Update the DealOrder status in the customer's subcollection
-        if (orderData.customerId && orderData.dealId && orderData.dealOrderDocId) {
-            const dealsQuery = adminDb.collection('customers').doc(orderData.customerId).collection('deals').where('dealId', '==', orderData.dealId);
-            const dealsSnapshot = await dealsQuery.get();
-            if(!dealsSnapshot.empty) {
-                const dealDoc = dealsSnapshot.docs[0];
-                 const dealOrderRef = adminDb.collection('customers').doc(orderData.customerId)
-                                        .collection('deals').doc(dealDoc.id)
-                                        .collection('orders').doc(orderData.dealOrderDocId);
-                batch.update(dealOrderRef, { status: 'Approved' });
-            }
-        }
+        // 2️⃣ Aggregate BCN quantities from THIS order
+        const aggregatedItems = new Map<
+            string,
+            { totalQuantity: number; itemDetail: FabricDetail }
+        >();
 
-        // 3. Aggregate quantities for each unique BCN in the current order
-        const aggregatedItems = new Map<string, { totalQuantity: number, itemDetail: FabricDetail }>();
         (orderData.fabricDetails || []).forEach(item => {
             if (!item.fabricName) return;
+
+            const qty = Number(item.quantity || 0);
             const existing = aggregatedItems.get(item.fabricName);
+
             if (existing) {
-                existing.totalQuantity += parseFloat(item.quantity);
+                existing.totalQuantity += qty;
             } else {
                 aggregatedItems.set(item.fabricName, {
-                    totalQuantity: parseFloat(item.quantity),
-                    itemDetail: item
+                    totalQuantity: qty,
+                    itemDetail: item,
                 });
             }
         });
 
+        console.log(
+            "📦 Aggregated BCN list",
+            JSON.stringify(Array.from(aggregatedItems.entries()), null, 2)
+        );
 
-        // 4. New Stock Check and PR Logic for aggregated items
         let purchaseMessage = "";
-        
+
+        // 3️⃣ BCN-WISE CHECK
         for (const [bcn, { totalQuantity, itemDetail }] of aggregatedItems.entries()) {
-             // Find all orders that have this unallocated item
-            const unallocatedOrdersSnapshot = await adminDb.collection('orders')
-                .where('fabricDetails', 'array-contains', { fabricName: bcn, status: 'pending for po' })
+            console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            console.log("🧵 BCN CHECK START", bcn);
+            console.log("📦 Order Qty:", totalQuantity);
+
+            // 3A️⃣ Calculate TOTAL pending demand across ALL orders
+            const allOrdersSnap = await adminDb.collection("orders").get();
+            let totalUnallocatedDemand = 0;
+
+            allOrdersSnap.forEach(doc => {
+                const o = doc.data() as Order;
+                (o.fabricDetails || []).forEach(fd => {
+                    if (
+                        fd.fabricName === bcn &&
+                        fd.status === "pending for po"
+                    ) {
+                        const q = Number(fd.quantity || 0);
+                        totalUnallocatedDemand += q;
+
+                        console.log("➕ Pending demand", {
+                            fromOrder: doc.id,
+                            qty: q,
+                        });
+                    }
+                });
+            });
+
+            if (totalUnallocatedDemand === 0) {
+                totalUnallocatedDemand = totalQuantity;
+                console.log("ℹ️ No other pending demand, using order qty");
+            }
+
+            // 3B️⃣ FETCH STOCK CORRECTLY (🔥 YOUR STRUCTURE 🔥)
+            const lengthsSnap = await adminDb
+                .collection("stocks")
+                .doc(bcn)
+                .collection("lengths")
                 .get();
 
-            let totalUnallocatedDemand = 0;
-            if (!unallocatedOrdersSnapshot.empty) {
-                unallocatedOrdersSnapshot.forEach(doc => {
-                    const order = doc.data() as Order;
-                    (order.fabricDetails || []).forEach(detail => {
-                        if (detail.fabricName === bcn && detail.status === 'pending for po') {
-                            totalUnallocatedDemand += parseFloat(detail.quantity);
-                        }
-                    });
-                });
-            } else {
-                 totalUnallocatedDemand = totalQuantity;
+            let availableQty = 0;
+
+            lengthsSnap.forEach(doc => {
+                const data = doc.data();
+                availableQty += Number(data.availableQty || 0);
+            });
+
+            console.log("🏬 STOCK SUMMARY", {
+                bcn,
+                totalAvailableQty: availableQty,
+                lengthsCount: lengthsSnap.size,
+            });
+
+            console.log("📊 FINAL CHECK", {
+                bcn,
+                totalUnallocatedDemand,
+                availableQty,
+                willCreatePR: totalUnallocatedDemand > availableQty,
+            });
+
+            // 🛑 HARD SAFETY STOP
+            if (availableQty >= totalUnallocatedDemand) {
+                console.log("🛑 STOCK SUFFICIENT → PR SKIPPED", bcn);
+                continue;
             }
 
-            // Fetch current available stock
-            const stockId = bcn.replace(/\//g, '-');
-            const stockRef = adminDb.collection('stocks').doc(stockId);
-            const stockSnap = await stockRef.get();
-            const availableQty = stockSnap.exists ? (stockSnap.data() as Stock)?.availableQty || 0 : 0;
-            
-            // Compare and create PR if needed
-            if (totalUnallocatedDemand > availableQty) {
-                const requiredQty = totalUnallocatedDemand - availableQty;
+            // 4️⃣ CREATE PURCHASE REQUEST
+            const requiredQty = totalUnallocatedDemand - availableQty;
 
-                const initialMilestones: PurchaseStatus[] = [
-                    { stepId: 1, status: 'completed', completedAt: new Date().toISOString(), completedBy: approver.name, remarks: 'Automatically completed on order approval.' },
-                    { stepId: 2, status: 'completed', completedAt: new Date().toISOString(), completedBy: approver.name, remarks: 'Automatically completed on order approval.' },
-                ];
-                
-                const prDocId = `${orderData.crmOrderNo}-${bcn.replace(/\s+/g, '-')}`;
-                const prRef = adminDb.collection('purchaseRequests').doc(prDocId);
+            console.warn("❌ STOCK SHORT → CREATING PR", {
+                bcn,
+                requiredQty,
+            });
 
-                const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-                    dealId: orderData.crmOrderNo,
-                    customerName: orderData.customerName,
-                    promiseDeliveryDate: new Date().toISOString(),
-                    salesman: orderData.salesPerson,
-                    type: 'fabric',
-                    fabricDetails: [{ ...itemDetail, quantity: String(requiredQty) }],
-                    createdAt: new Date().toISOString(),
-                    createdBy: approver,
-                    milestones: initialMilestones,
-                    vendorType: 'undecided',
-                    status: 'Approved', 
-                };
-                batch.set(prRef, newPurchaseRequest);
-                
-                purchaseMessage += ` Purchase request for ${requiredQty.toFixed(2)} of ${bcn} created.`;
-            }
+            const prDocId = `${orderData.crmOrderNo}-${bcn.replace(/\s+/g, "-")}`;
+            const prRef = adminDb.collection("purchaseRequests").doc(prDocId);
+
+            batch.set(prRef, {
+                dealId: orderData.crmOrderNo,
+                customerName: orderData.customerName,
+                salesman: orderData.salesPerson,
+                type: "fabric",
+                fabricDetails: [
+                    { ...itemDetail, quantity: String(requiredQty) },
+                ],
+                createdAt: new Date().toISOString(),
+                createdBy: approver,
+                vendorType: "undecided",
+                status: "Approved",
+            });
+
+            purchaseMessage += ` PR created for ${requiredQty} of ${bcn}.`;
         }
-        
-        if (!purchaseMessage) {
-            const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
-            const o2dSnapshot = await o2dQuery.get();
-            if (!o2dSnapshot.empty) {
-                const o2dDoc = o2dSnapshot.docs[0];
-                const o2dRef = o2dDoc.ref;
-                const materialReceivingMilestone: O2DStatus = {
-                    stepId: 7, // 'Purchase Material Receiving'
-                    status: 'completed',
-                    completedAt: new Date().toISOString(),
-                    completedBy: approver.name,
-                    remarks: "All required materials were already in stock.",
-                    selection: "Done"
-                };
-                batch.update(o2dRef, { milestones: FieldValue.arrayUnion(materialReceivingMilestone) });
-                purchaseMessage = " All items are in stock. Purchase Material Receiving step has been automatically completed."
-            }
-        }
-        
-        if (orderData.dealId) {
-            const o2dQuery = adminDb.collection('o2d').where('dealId', '==', orderData.dealId);
-            const o2dSnapshot = await o2dQuery.get();
-            
-            if (!o2dSnapshot.empty) {
-                const o2dDoc = o2dSnapshot.docs[0];
-                const o2dRef = o2dDoc.ref;
-                const balancePaymentMilestone: O2DStatus = {
-                    stepId: 6, // 'Balance Payment Follow Up'
-                    status: 'completed',
-                    completedAt: new Date().toISOString(),
-                    completedBy: approver.name,
-                    remarks: "Payment confirmed during order approval.",
-                    selection: "Done"
-                };
-                batch.update(o2dRef, { milestones: FieldValue.arrayUnion(balancePaymentMilestone) });
-            }
-        }
-        
+
         await batch.commit();
 
-        return { success: true, message: `Order ${orderId} has been approved.${purchaseMessage}` };
+        console.log("🎉 ORDER APPROVAL COMPLETED");
 
+        return {
+            success: true,
+            message: `Order approved.${purchaseMessage}`,
+        };
     } catch (error: any) {
-        console.error("Error approving order and creating PR:", error);
-        return { success: false, message: `Server error: ${error.message}` };
+        console.error("🔥 ERROR IN ORDER APPROVAL", error);
+        return {
+            success: false,
+            message: `Server error: ${error.message}`,
+        };
     }
 }
+
+
 
 export async function confirmPaymentReceived(orderId: string, approver: { id: string; name: string }): Promise<{ success: boolean; message: string }> {
     try {
