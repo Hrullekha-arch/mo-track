@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction, updateDealProducts, createSelectionAction, getReceiptsForDeal, getMeasurementById } from "./actions";
+import { getDealById, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction, updateDealProducts, createSelectionAction, getReceiptsForDeal, getMeasurementById, updateQuotationStatusAction } from "./actions";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
@@ -40,11 +40,12 @@ import html2canvas from "html2canvas";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { SelectItem } from "@radix-ui/react-select";
 
-function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreated }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[], onOrderCreated: () => void }) {
+function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onCloneQuotation }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[], onCloneQuotation: (quotation: Quotation) => void }) {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
   const router = useRouter();
+  const { toast } = useToast();
 
   const parseDate = (date: any): Date => {
     if (date instanceof Date) return date;
@@ -60,18 +61,41 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
     return new Date();
   }
 
-  useEffect(() => {
-    const fetchQuotations = async () => {
-      setLoading(true);
-      const data = await getQuotationsForDeal(customerId, dealId);
-      setQuotations(data);
-      setLoading(false);
-    };
-    fetchQuotations();
+  const fetchQuotations = useCallback(async () => {
+    setLoading(true);
+    const data = await getQuotationsForDeal(customerId, dealId);
+    setQuotations(data);
+    setLoading(false);
   }, [customerId, dealId]);
+
+  useEffect(() => {
+    fetchQuotations();
+  }, [fetchQuotations]);
 
   const handleConvertToOrder = (quotation: Quotation) => {
     router.push(`/dashboard/invoice/new?customerId=${customerId}&dealId=${dealId}&quotationId=${quotation.id}`);
+  };
+
+  const handleCloseQuotation = async (quotation: Quotation) => {
+    if (quotation.status === "Converted to Order") {
+      toast({ variant: "destructive", title: "Cannot Close", description: "Converted quotations cannot be closed." });
+      return;
+    }
+
+    const result = await updateQuotationStatusAction(customerId, dealId, quotation.id, "Closed");
+    if (result.success) {
+      toast({ title: "Quotation Closed", description: result.message });
+      fetchQuotations();
+    } else {
+      toast({ variant: "destructive", title: "Close Failed", description: result.message });
+    }
+  };
+
+  const renderStatusBadge = (status: Quotation["status"]) => {
+    if (status === "Closed") {
+      return <Badge variant="secondary">Closed</Badge>;
+    }
+    return <Badge variant="outline">{status}</Badge>;
   };
 
   if (loading) {
@@ -135,11 +159,28 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
                               <DropdownMenuItem
                                 onClick={(event) => {
                                   event.stopPropagation();
+                                  onCloneQuotation(q);
+                                }}
+                              >
+                                Clone Quotation
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(event) => {
+                                  event.stopPropagation();
                                   handleConvertToOrder(q);
                                 }}
-                                disabled={q.status === "Converted to Order"}
+                                disabled={q.status === "Converted to Order" || q.status === "Closed"}
                               >
                                 Convert to Order
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleCloseQuotation(q);
+                                }}
+                                disabled={q.status === "Converted to Order" || q.status === "Closed"}
+                              >
+                                Close Quotation
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -149,7 +190,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
                         <TableCell>{format(parseDate(q.date), 'dd/MM/yyyy')}</TableCell>
                         <TableCell>{q.customerName}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{q.status}</Badge>
+                          {renderStatusBadge(q.status)}
                         </TableCell>
                         <TableCell className="text-right">₹{q.totalAmount.toFixed(2)}</TableCell>
                         <TableCell>{q.store}</TableCell>
@@ -170,7 +211,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
                           <p className="text-xs text-muted-foreground">{format(parseDate(q.date), 'dd/MM/yyyy')}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs">{q.status}</Badge>
+                          {React.cloneElement(renderStatusBadge(q.status), { className: "text-xs" })}
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
@@ -194,11 +235,28 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onOrderCreate
                               <DropdownMenuItem
                                 onClick={(event) => {
                                   event.stopPropagation();
+                                  onCloneQuotation(q);
+                                }}
+                              >
+                                Clone Quotation
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(event) => {
+                                  event.stopPropagation();
                                   handleConvertToOrder(q);
                                 }}
-                                disabled={q.status === "Converted to Order"}
+                                disabled={q.status === "Converted to Order" || q.status === "Closed"}
                               >
                                 Convert to Order
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleCloseQuotation(q);
+                                }}
+                                disabled={q.status === "Converted to Order" || q.status === "Closed"}
+                              >
+                                Close Quotation
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -886,6 +944,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const [isQuotationDialogOpen, setIsQuotationDialogOpen] = useState(false);
   const [quotationInitialItems, setQuotationInitialItems] = useState<DealProduct[]>([]);
   const [quotationInitialVas, setQuotationInitialVas] = useState<VasDetail[]>([]);
+  const [quotationInitialData, setQuotationInitialData] = useState<Quotation | null>(null);
   const [viewingSelection, setViewingSelection] = useState<Selection | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1043,12 +1102,43 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
 
   setQuotationInitialItems(regularItems);
   setQuotationInitialVas(initialVas);
+  setQuotationInitialData(null);
   setIsQuotationDialogOpen(true);
 
   console.log("✅ Quotation Dialog Opened Successfully");
 
   console.groupEnd();
 };
+
+  const handleCloneQuotation = (quotation: Quotation) => {
+    const clonedItems = quotation.items.map((item, index) => ({
+      id: item.id || `quotation-item-${index + 1}`,
+      collectionBrand: item.collectionBrand,
+      serialNo: item.serialNo || "",
+      salesDescription: item.salesDescription || item.collectionBrand,
+      quantity: String(item.quantity ?? 0),
+      rate: item.rate ?? 0,
+      mrp: item.rate != null ? String(item.rate) : undefined,
+      discountPercent: item.discountPercent ?? 0,
+      room: item.room || "",
+      noOfPcs: "1",
+      remarks: item.remark || "",
+    })) as DealProduct[];
+
+    setQuotationInitialItems(clonedItems);
+    setQuotationInitialVas(quotation.vasDetails || []);
+    setQuotationInitialData(quotation);
+    setIsQuotationDialogOpen(true);
+  };
+
+  const handleQuotationDialogChange = (open: boolean) => {
+    setIsQuotationDialogOpen(open);
+    if (!open) {
+      setQuotationInitialItems([]);
+      setQuotationInitialVas([]);
+      setQuotationInitialData(null);
+    }
+  };
 
 
 
@@ -1484,7 +1574,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 deal={deal}
                 salesmen={salesmen}
                 cpds={cpds}
-                onOrderCreated={fetchData}
+                onCloneQuotation={handleCloneQuotation}
               />
             </TabsContent>
 
@@ -1591,7 +1681,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 deal={deal}
                 salesmen={salesmen}
                 cpds={cpds}
-                onOrderCreated={fetchData}
+                onCloneQuotation={handleCloneQuotation}
               />
             )}
             {activeTab === 'orders' && (
@@ -1628,12 +1718,13 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       {/* Quotation Dialog */}
       <CreateQuotationDialog
         isOpen={isQuotationDialogOpen}
-        onOpenChange={setIsQuotationDialogOpen}
+        onOpenChange={handleQuotationDialogChange}
         onSuccess={fetchData}
         deal={deal}
         customer={customer}
         initialItems={quotationInitialItems}
         initialVasDetails={quotationInitialVas}
+        initialQuotation={quotationInitialData}
         cpds={cpds}
       />
 

@@ -373,11 +373,11 @@ function GenerateInvoiceDialog({
             </DialogFooter>
         </DialogContent>
     </Dialog>
-    <StockMismatchDialog
+    {/* <StockMismatchDialog
       isOpen={isStockMismatchOpen}
       onClose={() => setIsStockMismatchOpen(false)}
       mismatchedItems={mismatchedItems}
-    />
+    /> */}
      <AlertDialog open={!!tallySyncResult} onOpenChange={() => resetAndClose()}>
         <AlertDialogContent>
             <AlertDialogHeader>

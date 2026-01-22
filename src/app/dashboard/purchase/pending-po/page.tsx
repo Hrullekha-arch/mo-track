@@ -8,6 +8,7 @@ import {
   getCoreRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  getFilteredRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { ArrowLeft, Search, Loader2, Calendar as CalendarIcon } from "lucide-react";
@@ -371,17 +372,30 @@ export default function PendingPOPage() {
   ];
 
   const table = useReactTable({
-    data,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getCoreRowModel(),
-    onGlobalFilterChange: setGlobalFilter,
-    state: {
-      globalFilter,
-    },
-  });
+  data,
+  columns,
+  getCoreRowModel: getCoreRowModel(),
+  getPaginationRowModel: getPaginationRowModel(),
+  getSortedRowModel: getSortedRowModel(),
+
+  // ✅ THIS IS THE KEY
+  getFilteredRowModel: getFilteredRowModel(),
+
+  // ✅ Global search logic
+  globalFilterFn: (row, columnId, filterValue) => {
+    const search = String(filterValue).toLowerCase();
+
+    return Object.values(row.original).some((value) =>
+      String(value).toLowerCase().includes(search)
+    );
+  },
+
+  onGlobalFilterChange: setGlobalFilter,
+  state: {
+    globalFilter,
+  },
+});
+
 
   return (
     <>

@@ -568,7 +568,7 @@ export interface Quotation {
     cpdId?: string;
     items: QuotationItem[];
     totalAmount: number;
-    status: 'Pending Approval' | 'Approved' | 'Converted to Order';
+    status: 'Pending Approval' | 'Approved' | 'Converted to Order' | 'Closed';
     orderNo?: string;
     createdAt: string;
     createdBy?: string; // user id

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, ReactNode, useMemo } from "react";
-import { useForm, useFieldArray, useWatch, Control, UseFormReturn, FormProvider } from "react-hook-form";
+import { useForm, useFieldArray, useWatch, Control, UseFormReturn, FormProvider, FieldArrayWithId } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Customer, Deal, DealProduct, Quotation, VasDetail, Cpd, QuotationItem, InvoiceBatch } from "@/lib/types";
+import { Customer, Deal, DealProduct, Quotation, VasDetail, Cpd, QuotationItem, InvoiceBatch, Stock } from "@/lib/types";
 import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, Edit, Check, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,6 +27,7 @@ import { roomOptions, vasOptions, storeOptions } from "@/lib/constants";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { get } from "http";
+import { searchStockByBcn } from "@/app/dashboard/inventory/actions";
 
 
 export const itemDetailSchema = z.object({
@@ -131,6 +132,7 @@ interface CreateQuotationDialogProps {
   initialVasDetails: VasDetail[];
   cpds: Cpd[];
   selectedCpdId?: string;
+  initialQuotation?: Quotation | null;
 }
 
 const descriptionOptions = [
@@ -159,6 +161,46 @@ function gstPercentForBcnType(bcnType?: BcnType): number {
   return 5;
 }
 
+function resolveStockRate(stock?: Stock | null): number {
+  if (!stock) return 0;
+  const rrp = Number((stock as { rrpWithGstRs?: number }).rrpWithGstRs);
+  if (Number.isFinite(rrp) && rrp > 0) return rrp;
+  const mrp = Number(stock.mrp);
+  if (Number.isFinite(mrp) && mrp > 0) return mrp;
+  const clPrice = Number(stock.clPrice);
+  if (Number.isFinite(clPrice) && clPrice > 0) return clPrice;
+  const rlPrice = Number(stock.rlPrice);
+  if (Number.isFinite(rlPrice) && rlPrice > 0) return rlPrice;
+  return 0;
+}
+
+const defaultAddItemState = {
+  bcn: "",
+  description: "",
+  quantity: "1",
+  rate: "",
+  discountPercent: "0",
+  room: "",
+  noOfPcs: "1",
+  remark: "",
+};
+
+function parseDateValue(value?: string | Date | null): Date | undefined {
+  if (!value) return undefined;
+  if (value instanceof Date) return value;
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+  if (typeof value === "object" && "_seconds" in (value as { _seconds?: number })) {
+    const seconds = (value as { _seconds?: number })._seconds || 0;
+    const nanos = (value as { _nanoseconds?: number })._nanoseconds || 0;
+    const parsed = new Date(seconds * 1000 + nanos / 1e6);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+  return undefined;
+}
+
 async function fetchStockTypeMapByBcn(bcns: string[]) {
   // NOTE: Firestore 'in' supports max 10 values -> chunk
   const uniqueBcns = Array.from(new Set(bcns.filter(Boolean)));
@@ -180,47 +222,58 @@ async function fetchStockTypeMapByBcn(bcns: string[]) {
   return map; // bcn -> full stock doc
 }
 
-const PreviouslySelectedItems = ({ control, setValue, getValues }: { control: Control<FormValues>, setValue: UseFormReturn<FormValues>['setValue'], getValues: UseFormReturn<FormValues>['getValues'] }) => {
-    const { fields, remove } = useFieldArray({ control, name: "items" });
-
+const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove }: { 
+  control: Control<FormValues>, 
+  setValue: UseFormReturn<FormValues>['setValue'], 
+  getValues: UseFormReturn<FormValues>['getValues'],
+  fields: FieldArrayWithId<FormValues, "items", "id">[],
+  remove: (index: number) => void,
+}) => {
     const items = useWatch({ control, name: 'items' });
     console.log("Watched Items:", items);
 
   useEffect(() => {
-      items.forEach((item, index) => {
-          const quantity = Number(item.quantity) || 0;
-          const rate = Number(item.rate) || 0;
-          const subtotal = quantity * rate;
-          const discountPercent = Number(item.discountPercent) || 0;
-          const discount = subtotal * (discountPercent / 100);
-          const taxableAmt = subtotal - discount;
-          const gstFromItem = Number((item as any).gstPercent);
-          const resolvedGst =
-            Number.isFinite(gstFromItem) && gstFromItem > 0
-              ? gstFromItem
-              : gstPercentForBcnType((item as any).bcnType);
-          const tax = taxableAmt * (resolvedGst / 100);
-          const cgst = tax / 2;
-          const sgst = tax / 2;
-          const igst = 0;
+    items.forEach((item, index) => {
+        const quantity = Number(item.quantity) || 0;
+        const rate = Number(item.rate) || 0;
+        const subtotal = quantity * rate; // GST-inclusive
+        const discountPercent = Number(item.discountPercent) || 0;
+        const discount = subtotal * (discountPercent / 100);
+        const amountAfterDiscount = subtotal - discount; // Still GST-inclusive
+        
+        const gstFromItem = Number((item as any).gstPercent);
+        const resolvedGst =
+          Number.isFinite(gstFromItem) && gstFromItem > 0
+            ? gstFromItem
+            : gstPercentForBcnType((item as any).bcnType);
+        
+        // Calculate taxable amount (GST-exclusive base)
+        const taxableAmt = amountAfterDiscount / (1 + resolvedGst / 100);
+        
+        // Calculate GST components
+        const totalGst = amountAfterDiscount - taxableAmt;
+        const cgst = totalGst / 2;
+        const sgst = totalGst / 2;
+        const igst = 0;
 
-          const updates = [
-            { path: `items.${index}.subtotal`, value: subtotal },
-            { path: `items.${index}.discount`, value: discount },
-            { path: `items.${index}.taxableAmt`, value: taxableAmt },
-            { path: `items.${index}.cgst`, value: cgst },
-            { path: `items.${index}.sgst`, value: sgst },
-            { path: `items.${index}.igst`, value: igst },
-          ];
+        const updates = [
+          { path: `items.${index}.subtotal`, value: subtotal },
+          { path: `items.${index}.discount`, value: discount },
+          { path: `items.${index}.taxableAmt`, value: taxableAmt },
+          { path: `items.${index}.cgst`, value: cgst },
+          { path: `items.${index}.sgst`, value: sgst },
+          { path: `items.${index}.igst`, value: igst },
+        ];
 
-          updates.forEach(({ path, value }) => {
-            const currentValue = Number(getValues(path as any) ?? 0);
-            if (!Number.isFinite(currentValue) || Math.abs(currentValue - value) > 0.001) {
-              setValue(path as any, value, { shouldValidate: false });
-            }
-          });
-      });
-  }, [items, setValue, getValues]);
+        updates.forEach(({ path, value }) => {
+          const currentValue = Number(getValues(path as any) ?? 0);
+          if (!Number.isFinite(currentValue) || Math.abs(currentValue - value) > 0.001) {
+            setValue(path as any, value, { shouldValidate: false });
+          }
+        });
+    });
+}, [items, setValue, getValues]);
+
 
   return (
       <div className="space-y-4">
@@ -420,26 +473,46 @@ const VasForm = ({ control }: { control: Control<FormValues> }) => {
 const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormReturn<FormValues>, onBack: () => void, onSubmit: () => void, loading: boolean }) => {
   const values = form.getValues();
 
-  const calculatedItems = useMemo(() => {
-      return values.items.map(item => {
-          const quantity = Number(item.quantity) || 0;
-          const rate = Number(item.rate) || 0;
-          const subtotal = quantity * rate;
-          const discountPercent = Number(item.discountPercent) || 0;
-          const discount = subtotal * (discountPercent / 100);
-          const taxableAmt = subtotal - discount;
-          const gstFromItem = Number((item as any).gstPercent);
-          const resolvedGst =
-            Number.isFinite(gstFromItem) && gstFromItem > 0
-              ? gstFromItem
-              : gstPercentForBcnType((item as any).bcnType);
-          const tax = taxableAmt * (resolvedGst / 100);
-          const cgst = tax / 2;
-          const sgst = tax / 2;
-          const igst = 0;
-          return { ...item, gstPercent: resolvedGst, quantity, rate, discountPercent, subtotal, discount, taxableAmt, cgst, sgst, igst };
-      });
-  }, [values.items]);
+const calculatedItems = useMemo(() => {
+    return values.items.map(item => {
+        const quantity = Number(item.quantity) || 0;
+        const rate = Number(item.rate) || 0;
+        const subtotal = quantity * rate; // GST-inclusive
+        const discountPercent = Number(item.discountPercent) || 0;
+        const discount = subtotal * (discountPercent / 100);
+        const amountAfterDiscount = subtotal - discount; // Still GST-inclusive
+        
+        const gstFromItem = Number((item as any).gstPercent);
+        const resolvedGst =
+          Number.isFinite(gstFromItem) && gstFromItem > 0
+            ? gstFromItem
+            : gstPercentForBcnType((item as any).bcnType);
+        
+        // Calculate taxable amount (GST-exclusive base)
+        const taxableAmt = amountAfterDiscount / (1 + resolvedGst / 100);
+        
+        // Calculate GST components
+        const totalGst = amountAfterDiscount - taxableAmt;
+        const cgst = totalGst / 2;
+        const sgst = totalGst / 2;
+        const igst = 0;
+        
+        return { 
+            ...item, 
+            gstPercent: resolvedGst, 
+            quantity, 
+            rate, 
+            discountPercent, 
+            subtotal, 
+            discount, 
+            taxableAmt, 
+            cgst, 
+            sgst, 
+            igst 
+        };
+    });
+}, [values.items]);
+
 
   const vasWithCalculations = useMemo(() => {
       return (values.vasDetails || []).map(vas => {
@@ -456,30 +529,34 @@ const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormRe
   }, [values.vasDetails]);
 
   const totals = useMemo(() => {
-      const itemTotals = calculatedItems.reduce((acc, item) => {
-          acc.quantity += item.quantity;
-          acc.subtotal += item.subtotal;
-          acc.discount += item.discount;
-          acc.taxableAmt += item.taxableAmt;
-          acc.cgst += item.cgst;
-          acc.sgst += item.sgst;
-          acc.igst += item.igst;
-          return acc;
-      }, { quantity: 0, subtotal: 0, discount: 0, taxableAmt: 0, cgst: 0, sgst: 0, igst: 0 });
+    const itemTotals = calculatedItems.reduce((acc, item) => {
+        acc.quantity += item.quantity;
+        acc.subtotal += item.subtotal;
+        acc.discount += item.discount;
+        acc.taxableAmt += item.taxableAmt;
+        acc.cgst += item.cgst;
+        acc.sgst += item.sgst;
+        acc.igst += item.igst;
+        return acc;
+    }, { quantity: 0, subtotal: 0, discount: 0, taxableAmt: 0, cgst: 0, sgst: 0, igst: 0 });
 
-      const vasTotals = vasWithCalculations.reduce((acc, vas) => {
-          acc.quantity += Number(vas.quantity);
-          acc.taxableAmt += vas.taxableAmt;
-          acc.cgst += vas.cgst;
-          acc.sgst += vas.sgst;
-          acc.igst += vas.igst;
-          return acc;
-      }, { quantity: 0, taxableAmt: 0, cgst: 0, sgst: 0, igst: 0 });
+    const vasTotals = vasWithCalculations.reduce((acc, vas) => {
+        acc.quantity += Number(vas.quantity);
+        acc.taxableAmt += vas.taxableAmt;
+        acc.cgst += vas.cgst;
+        acc.sgst += vas.sgst;
+        acc.igst += vas.igst;
+        return acc;
+    }, { quantity: 0, taxableAmt: 0, cgst: 0, sgst: 0, igst: 0 });
 
-      const quotationAmount = itemTotals.taxableAmt + vasTotals.taxableAmt + itemTotals.cgst + vasTotals.cgst + itemTotals.sgst + vasTotals.sgst + itemTotals.igst + vasTotals.igst;
+    // Total quotation amount is sum of subtotals after discount (which are GST-inclusive)
+    const quotationAmount = 
+        (itemTotals.subtotal - itemTotals.discount) + 
+        (vasTotals.taxableAmt + vasTotals.cgst + vasTotals.sgst + vasTotals.igst);
 
-      return { itemTotals, vasTotals, quotationAmount };
-  }, [calculatedItems, vasWithCalculations]);
+    return { itemTotals, vasTotals, quotationAmount };
+}, [calculatedItems, vasWithCalculations]);
+
 
   return (
       <FormProvider {...form}>
@@ -699,12 +776,17 @@ export function CreateQuotationDialog({
   initialVasDetails,
   cpds,
   selectedCpdId,
+  initialQuotation,
 }: CreateQuotationDialogProps) {
 
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
   const [view, setView] = useState<'edit' | 'preview'>('edit');
+  const [bcnOptions, setBcnOptions] = useState<{ value: string; label: string; stockItem: Stock }[]>([]);
+  const [isSearchingBcn, setIsSearchingBcn] = useState(false);
+  const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
+  const [addItem, setAddItem] = useState({ ...defaultAddItemState });
 
   const form = useForm<FormValues>({
   resolver: zodResolver(createQuotationFormSchema),
@@ -719,14 +801,107 @@ export function CreateQuotationDialog({
     sendSms: false,
   },
   });
+  const { fields: itemFields, append: appendItem, remove: removeItem } = useFieldArray({
+    control: form.control,
+    name: "items",
+  });
 
   const handleCpdSelect = (cpdId: string) => {
     // Only set the ID for reference. Do not auto-populate.
     form.setValue("selectedCpdId", cpdId === "none" ? "No CPD ID" : cpdId);
   };
 
+  const handleBcnSearch = async (query: string) => {
+    if (query.length < 2) {
+      setBcnOptions([]);
+      return;
+    }
+    setIsSearchingBcn(true);
+    try {
+      const results = await searchStockByBcn(query);
+      setBcnOptions(results.map(stock => ({
+        value: stock.bcn || stock.id,
+        label: `${stock.bcn || stock.id}${stock.itemName ? ` - ${stock.itemName}` : ""}`,
+        stockItem: stock
+      })));
+    } catch (error) {
+      console.error("Error searching BCN:", error);
+      toast({ variant: "destructive", title: "Search failed" });
+    } finally {
+      setIsSearchingBcn(false);
+    }
+  };
+
+  const handleBcnSelect = (value: string) => {
+    const selectedOption = bcnOptions.find(opt => opt.value === value);
+    if (!selectedOption) {
+      setSelectedStock(null);
+      setAddItem((prev) => ({ ...prev, bcn: value }));
+      return;
+    }
+
+    const stockItem = selectedOption.stockItem;
+    const resolvedRate = resolveStockRate(stockItem);
+    setSelectedStock(stockItem);
+    setAddItem((prev) => ({
+      ...prev,
+      bcn: stockItem.bcn || stockItem.id,
+      description: stockItem.itemName || prev.description,
+      rate: String(resolvedRate),
+    }));
+  };
+
+  const handleAddItem = () => {
+    const quantity = Number(addItem.quantity) || 0;
+    if (!addItem.bcn) {
+      toast({ variant: "destructive", title: "Missing BCN", description: "Please select a BCN to add." });
+      return;
+    }
+    if (quantity <= 0) {
+      toast({ variant: "destructive", title: "Invalid Quantity", description: "Quantity must be greater than 0." });
+      return;
+    }
+
+    const rateValue = Number(addItem.rate) || resolveStockRate(selectedStock);
+    const discountPercent = Number(addItem.discountPercent) || 0;
+    const resolvedBcnType = normalizeBcnType(selectedStock?.type) || "fabric";
+    const gstPercent = gstPercentForBcnType(resolvedBcnType);
+
+    appendItem({
+      id: `manual-${Date.now()}`,
+      collectionBrand: addItem.bcn,
+      serialNo: selectedStock?.serialNo || "",
+      salesDescription: addItem.description || selectedStock?.itemName || addItem.bcn,
+      quantity: quantity,
+      rate: rateValue,
+      originalMrp: rateValue,
+      discountPercent: discountPercent,
+      bcnType: resolvedBcnType,
+      gstPercent: gstPercent,
+      subtotal: 0,
+      discount: 0,
+      taxableAmt: 0,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      room: addItem.room || "",
+      noOfPcs: addItem.noOfPcs || "1",
+      remark: addItem.remark || "",
+      stitchingType: "",
+    });
+
+    setAddItem({ ...defaultAddItemState });
+    setSelectedStock(null);
+    setBcnOptions([]);
+  };
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setAddItem({ ...defaultAddItemState });
+      setSelectedStock(null);
+      setBcnOptions([]);
+      return;
+    }
 
     (async () => {
       if (deal && customer) {
@@ -788,30 +963,40 @@ export function CreateQuotationDialog({
           igst: 0,
         }));
 
+        const initialStore = initialQuotation?.store || user?.store || "MO GCR BRANCH";
+        const initialCompany = initialQuotation?.company || "MO DESIGNS PRIVATE LIMITED";
+        const initialDate = parseDateValue(initialQuotation?.date) || new Date();
+        const initialValidTillDate = parseDateValue(initialQuotation?.validTillDate);
+        const initialCustomerName = initialQuotation?.customerName || customer.name;
+        const initialBillingName = initialQuotation?.billingName || customer.name;
+        const initialDealName = initialQuotation?.dealName || deal.dealName;
+        const initialSelectedCpdId = initialQuotation?.cpdId || selectedCpdId;
+        const initialRepresentativeId = initialQuotation?.representativeId || deal.representativeId;
+
         form.reset({
-          store: user?.store || "MO GCR BRANCH",
-          company: "MO DESIGNS PRIVATE LIMITED",
-          date: new Date(),
-          validTillDate: undefined,
-          customerName: customer.name,
-          billingName: customer.name,
+          store: initialStore,
+          company: initialCompany,
+          date: initialDate,
+          validTillDate: initialValidTillDate,
+          customerName: initialCustomerName,
+          billingName: initialBillingName,
           billingAddress: customer.addressPinCode,
-          dealName: deal.dealName,
-          selectedCpdId,
+          dealName: initialDealName,
+          selectedCpdId: initialSelectedCpdId,
           items: itemsForForm,
           vasDetails: vasForForm,
           sendEmail: false,
           sendSms: false,
-          representativeId: deal.representativeId,
+          representativeId: initialRepresentativeId,
         });
 
         setView("edit");
       }
     })();
-  }, [isOpen, deal, customer, initialItems, initialVasDetails, selectedCpdId, user]);
+  }, [isOpen, deal, customer, initialItems, initialVasDetails, selectedCpdId, initialQuotation, user]);
 
 
-  async function handleCreateQuotation() {
+async function handleCreateQuotation() {
     const values = form.getValues();
     if (!user) {
         toast({ variant: "destructive", title: "Not authenticated." });
@@ -822,23 +1007,16 @@ export function CreateQuotationDialog({
     const totalAmount = values.items.reduce((sum, item) => {
         const quantity = Number(item.quantity) || 0;
         const rate = Number(item.rate) || 0;
-        const subtotal = quantity * rate;
+        const subtotal = quantity * rate; // GST-inclusive
         const discount = subtotal * ((Number(item.discountPercent) || 0) / 100);
-        const taxableAmt = subtotal - discount;
-        const gstFromItem = Number((item as any).gstPercent);
-        const resolvedGst =
-          Number.isFinite(gstFromItem) && gstFromItem > 0
-            ? gstFromItem
-            : gstPercentForBcnType((item as any).bcnType);
-        const tax = taxableAmt * (resolvedGst / 100);
-        return sum + taxableAmt + tax;
+        const amountAfterDiscount = subtotal - discount; // Still GST-inclusive
+        
+        return sum + amountAfterDiscount;
     }, 0);
 
     const vasTotal = (values.vasDetails || []).reduce((sum, vas) => {
-        const taxableAmt = (Number(vas.rate) || 0) * (Number(vas.quantity) || 0);
-        const gstPercent = Number(vas.gstPercent) || 0;
-        const tax = taxableAmt * (gstPercent / 100);
-        return sum + taxableAmt + tax;
+        const totalAmount = (Number(vas.rate) || 0) * (Number(vas.quantity) || 0); // GST-inclusive
+        return sum + totalAmount;
     }, 0);
 
     try {
@@ -851,7 +1029,7 @@ export function CreateQuotationDialog({
 
         if (quotationResult.success) {
             toast({ 
-              title: "Γ£à Quotation Created", 
+              title: "✓ Quotation Created", 
               description: "The quotation has been sent for approval." 
             });
             form.reset();
@@ -874,7 +1052,8 @@ export function CreateQuotationDialog({
     } finally {
       setLoading(false);
     }
-  }
+}
+
 
   const handleProceed = () => {
     form.trigger().then(isValid => {
@@ -1067,8 +1246,80 @@ export function CreateQuotationDialog({
                 <PreviouslySelectedItems 
                   control={form.control} 
                   setValue={form.setValue} 
-                  getValues={form.getValues} 
+                  getValues={form.getValues}
+                  fields={itemFields}
+                  remove={removeItem}
                 />
+
+                <Separator />
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Add More Items</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+                    <div className="md:col-span-2 space-y-2">
+                      <FormLabel>BCN</FormLabel>
+                      <Combobox
+                        options={bcnOptions}
+                        value={addItem.bcn}
+                        onSelect={handleBcnSelect}
+                        onSearch={handleBcnSearch}
+                        placeholder="Search BCN..."
+                        searchPlaceholder="Type to search BCN..."
+                        emptyPlaceholder={isSearchingBcn ? "Searching..." : "No BCN found."}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <FormLabel>Description</FormLabel>
+                      <Combobox
+                        options={descriptionOptions}
+                        value={addItem.description}
+                        onSelect={(value) => setAddItem((prev) => ({ ...prev, description: value }))}
+                        placeholder="--SELECT--"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <FormLabel>Quantity</FormLabel>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={addItem.quantity}
+                        onChange={(e) => setAddItem((prev) => ({ ...prev, quantity: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <FormLabel>Rate</FormLabel>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={addItem.rate}
+                        readOnly
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <FormLabel>Discount %</FormLabel>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={addItem.discountPercent}
+                        onChange={(e) => setAddItem((prev) => ({ ...prev, discountPercent: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <FormLabel>Room</FormLabel>
+                      <Combobox
+                        options={roomOptions}
+                        value={addItem.room}
+                        onSelect={(value) => setAddItem((prev) => ({ ...prev, room: value }))}
+                        placeholder="--SELECT--"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="button" variant="outline" onClick={handleAddItem}>
+                      Add Item
+                    </Button>
+                  </div>
+                </div>
 
                 <Separator />
 

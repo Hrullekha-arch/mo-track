@@ -327,6 +327,39 @@ export async function getQuotationsForDeal(customerId: string, dealId: string): 
     }
 }
 
+export async function updateQuotationStatusAction(
+  customerId: string,
+  dealId: string,
+  quotationId: string,
+  status: Quotation["status"]
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const quotationRef = adminDb
+      .collection('customers')
+      .doc(customerId)
+      .collection('deals')
+      .doc(dealId)
+      .collection('quotations')
+      .doc(quotationId);
+
+    const quotationSnap = await quotationRef.get();
+    if (!quotationSnap.exists) {
+      return { success: false, message: 'Quotation not found.' };
+    }
+
+    const currentStatus = quotationSnap.data()?.status as Quotation["status"] | undefined;
+    if (currentStatus === 'Converted to Order' && status === 'Closed') {
+      return { success: false, message: 'Converted quotations cannot be closed.' };
+    }
+
+    await quotationRef.update({ status });
+    return { success: true, message: `Quotation marked as ${status}.` };
+  } catch (error: any) {
+    console.error('Error updating quotation status:', error);
+    return { success: false, message: `Failed to update quotation: ${error.message}` };
+  }
+}
+
 export async function getOrdersForDeal(customerId: string, dealId: string): Promise<DealOrder[]> {
     try {
         const snapshot = await adminDb
