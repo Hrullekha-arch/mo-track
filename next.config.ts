@@ -21,6 +21,22 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "192.168.0.121",
+        port: "3000",
+        pathname: "/**",
+      },
+      {
+        protocol: "http",
+        hostname: "192.168.0.121",
+        port: "3000",
+        pathname: "/**",
+      },
+    ],
+  },
 };
 
 export default pwaConfig(nextConfig);

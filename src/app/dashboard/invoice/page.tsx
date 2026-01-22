@@ -59,6 +59,21 @@ interface MismatchItem {
   errorType: 'mismatch' | 'insufficient';
   difference: number;
 }
+
+const normalizeBcn = (value?: string) => (value || '').split(' - ')[0].trim();
+const toNumber = (value: unknown, fallback: number) => {
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+const resolveItemPricing = (order: Order | undefined, item: InvoiceBatch['items'][number]) => {
+  const normalizedBcn = normalizeBcn(item.bcn);
+  const matchedFabric = order?.fabricDetails?.find(f => normalizeBcn(f.fabricName) === normalizedBcn);
+  const orderItems = (order as { items?: Array<{ collectionBrand?: string; rate?: number; discountPercent?: number }> })?.items || [];
+  const matchedOrderItem = orderItems.find(i => normalizeBcn(i.collectionBrand) === normalizedBcn);
+  const rate = toNumber(matchedFabric?.rate ?? matchedOrderItem?.rate, item.rate ?? 0);
+  const discountPercent = toNumber(matchedFabric?.discountPercent ?? matchedOrderItem?.discountPercent, item.discountPercent ?? 0);
+  return { rate, discountPercent };
+};
  
 function GenerateInvoiceDialog({
   isOpen,
@@ -92,10 +107,14 @@ function GenerateInvoiceDialog({
     try {
         const batch = writeBatch(db);
         const primaryOrder = orders[0];
-        
-        const allItems = batches.flatMap(b => b.items);
+        const ordersById = new Map(orders.map(order => [order.id, order]));
+        const normalizedItems = batches.flatMap(b => b.items.map(item => {
+            const order = ordersById.get(b.orderId);
+            const pricing = resolveItemPricing(order, item);
+            return { ...item, rate: pricing.rate, discountPercent: pricing.discountPercent };
+        }));
 
-        const totals = allItems.reduce((acc, item) => {
+        const totals = normalizedItems.reduce((acc, item) => {
             const qty = item.quantityAllocated;
             const rate = item.rate;
             const amount = qty * rate;
@@ -127,7 +146,7 @@ function GenerateInvoiceDialog({
                 address: primaryOrder.customerAddress,
             },
             salesPerson: primaryOrder.salesPerson,
-            items: allItems,
+            items: normalizedItems,
             totals: {
                 subTotal: totals.totalAmount,
                 totalDiscount: totals.totalDiscount,
@@ -152,7 +171,7 @@ function GenerateInvoiceDialog({
         if (tallyResult.success) {
             // --- STOCK DEDUCTION LOGIC (only for non-VAS) ---
             if (!isVas) {
-                for (const item of allItems) {
+                for (const item of normalizedItems) {
                     const stockId = item.bcn.replace(/\//g, '-');
                     const stockRef = doc(db, 'stocks', stockId);
 
@@ -202,7 +221,7 @@ function GenerateInvoiceDialog({
                 customerName: primaryOrder.customerName,
                 customerPhone: primaryOrder.customerPhone,
                 salesPerson: primaryOrder.salesPerson,
-                items: allItems.map(item => ({ 
+                items: normalizedItems.map(item => ({ 
                     ...item, 
                     status: 'pending',
                     originalLength: item.originalLength || 0,
@@ -400,6 +419,7 @@ function InvoiceTable({
     const [isViewInvoiceOpen, setIsViewInvoiceOpen] = React.useState(false);
     const [selectedBatchForView, setSelectedBatchForView] = React.useState<InvoiceBatch | null>(null);
     const [isCombineDialogOpen, setIsCombineDialogOpen] = React.useState(false);
+    const ordersById = React.useMemo(() => new Map(orders.map(order => [order.id, order])), [orders]);
 
     const { user } = useAuth();
     const { toast } = useToast();
@@ -498,9 +518,11 @@ function InvoiceTable({
       cell: ({ row }) => {
         const batch = row.original;
         const isVas = batch.isVas === true;
+        const orderForBatch = ordersById.get(batch.orderId);
         const subtotal = batch.items.reduce((sum, item) => {
-          const amount = item.quantityAllocated * item.rate;
-          const discountAmount = amount * ((item.discountPercent || 0) / 100);
+          const pricing = resolveItemPricing(orderForBatch, item);
+          const amount = item.quantityAllocated * pricing.rate;
+          const discountAmount = amount * ((pricing.discountPercent || 0) / 100);
           return sum + (amount - discountAmount);
         }, 0);
       

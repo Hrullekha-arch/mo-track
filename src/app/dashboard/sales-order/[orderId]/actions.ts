@@ -70,6 +70,17 @@ export async function allocateStockToAction(
 
         // --- VALIDATION PHASE (NO WRITES) ---
         const orderData = orderDoc.data() as Order;
+        const normalizeBcn = (value?: string) => (value || '').split(' - ')[0].trim();
+        const toNumber = (value: unknown, fallback: number) => {
+          const num = typeof value === 'number' ? value : Number(value);
+          return Number.isFinite(num) ? num : fallback;
+        };
+        const normalizedBcn = normalizeBcn(bcn);
+        const matchedFabricDetail = (orderData.fabricDetails || []).find(item => normalizeBcn(item.fabricName) === normalizedBcn);
+        const orderItems = (orderData as { items?: Array<{ collectionBrand?: string; rate?: number; discountPercent?: number }> }).items || [];
+        const matchedOrderItem = orderItems.find(item => normalizeBcn(item.collectionBrand) === normalizedBcn);
+        const resolvedRate = toNumber(matchedFabricDetail?.rate ?? matchedOrderItem?.rate, rate);
+        const resolvedDiscount = toNumber(matchedFabricDetail?.discountPercent ?? matchedOrderItem?.discountPercent, 0);
         let totalAllocatedQty = 0;
         
         for (const allocation of allocations) {
@@ -115,15 +126,12 @@ export async function allocateStockToAction(
                 timestamp: updateTimestamp
             });
 
-            const fabricDetailItem = (orderData.fabricDetails || []).find(item => item.fabricName === bcn);
-            const discountPercent = fabricDetailItem?.discountPercent || 0;
-
             newInvoiceItems.push({
                 itemName: itemName,
                 bcn: bcn,
                 quantityAllocated: quantity,
-                rate: rate,
-                discountPercent: discountPercent,
+                rate: resolvedRate,
+                discountPercent: resolvedDiscount,
                 originalLength: lengthData.quantity,
                 stockAddedId: lengthId,
             });

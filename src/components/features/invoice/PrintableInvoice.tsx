@@ -22,6 +22,21 @@ const formatToINR = (amount: number) => {
     }).format(amount);
 };
 
+const normalizeBcn = (value?: string) => (value || '').split(' - ')[0].trim();
+const toNumber = (value: unknown, fallback: number) => {
+    const num = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(num) ? num : fallback;
+};
+const resolveItemPricing = (order: Order | undefined, item: InvoiceBatch['items'][number]) => {
+    const normalizedBcn = normalizeBcn(item.bcn);
+    const matchedFabric = order?.fabricDetails?.find(f => normalizeBcn(f.fabricName) === normalizedBcn);
+    const orderItems = (order as { items?: Array<{ collectionBrand?: string; rate?: number; discountPercent?: number }> })?.items || [];
+    const matchedOrderItem = orderItems.find(i => normalizeBcn(i.collectionBrand) === normalizedBcn);
+    const rate = toNumber(matchedFabric?.rate ?? matchedOrderItem?.rate, item.rate ?? 0);
+    const discountPercent = toNumber(matchedFabric?.discountPercent ?? matchedOrderItem?.discountPercent, item.discountPercent ?? 0);
+    return { rate, discountPercent };
+};
+
 // A simple number to words converter for demonstration
 const numberToWords = (num: number): string => {
     const a = ['','one ','two ','three ','four ', 'five ','six ','seven ','eight ','nine ','ten ','eleven ','twelve ','thirteen ','fourteen ','fifteen ','sixteen ','seventeen ','eighteen ','nineteen '];
@@ -119,10 +134,14 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
     }
     
     const isVasInvoice = primaryBatch.isVas === true;
+    const ordersById = new Map(orders.map(order => [order.id, order]));
+    const resolvedItems = batches.flatMap(b => b.items.map(item => {
+        const order = ordersById.get(b.orderId);
+        const pricing = resolveItemPricing(order, item);
+        return { ...item, rate: pricing.rate, discountPercent: pricing.discountPercent };
+    }));
 
-    const consolidatedItems = batches
-        .flatMap(b => b.items)
-        .reduce((acc, item) => {
+    const consolidatedItems = resolvedItems.reduce((acc, item) => {
             const key = item.bcn;
             if (!acc[key]) {
                 acc[key] = { ...item, quantityAllocated: 0 };

@@ -64,6 +64,8 @@ function CreatePoDialog({
     onSuccess: () => void;
     isNewVendor: boolean;
 }) {
+
+    console.log("Item in CreatePoDialog:", item);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const { toast } = useToast();
 
@@ -71,6 +73,9 @@ function CreatePoDialog({
         resolver: zodResolver(createPoSchema),
         defaultValues: { vendor: '', courier: '', mode: 'SURFACE' }
     });
+    const [detailedStockItem, setDetailedStockItem] = React.useState<Stock | null>(null);
+    const [isStockLoading, setIsStockLoading] = React.useState(false);
+
 
     React.useEffect(() => {
         if (item) {
@@ -219,9 +224,9 @@ function CreatePoDialog({
                                     <div className="col-span-1 font-semibold">1</div>
                                     <div className="col-span-5">
                                         <p className="font-semibold text-primary">{item.collectionBrand}</p>
-                                        <p className="text-sm text-muted-foreground">{item.itemName}</p>
-                                        <p className="text-xs text-muted-foreground">SN: {item.serialNo}</p>
-                                        <p className="text-xs text-muted-foreground capitalize">Category: {item.category}</p>
+                                        <p className="text-sm text-black">#: {item.itemName}</p>
+                                        <p className="text-xs text-black">#: SN: {item.serialNo}</p>
+                                        <p className="text-xs text-black capitalize">#: Category: {item.category}</p>
                                     </div>
                                     <div className="col-span-2 text-right font-bold text-blue-600">{item.stock.toFixed(2)}</div>
                                     <div className="col-span-2 text-right font-bold text-orange-600">{item.neededQty.toFixed(2)}</div>

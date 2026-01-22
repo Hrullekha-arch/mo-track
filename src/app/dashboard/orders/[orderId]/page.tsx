@@ -119,12 +119,14 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
 
         setIsSubmitting(true);
         try {
+            const itemRate = Number((item as any).rate);
+            const allocationRate = Number.isFinite(itemRate) ? itemRate : (stock.mrp || 0);
             const result = await allocateStockToAction({
                 orderId,
                 bcn: stock.bcn,
                 allocations: data.allocations,
                 itemName: stock.itemName,
-                rate: stock.mrp || 0,
+                rate: allocationRate,
                 userId: user.id,
                 userName: user.name,
             });

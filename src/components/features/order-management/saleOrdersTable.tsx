@@ -250,19 +250,6 @@ export function SaleOrdersTable() {
       ),
     },
     {
-      accessorKey: "customerName",
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          Customer
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-      cell: ({ row }) => <span>{row.getValue("customerName")}</span>,
-    },
-    {
       id: "status",
       header: ({ column }) => (
         <Button

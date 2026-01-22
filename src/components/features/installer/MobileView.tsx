@@ -48,67 +48,104 @@ export function MobileView() {
   const [repNameMap, setRepNameMap] = useState<Record<string, string>>({});
   const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [transferVisit, setTransferVisit] = useState<EnrichedInstallerVisit | null>(null);
+  const [geoPermission, setGeoPermission] = useState<PermissionState | "unsupported">("prompt");
+  const [isRequestingLocation, setIsRequestingLocation] = useState(false);
 
-  useEffect(() => {
-    if (!user) return;
-    if (!navigator.geolocation) {
-      setLocationError("Geolocation is not supported by this browser.");
-      return;
-    }
 
-    let active = true;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+  const requestLocationNow = useCallback(async () => {
+  if (!navigator.geolocation) {
+    setLocationError("Geolocation is not supported by this browser.");
+    setGeoPermission("unsupported");
+    return;
+  }
 
-    const sendPing = async (coords: GeolocationCoordinates) => {
-      try {
-        await fetch("/api/tracking/ping", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            installerId: user.id,
-            latitude: coords.latitude,
-            longitude: coords.longitude,
-            accuracy: coords.accuracy,
-            speed: coords.speed,
-            timestamp: coords.timestamp,
-          }),
-        });
-      } catch (error) {
-        console.error("Failed to send tracking ping:", error);
-      }
-    };
+  setIsRequestingLocation(true);
 
-    const handleSuccess = (position: GeolocationPosition) => {
-      if (!active) return;
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
       setLocation({
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
       });
       setLocationError(null);
-      void sendPing(position.coords);
-    };
+      setGeoPermission("granted");
+      setIsRequestingLocation(false);
 
-    const handleError = (error: GeolocationPositionError) => {
-      if (!active) return;
+      // optional: send ping immediately
+      void fetch("/api/tracking/ping", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          installerId: user?.id,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          speed: position.coords.speed,
+          timestamp: position.coords.timestamp,
+        }),
+      }).catch(() => {});
+    },
+    (error) => {
       setLocationError(error.message);
-    };
+      // If user blocks, browser will usually return denied next
+      setIsRequestingLocation(false);
+    },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
+  );
+}, [user?.id]);
 
-    const requestPosition = () => {
-      navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
-        enableHighAccuracy: true,
-        maximumAge: 10000,
-        timeout: 10000,
-      });
-    };
 
-    requestPosition();
-    intervalId = setInterval(requestPosition, LOCATION_PING_INTERVAL_MS);
 
-    return () => {
-      active = false;
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [user]);
+  useEffect(() => {
+  if (!user) return;
+  if (!navigator.geolocation) {
+    setLocationError("Geolocation is not supported by this browser.");
+    return;
+  }
+
+  let active = true;
+  let intervalId: ReturnType<typeof setInterval> | null = null;
+
+  const requestPosition = () => {
+    // If denied, do NOT spam calls. Show button UX instead.
+    if (geoPermission === "denied") return;
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (!active) return;
+        setLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+        setLocationError(null);
+
+        void fetch("/api/tracking/ping", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            installerId: user.id,
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            speed: position.coords.speed,
+            timestamp: position.coords.timestamp,
+          }),
+        }).catch(() => {});
+      },
+      (error) => {
+        if (!active) return;
+        setLocationError(error.message);
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
+    );
+  };
+
+  requestPosition();
+  intervalId = setInterval(requestPosition, LOCATION_PING_INTERVAL_MS);
+
+  return () => {
+    active = false;
+    if (intervalId) clearInterval(intervalId);
+  };
+}, [user, geoPermission]);
+
 
   useEffect(() => {
     if (!user) return;
@@ -704,7 +741,7 @@ const InstallerVisitCard = ({
                     {buttonContent.text}
                     {buttonContent.icon}
                 </Button>
-                                <Button
+                <Button
                     type="button"
                     variant="outline"
                     onClick={() => onTransfer(visit)}

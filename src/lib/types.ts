@@ -4,70 +4,6 @@ import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp as AdminTimestamp } from "firebase-admin/firestore";
 
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
-export type InstallerStatus = 'DRIVING' | 'WORKING' | 'IDLE';
-
-// --- Universal ownership & handover model ---
-export type OwnerType = 'CRM' | 'SALESMAN' | 'ACCOUNT' | 'ALLOCATOR';
-
-export interface OwnerRef {
-  type: OwnerType;
-  id: string;
-}
-
-export type AssignmentReason = 'NORMAL' | 'HANDOVER' | 'EMERGENCY' | 'ADMIN_OVERRIDE';
-
-export type OwnerAvailabilityStatus =
-  | 'AVAILABLE'
-  | 'HANDOVER_REQUESTED'
-  | 'ON_HANDOVER'
-  | 'OFFLINE_EMERGENCY';
-
-export interface OwnerAvailability {
-  owner: OwnerRef;
-  status: OwnerAvailabilityStatus;
-  teamId?: string;
-  backupOwnerId?: string;
-  lastSeenAt?: string;
-}
-
-export type HandoverScopeType = 'ALL_WORK' | 'TEAM_WORK' | 'SELECTED_WORK_ITEMS' | 'CHILD_OWNERS';
-export type HandoverStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED' | 'ENDED';
-
-export interface HandoverRequest {
-  id: string;
-  fromOwner: OwnerRef;
-  toOwner: OwnerRef;
-  fromOwnerName?: string;
-  toOwnerName?: string;
-  scopeType: HandoverScopeType;
-  childOwnerType?: OwnerType;
-  childOwnerIds?: string[];
-  startAt: string;
-  endAt?: string | null;
-  status: HandoverStatus;
-  note?: string;
-  createdAt: string;
-  acceptedAt?: string;
-  endedAt?: string;
-}
-
-export interface AssignmentLogEntry {
-  workItemId: string;
-  fromOwner?: OwnerRef;
-  toOwner: OwnerRef;
-  reason: AssignmentReason;
-  handoverRequestId?: string | null;
-  triggeredBy: 'SYSTEM' | 'ADMIN' | 'USER';
-  timestamp: string;
-}
-
-export interface AssignmentEnvelope {
-  originalOwner: OwnerRef;
-  assignedOwner: OwnerRef;
-  assignmentReason: AssignmentReason;
-  handoverRequestId?: string | null;
-  assignedAt: string;
-}
 
 export interface User {
   id: string; // Document ID, same as Firebase Auth UID
@@ -80,26 +16,6 @@ export interface User {
   permissions?: string[]; // Array of allowed module keys
   store?: string;
   fcmTokens?: string[]; // For push notifications
-}
-
-export interface InstallerTracking {
-  id: string; // Document ID (installer user id)
-  installerId: string;
-  status: InstallerStatus;
-  statusSince?: string;
-  lastPingAt?: string;
-  location?: {
-    latitude: number;
-    longitude: number;
-  };
-  accuracyM?: number;
-  speedKmh?: number;
-  lastMovementAt?: string;
-  currentVisitId?: string;
-  currentCustomerId?: string;
-  currentDealDocId?: string;
-  currentVisitType?: string;
-  updatedAt?: string;
 }
 
 export interface Walkin_Customer {
@@ -119,14 +35,6 @@ export interface Walkin_Customer {
     };
     salesmanId?: string;
     salesmanName?: string;
-    // Universal ownership envelope
-    originalOwnerType?: OwnerType;
-    originalOwnerId?: string;
-    assignedOwnerType?: OwnerType;
-    assignedOwnerId?: string;
-    assignmentReason?: AssignmentReason;
-    handoverRequestId?: string | null;
-    assignedAt?: string;
 }
 
 export type OrderType = 'delivery' | 'stitching' | 'stitching+installation';
@@ -219,7 +127,6 @@ export interface VasDetail {
     rate: string;
     quantity: string;
     room?: string;
-    gstPercent?: number;
     taxableAmt?: number;
     cgst?: number;
     sgst?: number;
@@ -378,27 +285,7 @@ export interface PurchaseStep {
 export interface Stock {
   id: string; // Document ID of the length, e.g. "Length1"
   bcn: string; // The BCN, which is the parent document's ID
-  bcnDigits?: string;
-  productId?: string;
   itemName: string;
-  categoryGroup?: string;
-  closingstock?: number;
-  composition?: string;
-  costMultiplierRs?: number;
-  costPriceRs?: number;
-  horizontalRepeatCms?: number;
-  verticalRepeatCms?: number;
-  martindale?: number;
-  maxlevel?: number;
-  moCollection?: string;
-  moCollectionCode?: string;
-  rrpWithGstRs?: number;
-  supplierCollectionCode?: string;
-  supplierCollectionName?: string;
-  supplierCompanyName?: string;
-  updatedAt?: string;
-  weightGsm?: number;
-  width?: number;
   serialNo?: string;
   hsnCode?: string;
   rlPrice?: number;
@@ -468,13 +355,6 @@ export interface StockTransaction {
   cutHistory?: StockTransaction[];
 }
 
-export interface CustomerAddress {
-    address: string;
-    landmark?: string;
-    label?: string;
-    createdAt?: string;
-}
-
 export interface Customer {
     id: string;
     name: string;
@@ -486,7 +366,6 @@ export interface Customer {
     city?: string;
     state?: string;
     addressPinCode?: string;
-    savedAddresses?: CustomerAddress[];
     gstin?: string;
     panNo?: string;
     referenceName?: string;
@@ -517,14 +396,6 @@ export interface DealProduct {
 export interface DeliveryInstallationItem {
     id: string;
     noOfPcs?: string;
-}
-
-export interface VisitGeo {
-    latitude: number;
-    longitude: number;
-    radiusM?: number;
-    source?: 'customer' | 'installer' | 'geocode';
-    updatedAt?: string;
 }
 
 export interface DealVisit {
@@ -559,21 +430,9 @@ export interface DealVisit {
     slotLabel?: string;    // "S1 (10:00 - 12:00)"
     slotStart?: string;    // "10:00"
     slotEnd?: string; 
-    geo?: VisitGeo;
-    geoAttemptedAt?: string;
-}
-
-export interface VisitTracking {
-    id: string;
-    visitId: string;
-    installerId: string;
-    customerId?: string;
-    dealDocId?: string;
-    travelStartAt?: string;
-    travelEndAt?: string;
-    workStartAt?: string;
-    workEndAt?: string;
-    updatedAt?: string;
+    geofenceLat?: number;
+    geofenceLng?: number;
+    geofenceRadiusM?: number; // meters
 }
 
 export interface MeasurementEntry {

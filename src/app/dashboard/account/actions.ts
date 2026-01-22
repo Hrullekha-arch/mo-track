@@ -19,18 +19,9 @@ export async function createHandoverRequestAction(input: CreateHandoverInput) {
     }
 
     const now = new Date().toISOString();
-    let fromOwnerName: string | undefined;
-    let toOwnerName: string | undefined;
-    const fromSnap = await adminDb.collection('users').doc(input.fromOwnerId).get();
-    if (fromSnap.exists) fromOwnerName = (fromSnap.data() as any).name;
-    const toSnap = await adminDb.collection('users').doc(input.toOwnerId).get();
-    if (toSnap.exists) toOwnerName = (toSnap.data() as any).name;
-
     const payload: Omit<HandoverRequest, 'id'> = {
       fromOwner: { id: input.fromOwnerId, type: input.fromOwnerType } as OwnerRef,
       toOwner: { id: input.toOwnerId, type: input.toOwnerType } as OwnerRef,
-      fromOwnerName,
-      toOwnerName,
       scopeType: 'ALL_WORK',
       startAt: now,
       endAt: null,
@@ -99,10 +90,8 @@ export async function updateAccountPreferencesAction(params: {
 
 export async function requestHandoverAndBackupAction(input: {
   fromUserId: string;
-  fromOwnerName?: string;
   fromOwnerType: OwnerType;
   toOwnerId: string;
-  toOwnerName?: string;
   toOwnerType: OwnerType;
   note?: string;
 }) {
@@ -112,18 +101,6 @@ export async function requestHandoverAndBackupAction(input: {
     }
 
     const now = new Date().toISOString();
-    let fromOwnerName = input.fromOwnerName;
-    let toOwnerName = input.toOwnerName;
-
-    // Resolve names if missing
-    if (!fromOwnerName) {
-      const fromSnap = await adminDb.collection('users').doc(input.fromUserId).get();
-      fromOwnerName = fromSnap.exists ? (fromSnap.data() as any).name : input.fromUserId;
-    }
-    const toSnap = await adminDb.collection('users').doc(input.toOwnerId).get();
-    if (toSnap.exists) {
-      toOwnerName = (toSnap.data() as any).name || toOwnerName || input.toOwnerId;
-    }
     // Update backup owner on source user
     await adminDb.collection('users').doc(input.fromUserId).set(
       {
@@ -139,8 +116,6 @@ export async function requestHandoverAndBackupAction(input: {
     const payload: Omit<HandoverRequest, 'id'> = {
       fromOwner: { id: input.fromUserId, type: input.fromOwnerType },
       toOwner: { id: input.toOwnerId, type: input.toOwnerType },
-      fromOwnerName,
-      toOwnerName,
       scopeType: 'ALL_WORK',
       startAt: now,
       endAt: null,
@@ -153,11 +128,12 @@ export async function requestHandoverAndBackupAction(input: {
     await docRef.set({ ...payload, id: docRef.id });
 
     // Notify target user (in-app + push)
-    if (toSnap.exists) {
-      const targetUser = { id: toSnap.id, ...toSnap.data() } as User;
+    const targetUserSnap = await adminDb.collection('users').doc(input.toOwnerId).get();
+    if (targetUserSnap.exists) {
+      const targetUser = { id: targetUserSnap.id, ...targetUserSnap.data() } as User;
       const notificationPayload = {
         type: 'handover_assigned',
-        message: `You are now covering for ${fromOwnerName || input.fromUserId}.`,
+        message: `You are now covering for ${input.fromUserId}.`,
         link: '/dashboard',
         read: false,
         createdAt: now,
@@ -242,3 +218,4 @@ export async function getPendingHandoversForUserAction(toOwnerId: string) {
     .get();
   return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as any[];
 }
+

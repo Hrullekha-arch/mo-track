@@ -346,6 +346,36 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
     }
 }
 
+//=======================single stock search
+export async function getStockDetailsForPendingItem(bcnOrId: string) {
+  const key = String(bcnOrId ?? "").trim();
+  if (!key) return null;
+
+  // 1) First try: docId direct (fast, 1 read)
+  const byId = await adminDb.collection("stocks").doc(key).get();
+  if (byId.exists) {
+    return { id: byId.id, ...byId.data() } as Stock;
+  }
+
+  // 2) Second try: exact BCN match (fast query)
+  const exact = await adminDb.collection("stocks").where("bcn", "==", key).limit(1).get();
+  if (!exact.empty) {
+    const doc = exact.docs[0];
+    return { id: doc.id, ...doc.data() } as Stock;
+  }
+
+  // 3) Third try: reuse your existing search (limited + safe)
+  const results = await searchStockByBcn(key);
+  if (!results.length) return null;
+
+  // Prefer exact match if present
+  const exactFromSearch =
+    results.find((s) => String(s.bcn || "").trim().toLowerCase() === key.toLowerCase()) || results[0];
+
+  return exactFromSearch;
+}
+
+
 export async function searchStockById(productId: string): Promise<Stock[]> {
     const trimmed = String(productId ?? "").trim();
     if (!trimmed) {

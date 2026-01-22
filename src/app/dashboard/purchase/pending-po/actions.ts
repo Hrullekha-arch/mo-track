@@ -8,68 +8,135 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { addDays } from 'date-fns';
 
 export interface PendingPoItem {
-    id: string; // Combination of orderId and itemName
-    purchaseRequestId?: string;
-    orderId: string;
-    salesman: string;
-    collectionBrand: string;
-    itemName: string; // Descriptive name
-    serialNo: string;
-    hsnCode: string;
-    mrp: number;
-    vendorName: string;
-    neededQty: number;
-    stock: number;
-    category: string;
+  id: string;
+  purchaseRequestId?: string;
+  orderId: string;
+  salesman: string;
+  collectionBrand: string;
+  itemName: string;
+  serialNo: string;
+  hsnCode: string;
+  mrp: number;
+  vendorName: string;
+  neededQty: number;
+  stock: number;
+  category: string;
+
+  // ✅ NEW
+  detailedStockItem?: any;       // full lengths doc + merged parent
+  stockDocId?: string;           // stocks/{docId}
+  productId?: string;            // lengths/{productId}
 }
+
 
 export async function getPendingPoItems(): Promise<PendingPoItem[]> {
-    try {
-        const approvedRequestsSnapshot = await adminDb.collection('purchaseRequests')
-            .where('status', '==', 'Approved')
-            .get();
-        
-        const pendingItems: PendingPoItem[] = [];
+  try {
+    const approvedRequestsSnapshot = await adminDb
+      .collection("purchaseRequests")
+      .where("status", "==", "Approved")
+      .get();
 
-        for (const requestDoc of approvedRequestsSnapshot.docs) {
-            const request = requestDoc.data() as PurchaseRequest;
-            const items = request.fabricDetails || [];
+    const pendingItems: PendingPoItem[] = [];
 
-            for (const item of items) {
-                // If an item already has a PO number, it's not "pending" for a new PO.
-                if (item.poNumber) continue;
+    for (const requestDoc of approvedRequestsSnapshot.docs) {
+      const request = requestDoc.data() as PurchaseRequest;
+      const items = request.fabricDetails || [];
 
-                const itemName = item.fabricName;
-                if (!itemName) continue;
+      for (const item of items) {
+        if (item.poNumber) continue;
 
-                const stockDocs = await adminDb.collection('stocks').where('bcn', '==', itemName).limit(1).get();
-                const stockInfo = stockDocs.docs[0]?.data() as Stock | undefined;
-                
-                pendingItems.push({
-                    id: `${requestDoc.id}-${itemName}`, // Use requestDoc.id which is the Firestore document ID
-                    purchaseRequestId: requestDoc.id,
-                    orderId: request.dealId,
-                    salesman: request.salesman,
-                    collectionBrand: itemName, // This is the BCN
-                    itemName: stockInfo?.itemName || 'N/A', // This is the descriptive name
-                    serialNo: stockInfo?.serialNo || 'N/A',
-                    hsnCode: stockInfo?.hsnCode || 'N/A',
-                    mrp: stockInfo?.mrp || 0,
-                    vendorName: item.vendorName || stockInfo?.vendorName || 'N/A',
-                    neededQty: parseFloat(item.quantity),
-                    stock: stockInfo?.quantity || 0,
-                    category: stockInfo?.category || 'N/A',
-                });
-            }
+        const bcn = item.fabricName; // BCN
+        if (!bcn) continue;
+
+        // ✅ 1) Find parent stock doc by BCN
+        const stockParentSnap = await adminDb
+          .collection("stocks")
+          .where("bcn", "==", bcn)
+          .limit(1)
+          .get();
+
+        const stockParentDoc = stockParentSnap.docs[0];
+        const stockParent = stockParentDoc?.data() || null;
+
+        // defaults
+        let bestLengthDocData: any = null;
+        let bestProductId: string | undefined = undefined;
+
+        // ✅ 2) Fetch lengths subcollection (real stock details)
+        if (stockParentDoc) {
+          const lengthsSnap = await stockParentDoc.ref.collection("lengths").get();
+
+          if (!lengthsSnap.empty) {
+            // pick the "best" doc (you can change logic)
+            // Here: choose doc with highest availableQty, else highest quantity
+            const docs = lengthsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            docs.sort((a: any, b: any) => {
+              const aAvail = Number(a.availableQty ?? a.quantity ?? 0);
+              const bAvail = Number(b.availableQty ?? b.quantity ?? 0);
+              return bAvail - aAvail;
+            });
+
+            bestLengthDocData = docs[0];
+            bestProductId = String(bestLengthDocData.productId || bestLengthDocData.id || "");
+          }
         }
-        
-        return JSON.parse(JSON.stringify(pendingItems));
 
-    } catch (error) {
-        console.error("Error fetching pending PO items:", error);
-        return [];
+        // ✅ 3) Merge parent + best length doc into one "detailedStockItem"
+        const detailedStockItem = {
+          ...(stockParent || {}),
+          ...(bestLengthDocData || {}),
+          stockDocId: stockParentDoc?.id || null,
+          productId: bestProductId || null,
+        };
+
+        // ✅ Use these for UI/PO fields (prefer lengths doc)
+        const finalItemName = detailedStockItem.itemName || "N/A";
+        const finalHsn = detailedStockItem.hsnCode || "N/A";
+        const finalMrp = Number(detailedStockItem.mrp || 0);
+
+        // Category: prefer categoryGroup if category is blank
+        const finalCategory =
+          detailedStockItem.category ||
+          detailedStockItem.categoryGroup ||
+          "N/A";
+
+        // Stock qty: prefer availableQty (more accurate), else quantity
+        const finalStock = Number(
+          detailedStockItem.availableQty ?? detailedStockItem.quantity ?? 0
+        );
+
+        pendingItems.push({
+          id: `${requestDoc.id}-${bcn}`,
+          purchaseRequestId: requestDoc.id,
+          orderId: request.dealId,
+          salesman: request.salesman,
+          collectionBrand: bcn,
+
+          itemName: finalItemName,
+          serialNo: detailedStockItem.supplierCollectionCode || "N/A",
+          hsnCode: finalHsn,
+          mrp: finalMrp,
+          vendorName: item.vendorName || detailedStockItem.vendorName || detailedStockItem.supplierCompanyName || "N/A",
+
+          neededQty: parseFloat(item.quantity),
+          stock: finalStock,
+          category: finalCategory,
+
+          // ✅ NEW
+          detailedStockItem,
+          stockDocId: stockParentDoc?.id,
+          productId: bestProductId,
+        });
+      }
     }
+
+    return JSON.parse(JSON.stringify(pendingItems));
+  } catch (error) {
+    console.error("Error fetching pending PO items:", error);
+    return [];
+  }
 }
+
 
 
 export interface PoCreationData {

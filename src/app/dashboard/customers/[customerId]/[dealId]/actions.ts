@@ -239,6 +239,8 @@ export async function createDealOrderAction(
     const allFabricDetails = quotation.items.map(item => ({
       fabricName: item.collectionBrand,
       quantity: String(item.quantity),
+      rate: item.rate || 0,
+      discountPercent: item.discountPercent || 0,
     }));
     
     const initialMilestones = getMilestonesForOrder(orderType);
@@ -423,47 +425,12 @@ export async function addVisitAction(
 
       // ⭐ REQUIRED EMPTY dueDate (your schema requires it)
       dueDate: visitData.dueDate ?? "",
-      customerAddress: visitData.customerAddress ?? undefined,
-      customerLandmark: visitData.customerLandmark ?? undefined,
     };
 
     console.log("🧩 FINAL VISIT SAVING:", newVisit);
 
     const batch = adminDb.batch();
     batch.set(newVisitRef, newVisit);
-
-    const nextAddress = (visitData.customerAddress || "").trim();
-    const nextLandmark = (visitData.customerLandmark || "").trim();
-    if (nextAddress) {
-      const existingAddresses = Array.isArray(customerData.savedAddresses)
-        ? customerData.savedAddresses
-        : [];
-      const normalize = (value?: string) =>
-        String(value || "").trim().toLowerCase();
-      const alreadySaved = existingAddresses.some(
-        (addr: any) =>
-          normalize(addr?.address) === normalize(nextAddress) &&
-          normalize(addr?.landmark) === normalize(nextLandmark)
-      );
-
-      const customerUpdates: Record<string, any> = {
-        addressPinCode: nextAddress,
-        landmark: nextLandmark,
-      };
-
-      if (!alreadySaved) {
-        const savedAddress: Record<string, string> = {
-          address: nextAddress,
-          createdAt: new Date().toISOString(),
-        };
-        if (nextLandmark) {
-          savedAddress.landmark = nextLandmark;
-        }
-        customerUpdates.savedAddresses = FieldValue.arrayUnion(savedAddress);
-      }
-
-      batch.update(customerRef, customerUpdates);
-    }
 
     // Delivery logic (unchanged)
     if (visitData.typeOfVisit === "delivery") {
@@ -1578,7 +1545,7 @@ export async function getReceiptsForDeal(customerId: string, dealId: string): Pr
   }
 }
 
-export async function startVisitAction(customerId: string, dealDocId: string, visitId: string): Promise<{ success: boolean; message: string }> {
+export async function startVisitAction(customerId: string, dealDocId: string, visitId: string, geo?: { lat: number; lng: number; radiusM?: number }): Promise<{ success: boolean; message: string }> {
   try {
     const visitRef = adminDb.collection("customers").doc(customerId).collection("deals").doc(dealDocId).collection("visits").doc(visitId);
     const visitSnap = await visitRef.get();
