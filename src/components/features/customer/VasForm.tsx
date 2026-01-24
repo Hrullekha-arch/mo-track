@@ -28,6 +28,8 @@ export function VasForm({ onSaveVas, form }) {
     { id: 3, name: "Eyelet" },
     { id: 4, name: "Roman Blind Pleat" },
     { id: 5, name: "Valance" },
+    { id: 6, name: "Belt" },
+    { id: 7, name: "Other Stitching" },
   ];
 
   const [open, setOpen] = useState(false);

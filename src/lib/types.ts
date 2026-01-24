@@ -127,6 +127,8 @@ export interface VasDetail {
     rate: string;
     quantity: string;
     room?: string;
+    gstPercent?: number;
+    hsnCode?: string;
     taxableAmt?: number;
     cgst?: number;
     sgst?: number;
@@ -555,6 +557,8 @@ export interface QuotationItem {
   amount?: number;
   room?: string;
   remark?: string;
+  gstPercent?: number;
+  hsnCode?: string;
 }
 
 export interface Quotation {

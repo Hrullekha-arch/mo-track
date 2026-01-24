@@ -13,6 +13,8 @@ const normalizeBcn = (value: string) =>
     .replace(/[^A-Z0-9]/g, "");
 const extractBcnDigits = (value: string) =>
   String(value ?? "").replace(/\D/g, "");
+const sanitizeBcnDocId = (value: string) =>
+  String(value ?? "").trim().replace(/\//g, "-");
 
 export async function getStockData(): Promise<Stock[]> {
     try {
@@ -51,6 +53,204 @@ export async function getStockById(id: string): Promise<Stock | null> {
         console.error(`Error fetching stock by ID ${id}:`, error);
         return null;
     }
+}
+
+export async function createStockItemAction(payload: {
+  bcn: string;
+  itemName: string;
+  closingstock?: number;
+  maxlevel?: number;
+  category?: string;
+  categoryGroup?: string;
+  unit?: string;
+  type?: string;
+  width?: number;
+  moCollection?: string;
+  moCollectionCode?: string;
+  supplierCompanyName?: string;
+  supplierCollectionName?: string;
+  supplierCollectionCode?: string;
+  composition?: string;
+  martindale?: number;
+  weightGsm?: number;
+  horizontalRepeatCms?: number;
+  verticalRepeatCms?: number;
+  costPriceRs?: number;
+  costMultiplierRs?: number;
+  rrpWithGstRs?: number;
+  rack?: string;
+  productId?: string;
+}): Promise<{ success: boolean; message: string; stock?: Stock }> {
+  try {
+    const rawBcn = String(payload?.bcn ?? "").trim();
+    const itemName = String(payload?.itemName ?? "").trim();
+
+    if (!rawBcn) {
+      return { success: false, message: "BCN is required." };
+    }
+    if (!itemName) {
+      return { success: false, message: "Item name is required." };
+    }
+
+    const docId = sanitizeBcnDocId(rawBcn);
+    const stockRef = adminDb.collection("stocks").doc(docId);
+
+    const existingDoc = await stockRef.get();
+    if (existingDoc.exists) {
+      return { success: false, message: `Stock BCN already exists (${docId}).` };
+    }
+
+    const duplicateSnap = await adminDb
+      .collection("stocks")
+      .where("bcn", "==", rawBcn)
+      .limit(1)
+      .get();
+
+    if (!duplicateSnap.empty) {
+      return { success: false, message: "Stock BCN already exists." };
+    }
+
+    const toNumber = (value: any) => {
+      if (value === undefined || value === null || value === "") return undefined;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    const cleanString = (value: any) => {
+      const trimmed = String(value ?? "").trim();
+      return trimmed ? trimmed : undefined;
+    };
+
+    const supplierCompanyName = cleanString(payload.supplierCompanyName);
+    const supplierCollectionName = cleanString(payload.supplierCollectionName);
+    const supplierCollectionCode = cleanString(payload.supplierCollectionCode);
+
+    if (!supplierCompanyName) {
+      return { success: false, message: "Supplier company is required." };
+    }
+    if (!supplierCollectionName) {
+      return { success: false, message: "Supplier collection name is required." };
+    }
+    if (!supplierCollectionCode) {
+      return { success: false, message: "Supplier collection code is required." };
+    }
+
+    const closingstock = toNumber(payload.closingstock) ?? 0;
+    const maxlevel = toNumber(payload.maxlevel);
+    const width = toNumber(payload.width);
+    const martindale = toNumber(payload.martindale);
+    const weightGsm = toNumber(payload.weightGsm);
+    const horizontalRepeatCms = toNumber(payload.horizontalRepeatCms);
+    const verticalRepeatCms = toNumber(payload.verticalRepeatCms);
+    const costPriceRs = toNumber(payload.costPriceRs);
+    const costMultiplierRs = toNumber(payload.costMultiplierRs);
+    const rrpWithGstRs = toNumber(payload.rrpWithGstRs);
+
+    if (closingstock < 0) {
+      return { success: false, message: "Opening stock cannot be negative." };
+    }
+    if (maxlevel != null && maxlevel < 0) {
+      return { success: false, message: "Max level cannot be negative." };
+    }
+    if (costPriceRs == null) {
+      return { success: false, message: "Cost price is required." };
+    }
+    if (costMultiplierRs == null) {
+      return { success: false, message: "Cost multiplier is required." };
+    }
+    if (rrpWithGstRs == null) {
+      return { success: false, message: "RRP with GST is required." };
+    }
+    if (costPriceRs < 0 || costMultiplierRs < 0 || rrpWithGstRs < 0) {
+      return { success: false, message: "Cost values cannot be negative." };
+    }
+
+    const now = new Date().toISOString();
+    const bcnDigits = extractBcnDigits(rawBcn);
+
+    const stockDoc: Record<string, any> = {
+      bcn: rawBcn,
+      bcnDigits,
+      itemName,
+      unit: cleanString(payload.unit) || "Mtr",
+      type: (cleanString(payload.type) || "fabric").toLowerCase(),
+      closingstock,
+      quantity: closingstock,
+      availableQty: closingstock,
+      reservedQty: 0,
+      cutQty: 0,
+      supplierCompanyName,
+      supplierCollectionName,
+      supplierCollectionCode,
+      costPriceRs,
+      costMultiplierRs,
+      rrpWithGstRs,
+      lastUpdatedAt: now,
+      updatedAt: now,
+    };
+
+    const assignIfDefined = (key: string, value: any) => {
+      if (value !== undefined && value !== "") {
+        stockDoc[key] = value;
+      }
+    };
+
+    assignIfDefined("maxlevel", maxlevel);
+    assignIfDefined("category", cleanString(payload.category));
+    assignIfDefined("categoryGroup", cleanString(payload.categoryGroup));
+    assignIfDefined("width", width);
+    assignIfDefined("moCollection", cleanString(payload.moCollection));
+    assignIfDefined("moCollectionCode", cleanString(payload.moCollectionCode));
+    assignIfDefined("supplierCompanyName", supplierCompanyName);
+    assignIfDefined("supplierCollectionName", supplierCollectionName);
+    assignIfDefined("supplierCollectionCode", supplierCollectionCode);
+    assignIfDefined("composition", cleanString(payload.composition));
+    assignIfDefined("martindale", martindale);
+    assignIfDefined("weightGsm", weightGsm);
+    assignIfDefined("horizontalRepeatCms", horizontalRepeatCms);
+    assignIfDefined("verticalRepeatCms", verticalRepeatCms);
+    assignIfDefined("costPriceRs", costPriceRs);
+    assignIfDefined("costMultiplierRs", costMultiplierRs);
+    assignIfDefined("rrpWithGstRs", rrpWithGstRs);
+    assignIfDefined("rack", cleanString(payload.rack));
+    assignIfDefined("productId", cleanString(payload.productId));
+
+    const lengthRef = closingstock > 0 ? stockRef.collection("lengths").doc() : null;
+
+    await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(stockRef);
+      if (snap.exists) {
+        throw new Error("Stock BCN already exists.");
+      }
+
+      tx.set(stockRef, stockDoc, { merge: true });
+
+      if (lengthRef) {
+        const lengthDoc = {
+          ...stockDoc,
+          id: lengthRef.id,
+          quantity: closingstock,
+          availableQty: closingstock,
+          reservedQty: 0,
+          cutQty: 0,
+          lastUpdatedAt: now,
+        };
+        tx.set(lengthRef, lengthDoc);
+      }
+    });
+
+    return {
+      success: true,
+      message: "Stock item created successfully.",
+      stock: { id: stockRef.id, ...stockDoc } as Stock,
+    };
+  } catch (error: any) {
+    console.error("Error creating stock item:", error);
+    return {
+      success: false,
+      message: error?.message || "Failed to create stock item.",
+    };
+  }
 }
 
 export async function importStockData(

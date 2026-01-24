@@ -53,12 +53,20 @@ interface CalculatedVas extends VasDetail {
 
 export function PrintableQuotationProfessional({ values, creatorName, salesmanName }: PrintableQuotationProps) {
     const validDate = parseDate(values.date);
+    const shouldApplyTax = values.applyTax !== false;
+
+    const resolveTaxRate = (item: any) => {
+        if (!shouldApplyTax) return 0;
+        const fromItem = Number(item?.gstPercent ?? item?.taxPercent ?? item?.taxRate);
+        if (Number.isFinite(fromItem)) return fromItem;
+        return 5;
+    };
 
     const calculatedItems = (values.items || []).map(item => {
         const amount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
         const discountAmount = amount * ((Number(item.discountPercent) || 0) / 100);
         const taxableAmount = amount - discountAmount;
-        const taxRate = 5; // Assuming 5% tax for all items for now
+        const taxRate = resolveTaxRate(item);
         const taxAmount = taxableAmount * (taxRate / 100);
         const finalAmount = taxableAmount + taxAmount;
         return { ...item, amount, discountAmount, taxableAmount, taxAmount, finalAmount, taxRate };
@@ -67,7 +75,7 @@ export function PrintableQuotationProfessional({ values, creatorName, salesmanNa
     const calculatedVas = (values.vasDetails || []).map(vas => {
         const amount = (Number(vas.quantity) || 0) * (Number(vas.rate) || 0);
         const taxableAmount = amount;
-        const taxRate = 5; // Assuming 5% tax
+        const taxRate = resolveTaxRate(vas);
         const taxAmount = taxableAmount * (taxRate / 100);
         const finalAmount = taxableAmount + taxAmount;
         return { ...vas, amount, taxableAmount, taxAmount, finalAmount, taxRate };
