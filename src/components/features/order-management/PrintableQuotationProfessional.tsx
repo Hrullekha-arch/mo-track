@@ -65,17 +65,19 @@ export function PrintableQuotationProfessional({ values, creatorName, salesmanNa
     const calculatedItems = (values.items || []).map(item => {
         const amount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
         const discountAmount = amount * ((Number(item.discountPercent) || 0) / 100);
-        const taxableAmount = amount - discountAmount;
         const taxRate = resolveTaxRate(item);
-        const taxAmount = taxableAmount * (taxRate / 100);
-        const finalAmount = taxableAmount + taxAmount;
+        const grossAfterDiscount = amount - discountAmount;
+        const taxableAmount = taxRate > 0 ? grossAfterDiscount / (1 + taxRate / 100) : grossAfterDiscount;
+        const taxAmount = grossAfterDiscount - taxableAmount;
+        const finalAmount = grossAfterDiscount;
         return { ...item, amount, discountAmount, taxableAmount, taxAmount, finalAmount, taxRate };
     });
 
     const calculatedVas = (values.vasDetails || []).map(vas => {
         const amount = (Number(vas.quantity) || 0) * (Number(vas.rate) || 0);
-        const taxableAmount = amount;
         const taxRate = resolveTaxRate(vas);
+        // VAS uses exclusive GST: add tax on top of rate
+        const taxableAmount = amount;
         const taxAmount = taxableAmount * (taxRate / 100);
         const finalAmount = taxableAmount + taxAmount;
         return { ...vas, amount, taxableAmount, taxAmount, finalAmount, taxRate };

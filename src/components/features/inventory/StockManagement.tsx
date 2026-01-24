@@ -23,7 +23,6 @@ import {
   Warehouse,
   Ruler,
   Layers,
-  BadgePercent,
   ChevronRight,
   Plus,
   X,
@@ -39,6 +38,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 import {
@@ -46,6 +46,7 @@ import {
   getStockTransactions,
   getStockById,
   createStockItemAction,
+  getStockFieldOptions,
   updateStockBatchAction,
 } from "@/app/dashboard/inventory/actions";
 
@@ -149,6 +150,8 @@ type NewStockFields = {
   costMultiplierRs: string;
   rrpWithGstRs: string;
 };
+
+type OptionField = "supplierCompanyName" | "type" | "unit";
 
 const emptyNewStockValues: NewStockFields = {
   bcn: "",
@@ -310,14 +313,35 @@ export function StockManagement() {
   const [quickEditField, setQuickEditField] = React.useState<QuickEditField | null>(null);
   const [editValues, setEditValues] = React.useState<EditableStockFields>(emptyEditValues);
   const [isSavingEdits, setIsSavingEdits] = React.useState(false);
-  const [newStockEntries, setNewStockEntries] = React.useState<NewStockFields[]>([
-    createEmptyNewStock(),
-  ]);
-  const [newStockErrors, setNewStockErrors] = React.useState<
-    Partial<Record<keyof NewStockFields, string>>[]
-  >([{}]);
+  const [draftEntry, setDraftEntry] = React.useState<NewStockFields>(createEmptyNewStock());
+  const [draftErrors, setDraftErrors] = React.useState<Partial<Record<keyof NewStockFields, string>>>({});
+  const [queuedEntries, setQueuedEntries] = React.useState<NewStockFields[]>([]);
+  const [fieldOptions, setFieldOptions] = React.useState<{
+    supplierCompanyName: ComboboxOption[];
+    type: ComboboxOption[];
+    unit: ComboboxOption[];
+  }>({
+    supplierCompanyName: [],
+    type: [],
+    unit: [],
+  });
+  const [fieldQueries, setFieldQueries] = React.useState<{
+    supplierCompanyName: string;
+    type: string;
+    unit: string;
+  }>({
+    supplierCompanyName: "",
+    type: "",
+    unit: "",
+  });
+  const [isLoadingFieldOptions, setIsLoadingFieldOptions] = React.useState({
+    supplierCompanyName: false,
+    type: false,
+    unit: false,
+  });
   const [isCreatingStock, setIsCreatingStock] = React.useState(false);
   const [showAdditionalFields, setShowAdditionalFields] = React.useState(false);
+  const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
 
   const { toast } = useToast();
 
@@ -332,6 +356,48 @@ export function StockManagement() {
     setIsEditingAll(false);
     setQuickEditField(null);
   }, [selectedStock?.id, selectedStock?.bcn]);
+
+  React.useEffect(() => {
+    if (!isAddDialogOpen) return;
+
+    let isMounted = true;
+    const loadOptions = async () => {
+      setIsLoadingFieldOptions({
+        supplierCompanyName: true,
+        type: true,
+        unit: true,
+      });
+      try {
+        const [supplierCompanies, types, units] = await Promise.all([
+          getStockFieldOptions("supplierCompanyName"),
+          getStockFieldOptions("type"),
+          getStockFieldOptions("unit"),
+        ]);
+        if (!isMounted) return;
+        setFieldOptions({
+          supplierCompanyName: supplierCompanies.map((value) => ({ value, label: value })),
+          type: types.map((value) => ({ value, label: value })),
+          unit: units.map((value) => ({ value, label: value })),
+        });
+      } catch (error) {
+        console.error("Failed to load field options:", error);
+        toast({ variant: "destructive", title: "Failed to load dropdown options." });
+      } finally {
+        if (isMounted) {
+          setIsLoadingFieldOptions({
+            supplierCompanyName: false,
+            type: false,
+            unit: false,
+          });
+        }
+      }
+    };
+
+    loadOptions();
+    return () => {
+      isMounted = false;
+    };
+  }, [isAddDialogOpen, toast]);
 
   const updateEditValue = (field: keyof EditableStockFields, value: string) => {
     setEditValues((prev) => ({ ...prev, [field]: value }));
@@ -365,279 +431,339 @@ export function StockManagement() {
     setQuickEditField(null);
   };
 
-  const updateNewStockValue = (
-    index: number,
-    field: keyof NewStockFields,
-    value: string
-  ) => {
-    setNewStockEntries((prev) =>
-      prev.map((entry, i) => (i === index ? { ...entry, [field]: value } : entry))
-    );
-    setNewStockErrors((prev) =>
-      prev.map((entryErrors, i) => {
-        if (i !== index || !entryErrors?.[field]) return entryErrors;
-        const { [field]: _removed, ...rest } = entryErrors;
-        return rest;
-      })
-    );
-  };
-
-  const addNewStockEntry = () => {
-    setNewStockEntries((prev) => [...prev, createEmptyNewStock()]);
-    setNewStockErrors((prev) => [...prev, {}]);
-  };
-
-  const removeNewStockEntry = (index: number) => {
-    setNewStockEntries((prev) => prev.filter((_, i) => i !== index));
-    setNewStockErrors((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const resetNewStockForm = () => {
-    setNewStockEntries([createEmptyNewStock()]);
-    setNewStockErrors([{}]);
-  };
-
-  const handleCreateStock = async () => {
-    const errorsList: Partial<Record<keyof NewStockFields, string>>[] =
-      newStockEntries.map(() => ({}));
-    const payloads: {
-      bcn: string;
-      itemName: string;
-      closingstock: number;
-      maxlevel?: number;
-      category?: string;
-      categoryGroup?: string;
-      unit?: string;
-      type?: string;
-      width?: number;
-      moCollection?: string;
-      moCollectionCode?: string;
-      supplierCompanyName?: string;
-      supplierCollectionName?: string;
-      supplierCollectionCode?: string;
-      composition?: string;
-      martindale?: number;
-      weightGsm?: number;
-      horizontalRepeatCms?: number;
-      verticalRepeatCms?: number;
-      costPriceRs?: number;
-      costMultiplierRs?: number;
-      rrpWithGstRs?: number;
-      rack?: string;
-      productId?: string;
-    }[] = [];
-
-    const parseRequiredNumber = (
-      value: string,
-      index: number,
-      field: keyof NewStockFields,
-      label: string
-    ) => {
-      const trimmed = String(value ?? "").trim();
-      if (!trimmed) {
-        errorsList[index][field] = `${label} is required.`;
-        return undefined;
-      }
-      const parsed = Number(trimmed);
-      if (!Number.isFinite(parsed)) {
-        errorsList[index][field] = `${label} must be a number.`;
-        return undefined;
-      }
-      if (parsed < 0) {
-        errorsList[index][field] = `${label} cannot be negative.`;
-        return undefined;
-      }
-      return parsed;
-    };
-
-    const parseOptionalNumber = (
-      value: string,
-      index: number,
-      field: keyof NewStockFields,
-      label: string
-    ) => {
-      const trimmed = String(value ?? "").trim();
-      if (!trimmed) return undefined;
-      const parsed = Number(trimmed);
-      if (!Number.isFinite(parsed)) {
-        errorsList[index][field] = `${label} must be a number.`;
-        return undefined;
-      }
-      if (parsed < 0) {
-        errorsList[index][field] = `${label} cannot be negative.`;
-        return undefined;
-      }
-      return parsed;
-    };
-
-    const seenBcns = new Map<string, number>();
-
-    newStockEntries.forEach((entry, index) => {
-      const bcn = entry.bcn.trim();
-      const itemName = entry.itemName.trim();
-
-      if (!bcn) {
-        errorsList[index].bcn = "BCN is required.";
-      } else {
-        const key = bcn.toLowerCase();
-        if (seenBcns.has(key)) {
-          errorsList[index].bcn = "Duplicate BCN in this batch.";
-          const firstIndex = seenBcns.get(key);
-          if (firstIndex != null && !errorsList[firstIndex].bcn) {
-            errorsList[firstIndex].bcn = "Duplicate BCN in this batch.";
-          }
-        } else {
-          seenBcns.set(key, index);
-        }
-      }
-
-      if (!itemName) errorsList[index].itemName = "Item name is required.";
-      if (!entry.supplierCompanyName.trim()) {
-        errorsList[index].supplierCompanyName = "Supplier company is required.";
-      }
-      if (!entry.supplierCollectionName.trim()) {
-        errorsList[index].supplierCollectionName = "Supplier collection name is required.";
-      }
-      if (!entry.supplierCollectionCode.trim()) {
-        errorsList[index].supplierCollectionCode = "Supplier collection code is required.";
-      }
-
-      const openingQty =
-        parseOptionalNumber(
-          entry.closingstock,
-          index,
-          "closingstock",
-          "Opening stock"
-        ) ?? 0;
-      const maxlevel = parseOptionalNumber(entry.maxlevel, index, "maxlevel", "Max level");
-      const width = parseOptionalNumber(entry.width, index, "width", "Width");
-      const martindale = parseOptionalNumber(entry.martindale, index, "martindale", "Martindale");
-      const weightGsm = parseOptionalNumber(entry.weightGsm, index, "weightGsm", "Weight (GSM)");
-      const horizontalRepeatCms = parseOptionalNumber(
-        entry.horizontalRepeatCms,
-        index,
-        "horizontalRepeatCms",
-        "Horizontal repeat"
-      );
-      const verticalRepeatCms = parseOptionalNumber(
-        entry.verticalRepeatCms,
-        index,
-        "verticalRepeatCms",
-        "Vertical repeat"
-      );
-      const costPriceRs = parseRequiredNumber(
-        entry.costPriceRs,
-        index,
-        "costPriceRs",
-        "Cost price"
-      );
-      const costMultiplierRs = parseRequiredNumber(
-        entry.costMultiplierRs,
-        index,
-        "costMultiplierRs",
-        "Cost multiplier"
-      );
-      const rrpWithGstRs = parseRequiredNumber(
-        entry.rrpWithGstRs,
-        index,
-        "rrpWithGstRs",
-        "RRP with GST"
-      );
-
-      payloads.push({
-        bcn,
-        itemName,
-        unit: entry.unit.trim() || "Mtr",
-        type: entry.type.trim() || "fabric",
-        category: entry.category.trim(),
-        categoryGroup: entry.categoryGroup.trim(),
-        rack: entry.rack.trim(),
-        closingstock: openingQty,
-        maxlevel,
-        width,
-        productId: entry.productId.trim(),
-        moCollection: entry.moCollection.trim(),
-        moCollectionCode: entry.moCollectionCode.trim(),
-        supplierCompanyName: entry.supplierCompanyName.trim(),
-        supplierCollectionName: entry.supplierCollectionName.trim(),
-        supplierCollectionCode: entry.supplierCollectionCode.trim(),
-        composition: entry.composition.trim(),
-        martindale,
-        weightGsm,
-        horizontalRepeatCms,
-        verticalRepeatCms,
-        costPriceRs,
-        costMultiplierRs,
-        rrpWithGstRs,
-      });
+const updateDraftValue = (field: keyof NewStockFields, value: string) => {
+  setDraftEntry((prev) => ({ ...prev, [field]: value }));
+  if (draftErrors[field]) {
+    setDraftErrors((prev) => {
+      const { [field]: _removed, ...rest } = prev;
+      return rest;
     });
+  }
+};
 
-    const hasErrors = errorsList.some(
-      (entryErrors) => Object.keys(entryErrors).length > 0
+const updateFieldQuery = (field: OptionField, query: string) => {
+  setFieldQueries((prev) => ({ ...prev, [field]: query }));
+};
+
+const handleFieldSelect = (field: OptionField, value: string) => {
+  updateDraftValue(field, value);
+  setFieldQueries((prev) => ({ ...prev, [field]: "" }));
+};
+
+const upsertFieldOption = (field: OptionField, value: string) => {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return;
+  setFieldOptions((prev) => {
+    const exists = prev[field].some(
+      (option) => option.value.toLowerCase() === trimmed.toLowerCase()
     );
-    if (hasErrors) {
-      setNewStockErrors(errorsList);
-      toast({
-        variant: "destructive",
-        title: "Fix form errors",
-        description: "Please check the required fields and numeric values.",
-      });
-      return;
+    if (exists) return prev;
+    const next = [...prev[field], { value: trimmed, label: trimmed }].sort((a, b) =>
+      a.value.localeCompare(b.value)
+    );
+    return { ...prev, [field]: next };
+  });
+};
+
+const addFieldOption = (field: OptionField) => {
+  const raw = fieldQueries[field].trim();
+  if (!raw) return;
+  upsertFieldOption(field, raw);
+  handleFieldSelect(field, raw);
+};
+
+const resetDraftEntry = () => {
+  setDraftEntry(createEmptyNewStock());
+  setDraftErrors({});
+  setFieldQueries({
+    supplierCompanyName: "",
+    type: "",
+    unit: "",
+  });
+};
+
+const resetNewStockForm = () => {
+  resetDraftEntry();
+  setQueuedEntries([]);
+};
+
+const isEntryEmpty = (entry: NewStockFields) =>
+  !entry.bcn.trim() && !entry.itemName.trim();
+
+const validateEntry = (entry: NewStockFields, existingBcns: Set<string>) => {
+  const errors: Partial<Record<keyof NewStockFields, string>> = {};
+  const bcn = entry.bcn.trim();
+  const itemName = entry.itemName.trim();
+
+  if (!bcn) errors.bcn = "BCN is required.";
+  if (!itemName) errors.itemName = "Item name is required.";
+
+  const bcnKey = bcn.toLowerCase();
+  if (bcn && existingBcns.has(bcnKey)) {
+    errors.bcn = "Duplicate BCN in this batch.";
+  }
+
+  const supplierCompanyName = entry.supplierCompanyName.trim();
+  const supplierCollectionName = entry.supplierCollectionName.trim();
+  const supplierCollectionCode = entry.supplierCollectionCode.trim();
+
+  if (!supplierCompanyName) {
+    errors.supplierCompanyName = "Supplier company is required.";
+  }
+  if (!supplierCollectionName) {
+    errors.supplierCollectionName = "Supplier collection name is required.";
+  }
+  if (!supplierCollectionCode) {
+    errors.supplierCollectionCode = "Supplier collection code is required.";
+  }
+
+  const parseRequiredNumber = (
+    value: string,
+    field: keyof NewStockFields,
+    label: string
+  ) => {
+    const trimmed = String(value ?? "").trim();
+    if (!trimmed) {
+      errors[field] = `${label} is required.`;
+      return undefined;
     }
-
-    setIsCreatingStock(true);
-    try {
-      const failures: { entry: NewStockFields; message: string }[] = [];
-      let lastCreated: InventoryItem | null = null;
-
-      for (let i = 0; i < payloads.length; i += 1) {
-        const result = await createStockItemAction(payloads[i]);
-        if (result.success) {
-          if (result.stock) {
-            lastCreated = result.stock as InventoryItem;
-          }
-        } else {
-          failures.push({ entry: newStockEntries[i], message: result.message });
-        }
-      }
-
-      if (failures.length === 0) {
-        toast({
-          title: "Stock created",
-          description: `Created ${payloads.length} item${payloads.length > 1 ? "s" : ""}.`,
-        });
-        resetNewStockForm();
-        setShowAdditionalFields(false);
-        if (lastCreated) {
-          await handleSelectStock(lastCreated);
-        }
-      } else {
-        const failedEntries = failures.map((failure) => failure.entry);
-        setNewStockEntries(failedEntries.length ? failedEntries : [createEmptyNewStock()]);
-        setNewStockErrors(
-          failures.map((failure) => ({
-            bcn: failure.message || "Failed to create this item.",
-          }))
-        );
-        toast({
-          variant: "destructive",
-          title: "Partial success",
-          description: `Created ${payloads.length - failures.length} of ${payloads.length} items.`,
-        });
-      }
-    } catch (error) {
-      console.error("Error creating stock:", error);
-      toast({
-        variant: "destructive",
-        title: "Create failed",
-        description: "An unexpected server error occurred.",
-      });
-    } finally {
-      setIsCreatingStock(false);
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      errors[field] = `${label} must be a number.`;
+      return undefined;
     }
+    if (parsed < 0) {
+      errors[field] = `${label} cannot be negative.`;
+      return undefined;
+    }
+    return parsed;
   };
 
-  const handleSaveAll = async () => {
+  const parseOptionalNumber = (
+    value: string,
+    field: keyof NewStockFields,
+    label: string
+  ) => {
+    const trimmed = String(value ?? "").trim();
+    if (!trimmed) return undefined;
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      errors[field] = `${label} must be a number.`;
+      return undefined;
+    }
+    if (parsed < 0) {
+      errors[field] = `${label} cannot be negative.`;
+      return undefined;
+    }
+    return parsed;
+  };
+
+  const openingQty = parseOptionalNumber(entry.closingstock, "closingstock", "Opening stock") ?? 0;
+  const maxlevel = parseOptionalNumber(entry.maxlevel, "maxlevel", "Max level");
+  const width = parseOptionalNumber(entry.width, "width", "Width");
+  const martindale = parseOptionalNumber(entry.martindale, "martindale", "Martindale");
+  const weightGsm = parseOptionalNumber(entry.weightGsm, "weightGsm", "Weight (GSM)");
+  const horizontalRepeatCms = parseOptionalNumber(
+    entry.horizontalRepeatCms,
+    "horizontalRepeatCms",
+    "Horizontal repeat"
+  );
+  const verticalRepeatCms = parseOptionalNumber(
+    entry.verticalRepeatCms,
+    "verticalRepeatCms",
+    "Vertical repeat"
+  );
+  const costPriceRs = parseRequiredNumber(entry.costPriceRs, "costPriceRs", "Cost price");
+  const costMultiplierRs = parseRequiredNumber(
+    entry.costMultiplierRs,
+    "costMultiplierRs",
+    "Cost multiplier"
+  );
+  const rrpWithGstRs = parseRequiredNumber(entry.rrpWithGstRs, "rrpWithGstRs", "RRP with GST");
+
+  if (Object.keys(errors).length > 0) {
+    return { errors };
+  }
+
+  return {
+    errors,
+    payload: {
+      bcn,
+      itemName,
+      unit: entry.unit.trim() || "Mtr",
+      type: entry.type.trim() || "fabric",
+      category: entry.category.trim(),
+      categoryGroup: entry.categoryGroup.trim(),
+      rack: entry.rack.trim(),
+      closingstock: openingQty,
+      maxlevel,
+      width,
+      productId: entry.productId.trim(),
+      moCollection: entry.moCollection.trim(),
+      moCollectionCode: entry.moCollectionCode.trim(),
+      supplierCompanyName,
+      supplierCollectionName,
+      supplierCollectionCode,
+      composition: entry.composition.trim(),
+      martindale,
+      weightGsm,
+      horizontalRepeatCms,
+      verticalRepeatCms,
+      costPriceRs,
+      costMultiplierRs,
+      rrpWithGstRs,
+    },
+  };
+};
+
+const queueDraftEntry = () => {
+  if (isEntryEmpty(draftEntry)) {
+    toast({
+      variant: "destructive",
+      title: "Add item details",
+      description: "Fill the form before adding another item.",
+    });
+    return;
+  }
+
+  const existingBcns = new Set(
+    queuedEntries.map((entry) => entry.bcn.trim().toLowerCase())
+  );
+  const { errors } = validateEntry(draftEntry, existingBcns);
+
+  if (Object.keys(errors).length > 0) {
+    setDraftErrors(errors);
+    toast({
+      variant: "destructive",
+      title: "Fix form errors",
+      description: "Please check the required fields and numeric values.",
+    });
+    return;
+  }
+
+  upsertFieldOption("supplierCompanyName", draftEntry.supplierCompanyName);
+  upsertFieldOption("type", draftEntry.type);
+  upsertFieldOption("unit", draftEntry.unit);
+
+  setQueuedEntries((prev) => [...prev, draftEntry]);
+  resetDraftEntry();
+};
+
+const removeQueuedEntry = (index: number) => {
+  setQueuedEntries((prev) => prev.filter((_, idx) => idx !== index));
+};
+
+const editQueuedEntry = (index: number) => {
+  const entry = queuedEntries[index];
+  if (!entry) return;
+  setQueuedEntries((prev) => prev.filter((_, idx) => idx !== index));
+  setDraftEntry(entry);
+  setDraftErrors({});
+};
+
+const handleCreateStock = async () => {
+  const entriesToSubmit = [...queuedEntries];
+  const draftHasData = !isEntryEmpty(draftEntry);
+
+  if (draftHasData) {
+    entriesToSubmit.push(draftEntry);
+  }
+
+  if (entriesToSubmit.length === 0) {
+    toast({
+      variant: "destructive",
+      title: "Add items",
+      description: "Add at least one item before saving.",
+    });
+    return;
+  }
+
+  const seen = new Set<string>();
+  const payloads: any[] = [];
+  let hasErrors = false;
+  let draftEntryErrors: Partial<Record<keyof NewStockFields, string>> | null = null;
+
+  entriesToSubmit.forEach((entry, index) => {
+    const { errors, payload } = validateEntry(entry, seen);
+    if (Object.keys(errors).length > 0 || !payload) {
+      hasErrors = true;
+      if (draftHasData && index == entriesToSubmit.length - 1) {
+        draftEntryErrors = errors;
+      }
+    } else {
+      seen.add(entry.bcn.trim().toLowerCase());
+      payloads.push(payload);
+    }
+  });
+
+  if (hasErrors) {
+    if (draftEntryErrors) {
+      setDraftErrors(draftEntryErrors);
+    }
+    toast({
+      variant: "destructive",
+      title: "Fix form errors",
+      description: "Please review the queued items and the current form.",
+    });
+    return;
+  }
+
+  setIsCreatingStock(true);
+  try {
+    const failures: { entry: NewStockFields; message: string }[] = [];
+    let lastCreated: InventoryItem | null = null;
+
+    for (let i = 0; i < payloads.length; i += 1) {
+      const result = await createStockItemAction(payloads[i]);
+      if (result.success) {
+        if (result.stock) {
+          lastCreated = result.stock as InventoryItem;
+        }
+      } else {
+        failures.push({ entry: entriesToSubmit[i], message: result.message });
+      }
+    }
+
+    if (failures.length === 0) {
+      toast({
+        title: "Stock created",
+        description: `Created ${payloads.length} item${payloads.length > 1 ? "s" : ""}.`,
+      });
+      resetNewStockForm();
+      setShowAdditionalFields(false);
+      setIsAddDialogOpen(false);
+      if (lastCreated) {
+        await handleSelectStock(lastCreated);
+      }
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Partial success",
+        description: `Created ${payloads.length - failures.length} of ${payloads.length} items.`,
+      });
+      if (failures.length === 1 && entriesToSubmit.length === 1) {
+        setQueuedEntries([]);
+        setDraftEntry(failures[0].entry);
+        setDraftErrors({ bcn: failures[0].message });
+      } else {
+        setQueuedEntries(failures.map((failure) => failure.entry));
+        resetDraftEntry();
+      }
+    }
+  } catch (error) {
+    console.error("Error creating stock:", error);
+    toast({
+      variant: "destructive",
+      title: "Create failed",
+      description: "An unexpected server error occurred.",
+    });
+  } finally {
+    setIsCreatingStock(false);
+  }
+};
+
+const handleSaveAll = async () => {
+
     if (!selectedStock) return;
     setIsSavingEdits(true);
     try {
@@ -872,6 +998,34 @@ export function StockManagement() {
       </CardHeader>
 
 <CardContent className="space-y-6">
+<div className="flex items-end gap-4">
+  <div className="w-full max-w-sm space-y-2">
+    <Label htmlFor="search-stock">Search Stock</Label>
+    <Combobox
+      options={bcnOptions}
+      value={selectedStock?.bcn}
+      onSelect={(value) => {
+        const selectedOption = bcnOptions.find(
+          (opt) => opt.value === value
+        ) as any;
+        if (selectedOption) {
+          handleSelectStock(selectedOption.stockItem);
+        }
+      }}
+      placeholder="Search by BCN or Item Name..."
+      searchPlaceholder="Type to search..."
+      emptyPlaceholder={isSearching ? "Searching..." : "No stock found."}
+      onSearch={handleBcnSearch}
+    />
+  </div>
+  <Button onClick={() => setIsAddDialogOpen(true)}>
+    <Plus className="mr-2 h-4 w-4" />
+    Add New Stock
+  </Button>
+</div>
+
+<Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+  <DialogContent className="max-w-6xl">
   <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
@@ -896,416 +1050,455 @@ export function StockManagement() {
       </Button>
     </div>
 
-    <div className="space-y-4">
-      {newStockEntries.map((entry, index) => {
-        const entryErrors = newStockErrors[index] || {};
-        return (
-          <div key={`new-stock-${index}`} className="rounded-lg border bg-background p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold">Item {index + 1}</p>
-              {newStockEntries.length > 1 ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => removeNewStockEntry(index)}
-                  disabled={isCreatingStock}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+    <div className="rounded-lg border bg-background p-4 space-y-4">
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-bcn">
+            BCN <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="new-stock-bcn"
+            value={draftEntry.bcn}
+            onChange={(event) => updateDraftValue("bcn", event.target.value)}
+            placeholder="e.g. ABC-123"
+            className={cn(draftErrors.bcn && "border-destructive")}
+          />
+          {draftErrors.bcn ? (
+            <p className="text-xs text-destructive">{draftErrors.bcn}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-itemName">
+            Item Name <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="new-stock-itemName"
+            value={draftEntry.itemName}
+            onChange={(event) => updateDraftValue("itemName", event.target.value)}
+            placeholder="e.g. Atlas Linen"
+            className={cn(draftErrors.itemName && "border-destructive")}
+          />
+          {draftErrors.itemName ? (
+            <p className="text-xs text-destructive">{draftErrors.itemName}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-opening">Opening Stock</Label>
+          <Input
+            id="new-stock-opening"
+            type="number"
+            step="0.01"
+            value={draftEntry.closingstock}
+            onChange={(event) => updateDraftValue("closingstock", event.target.value)}
+            placeholder="0"
+            className={cn(draftErrors.closingstock && "border-destructive")}
+          />
+          {draftErrors.closingstock ? (
+            <p className="text-xs text-destructive">{draftErrors.closingstock}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-unit">Unit</Label>
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <Combobox
+                options={fieldOptions.unit}
+                value={draftEntry.unit}
+                onSelect={(value) => handleFieldSelect("unit", value)}
+                placeholder="Select unit"
+                searchPlaceholder="Search unit..."
+                emptyPlaceholder={
+                  isLoadingFieldOptions.unit ? "Loading units..." : "No unit found."
+                }
+                onSearch={(query) => updateFieldQuery("unit", query)}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => addFieldOption("unit")}
+              disabled={!fieldQueries.unit.trim()}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-type">Type</Label>
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <Combobox
+                options={fieldOptions.type}
+                value={draftEntry.type}
+                onSelect={(value) => handleFieldSelect("type", value)}
+                placeholder="Select type"
+                searchPlaceholder="Search type..."
+                emptyPlaceholder={
+                  isLoadingFieldOptions.type ? "Loading types..." : "No type found."
+                }
+                onSearch={(query) => updateFieldQuery("type", query)}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => addFieldOption("type")}
+              disabled={!fieldQueries.type.trim()}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-category">Category</Label>
+          <Input
+            id="new-stock-category"
+            value={draftEntry.category}
+            onChange={(event) => updateDraftValue("category", event.target.value)}
+            placeholder="e.g. Upholstery"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-category-group">Category Group</Label>
+          <Input
+            id="new-stock-category-group"
+            value={draftEntry.categoryGroup}
+            onChange={(event) => updateDraftValue("categoryGroup", event.target.value)}
+            placeholder="e.g. Linen"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-rack">Rack</Label>
+          <Input
+            id="new-stock-rack"
+            value={draftEntry.rack}
+            onChange={(event) => updateDraftValue("rack", event.target.value)}
+            placeholder="e.g. R-12"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-maxlevel">Max Level</Label>
+          <Input
+            id="new-stock-maxlevel"
+            type="number"
+            step="0.01"
+            value={draftEntry.maxlevel}
+            onChange={(event) => updateDraftValue("maxlevel", event.target.value)}
+            placeholder="0"
+            className={cn(draftErrors.maxlevel && "border-destructive")}
+          />
+          {draftErrors.maxlevel ? (
+            <p className="text-xs text-destructive">{draftErrors.maxlevel}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-supplierCompany">
+            Supplier Company <span className="text-destructive">*</span>
+          </Label>
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <Combobox
+                options={fieldOptions.supplierCompanyName}
+                value={draftEntry.supplierCompanyName}
+                onSelect={(value) => handleFieldSelect("supplierCompanyName", value)}
+                placeholder="Select supplier"
+                searchPlaceholder="Search supplier..."
+                emptyPlaceholder={
+                  isLoadingFieldOptions.supplierCompanyName
+                    ? "Loading suppliers..."
+                    : "No supplier found."
+                }
+                onSearch={(query) => updateFieldQuery("supplierCompanyName", query)}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => addFieldOption("supplierCompanyName")}
+              disabled={!fieldQueries.supplierCompanyName.trim()}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+          {draftErrors.supplierCompanyName ? (
+            <p className="text-xs text-destructive">{draftErrors.supplierCompanyName}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-supplierCollection">
+            Supplier Collection Name <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="new-stock-supplierCollection"
+            value={draftEntry.supplierCollectionName}
+            onChange={(event) => updateDraftValue("supplierCollectionName", event.target.value)}
+            className={cn(draftErrors.supplierCollectionName && "border-destructive")}
+          />
+          {draftErrors.supplierCollectionName ? (
+            <p className="text-xs text-destructive">{draftErrors.supplierCollectionName}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-supplierCollectionCode">
+            Supplier Collection Code <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="new-stock-supplierCollectionCode"
+            value={draftEntry.supplierCollectionCode}
+            onChange={(event) => updateDraftValue("supplierCollectionCode", event.target.value)}
+            className={cn(draftErrors.supplierCollectionCode && "border-destructive")}
+          />
+          {draftErrors.supplierCollectionCode ? (
+            <p className="text-xs text-destructive">{draftErrors.supplierCollectionCode}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-costPrice">
+            Cost Price (Rs) <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="new-stock-costPrice"
+            type="number"
+            step="0.01"
+            value={draftEntry.costPriceRs}
+            onChange={(event) => updateDraftValue("costPriceRs", event.target.value)}
+            className={cn(draftErrors.costPriceRs && "border-destructive")}
+          />
+          {draftErrors.costPriceRs ? (
+            <p className="text-xs text-destructive">{draftErrors.costPriceRs}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-costMultiplier">
+            Cost Multiplier (Rs) <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="new-stock-costMultiplier"
+            type="number"
+            step="0.01"
+            value={draftEntry.costMultiplierRs}
+            onChange={(event) => updateDraftValue("costMultiplierRs", event.target.value)}
+            className={cn(draftErrors.costMultiplierRs && "border-destructive")}
+          />
+          {draftErrors.costMultiplierRs ? (
+            <p className="text-xs text-destructive">{draftErrors.costMultiplierRs}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="new-stock-rrp">
+            RRP with GST (Rs) <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="new-stock-rrp"
+            type="number"
+            step="0.01"
+            value={draftEntry.rrpWithGstRs}
+            onChange={(event) => updateDraftValue("rrpWithGstRs", event.target.value)}
+            className={cn(draftErrors.rrpWithGstRs && "border-destructive")}
+          />
+          {draftErrors.rrpWithGstRs ? (
+            <p className="text-xs text-destructive">{draftErrors.rrpWithGstRs}</p>
+          ) : null}
+        </div>
+      </div>
+
+      {showAdditionalFields ? (
+        <>
+          <Separator className="my-2" />
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="space-y-1">
+              <Label htmlFor="new-stock-productId">Product ID</Label>
+              <Input
+                id="new-stock-productId"
+                value={draftEntry.productId}
+                onChange={(event) => updateDraftValue("productId", event.target.value)}
+                placeholder="Internal product ID"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="new-stock-width">Width</Label>
+              <Input
+                id="new-stock-width"
+                type="number"
+                step="0.01"
+                value={draftEntry.width}
+                onChange={(event) => updateDraftValue("width", event.target.value)}
+                placeholder="0"
+                className={cn(draftErrors.width && "border-destructive")}
+              />
+              {draftErrors.width ? (
+                <p className="text-xs text-destructive">{draftErrors.width}</p>
               ) : null}
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-bcn-${index}`}>
-                  BCN <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id={`new-stock-bcn-${index}`}
-                  value={entry.bcn}
-                  onChange={(event) => updateNewStockValue(index, "bcn", event.target.value)}
-                  placeholder="e.g. ABC-123"
-                  className={cn(entryErrors.bcn && "border-destructive")}
-                />
-                {entryErrors.bcn ? (
-                  <p className="text-xs text-destructive">{entryErrors.bcn}</p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-itemName-${index}`}>
-                  Item Name <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id={`new-stock-itemName-${index}`}
-                  value={entry.itemName}
-                  onChange={(event) => updateNewStockValue(index, "itemName", event.target.value)}
-                  placeholder="e.g. Atlas Linen"
-                  className={cn(entryErrors.itemName && "border-destructive")}
-                />
-                {entryErrors.itemName ? (
-                  <p className="text-xs text-destructive">{entryErrors.itemName}</p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-opening-${index}`}>Opening Stock</Label>
-                <Input
-                  id={`new-stock-opening-${index}`}
-                  type="number"
-                  step="0.01"
-                  value={entry.closingstock}
-                  onChange={(event) =>
-                    updateNewStockValue(index, "closingstock", event.target.value)
-                  }
-                  placeholder="0"
-                  className={cn(entryErrors.closingstock && "border-destructive")}
-                />
-                {entryErrors.closingstock ? (
-                  <p className="text-xs text-destructive">{entryErrors.closingstock}</p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-unit-${index}`}>Unit</Label>
-                <Input
-                  id={`new-stock-unit-${index}`}
-                  value={entry.unit}
-                  onChange={(event) => updateNewStockValue(index, "unit", event.target.value)}
-                  placeholder="Mtr"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-type-${index}`}>Type</Label>
-                <Input
-                  id={`new-stock-type-${index}`}
-                  value={entry.type}
-                  onChange={(event) => updateNewStockValue(index, "type", event.target.value)}
-                  placeholder="fabric"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-category-${index}`}>Category</Label>
-                <Input
-                  id={`new-stock-category-${index}`}
-                  value={entry.category}
-                  onChange={(event) => updateNewStockValue(index, "category", event.target.value)}
-                  placeholder="e.g. Upholstery"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-category-group-${index}`}>Category Group</Label>
-                <Input
-                  id={`new-stock-category-group-${index}`}
-                  value={entry.categoryGroup}
-                  onChange={(event) =>
-                    updateNewStockValue(index, "categoryGroup", event.target.value)
-                  }
-                  placeholder="e.g. Linen"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-rack-${index}`}>Rack</Label>
-                <Input
-                  id={`new-stock-rack-${index}`}
-                  value={entry.rack}
-                  onChange={(event) => updateNewStockValue(index, "rack", event.target.value)}
-                  placeholder="e.g. R-12"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-maxlevel-${index}`}>Max Level</Label>
-                <Input
-                  id={`new-stock-maxlevel-${index}`}
-                  type="number"
-                  step="0.01"
-                  value={entry.maxlevel}
-                  onChange={(event) =>
-                    updateNewStockValue(index, "maxlevel", event.target.value)
-                  }
-                  placeholder="0"
-                  className={cn(entryErrors.maxlevel && "border-destructive")}
-                />
-                {entryErrors.maxlevel ? (
-                  <p className="text-xs text-destructive">{entryErrors.maxlevel}</p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-supplierCompany-${index}`}>
-                  Supplier Company <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id={`new-stock-supplierCompany-${index}`}
-                  value={entry.supplierCompanyName}
-                  onChange={(event) =>
-                    updateNewStockValue(index, "supplierCompanyName", event.target.value)
-                  }
-                  className={cn(entryErrors.supplierCompanyName && "border-destructive")}
-                />
-                {entryErrors.supplierCompanyName ? (
-                  <p className="text-xs text-destructive">
-                    {entryErrors.supplierCompanyName}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-supplierCollection-${index}`}>
-                  Supplier Collection Name <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id={`new-stock-supplierCollection-${index}`}
-                  value={entry.supplierCollectionName}
-                  onChange={(event) =>
-                    updateNewStockValue(index, "supplierCollectionName", event.target.value)
-                  }
-                  className={cn(entryErrors.supplierCollectionName && "border-destructive")}
-                />
-                {entryErrors.supplierCollectionName ? (
-                  <p className="text-xs text-destructive">
-                    {entryErrors.supplierCollectionName}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-supplierCollectionCode-${index}`}>
-                  Supplier Collection Code <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id={`new-stock-supplierCollectionCode-${index}`}
-                  value={entry.supplierCollectionCode}
-                  onChange={(event) =>
-                    updateNewStockValue(index, "supplierCollectionCode", event.target.value)
-                  }
-                  className={cn(entryErrors.supplierCollectionCode && "border-destructive")}
-                />
-                {entryErrors.supplierCollectionCode ? (
-                  <p className="text-xs text-destructive">
-                    {entryErrors.supplierCollectionCode}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-costPrice-${index}`}>
-                  Cost Price (Rs) <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id={`new-stock-costPrice-${index}`}
-                  type="number"
-                  step="0.01"
-                  value={entry.costPriceRs}
-                  onChange={(event) =>
-                    updateNewStockValue(index, "costPriceRs", event.target.value)
-                  }
-                  className={cn(entryErrors.costPriceRs && "border-destructive")}
-                />
-                {entryErrors.costPriceRs ? (
-                  <p className="text-xs text-destructive">{entryErrors.costPriceRs}</p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-costMultiplier-${index}`}>
-                  Cost Multiplier (Rs) <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id={`new-stock-costMultiplier-${index}`}
-                  type="number"
-                  step="0.01"
-                  value={entry.costMultiplierRs}
-                  onChange={(event) =>
-                    updateNewStockValue(index, "costMultiplierRs", event.target.value)
-                  }
-                  className={cn(entryErrors.costMultiplierRs && "border-destructive")}
-                />
-                {entryErrors.costMultiplierRs ? (
-                  <p className="text-xs text-destructive">{entryErrors.costMultiplierRs}</p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor={`new-stock-rrp-${index}`}>
-                  RRP with GST (Rs) <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id={`new-stock-rrp-${index}`}
-                  type="number"
-                  step="0.01"
-                  value={entry.rrpWithGstRs}
-                  onChange={(event) =>
-                    updateNewStockValue(index, "rrpWithGstRs", event.target.value)
-                  }
-                  className={cn(entryErrors.rrpWithGstRs && "border-destructive")}
-                />
-                {entryErrors.rrpWithGstRs ? (
-                  <p className="text-xs text-destructive">{entryErrors.rrpWithGstRs}</p>
-                ) : null}
-              </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-stock-moCollection">MO Collection</Label>
+              <Input
+                id="new-stock-moCollection"
+                value={draftEntry.moCollection}
+                onChange={(event) => updateDraftValue("moCollection", event.target.value)}
+              />
             </div>
 
-            {showAdditionalFields ? (
-              <>
-                <Separator className="my-2" />
-                <div className="grid gap-3 md:grid-cols-3">
-                  <div className="space-y-1">
-                    <Label htmlFor={`new-stock-productId-${index}`}>Product ID</Label>
-                    <Input
-                      id={`new-stock-productId-${index}`}
-                      value={entry.productId}
-                      onChange={(event) =>
-                        updateNewStockValue(index, "productId", event.target.value)
-                      }
-                      placeholder="Internal product ID"
-                    />
-                  </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-stock-moCollectionCode">MO Collection Code</Label>
+              <Input
+                id="new-stock-moCollectionCode"
+                value={draftEntry.moCollectionCode}
+                onChange={(event) => updateDraftValue("moCollectionCode", event.target.value)}
+              />
+            </div>
 
-                  <div className="space-y-1">
-                    <Label htmlFor={`new-stock-width-${index}`}>Width</Label>
-                    <Input
-                      id={`new-stock-width-${index}`}
-                      type="number"
-                      step="0.01"
-                      value={entry.width}
-                      onChange={(event) =>
-                        updateNewStockValue(index, "width", event.target.value)
-                      }
-                      placeholder="0"
-                      className={cn(entryErrors.width && "border-destructive")}
-                    />
-                    {entryErrors.width ? (
-                      <p className="text-xs text-destructive">{entryErrors.width}</p>
-                    ) : null}
-                  </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-stock-composition">Composition</Label>
+              <Input
+                id="new-stock-composition"
+                value={draftEntry.composition}
+                onChange={(event) => updateDraftValue("composition", event.target.value)}
+              />
+            </div>
 
-                  <div className="space-y-1">
-                    <Label htmlFor={`new-stock-moCollection-${index}`}>MO Collection</Label>
-                    <Input
-                      id={`new-stock-moCollection-${index}`}
-                      value={entry.moCollection}
-                      onChange={(event) =>
-                        updateNewStockValue(index, "moCollection", event.target.value)
-                      }
-                    />
-                  </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-stock-martindale">Martindale</Label>
+              <Input
+                id="new-stock-martindale"
+                type="number"
+                step="0.01"
+                value={draftEntry.martindale}
+                onChange={(event) => updateDraftValue("martindale", event.target.value)}
+                className={cn(draftErrors.martindale && "border-destructive")}
+              />
+              {draftErrors.martindale ? (
+                <p className="text-xs text-destructive">{draftErrors.martindale}</p>
+              ) : null}
+            </div>
 
-                  <div className="space-y-1">
-                    <Label htmlFor={`new-stock-moCollectionCode-${index}`}>
-                      MO Collection Code
-                    </Label>
-                    <Input
-                      id={`new-stock-moCollectionCode-${index}`}
-                      value={entry.moCollectionCode}
-                      onChange={(event) =>
-                        updateNewStockValue(index, "moCollectionCode", event.target.value)
-                      }
-                    />
-                  </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-stock-weightGsm">Weight (GSM)</Label>
+              <Input
+                id="new-stock-weightGsm"
+                type="number"
+                step="0.01"
+                value={draftEntry.weightGsm}
+                onChange={(event) => updateDraftValue("weightGsm", event.target.value)}
+                className={cn(draftErrors.weightGsm && "border-destructive")}
+              />
+              {draftErrors.weightGsm ? (
+                <p className="text-xs text-destructive">{draftErrors.weightGsm}</p>
+              ) : null}
+            </div>
 
-                  <div className="space-y-1">
-                    <Label htmlFor={`new-stock-composition-${index}`}>Composition</Label>
-                    <Input
-                      id={`new-stock-composition-${index}`}
-                      value={entry.composition}
-                      onChange={(event) =>
-                        updateNewStockValue(index, "composition", event.target.value)
-                      }
-                    />
-                  </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-stock-horizontalRepeat">H Repeat (cms)</Label>
+              <Input
+                id="new-stock-horizontalRepeat"
+                type="number"
+                step="0.01"
+                value={draftEntry.horizontalRepeatCms}
+                onChange={(event) => updateDraftValue("horizontalRepeatCms", event.target.value)}
+                className={cn(draftErrors.horizontalRepeatCms && "border-destructive")}
+              />
+              {draftErrors.horizontalRepeatCms ? (
+                <p className="text-xs text-destructive">{draftErrors.horizontalRepeatCms}</p>
+              ) : null}
+            </div>
 
-                  <div className="space-y-1">
-                    <Label htmlFor={`new-stock-martindale-${index}`}>Martindale</Label>
-                    <Input
-                      id={`new-stock-martindale-${index}`}
-                      type="number"
-                      step="0.01"
-                      value={entry.martindale}
-                      onChange={(event) =>
-                        updateNewStockValue(index, "martindale", event.target.value)
-                      }
-                      className={cn(entryErrors.martindale && "border-destructive")}
-                    />
-                    {entryErrors.martindale ? (
-                      <p className="text-xs text-destructive">{entryErrors.martindale}</p>
-                    ) : null}
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label htmlFor={`new-stock-weightGsm-${index}`}>Weight (GSM)</Label>
-                    <Input
-                      id={`new-stock-weightGsm-${index}`}
-                      type="number"
-                      step="0.01"
-                      value={entry.weightGsm}
-                      onChange={(event) =>
-                        updateNewStockValue(index, "weightGsm", event.target.value)
-                      }
-                      className={cn(entryErrors.weightGsm && "border-destructive")}
-                    />
-                    {entryErrors.weightGsm ? (
-                      <p className="text-xs text-destructive">{entryErrors.weightGsm}</p>
-                    ) : null}
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label htmlFor={`new-stock-horizontalRepeat-${index}`}>
-                      H Repeat (cms)
-                    </Label>
-                    <Input
-                      id={`new-stock-horizontalRepeat-${index}`}
-                      type="number"
-                      step="0.01"
-                      value={entry.horizontalRepeatCms}
-                      onChange={(event) =>
-                        updateNewStockValue(index, "horizontalRepeatCms", event.target.value)
-                      }
-                      className={cn(entryErrors.horizontalRepeatCms && "border-destructive")}
-                    />
-                    {entryErrors.horizontalRepeatCms ? (
-                      <p className="text-xs text-destructive">
-                        {entryErrors.horizontalRepeatCms}
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label htmlFor={`new-stock-verticalRepeat-${index}`}>
-                      V Repeat (cms)
-                    </Label>
-                    <Input
-                      id={`new-stock-verticalRepeat-${index}`}
-                      type="number"
-                      step="0.01"
-                      value={entry.verticalRepeatCms}
-                      onChange={(event) =>
-                        updateNewStockValue(index, "verticalRepeatCms", event.target.value)
-                      }
-                      className={cn(entryErrors.verticalRepeatCms && "border-destructive")}
-                    />
-                    {entryErrors.verticalRepeatCms ? (
-                      <p className="text-xs text-destructive">
-                        {entryErrors.verticalRepeatCms}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              </>
-            ) : null}
+            <div className="space-y-1">
+              <Label htmlFor="new-stock-verticalRepeat">V Repeat (cms)</Label>
+              <Input
+                id="new-stock-verticalRepeat"
+                type="number"
+                step="0.01"
+                value={draftEntry.verticalRepeatCms}
+                onChange={(event) => updateDraftValue("verticalRepeatCms", event.target.value)}
+                className={cn(draftErrors.verticalRepeatCms && "border-destructive")}
+              />
+              {draftErrors.verticalRepeatCms ? (
+                <p className="text-xs text-destructive">{draftErrors.verticalRepeatCms}</p>
+              ) : null}
+            </div>
           </div>
-        );
-      })}
+        </>
+      ) : null}
     </div>
 
+    {queuedEntries.length > 0 ? (
+      <div className="rounded-lg border bg-background p-3 space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground">Queued Items</p>
+        <div className="max-h-52 overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>BCN</TableHead>
+                <TableHead>Item</TableHead>
+                <TableHead>Supplier</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Unit</TableHead>
+                <TableHead className="text-right">Cost</TableHead>
+                <TableHead className="text-right">RRP</TableHead>
+                <TableHead className="text-right">Opening</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {queuedEntries.map((entry, index) => (
+                <TableRow key={`${entry.bcn}-${index}`}>
+                  <TableCell className="font-mono">{entry.bcn}</TableCell>
+                  <TableCell>{entry.itemName}</TableCell>
+                  <TableCell>{entry.supplierCompanyName}</TableCell>
+                  <TableCell>{entry.type || "-"}</TableCell>
+                  <TableCell>{entry.unit || "-"}</TableCell>
+                  <TableCell className="text-right">{entry.costPriceRs || "-"}</TableCell>
+                  <TableCell className="text-right">{entry.rrpWithGstRs || "-"}</TableCell>
+                  <TableCell className="text-right">{entry.closingstock || "0"}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => editQueuedEntry(index)}
+                      >
+                        <Edit className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => removeQueuedEntry(index)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    ) : null}
+
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <Button variant="outline" onClick={addNewStockEntry} disabled={isCreatingStock}>
+      <Button variant="outline" onClick={queueDraftEntry} disabled={isCreatingStock}>
         <Plus className="mr-2 h-4 w-4" />
         Add another item
       </Button>
@@ -1321,35 +1514,20 @@ export function StockManagement() {
           )}
           {isCreatingStock
             ? "Creating..."
-            : `Add ${newStockEntries.length > 1 ? "Items" : "Item"}`}
+            : `Add ${Math.max(queuedEntries.length + (isEntryEmpty(draftEntry) ? 0 : 1), 1)} Item${
+                Math.max(queuedEntries.length + (isEntryEmpty(draftEntry) ? 0 : 1), 1) === 1
+                  ? ""
+                  : "s"
+              }`}
         </Button>
       </div>
     </div>
   </div>
+</DialogContent>
 
-<div className="flex items-end gap-4">
-  <div className="w-full max-w-sm space-y-2">
-    <Label htmlFor="search-stock">Search Stock</Label>
-    <Combobox
-      options={bcnOptions}
-      value={selectedStock?.bcn}
-      onSelect={(value) => {
-        const selectedOption = bcnOptions.find(
-          (opt) => opt.value === value
-        ) as any;
-        if (selectedOption) {
-          handleSelectStock(selectedOption.stockItem);
-        }
-      }}
-      placeholder="Search by BCN or Item Name..."
-      searchPlaceholder="Type to search..."
-      emptyPlaceholder={isSearching ? "Searching..." : "No stock found."}
-      onSearch={handleBcnSearch}
-    />
-  </div>
-</div>
+  </Dialog>
 
-      {selectedStock && (
+  {selectedStock && (
           <div className="space-y-4">
             <Card className="p-4">
               <div className="flex flex-wrap items-start justify-between gap-4">

@@ -55,6 +55,33 @@ export async function getStockById(id: string): Promise<Stock | null> {
     }
 }
 
+export async function getStockFieldOptions(
+  field: "supplierCompanyName" | "type" | "unit",
+  query: string = ""
+): Promise<string[]> {
+  try {
+    const snapshot = await adminDb.collection("stocks").select(field).get();
+    const values = new Set<string>();
+
+    snapshot.forEach((doc) => {
+      const value = String(doc.get(field) ?? "").trim();
+      if (value) values.add(value);
+    });
+
+    let list = Array.from(values);
+    if (query) {
+      const q = query.toLowerCase();
+      list = list.filter((value) => value.toLowerCase().includes(q));
+    }
+
+    list.sort((a, b) => a.localeCompare(b));
+    return JSON.parse(JSON.stringify(list.slice(0, 50)));
+  } catch (error) {
+    console.error(`Error fetching stock field options (${field}):`, error);
+    return [];
+  }
+}
+
 export async function createStockItemAction(payload: {
   bcn: string;
   itemName: string;
