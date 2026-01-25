@@ -334,6 +334,16 @@ export function StockManagement() {
     type: "",
     unit: "",
   });
+  const [showFieldInput, setShowFieldInput] = React.useState({
+    supplierCompanyName: false,
+    type: false,
+    unit: false,
+  });
+  const [newFieldValue, setNewFieldValue] = React.useState({
+    supplierCompanyName: "",
+    type: "",
+    unit: "",
+  });
   const [isLoadingFieldOptions, setIsLoadingFieldOptions] = React.useState({
     supplierCompanyName: false,
     type: false,
@@ -450,6 +460,26 @@ const handleFieldSelect = (field: OptionField, value: string) => {
   setFieldQueries((prev) => ({ ...prev, [field]: "" }));
 };
 
+const openFieldAdder = (field: OptionField) => {
+  setShowFieldInput((prev) => ({ ...prev, [field]: true }));
+  setNewFieldValue((prev) => ({
+    ...prev,
+    [field]: fieldQueries[field].trim() || prev[field],
+  }));
+};
+
+const cancelFieldAdder = (field: OptionField) => {
+  setShowFieldInput((prev) => ({ ...prev, [field]: false }));
+  setNewFieldValue((prev) => ({ ...prev, [field]: "" }));
+};
+
+const commitFieldAdder = (field: OptionField) => {
+  const raw = newFieldValue[field].trim();
+  if (!raw) return;
+  addFieldOption(field, raw);
+  cancelFieldAdder(field);
+};
+
 const upsertFieldOption = (field: OptionField, value: string) => {
   const trimmed = String(value ?? "").trim();
   if (!trimmed) return;
@@ -465,8 +495,8 @@ const upsertFieldOption = (field: OptionField, value: string) => {
   });
 };
 
-const addFieldOption = (field: OptionField) => {
-  const raw = fieldQueries[field].trim();
+const addFieldOption = (field: OptionField, value: string) => {
+  const raw = String(value ?? "").trim();
   if (!raw) return;
   upsertFieldOption(field, raw);
   handleFieldSelect(field, raw);
@@ -476,6 +506,16 @@ const resetDraftEntry = () => {
   setDraftEntry(createEmptyNewStock());
   setDraftErrors({});
   setFieldQueries({
+    supplierCompanyName: "",
+    type: "",
+    unit: "",
+  });
+  setShowFieldInput({
+    supplierCompanyName: false,
+    type: false,
+    unit: false,
+  });
+  setNewFieldValue({
     supplierCompanyName: "",
     type: "",
     unit: "",
@@ -1120,12 +1160,32 @@ const handleSaveAll = async () => {
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => addFieldOption("unit")}
-              disabled={!fieldQueries.unit.trim()}
+              type="button"
+              onClick={() => openFieldAdder("unit")}
             >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
+          {showFieldInput.unit ? (
+            <div className="mt-2 flex items-center gap-2">
+              <Input
+                value={newFieldValue.unit}
+                onChange={(event) =>
+                  setNewFieldValue((prev) => ({
+                    ...prev,
+                    unit: event.target.value,
+                  }))
+                }
+                placeholder="Add unit"
+              />
+              <Button type="button" size="sm" onClick={() => commitFieldAdder("unit")}>
+                Add
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => cancelFieldAdder("unit")}>
+                Cancel
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-1">
@@ -1148,12 +1208,32 @@ const handleSaveAll = async () => {
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => addFieldOption("type")}
-              disabled={!fieldQueries.type.trim()}
+              type="button"
+              onClick={() => openFieldAdder("type")}
             >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
+          {showFieldInput.type ? (
+            <div className="mt-2 flex items-center gap-2">
+              <Input
+                value={newFieldValue.type}
+                onChange={(event) =>
+                  setNewFieldValue((prev) => ({
+                    ...prev,
+                    type: event.target.value,
+                  }))
+                }
+                placeholder="Add type"
+              />
+              <Button type="button" size="sm" onClick={() => commitFieldAdder("type")}>
+                Add
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => cancelFieldAdder("type")}>
+                Cancel
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-1">
@@ -1226,12 +1306,37 @@ const handleSaveAll = async () => {
               variant="ghost"
               size="icon"
               className="h-8 w-8"
-              onClick={() => addFieldOption("supplierCompanyName")}
-              disabled={!fieldQueries.supplierCompanyName.trim()}
+              type="button"
+              onClick={() => openFieldAdder("supplierCompanyName")}
             >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
+          {showFieldInput.supplierCompanyName ? (
+            <div className="mt-2 flex items-center gap-2">
+              <Input
+                value={newFieldValue.supplierCompanyName}
+                onChange={(event) =>
+                  setNewFieldValue((prev) => ({
+                    ...prev,
+                    supplierCompanyName: event.target.value,
+                  }))
+                }
+                placeholder="Add supplier company"
+              />
+              <Button type="button" size="sm" onClick={() => commitFieldAdder("supplierCompanyName")}>
+                Add
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => cancelFieldAdder("supplierCompanyName")}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : null}
           {draftErrors.supplierCompanyName ? (
             <p className="text-xs text-destructive">{draftErrors.supplierCompanyName}</p>
           ) : null}

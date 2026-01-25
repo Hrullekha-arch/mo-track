@@ -449,9 +449,8 @@ export default function ApprovalsPage() {
                 <h1 className="text-3xl font-bold tracking-tight">Approvals</h1>
                 <p className="text-muted-foreground">Review and approve quotations, orders, and payments.</p>
             </header>
-            <Tabs defaultValue="quotations" className="w-full">
+            <Tabs defaultValue="orders" className="w-full">
                 <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="quotations">Approve Quotations</TabsTrigger>
                     <TabsTrigger value="orders">Approve Orders</TabsTrigger>
                     <TabsTrigger value="payment-confirmation">Payment Confirmation</TabsTrigger>
                 </TabsList>

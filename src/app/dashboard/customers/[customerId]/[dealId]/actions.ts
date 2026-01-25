@@ -140,7 +140,7 @@ export async function createQuotationAction(customerId: string, dealId: string, 
         quotationNo: Math.floor(1000 + Math.random() * 9000).toString(),
         ...values,
         createdAt: new Date().toISOString(),
-        status: 'Pending Approval', // Initially pending
+        status: 'approved', // Initially pending
         totalAmount: totalAmount,
         cpdId: values.selectedCpdId || "No CPD ID",
     };
