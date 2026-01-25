@@ -46,6 +46,7 @@ const productSchema = z.object({
   amount: z.number(),
   description: z.string().optional(),
   remark: z.string().optional(),
+  gstPercent: z.number().optional(),
 });
 
 const addProductSchema = z.object({
@@ -71,6 +72,7 @@ const vasSchema = z.object({
     vasName: z.string(),
     rate: z.string(),
     quantity: z.string(),
+    gstPercent: z.union([z.number(), z.string()]).optional(),
 });
 
 const convertToOrderSchema = z.object({
@@ -143,35 +145,62 @@ function ConvertToOrderContent() {
   });
   
   const watchedValues = form.watch();
+  const shouldApplyTax = quotation?.applyTax !== false;
+
+  const resolveTaxRate = (item: { gstPercent?: number | string }) => {
+    if (!shouldApplyTax) return 0;
+    const fromItem = Number((item as any)?.gstPercent ?? (item as any)?.taxPercent ?? (item as any)?.taxRate ?? (item as any)?.tax);
+    if (Number.isFinite(fromItem)) return fromItem;
+    return 5;
+  };
 
   const totals = useMemo(() => {
-    const productTotals = watchedValues.products.reduce((acc, item) => {
+    const productTotals = (watchedValues.products || []).reduce((acc, item) => {
         const qty = Number(item.quantity) || 0;
-        const rate = Number(item.mrp) || 0;
+        const rate = Number(item.orderRate ?? item.mrp ?? item.quotationRate) || 0;
         const discountPercent = Number(item.discountPercent) || 0;
-        const subtotal = qty * rate;
+        const subtotal = qty * rate; // GST-inclusive
         const discountAmount = subtotal * (discountPercent / 100);
-        const taxableAmount = subtotal - discountAmount;
-        
+        const grossAfterDiscount = subtotal - discountAmount; // Still GST-inclusive
+        const taxRate = resolveTaxRate(item);
+        const taxableAmount = taxRate > 0 ? grossAfterDiscount / (1 + taxRate / 100) : grossAfterDiscount;
+        const taxAmount = grossAfterDiscount - taxableAmount;
+        const cgst = taxAmount / 2;
+        const sgst = taxAmount / 2;
+
         acc.quantity += qty;
-        acc.amount += taxableAmount;
+        acc.subtotal += subtotal;
+        acc.discount += discountAmount;
+        acc.taxable += taxableAmount;
+        acc.cgst += cgst;
+        acc.sgst += sgst;
+        acc.total += grossAfterDiscount;
         return acc;
-    }, { quantity: 0, amount: 0 });
+    }, { quantity: 0, subtotal: 0, discount: 0, taxable: 0, cgst: 0, sgst: 0, total: 0 });
 
     const vasTotals = (watchedValues.vasDetails || []).reduce((acc, item) => {
         const qty = Number(item.quantity) || 0;
         const rate = Number(item.rate) || 0;
-        acc.amount += qty * rate;
-        return acc;
-    }, { amount: 0 });
+        const taxRate = resolveTaxRate(item);
+        const taxableAmount = qty * rate; // GST-exclusive for VAS
+        const taxAmount = taxableAmount * (taxRate / 100);
+        const cgst = taxAmount / 2;
+        const sgst = taxAmount / 2;
 
-    const totalTaxable = productTotals.amount + vasTotals.amount;
-    const cgst = totalTaxable * 0.025; // 2.5%
-    const sgst = totalTaxable * 0.025; // 2.5%
-    const grandTotal = totalTaxable + cgst + sgst;
+        acc.taxable += taxableAmount;
+        acc.cgst += cgst;
+        acc.sgst += sgst;
+        acc.total += taxableAmount + taxAmount;
+        return acc;
+    }, { taxable: 0, cgst: 0, sgst: 0, total: 0 });
+
+    const totalTaxable = productTotals.taxable + vasTotals.taxable;
+    const cgst = productTotals.cgst + vasTotals.cgst;
+    const sgst = productTotals.sgst + vasTotals.sgst;
+    const grandTotal = productTotals.total + vasTotals.total;
 
     return { productTotals, vasTotals, grandTotal, cgst, sgst, totalTaxable };
-  }, [watchedValues]);
+  }, [watchedValues, shouldApplyTax]);
 
 
   useEffect(() => {
@@ -202,7 +231,8 @@ function ConvertToOrderContent() {
               noOfPcs: 1, 
               amount: item.rate * item.quantity, 
               description: item.salesDescription,
-              remark: item.remark || ''
+              remark: item.remark || '',
+              gstPercent: Number(item.gstPercent ?? 0),
             };
           });
           form.setValue("products", productsFromQuotation);
@@ -249,9 +279,11 @@ function ConvertToOrderContent() {
       toast({ variant: 'destructive', title: 'Missing Information', description: 'Please provide at least a brand and quantity.' });
       return;
     }
-    const rate = parseFloat(productData.rate || '0');
-    const quantity = parseFloat(productData.quantity);
-    const amount = rate * quantity;
+   const rate = parseFloat(productData.rate || '0');
+   const quantity = parseFloat(productData.quantity);
+   const amount = rate * quantity;
+   const selectedStock = bcnOptions.find(option => option.value === productData.collectionBrand)?.stockItem;
+   const gstPercent = Number(selectedStock?.tax ?? 0);
     
     append({
       collectionBrand: productData.collectionBrand,
@@ -265,7 +297,8 @@ function ConvertToOrderContent() {
       noOfPcs: parseInt(productData.noOfPcs || '1', 10),
       amount: amount,
       description: productData.description,
-      remark: productData.remark
+      remark: productData.remark,
+      gstPercent: Number.isFinite(gstPercent) ? gstPercent : 0,
     });
 
     form.reset({ ...form.getValues(), addProduct: { collectionBrand: "", serialNo: "", description: "", quantity: "", rate: "", discountPercent: "", discAmt: "", value: false, room: "", noOfPcs: "", remark: "", info1: "", info2: "" } });
@@ -281,11 +314,12 @@ const onSubmit = (data: ConvertToOrderFormValues) => {
     salesDescription: p.description ?? "",
 
     quantity: Number(p.quantity) || 0,
-    rate: Number(p.quotationRate) || 0,
+    rate: Number(p.orderRate ?? p.mrp ?? p.quotationRate) || 0,
     discountPercent: Number(p.discountPercent) || 0,
-    amount: (Number(p.quantity) || 0) * (Number(p.quotationRate) || 0),
+    amount: (Number(p.quantity) || 0) * (Number(p.orderRate ?? p.mrp ?? p.quotationRate) || 0),
     room: p.room ?? "",
     remark: p.remark ?? "",
+    gstPercent: Number(p.gstPercent ?? 0),
   }));
 
   const updatedQuotationData: Quotation = {
@@ -362,6 +396,7 @@ function convertQuotationToTemporaryOrder(q: Quotation): Order {
       amount: Number(item.amount) || 0,
       room: item.room ?? "",
       remark: item.remark ?? "",
+      gstPercent: Number(item.gstPercent ?? 0),
     })),
   };
 }
@@ -434,31 +469,40 @@ function convertQuotationToTemporaryOrder(q: Quotation): Order {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {fields.map((item, index) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{index + 1}</TableCell>
-                      <TableCell><Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
-                      <TableCell>{item.collectionBrand}</TableCell>
-                      <TableCell>{item.serialNo}</TableCell>
-                      <TableCell><Input type="number" step="0.01" {...form.register(`products.${index}.quantity`)} /></TableCell>
-                      <TableCell>{item.mrp.toFixed(2)}</TableCell>
-                      <TableCell><Input type="number" step="0.01" {...form.register(`products.${index}.discountPercent`)} /></TableCell>
-                      <TableCell>{item.quotationRate.toFixed(2)}</TableCell>
-                      <TableCell><Input type="number" step="0.01" {...form.register(`products.${index}.orderRate`)} /></TableCell>
-                      <TableCell>{item.room}</TableCell>
-                      <TableCell><Input type="number" step="1" {...form.register(`products.${index}.noOfPcs`)} /></TableCell>
-                      <TableCell>{item.amount.toFixed(2)}</TableCell>
-                      <TableCell><Input {...form.register(`products.${index}.description`)} /></TableCell>
-                      <TableCell><Button type="button" variant="ghost" size="icon"><Edit className="h-4 w-4 text-blue-500" /></Button></TableCell>
-                    </TableRow>
-                  ))}
+                  {fields.map((item, index) => {
+                    const currentItem = watchedValues.products?.[index] ?? item;
+                    const quantity = Number(currentItem.quantity) || 0;
+                    const baseRate = Number(currentItem.orderRate ?? currentItem.mrp ?? item.mrp) || 0;
+                    const discountPercent = Number(currentItem.discountPercent) || 0;
+                    const displayQuotationRate = baseRate * (1 - discountPercent / 100);
+                    const displayAmount = quantity * displayQuotationRate;
+
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell>{index + 1}</TableCell>
+                        <TableCell><Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
+                        <TableCell>{item.collectionBrand}</TableCell>
+                        <TableCell>{item.serialNo}</TableCell>
+                        <TableCell><Input type="number" step="0.01" {...form.register(`products.${index}.quantity`)} /></TableCell>
+                        <TableCell>{Number(item.mrp).toFixed(2)}</TableCell>
+                        <TableCell><Input type="number" step="0.01" {...form.register(`products.${index}.discountPercent`)} /></TableCell>
+                        <TableCell>{displayQuotationRate.toFixed(2)}</TableCell>
+                        <TableCell><Input type="number" step="0.01" {...form.register(`products.${index}.orderRate`)} /></TableCell>
+                        <TableCell>{item.room}</TableCell>
+                        <TableCell><Input type="number" step="1" {...form.register(`products.${index}.noOfPcs`)} /></TableCell>
+                        <TableCell>{displayAmount.toFixed(2)}</TableCell>
+                        <TableCell><Input {...form.register(`products.${index}.description`)} /></TableCell>
+                        <TableCell><Button type="button" variant="ghost" size="icon"><Edit className="h-4 w-4 text-blue-500" /></Button></TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
                 <TableFooter>
                   <TableRow>
                     <TableCell colSpan={4} className="font-semibold text-right">Total</TableCell>
                     <TableCell className="font-semibold">{totals.productTotals.quantity.toFixed(2)}</TableCell>
                     <TableCell colSpan={6}></TableCell>
-                    <TableCell className="font-semibold">{totals.productTotals.amount.toFixed(2)}</TableCell>
+                    <TableCell className="font-semibold">{totals.productTotals.total.toFixed(2)}</TableCell>
                     <TableCell colSpan={2}></TableCell>
                   </TableRow>
                 </TableFooter>
@@ -497,7 +541,7 @@ function convertQuotationToTemporaryOrder(q: Quotation): Order {
                         <TableFooter>
                             <TableRow>
                                 <TableCell colSpan={4} className="font-semibold text-right">VAS Total</TableCell>
-                                <TableCell className="font-semibold">{totals.vasTotals.amount.toFixed(2)}</TableCell>
+                                <TableCell className="font-semibold">{totals.vasTotals.taxable.toFixed(2)}</TableCell>
                             </TableRow>
                         </TableFooter>
                     </Table>
@@ -564,11 +608,11 @@ function convertQuotationToTemporaryOrder(q: Quotation): Order {
                         <span>₹{totals.totalTaxable.toFixed(2)}</span>
                     </div>
                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">CGST @2.5%</span>
+                        <span className="text-muted-foreground">CGST</span>
                         <span>₹{totals.cgst.toFixed(2)}</span>
                     </div>
                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">SGST @2.5%</span>
+                        <span className="text-muted-foreground">SGST</span>
                         <span>₹{totals.sgst.toFixed(2)}</span>
                     </div>
                      <div className="flex justify-between font-bold text-base">
