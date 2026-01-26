@@ -1,3 +1,4 @@
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -176,5 +177,58 @@ export async function combineInvoiceBatchesAction(
       success: false, 
       message: `Failed to combine invoices: ${error?.message || 'Unknown error'}` 
     };
+  }
+}
+
+interface GSTData {
+    cgstPercent: number;
+    sgstPercent: number;
+    igstPercent: number;
+    totalGstPercent: number;
+    source: 'quotation' | 'default';
+}
+
+export async function fetchGSTFromQuotationAction(orderId: string): Promise<GSTData> {
+  if (!orderId) {
+    return { cgstPercent: 2.5, sgstPercent: 2.5, igstPercent: 0, totalGstPercent: 5, source: 'default' };
+  }
+
+  try {
+    const quotationsQuery = adminDb.collectionGroup('quotations').where('orderNo', '==', orderId).limit(1);
+    const querySnapshot = await quotationsQuery.get();
+
+    if (querySnapshot.empty) {
+      console.warn(`[GST] No quotation found for orderNo: ${orderId}. Defaulting GST.`);
+      return { cgstPercent: 2.5, sgstPercent: 2.5, igstPercent: 0, totalGstPercent: 5, source: 'default' };
+    }
+    
+    const quotationDoc = querySnapshot.docs[0];
+    const quotationData = quotationDoc.data();
+    
+    const items = quotationData.items || [];
+    if (items.length === 0) {
+      console.warn(`[GST] No items in quotation for orderNo: ${orderId}. Defaulting GST.`);
+      return { cgstPercent: 2.5, sgstPercent: 2.5, igstPercent: 0, totalGstPercent: 5, source: 'default' };
+    }
+    
+    // Using the GST from the first item as the representative tax rate.
+    const firstItem = items[0];
+    const gstPercent = firstItem.gstPercent ?? 5; // Default to 5 if not present
+    
+    const cgstPercent = gstPercent / 2;
+    const sgstPercent = gstPercent / 2;
+    const igstPercent = 0; // Assuming IGST is not used based on current logic
+    
+    return {
+      cgstPercent,
+      sgstPercent,
+      igstPercent,
+      totalGstPercent: gstPercent,
+      source: 'quotation'
+    };
+
+  } catch (error) {
+    console.error(`[GST] Error fetching GST for order ${orderId}:`, error);
+    return { cgstPercent: 2.5, sgstPercent: 2.5, igstPercent: 0, totalGstPercent: 5, source: 'default' };
   }
 }

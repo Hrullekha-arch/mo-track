@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -113,7 +114,7 @@ const fetchGSTFromQuotation = async (orderId: string): Promise<GSTData> => {
   try {
     console.log('📄 [fetchGSTFromQuotation] Querying quotations collection...');
     const quotationsRef = collection(db, 'quotations');
-    const q = query(quotationsRef, where('orderId', '==', orderId), limit(1));
+    const q = query(quotationsRef, where('orderNo', '==', orderId), limit(1));
     
     console.log('📄 [fetchGSTFromQuotation] Executing query...');
     const querySnapshot = await getDocs(q);
@@ -121,7 +122,7 @@ const fetchGSTFromQuotation = async (orderId: string): Promise<GSTData> => {
     console.log('📄 [fetchGSTFromQuotation] Documents found:', querySnapshot.docs.length);
     
     if (querySnapshot.empty) {
-      console.warn('⚠️ [fetchGSTFromQuotation] No quotation found for orderId:', orderId);
+      console.warn('⚠️ [fetchGSTFromQuotation] No quotation found for orderNo:', orderId);
       console.warn('⚠️ [fetchGSTFromQuotation] Using default GST: 2.5% CGST + 2.5% SGST (5% Total)');
       return {
         cgstPercent: 2.5,
@@ -133,36 +134,40 @@ const fetchGSTFromQuotation = async (orderId: string): Promise<GSTData> => {
     }
     
     const quotationDoc = querySnapshot.docs[0];
-    const quotationData = quotationDoc.data() as QuotationData;
+    const quotationData = quotationDoc.data();
     
     console.log('📄 [fetchGSTFromQuotation] Quotation Document ID:', quotationDoc.id);
     console.log('📄 [fetchGSTFromQuotation] Quotation Data:', quotationData);
     
-    // Extract GST percentages with multiple fallback strategies
-    let cgstPercent = quotationData.cgstPercent || 0;
-    let sgstPercent = quotationData.sgstPercent || 0;
-    let igstPercent = quotationData.igstPercent || 0;
+    const items = quotationData.items || [];
     
-    // If individual components not found, try to split gstPercent
-    if (cgstPercent === 0 && sgstPercent === 0 && quotationData.gstPercent) {
-      console.log('📄 [fetchGSTFromQuotation] Using gstPercent to calculate CGST/SGST:', quotationData.gstPercent);
-      cgstPercent = quotationData.gstPercent / 2;
-      sgstPercent = quotationData.gstPercent / 2;
+    if (items.length === 0) {
+      console.warn('⚠️ [fetchGSTFromQuotation] No items found in quotation');
+      return {
+        cgstPercent: 2.5,
+        sgstPercent: 2.5,
+        igstPercent: 0,
+        totalGstPercent: 5,
+        source: 'default'
+      };
     }
     
-    const totalGstPercent = cgstPercent + sgstPercent + igstPercent;
+    const firstItem = items[0];
+    const gstPercent = firstItem.gstPercent || 5;
     
-    console.log('📄 [fetchGSTFromQuotation] Extracted GST:', {
+    const cgstPercent = gstPercent / 2;
+    const sgstPercent = gstPercent / 2;
+    const igstPercent = 0; 
+    
+    console.log('📄 [fetchGSTFromQuotation] Extracted GST from items:', {
+      gstPercent,
       cgstPercent,
       sgstPercent,
-      igstPercent,
-      totalGstPercent,
-      source: 'quotation'
+      igstPercent
     });
     
-    // Validation
-    if (totalGstPercent === 0) {
-      console.warn('⚠️ [fetchGSTFromQuotation] No GST found in quotation, using default 5%');
+    if (gstPercent === 0) {
+      console.warn('⚠️ [fetchGSTFromQuotation] No GST found in quotation items, using default 5%');
       return {
         cgstPercent: 2.5,
         sgstPercent: 2.5,
@@ -179,7 +184,7 @@ const fetchGSTFromQuotation = async (orderId: string): Promise<GSTData> => {
       cgstPercent,
       sgstPercent,
       igstPercent,
-      totalGstPercent,
+      totalGstPercent: gstPercent,
       source: 'quotation'
     };
     
@@ -245,7 +250,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
     }
   }, []);
 
-  // **NEW: Fetch GST from Quotation**
+  // Fetch GST from Quotation
   React.useEffect(() => {
     const fetchGST = async () => {
       if (!primaryBatch?.orderId) {
@@ -274,7 +279,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
       }
 
       try {
-        // First check if invoice already has GST percentages stored
         const invoiceIdToCheck = (primaryBatch as any)?.invoiceId;
         console.log('💹 [PrintableInvoice:fetchGST] Checking invoice ID:', invoiceIdToCheck);
         
@@ -304,7 +308,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
           }
         }
 
-        // If not found in invoice, fetch from quotation
         console.log('💹 [PrintableInvoice:fetchGST] Fetching GST from quotation...');
         const quotationGST = await fetchGSTFromQuotation(primaryBatch.orderId);
         console.log('💹 [PrintableInvoice:fetchGST] Quotation GST result:', quotationGST);
@@ -349,7 +352,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
       const newTaxDetails: Record<string, TaxDetail> = {};
       const hsnCodes = new Set<string>();
 
-      // Fetch stock details (for HSN)
       console.log('📦 [PrintableInvoice:fetchDetails] Fetching stock details...');
       for (const bcn of uniqueBcns) {
         const stockId = String(bcn).replace(/\//g, "-");
@@ -368,7 +370,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
       setStockDetails(newStockDetails);
       console.log('📦 [PrintableInvoice:fetchDetails] Stock details fetched:', Object.keys(newStockDetails).length);
 
-      // Fetch tax details by HSN (fallback)
       if (hsnCodes.size > 0) {
         console.log('📦 [PrintableInvoice:fetchDetails] Fetching tax details for HSN codes:', Array.from(hsnCodes));
         const list = Array.from(hsnCodes);
@@ -392,7 +393,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
         console.log('📦 [PrintableInvoice:fetchDetails] Tax details fetched:', Object.keys(newTaxDetails).length);
       }
 
-      // Fetch invoice document
       const invoiceIdToFetch = (primaryBatch as any)?.invoiceId;
       console.log('📦 [PrintableInvoice:fetchDetails] Invoice ID to fetch:', invoiceIdToFetch);
       
@@ -448,7 +448,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
     total: gstData.totalGstPercent
   });
 
-  // Resolve items with correct pricing
   console.log('🔄 [PrintableInvoice] Resolving item pricing...');
   const resolvedItems = (batches || []).flatMap((b) =>
     (b.items || []).map((item) => {
@@ -459,7 +458,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
   );
   console.log('🔄 [PrintableInvoice] Resolved items:', resolvedItems.length);
 
-  // Consolidate by BCN
   console.log('📊 [PrintableInvoice] Consolidating items by BCN...');
   const consolidatedItems = resolvedItems.reduce((acc, item) => {
     const key = String(item.bcn || "");
@@ -476,7 +474,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
   const consolidatedItemList = Object.values(consolidatedItems);
   console.log('📊 [PrintableInvoice] Consolidated items count:', consolidatedItemList.length);
 
-  // **UPDATED: Calculate totals using GST from quotation**
   console.log('💵 [PrintableInvoice] Calculating totals with quotation GST...');
   const totals = consolidatedItemList.reduce(
     (acc, item, index) => {
@@ -490,7 +487,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
       const discountAmount = amount * (discountPercent / 100);
       const taxableValue = amount - discountAmount;
 
-      // **USE GST FROM QUOTATION (fetched earlier)**
       const cgstRate = gstData.cgstPercent / 100;
       const sgstRate = gstData.sgstPercent / 100;
       const igstRate = gstData.igstPercent / 100;
@@ -651,7 +647,8 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left", width: "25%" }}>Collection / Brand - Serial No</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left", width: "8%" }}>HSN</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "8%" }}>Qty</th>
-              <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "8%" }}>Rate</th>
+              <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left", width: "8%" }}>UOM</th>
+              <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "10%" }}>Rate</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "10%" }}>Amt</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "8%" }}>Disc. %</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "10%" }}>Value</th>
@@ -673,7 +670,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
               const discountAmount = amount * (discountPercent / 100);
               const taxableValue = amount - discountAmount;
 
-              // **USE GST FROM QUOTATION**
               const cgstRate = gstData.cgstPercent / 100;
               const sgstRate = gstData.sgstPercent / 100;
               const igstRate = gstData.igstPercent / 100;
@@ -705,12 +701,12 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                   </td>
                   <td style={{ padding: "4px", border: "1px solid #ddd" }}>{(stock as any)?.hsnCode || ""}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{qty.toFixed(2)}</td>
+                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>{(stock as any)?.unit || 'Mtr'}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(rate)}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(amount)}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{discountPercent.toFixed(2)}%</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(taxableValue)}</td>
                   
-                  {/* ✅ CGST with Rate */}
                   <td style={{ 
                     padding: "4px", 
                     border: "1px solid #ddd", 
@@ -723,7 +719,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                     <span style={{ fontSize: "8px", color: "#666" }}>@{gstData.cgstPercent}%</span>
                   </td>
                   
-                  {/* ✅ SGST with Rate */}
                   <td style={{ 
                     padding: "4px", 
                     border: "1px solid #ddd", 
@@ -736,7 +731,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                     <span style={{ fontSize: "8px", color: "#666" }}>@{gstData.sgstPercent}%</span>
                   </td>
                   
-                  {/* ✅ IGST with Rate */}
                   <td style={{ 
                     padding: "4px", 
                     border: "1px solid #ddd", 
@@ -757,7 +751,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
             })}
           </tbody>
 
-          {/* ✅ UPDATED FOOTER WITH RATES */}
           <tfoot>
             <tr style={{ fontWeight: "bold", backgroundColor: "#f9f9f9" }}>
               <td colSpan={3} style={{ padding: "4px", textAlign: "right", border: "1px solid #ddd" }}>
@@ -769,7 +762,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
               <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{overallDiscountPercent.toFixed(2)}%</td>
               <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(totals.totalValue)}</td>
               
-              {/* ✅ CGST Total with Rate */}
               <td style={{ 
                 padding: "4px", 
                 border: "1px solid #ddd", 
@@ -782,7 +774,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                 <span style={{ fontSize: "8px", color: "#666" }}>@{gstData.cgstPercent}%</span>
               </td>
               
-              {/* ✅ SGST Total with Rate */}
               <td style={{ 
                 padding: "4px", 
                 border: "1px solid #ddd", 
@@ -795,7 +786,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
                 <span style={{ fontSize: "8px", color: "#666" }}>@{gstData.sgstPercent}%</span>
               </td>
               
-              {/* ✅ IGST Total with Rate */}
               <td style={{ 
                 padding: "4px", 
                 border: "1px solid #ddd", 
@@ -838,7 +828,6 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
             <strong>ADVANCE:</strong> ₹ 0.00
           </p>
           
-          {/* GST Info Badge */}
           <div style={{ marginTop: "8px", padding: "4px 8px", backgroundColor: "#f0f0f0", border: "1px solid #ccc", display: "inline-block", fontSize: "9px" }}>
             <strong>GST Source:</strong> {gstData.source === 'quotation' ? 'Quotation' : gstData.source === 'invoice' ? 'Invoice' : 'Default'} | 
             <strong> Rates:</strong> CGST {gstData.cgstPercent}% + SGST {gstData.sgstPercent}% 

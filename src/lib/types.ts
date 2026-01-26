@@ -657,6 +657,12 @@ export interface Invoice {
         roundOff: number;
         grandTotal: number;
     };
+    gstPercentages?: {
+        cgst: number;
+        sgst: number;
+        igst: number;
+        total: number;
+    };
     createdAt: string; // ISO Date string
     createdBy: string; // User name
     tallySalesXml?: string; // To store the generated XML

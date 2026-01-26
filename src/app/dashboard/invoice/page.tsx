@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -46,7 +47,7 @@ import { sendInvoiceToTally, getFirestoreStockQuantity, getStockFromTally } from
 import Link from "next/link";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StockMismatchDialog } from "@/components/features/invoice/StockMismatchDialog";
-import { combineInvoiceBatchesAction } from "./actions";
+import { combineInvoiceBatchesAction, fetchGSTFromQuotationAction } from "./actions";
 
 
 interface MismatchItem {
@@ -114,109 +115,6 @@ const resolveItemPricing = (order: Order | undefined, item: InvoiceBatch['items'
   
   return { rate, discountPercent };
 };
-
-// NEW FUNCTION: Fetch GST from Quotation
-const fetchGSTFromQuotation = async (orderId: string): Promise<GSTData> => {
-  console.log('📄 [fetchGSTFromQuotation] ========================================');
-  console.log('📄 [fetchGSTFromQuotation] Fetching GST for Order ID:', orderId);
-  
-  try {
-    console.log('📄 [fetchGSTFromQuotation] Querying quotations collection...');
-    const quotationsRef = collection(db, 'quotations');
-    
-    // ✅ FIXED: Use 'orderNo' instead of 'orderId'
-    const q = query(quotationsRef, where('orderNo', '==', orderId), limit(1));
-    
-    console.log('📄 [fetchGSTFromQuotation] Executing query...');
-    const querySnapshot = await getDocs(q);
-    
-    console.log('📄 [fetchGSTFromQuotation] Documents found:', querySnapshot.docs.length);
-    
-    if (querySnapshot.empty) {
-      console.warn('⚠️ [fetchGSTFromQuotation] No quotation found for orderNo:', orderId);
-      console.warn('⚠️ [fetchGSTFromQuotation] Using default GST: 2.5% CGST + 2.5% SGST (5% Total)');
-      return {
-        cgstPercent: 2.5,
-        sgstPercent: 2.5,
-        igstPercent: 0,
-        totalGstPercent: 5,
-        source: 'default'
-      };
-    }
-    
-    const quotationDoc = querySnapshot.docs[0];
-    const quotationData = quotationDoc.data();
-    
-    console.log('📄 [fetchGSTFromQuotation] Quotation Document ID:', quotationDoc.id);
-    console.log('📄 [fetchGSTFromQuotation] Quotation Data:', quotationData);
-    
-    // ✅ FIXED: Extract GST from items array
-    const items = quotationData.items || [];
-    
-    if (items.length === 0) {
-      console.warn('⚠️ [fetchGSTFromQuotation] No items found in quotation');
-      return {
-        cgstPercent: 2.5,
-        sgstPercent: 2.5,
-        igstPercent: 0,
-        totalGstPercent: 5,
-        source: 'default'
-      };
-    }
-    
-    // Get GST from first item (assuming all items have same GST rate)
-    const firstItem = items[0];
-    const gstPercent = firstItem.gstPercent || 5;
-    
-    // Calculate CGST and SGST from gstPercent
-    const cgstPercent = gstPercent / 2;
-    const sgstPercent = gstPercent / 2;
-    const igstPercent = 0; // Your data shows 0 for IGST
-    
-    console.log('📄 [fetchGSTFromQuotation] Extracted GST from items:', {
-      gstPercent,
-      cgstPercent,
-      sgstPercent,
-      igstPercent
-    });
-    
-    // Validation
-    if (gstPercent === 0) {
-      console.warn('⚠️ [fetchGSTFromQuotation] No GST found in quotation items, using default 5%');
-      return {
-        cgstPercent: 2.5,
-        sgstPercent: 2.5,
-        igstPercent: 0,
-        totalGstPercent: 5,
-        source: 'default'
-      };
-    }
-    
-    console.log('✅ [fetchGSTFromQuotation] GST fetched successfully from quotation');
-    console.log('📄 [fetchGSTFromQuotation] ========================================');
-    
-    return {
-      cgstPercent,
-      sgstPercent,
-      igstPercent,
-      totalGstPercent: gstPercent,
-      source: 'quotation'
-    };
-    
-  } catch (error) {
-    console.error('❌ [fetchGSTFromQuotation] ERROR:', error);
-    console.error('❌ [fetchGSTFromQuotation] Using fallback default GST');
-    
-    return {
-      cgstPercent: 2.5,
-      sgstPercent: 2.5,
-      igstPercent: 0,
-      totalGstPercent: 5,
-      source: 'default'
-    };
-  }
-};
-
  
 function GenerateInvoiceDialog({
   isOpen,
@@ -272,11 +170,10 @@ function GenerateInvoiceDialog({
           fabricDetails: primaryOrder.fabricDetails
         });
         
-        // **NEW: Fetch GST from Quotation**
         console.log('💹 [handleFinalGenerate] Fetching GST from quotation...');
         const gstData = isVas 
-          ? { cgstPercent: 9, sgstPercent: 9, igstPercent: 0, totalGstPercent: 18 } 
-          : await fetchGSTFromQuotation(primaryOrder.id);
+          ? { cgstPercent: 9, sgstPercent: 9, igstPercent: 0, totalGstPercent: 18, source: 'default' as const } 
+          : await fetchGSTFromQuotationAction(primaryOrder.id);
         
         console.log('💹 [handleFinalGenerate] GST Data to be used:', gstData);
         
@@ -313,7 +210,6 @@ function GenerateInvoiceDialog({
             const discountAmount = (item.discountPercent || 0) * amount / 100;
             const taxableValue = amount - discountAmount;
             
-            // **UPDATED: Use GST from quotation**
             const cgst = taxableValue * (gstData.cgstPercent / 100);
             const sgst = taxableValue * (gstData.sgstPercent / 100);
             const igst = taxableValue * (gstData.igstPercent / 100);
@@ -380,7 +276,6 @@ function GenerateInvoiceDialog({
                 roundOff: roundOff,
                 grandTotal: roundedAmount,
             },
-            // **NEW: Store GST percentages in invoice**
             gstPercentages: {
               cgst: gstData.cgstPercent,
               sgst: gstData.sgstPercent,
@@ -1317,13 +1212,11 @@ export default function InvoicePage() {
         
         console.log('📥 [InvoicePage:Batches] Total batches:', batchesData.length);
         
-        // Filter for active standard invoices (not VAS)
         const activeStandard = batchesData.filter(b => b.status === 'pendingInvoice' && !b.isVas);
         console.log('📥 [InvoicePage:Batches] Active Standard Batches:', activeStandard.length);
         console.log('📥 [InvoicePage:Batches] Active Standard IDs:', activeStandard.map(b => b.id));
         setActiveBatches(activeStandard);
         
-        // Filter for active VAS invoices
         const activeVas = batchesData.filter(b => b.status === 'pendingInvoice' && b.isVas);
         console.log('📥 [InvoicePage:Batches] Active VAS Batches:', activeVas.length);
         console.log('📥 [InvoicePage:Batches] Active VAS IDs:', activeVas.map(b => b.id));
