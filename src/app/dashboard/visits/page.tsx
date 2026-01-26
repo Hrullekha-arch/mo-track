@@ -592,6 +592,67 @@ const InstallerCard = ({
 
 
 function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDetails, onTransfer }: { visits: EnrichedDealVisit[], assigneeNameById: Record<string, string>, onAssign: (visit: EnrichedDealVisit) => void, onShare: (visit: EnrichedDealVisit) => void, onViewDetails: (visit: EnrichedDealVisit) => void, onTransfer: (v: EnrichedDealVisit) => void; }) {
+    const [dateFrom, setDateFrom] = React.useState<string>("");
+    const [dateTo, setDateTo] = React.useState<string>("");
+    const [typeFilter, setTypeFilter] = React.useState<string>("all");
+    const [statusFilter, setStatusFilter] = React.useState<string>("all");
+    const [query, setQuery] = React.useState<string>("");
+
+    const typeOptions = React.useMemo(() => {
+        const set = new Set<string>();
+        visits.forEach(v => {
+            if (v.typeOfVisit) set.add(v.typeOfVisit);
+        });
+        return Array.from(set).sort();
+    }, [visits]);
+
+    const statusOptions = React.useMemo(() => {
+        const set = new Set<string>();
+        visits.forEach(v => {
+            if (v.status) set.add(v.status);
+        });
+        return Array.from(set).sort();
+    }, [visits]);
+
+    const filteredVisits = React.useMemo(() => {
+        const queryText = query.trim().toLowerCase();
+        const fromDate = dateFrom ? new Date(dateFrom) : null;
+        const toDate = dateTo ? new Date(dateTo) : null;
+        if (toDate) {
+            toDate.setHours(23, 59, 59, 999);
+        }
+
+        return visits.filter(visit => {
+            if (fromDate || toDate) {
+                if (!visit.dueDate) return false;
+                const due = new Date(visit.dueDate);
+                if (Number.isNaN(due.getTime())) return false;
+                if (fromDate && due < fromDate) return false;
+                if (toDate && due > toDate) return false;
+            }
+
+            if (typeFilter !== "all" && visit.typeOfVisit !== typeFilter) return false;
+            if (statusFilter !== "all" && (visit.status || "requested") !== statusFilter) return false;
+
+            if (queryText) {
+                const haystack = [
+                    visit.customerName,
+                    visit.customerAddress,
+                    visit.dealId,
+                    visit.dealName,
+                    visit.typeOfVisit,
+                    visit.createdBy,
+                ]
+                    .filter(Boolean)
+                    .join(" ")
+                    .toLowerCase();
+                if (!haystack.includes(queryText)) return false;
+            }
+
+            return true;
+        });
+    }, [visits, dateFrom, dateTo, typeFilter, statusFilter, query]);
+
     return (
         <Card>
             <CardHeader>
@@ -599,32 +660,76 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                 <CardDescription>A comprehensive list of all scheduled visits.</CardDescription>
             </CardHeader>
             <CardContent>
+                <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-5">
+                    <Input
+                        placeholder="Search customer / deal / address"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                    />
+                    <Input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                    />
+                    <Input
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                    />
+                    <select
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                        value={typeFilter}
+                        onChange={(e) => setTypeFilter(e.target.value)}
+                    >
+                        <option value="all">All Types</option>
+                        {typeOptions.map((type) => (
+                            <option key={type} value={type}>
+                                {type}
+                            </option>
+                        ))}
+                    </select>
+                    <select
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                    >
+                        <option value="all">All Status</option>
+                        {statusOptions.map((status) => (
+                            <option key={status} value={status}>
+                                {status}
+                            </option>
+                        ))}
+                    </select>
+                </div>
                 <Table>
                     <TableHeader>
                         <TableRow>
                             <TableHead>Customer</TableHead>
+                            <TableHead>Address</TableHead>
                             <TableHead>Deal ID</TableHead>
-                            <TableHead>Type</TableHead>
+                            <TableHead>Type / Created By</TableHead>
                             <TableHead>Date & Slot</TableHead>
                             <TableHead>Assigned To</TableHead>
                             <TableHead>Status</TableHead>
-                            <TableHead>Created By</TableHead>
                             <TableHead>Assign</TableHead>
-                            <TableHead>View</TableHead>
-                            <TableHead>Action</TableHead>
+                            <TableHead>Action / View</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {visits.map(visit => (
+                        {filteredVisits.map(visit => (
                             <TableRow key={visit.id} className={cn(visit.visitStatus === 'Working' && 'ring-2 ring-blue-500 ring-offset-2')}>
                                 <TableCell className="font-medium">{visit.customerName}</TableCell>
+                                <TableCell className="max-w-[220px] whitespace-normal break-words">
+                                {visit.customer?.addressPinCode || "—"}
+                                </TableCell>
                                 <TableCell>
                                     <Link href={`/dashboard/customers/${visit.customerId}/${visit.dealDocId}`} className="text-primary hover:underline">
                                         {visit.dealId}
                                     </Link>
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="flex flex-col gap-2">
                                     <Badge variant="outline" className="capitalize">{visit.typeOfVisit}</Badge>
+                                    <Badge variant="secondary">{visit.createdBy}</Badge>
                                 </TableCell>
                                 <TableCell>
                                     {visit.dueDate ? format(new Date(visit.dueDate), 'PPP') : 'Not Set'}
@@ -635,7 +740,6 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                                     {visit.assignedTo ? (assigneeNameById[visit.assignedTo] || 'Unknown') : 'Unassigned'}
                                 </TableCell>
                                 <TableCell>{renderVisitStatus(visit)}</TableCell>
-                                <TableCell>{visit.createdBy}</TableCell>
                                 <TableCell>
                                     <Button
                                         size="sm"
@@ -659,10 +763,8 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                                             }
                                     </Button>
                                 </TableCell>
-                                <TableCell className="flex gap-1">
+                                <TableCell className="flex flex-col gap-2">
                                     <Button size="sm" variant="ghost" onClick={() => onViewDetails(visit)}><Eye className="h-4 w-4" /></Button>
-                                </TableCell>
-                                <TableCell>
                                     <Button
                                         type="button"
                                         variant="outline"
@@ -694,6 +796,8 @@ export default function AllVisitsPage() {
     const [shareableLink, setShareableLink] = React.useState<string | null>(null);
     const [detailsVisit, setDetailsVisit] = React.useState<EnrichedDealVisit | null>(null);
     const [dailyStatsMap, setDailyStatsMap] = React.useState<Record<string, AdminDailyStats>>({});
+
+    console.log("detailsVisit:", detailsVisit);
 
     const { toast } = useToast();
     
@@ -850,18 +954,47 @@ export default function AllVisitsPage() {
         setShareableLink(link);
     };
 
-    const handleAssignInstaller = async (installerId: string, slot?: SlotSelection) => {
-        if (!selectedVisit || !slot || !slot.slotDate) return;
+    const handleAssignInstaller = async (installerId: string, slots?: SlotSelection[]) => {
+        if (!selectedVisit || !slots || slots.length === 0) return;
         setIsAssigning(false); // To close the dialog immediately
 
         try {
             const assignedAt = new Date().toISOString();
+            const slotDate = slots[0].slotDate;
+            const slotIndex = new Map(SLOT_OPTIONS.map((opt, idx) => [opt.id, idx]));
+            const uniqueSlotIds = Array.from(new Set(slots.map((s) => s.slotId)));
+            const sortedSlotIds = uniqueSlotIds.sort(
+                (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
+            );
+            const firstSlot = SLOT_OPTIONS.find((s) => s.id === sortedSlotIds[0]);
+            const lastSlot = SLOT_OPTIONS.find((s) => s.id === sortedSlotIds[sortedSlotIds.length - 1]);
+            if (!firstSlot || !lastSlot) return;
+
+            const combinedLabel = `${firstSlot.start} - ${lastSlot.end}`;
             const previousInstallerId = selectedVisit.assignedTo || "";
             const previousSlotDate = selectedVisit.slotDate || "";
+            const previousSlotIds = selectedVisit.slotIds?.length
+                ? selectedVisit.slotIds
+                : selectedVisit.slotId
+                    ? [selectedVisit.slotId]
+                    : [];
+            const previousSorted = [...previousSlotIds].sort(
+                (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
+            );
+            const selectionUnchanged =
+                previousInstallerId === installerId &&
+                previousSlotDate === slotDate &&
+                previousSorted.length === sortedSlotIds.length &&
+                previousSorted.every((id, idx) => id === sortedSlotIds[idx]);
+
+            if (selectionUnchanged) {
+                setSelectedVisit(null);
+                return;
+            }
 
             await runTransaction(db, async (transaction) => {
                 const visitRef = doc(db, "customers", selectedVisit.customerId, "deals", selectedVisit.dealDocId, "visits", selectedVisit.id);
-                const newDateRef = doc(db, "installers", installerId, "dates", slot.slotDate);
+                const newDateRef = doc(db, "installers", installerId, "dates", slotDate);
                 const prevRef = previousInstallerId && previousSlotDate
                     ? doc(db, "installers", previousInstallerId, "dates", previousSlotDate)
                     : null;
@@ -878,37 +1011,36 @@ export default function AllVisitsPage() {
                     ? (newSnap.data() as any).slots
                     : [];
 
+                const selectedSlotSet = new Set(sortedSlotIds);
                 const blocking = newSlots.find(
-                    (s: any) => (s?.slotId || s?.id) === slot.slotId && s?.visitId && s.visitId !== selectedVisit.id
+                    (s: any) => selectedSlotSet.has(s?.slotId || s?.id) && s?.visitId && s.visitId !== selectedVisit.id
                 );
                 if (blocking) {
-                    throw new Error(`Slot ${slot.slotLabel} already booked.`);
+                    throw new Error(`Slot ${blocking.slotLabel || blocking.slotId} already booked.`);
                 }
 
-                const filteredNew = newSlots.filter(
-                    (s: any) => s && (s.slotId || s.id) !== slot.slotId && s.visitId !== selectedVisit.id
-                );
-
-                const slotPayload = {
-                    slotId: slot.slotId,
-                    id: slot.slotId,
-                    slotLabel: slot.slotLabel,
-                    slotStart: slot.slotStart,
-                    slotEnd: slot.slotEnd,
-                    slotDate: slot.slotDate,
-                    visitId: selectedVisit.id,
-                    customerId: selectedVisit.customerId,
-                    customerName: selectedVisit.customerName || "",
-                    dealId: selectedVisit.dealId || "",
-                    dealDocId: selectedVisit.dealDocId,
-                    dealName: selectedVisit.dealName || "",
-                    assignedAt,
-                    assignedTo: installerId,
-                    status: "booked",
-                };
+                const filteredNew = newSlots.filter((s: any) => s && s.visitId !== selectedVisit.id);
 
                 const slotsForDay = SLOT_OPTIONS.map((opt) => {
-                    if (opt.id === slot.slotId) return slotPayload;
+                    if (selectedSlotSet.has(opt.id)) {
+                        return {
+                            slotId: opt.id,
+                            id: opt.id,
+                            slotLabel: opt.label,
+                            slotStart: opt.start,
+                            slotEnd: opt.end,
+                            slotDate: slotDate,
+                            visitId: selectedVisit.id,
+                            customerId: selectedVisit.customerId,
+                            customerName: selectedVisit.customerName || "",
+                            dealId: selectedVisit.dealId || "",
+                            dealDocId: selectedVisit.dealDocId,
+                            dealName: selectedVisit.dealName || "",
+                            assignedAt,
+                            assignedTo: installerId,
+                            status: "booked",
+                        };
+                    }
 
                     const existing = filteredNew.find((s: any) => (s?.slotId || s?.id) === opt.id);
                     if (existing) {
@@ -919,7 +1051,7 @@ export default function AllVisitsPage() {
                             slotLabel: existing.slotLabel || opt.label,
                             slotStart: existing.slotStart || opt.start,
                             slotEnd: existing.slotEnd || opt.end,
-                            slotDate: slot.slotDate,
+                            slotDate: slotDate,
                             status: existing.status || (existing.visitId ? "booked" : "free"),
                         };
                     }
@@ -930,7 +1062,7 @@ export default function AllVisitsPage() {
                         slotLabel: opt.label,
                         slotStart: opt.start,
                         slotEnd: opt.end,
-                        slotDate: slot.slotDate,
+                        slotDate: slotDate,
                         status: "free",
                     };
                 });
@@ -971,17 +1103,18 @@ export default function AllVisitsPage() {
 
                 transaction.set(
                     newDateRef,
-                    { slotDate: slot.slotDate, slots: slotsForDay },
+                    { slotDate: slotDate, slots: slotsForDay },
                     { merge: true }
                 );
-                
+
                 transaction.update(visitRef, {
                     assignedTo: installerId,
-                    slotDate: slot.slotDate,
-                    slotId: slot.slotId,
-                    slotLabel: slot.slotLabel,
-                    slotStart: slot.slotStart,
-                    slotEnd: slot.slotEnd,
+                    slotDate: slotDate,
+                    slotId: firstSlot.id,
+                    slotIds: sortedSlotIds,
+                    slotLabel: combinedLabel,
+                    slotStart: firstSlot.start,
+                    slotEnd: lastSlot.end,
                     assignedAt,
                 });
             });
@@ -993,8 +1126,8 @@ export default function AllVisitsPage() {
             toast({ variant: "destructive", title: "Assignment Failed", description: error?.message || "Could not save slot." });
         }
     };
-    
-    if (loading) {
+
+if (loading) {
         return <div className="p-8"><Skeleton className="h-64 w-full" /></div>;
     }
 
@@ -1128,13 +1261,17 @@ export default function AllVisitsPage() {
                 </TabsContent>
             </Tabs>
             
-            <Dialog open={!!detailsVisit} onOpenChange={() => setDetailsVisit(null)}>
+            <Dialog open={!!detailsVisit} onOpenChange={() => setDetailsVisit(null)} >
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Visit Details</DialogTitle>
                     </DialogHeader>
+                    
                     {detailsVisit && (
                         <div className="py-4 space-y-4">
+                            <p><strong>Customer Name:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.customer?.name}</Badge></p>
+                            <p><strong>Customer Mobile No:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.customer?.mobileNo}</Badge></p>
+                            <p><strong>Customer Address:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.customer?.addressPinCode}</Badge></p>
                             <p><strong>Type:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.typeOfVisit}</Badge></p>
                             {detailsVisit.typeOfVisit === 'measurement' ? (
                                 <div className="space-y-2">
@@ -1148,6 +1285,15 @@ export default function AllVisitsPage() {
                                      <p>Items: {detailsVisit.deliveryInstallations?.map(d => `${d?.id} (x${d?.noOfPcs || 1})`).join(', ') || 'N/A'}</p>
                                 </div>
                             )}
+                            <p><strong>Scheduled Date:</strong> {detailsVisit.dueDate ? format(new Date(detailsVisit.dueDate), 'PPP') : 'Not Set'}</p>
+                            <p><strong>Scheduled Slot:</strong> {detailsVisit.slotLabel || 'N/A'}</p>
+                            <p><strong>Assigned To:</strong> {detailsVisit.assignedTo ? (assigneeNameById[detailsVisit.assignedTo] || 'Unknown') : 'Unassigned'}</p>
+                            <p><strong>Status:</strong> {renderVisitStatus(detailsVisit)}</p>
+                            <p><strong>Created By:</strong> {detailsVisit.createdBy}</p>
+                            <p><strong>Created At:</strong> {detailsVisit.createdAt ? format(new Date(detailsVisit.createdAt), 'PPP p') : 'N/A'}</p>
+                            {detailsVisit.visitStartTime && <p><strong>Visit Start Time:</strong> {format(new Date(detailsVisit.visitStartTime), 'PPP p')}</p>}
+                            {detailsVisit.visitEndTime && <p><strong>Visit End Time:</strong> {format(new Date(detailsVisit.visitEndTime), 'PPP p')}</p>}
+                            {detailsVisit.remark && <p><strong>Remark:</strong> {detailsVisit.remark}</p>}
                         </div>
                     )}
                 </DialogContent>
@@ -1162,7 +1308,12 @@ export default function AllVisitsPage() {
                 currentVisitId={selectedVisit?.id}
                 currentSlotSelection={selectedVisit ? { 
                     slotDate: selectedVisit.slotDate, 
-                    slotId: selectedVisit.slotId as SlotId, 
+                    slotId: selectedVisit.slotId || undefined,
+                    slotIds: selectedVisit.slotIds?.length
+                      ? selectedVisit.slotIds
+                      : selectedVisit.slotId
+                        ? [selectedVisit.slotId]
+                        : undefined,
                     slotLabel: selectedVisit.slotLabel,
                     slotStart: selectedVisit.slotStart,
                     slotEnd: selectedVisit.slotEnd,

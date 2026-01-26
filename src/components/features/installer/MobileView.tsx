@@ -22,7 +22,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AssignInstallerDialog, SLOT_OPTIONS, SlotId, type SlotSelection } from "../order-management/AssignInstallerDialog";
+import { AssignInstallerDialog, SLOT_OPTIONS, type SlotSelection } from "../order-management/AssignInstallerDialog";
 import { startVisitAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 
 const LOCATION_PING_INTERVAL_MS = 20000;
@@ -282,11 +282,22 @@ export function MobileView() {
     };
   }, [tasks, repNameMap]);
 
-  const handleTransferVisit = async (visit: EnrichedInstallerVisit, slot: SlotSelection) => {
-    if (!user?.id) return;
+  const handleTransferVisit = async (visit: EnrichedInstallerVisit, slots?: SlotSelection[]) => {
+    if (!user?.id || !slots || slots.length === 0) return;
 
     const installerId = user.id;
     const assignedAt = new Date().toISOString();
+    const slotDate = slots[0].slotDate;
+    const slotIndex = new Map(SLOT_OPTIONS.map((opt, idx) => [opt.id, idx]));
+    const uniqueSlotIds = Array.from(new Set(slots.map((s) => s.slotId)));
+    const sortedSlotIds = uniqueSlotIds.sort(
+      (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
+    );
+    const firstSlot = SLOT_OPTIONS.find((s) => s.id === sortedSlotIds[0]);
+    const lastSlot = SLOT_OPTIONS.find((s) => s.id === sortedSlotIds[sortedSlotIds.length - 1]);
+    if (!firstSlot || !lastSlot) return;
+
+    const combinedLabel = `${firstSlot.start} - ${lastSlot.end}`;
 
     const visitRef = doc(
       db,
@@ -298,17 +309,26 @@ export function MobileView() {
       visit.id
     );
 
-    const newDateRef = doc(db, "installers", installerId, "dates", slot.slotDate);
+    const newDateRef = doc(db, "installers", installerId, "dates", slotDate);
 
     const previousInstallerId = visit.assignedTo || installerId;
     const previousSlotDate = visit.slotDate || "";
-    const previousSlotId = (visit.slotId || "") as SlotId | "";
+    const previousSlotIds = visit.slotIds?.length
+      ? visit.slotIds
+      : visit.slotId
+        ? [visit.slotId]
+        : [];
+    const previousSorted = [...previousSlotIds].sort(
+      (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
+    );
 
-    if (
+    const selectionUnchanged =
       previousInstallerId === installerId &&
-      previousSlotDate === slot.slotDate &&
-      previousSlotId === slot.slotId
-    ) {
+      previousSlotDate === slotDate &&
+      previousSorted.length === sortedSlotIds.length &&
+      previousSorted.every((id, idx) => id === sortedSlotIds[idx]);
+
+    if (selectionUnchanged) {
       return;
     }
 
@@ -360,37 +380,36 @@ export function MobileView() {
         ? (newSnap.data() as any).slots
         : [];
 
+      const selectedSlotSet = new Set(sortedSlotIds);
       const blocking = newSlots.find(
-        (s: any) => (s?.slotId || s?.id) === slot.slotId && s?.visitId && s.visitId !== visit.id
+        (s: any) => selectedSlotSet.has(s?.slotId || s?.id) && s?.visitId && s.visitId !== visit.id
       );
       if (blocking) {
-        throw new Error(`Slot ${slot.slotLabel} already booked.`);
+        throw new Error(`Slot ${blocking.slotLabel || blocking.slotId} already booked.`);
       }
 
-      const filteredNew = newSlots.filter(
-        (s: any) => s && (s.slotId || s.id) !== slot.slotId && s.visitId !== visit.id
-      );
-
-      const slotPayload = {
-        slotId: slot.slotId,
-        id: slot.slotId,
-        slotLabel: slot.slotLabel,
-        slotStart: slot.slotStart,
-        slotEnd: slot.slotEnd,
-        slotDate: slot.slotDate,
-        visitId: visit.id,
-        customerId: visit.customerId,
-        customerName: visit.customer?.name || "",
-        dealId: visit.deal?.dealId || visit.dealId || "",
-        dealDocId: visit.dealDocId,
-        dealName: visit.deal?.dealName || "",
-        assignedAt,
-        assignedTo: installerId,
-        status: "booked",
-      };
+      const filteredNew = newSlots.filter((s: any) => s && s.visitId !== visit.id);
 
       const slotsForDay = SLOT_OPTIONS.map((opt) => {
-        if (opt.id === slot.slotId) return slotPayload;
+        if (selectedSlotSet.has(opt.id)) {
+          return {
+            slotId: opt.id,
+            id: opt.id,
+            slotLabel: opt.label,
+            slotStart: opt.start,
+            slotEnd: opt.end,
+            slotDate: slotDate,
+            visitId: visit.id,
+            customerId: visit.customerId,
+            customerName: visit.customer?.name || "",
+            dealId: visit.deal?.dealId || visit.dealId || "",
+            dealDocId: visit.dealDocId,
+            dealName: visit.deal?.dealName || "",
+            assignedAt,
+            assignedTo: installerId,
+            status: "booked",
+          };
+        }
 
         const existing = filteredNew.find((s: any) => (s?.slotId || s?.id) === opt.id);
         if (existing) {
@@ -401,7 +420,7 @@ export function MobileView() {
             slotLabel: existing.slotLabel || opt.label,
             slotStart: existing.slotStart || opt.start,
             slotEnd: existing.slotEnd || opt.end,
-            slotDate: slot.slotDate,
+            slotDate: slotDate,
             status: existing.status || (existing.visitId ? "booked" : "free"),
           };
         }
@@ -412,30 +431,31 @@ export function MobileView() {
           slotLabel: opt.label,
           slotStart: opt.start,
           slotEnd: opt.end,
-          slotDate: slot.slotDate,
+          slotDate: slotDate,
           status: "free",
         };
       });
 
       tx.set(
         newDateRef,
-        { slotDate: slot.slotDate, slots: slotsForDay },
+        { slotDate: slotDate, slots: slotsForDay },
         { merge: true }
       );
 
       tx.update(visitRef, {
         assignedTo: installerId,
-        slotDate: slot.slotDate,
-        slotId: slot.slotId,
-        slotLabel: slot.slotLabel,
-        slotStart: slot.slotStart,
-        slotEnd: slot.slotEnd,
+        slotDate: slotDate,
+        slotId: firstSlot.id,
+        slotIds: sortedSlotIds,
+        slotLabel: combinedLabel,
+        slotStart: firstSlot.start,
+        slotEnd: lastSlot.end,
         assignedAt,
       });
     });
   };
 
-  //======================Cwc Handler =======================
+//======================Cwc Handler =======================
   const handleCwcVisit = async (visit: EnrichedInstallerVisit) => {
       if (!user?.id) return;
 
@@ -562,17 +582,22 @@ export function MobileView() {
                     transferVisit
                     ? {
                         slotDate: transferVisit.slotDate || transferVisit.dueDate,
-                        slotId: transferVisit.slotId as SlotId | undefined,
+                        slotId: transferVisit.slotId || undefined,
+                        slotIds: transferVisit.slotIds?.length
+                          ? transferVisit.slotIds
+                          : transferVisit.slotId
+                            ? [transferVisit.slotId]
+                            : undefined,
                         slotLabel: transferVisit.slotLabel,
                         slotStart: transferVisit.slotStart,
                         slotEnd: transferVisit.slotEnd,
                         }
                     : undefined
                 }
-                onAssign={async (_installerId, slot) => {
-                    if (!transferVisit || !slot) return;
+                onAssign={async (_installerId, slots) => {
+                    if (!transferVisit || !slots || slots.length === 0) return;
                     try {
-                    await handleTransferVisit(transferVisit, slot);
+                    await handleTransferVisit(transferVisit, slots);
                     setIsTransferOpen(false);
                     setTransferVisit(null);
                     } catch (e: any) {

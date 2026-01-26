@@ -595,6 +595,7 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders,
                       <TableHead className="w-12">#</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Due Date</TableHead>
+                      <TableHead>Address</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Representative</TableHead>
                       <TableHead>Created By</TableHead>
@@ -609,6 +610,9 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders,
                         <TableCell className="capitalize">{visit.typeOfVisit}</TableCell>
                         <TableCell>
                           {visit.dueDate ? safeFormat(visit.dueDate) : <Badge variant="secondary" className="text-xs">Not Set</Badge>}
+                        </TableCell>
+                        <TableCell className="max-w-[240px] truncate">
+                          {visit.customerAddress || "—"}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="capitalize">{visit.status || "requested"}</Badge>
@@ -646,6 +650,10 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders,
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Representative:</span>
                           <span>{repName(visit.representative)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Address:</span>
+                          <span className="text-right">{visit.customerAddress || "—"}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Created By:</span>

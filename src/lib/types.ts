@@ -429,7 +429,8 @@ export interface DealVisit {
     customerLandmark?: string; // Added for customer confirmation
     slotDate?: string;     // "YYYY-MM-DD"
     slotId?: string;       // "S1" | "S2" ...
-    slotLabel?: string;    // "S1 (10:00 - 12:00)"
+    slotIds?: string[];    // Multiple slots for combined time
+    slotLabel?: string;    // "10:00 - 11:00"
     slotStart?: string;    // "10:00"
     slotEnd?: string; 
     geofenceLat?: number;
@@ -708,7 +709,7 @@ export interface Receipt {
 export { type ComboboxOption };
 
 // Slot booking types for installer scheduling
-export type SlotId = 'S1' | 'S2' | 'S3' | 'S4' | 'S5';
+export type SlotId = string;
 
 export type SlotSelection = {
   slotDate: string;
