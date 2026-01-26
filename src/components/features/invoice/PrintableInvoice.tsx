@@ -243,11 +243,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
 
   // Set logo
   React.useEffect(() => {
-    if (typeof window !== "undefined") {
-      const logo = `${window.location.origin}/logo.png`;
-      console.log('🖼️ [PrintableInvoice] Setting logo source:', logo);
-      setLogoSrc(logo);
-    }
+    setLogoSrc("/logo.png");
   }, []);
 
   // Fetch GST from Quotation
@@ -567,7 +563,7 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
       >
         <div style={{ flex: "0 0 120px" }}>
           {logoSrc && (
-            <Image src={logoSrc} alt="MoTrack Logo" width={100} height={50} style={{ width: "100px", height: "auto" }} />
+            <Image src={logoSrc} alt="MoTrack Logo" width={100} height={50} style={{ width: "100px", height: "auto" }} data-ai-hint="logo" />
           )}
         </div>
 
@@ -921,3 +917,5 @@ export function PrintableInvoice({ batches, orders, preGeneratedInvoiceNo = null
     </div>
   );
 }
+
+    
