@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
 import Link from 'next/link';
-import { getPendingPoItems, createPurchaseRequestAction, PendingPoItem, PoCreationData } from "./actions";
+import { getPendingPoItems, createPurchaseRequestAction, PendingPoItem, PoCreationData, getQuotationDialogData } from "./actions";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -40,6 +40,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
+import { getSalesmen } from "@/app/dashboard/customers/actions";
+import { Quotation, Deal, User, Cpd } from "@/lib/types";
 
 const createPoSchema = z.object({
   vendor: z.string().min(1, "Vendor name is required."),
@@ -317,6 +320,13 @@ export default function PendingPOPage() {
   const [globalFilter, setGlobalFilter] = React.useState('');
   const { toast } = useToast();
   const { user } = useAuth();
+
+  // State for Quotation Dialog
+  const [selectedQuotation, setSelectedQuotation] = React.useState<Quotation | null>(null);
+  const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
+  const [salesmen, setSalesmen] = React.useState<User[]>([]);
+  const [cpds, setCpds] = React.useState<Cpd[]>([]);
+  const [isDialogLoading, setIsDialogLoading] = React.useState(false);
   
   const fetchData = React.useCallback(async () => {
       setLoading(true);
@@ -337,6 +347,7 @@ export default function PendingPOPage() {
 
   React.useEffect(() => {
       fetchData();
+      getSalesmen().then(setSalesmen);
   }, [fetchData]);
 
   const handleCreatePoClick = (item: PendingPoItem) => {
@@ -350,8 +361,45 @@ export default function PendingPOPage() {
       setIsCreatePoOpen(true);
   }
 
+  const handleQuotationClick = async (quotationNo: string) => {
+    if (!quotationNo) return;
+    setIsDialogLoading(true);
+    setSelectedQuotation(null);
+
+    try {
+        const result = await getQuotationDialogData(quotationNo);
+        if (result) {
+            setSelectedQuotation(result.quotation);
+            setSelectedDeal(result.deal);
+            setCpds(result.cpds);
+        } else {
+            toast({ variant: 'destructive', title: 'Quotation not found' });
+        }
+    } catch (error) {
+        console.error("Error fetching quotation details:", error);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch quotation details.' });
+    } finally {
+        setIsDialogLoading(false);
+    }
+  };
+
   const columns: ColumnDef<PendingPoItem>[] = [
-    { accessorKey: "orderId", header: "Quotation No" },
+    {
+      accessorKey: "orderId",
+      header: "Quotation No",
+      cell: ({ row }) => {
+        const orderId = row.getValue("orderId") as string;
+        return (
+          <Button
+            variant="link"
+            className="p-0 h-auto font-medium"
+            onClick={() => handleQuotationClick(orderId)}
+          >
+            {orderId}
+          </Button>
+        );
+      },
+    },
     { accessorKey: "customerName", header: "Customer Name" },
     { accessorKey: "salesman", header: "Salesman" },
     { accessorKey: "collectionBrand", header: "BCN" },
@@ -475,6 +523,14 @@ export default function PendingPOPage() {
         creator={user ? { id: user.id, name: user.name } : null}
         onSuccess={fetchData}
         isNewVendor={isNewVendor}
+    />
+     <QuotationDetailDialog
+        isOpen={isDialogLoading || !!selectedQuotation}
+        onClose={() => setSelectedQuotation(null)}
+        quotation={selectedQuotation}
+        deal={selectedDeal}
+        salesmen={salesmen}
+        cpds={cpds}
     />
     </>
   )

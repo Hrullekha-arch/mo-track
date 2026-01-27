@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { PurchaseRequest, Stock } from '@/lib/types';
+import { PurchaseRequest, Stock, Quotation, Deal, Cpd } from '@/lib/types';
 
 export interface PendingPoItem {
   id: string;
@@ -25,6 +25,7 @@ export interface PendingPoItem {
   detailedStockItem?: any;       // full lengths doc + merged parent
   stockDocId?: string;           // stocks/{docId}
   productId?: string;            // lengths/{productId}
+  originalRequest: PurchaseRequest;
 }
 
 
@@ -126,6 +127,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
           detailedStockItem,
           stockDocId: stockParentDoc?.id,
           productId: bestProductId,
+          originalRequest: request,
         });
       }
     }
@@ -180,7 +182,7 @@ export async function createPurchaseRequestAction(
                     ...originalItem,
                     poNumber: poNumber,
                     vendorName: vendor,
-                    expectedDeliveryDate: promiseDeliveryDate || addDays(new Date(), 6).toISOString(),
+                    expectedDeliveryDate: promiseDeliveryDate || new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString(),
                 };
             }
             return originalItem;
@@ -192,14 +194,14 @@ export async function createPurchaseRequestAction(
 
         const allItemsNowHavePo = newFabricDetails.every(i => !!i.poNumber);
 
-        const vendorTypeMilestone: PurchaseStatus = {
+        const vendorTypeMilestone = {
             stepId: 3,
             status: 'completed',
             completedAt: new Date().toISOString(),
             completedBy: creator.name,
             remarks: isNewVendor ? "New Vendor" : "Existing Vendor"
         };
-        const placeOrderMilestone: PurchaseStatus = {
+        const placeOrderMilestone = {
             stepId: 4, // Corrected Step ID for "Place Order"
             status: 'completed',
             completedAt: new Date().toISOString(),
@@ -208,7 +210,7 @@ export async function createPurchaseRequestAction(
         };
 
         // --- AUTOMATION: Automatically complete PO Confirmation ---
-        const poConfirmationMilestone: PurchaseStatus = {
+        const poConfirmationMilestone = {
             stepId: 1, // Step ID for "PO Confirmation" from PO_PROCESS_CONFIG
             status: 'completed',
             completedAt: new Date().toISOString(),
@@ -222,13 +224,13 @@ export async function createPurchaseRequestAction(
             courier: courier,
             mode: mode,
             fabricDetails: newFabricDetails,
-            milestones: FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
-            poMilestones: FieldValue.arrayUnion(poConfirmationMilestone),
-            promiseDeliveryDate: promiseDeliveryDate || addDays(new Date(), 6).toISOString(),
+            milestones: adminDb.firestore.FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
+            poMilestones: adminDb.firestore.FieldValue.arrayUnion(poConfirmationMilestone),
+            promiseDeliveryDate: promiseDeliveryDate || new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString(),
         });
 
         const inboundRef = adminDb.collection('inbounds').doc(poNumber);
-        const inboundItems: InboundItem[] = [{
+        const inboundItems = [{
             itemName: item.collectionBrand,
             quantity: String(item.neededQty),
             unit: 'Mtr', // Assuming fabric
@@ -236,7 +238,7 @@ export async function createPurchaseRequestAction(
             inboundMilestones: [],
         }];
 
-        const newInboundRequest: InboundRequest = {
+        const newInboundRequest = {
             id: poNumber,
             purchaseRequestId: purchaseRequestId,
             dealId: originalRequestData.dealId,
@@ -255,5 +257,49 @@ export async function createPurchaseRequestAction(
     } catch (error: any) {
         console.error("Error creating purchase request:", error);
         return { success: false, message: `Server error: ${error.message}` };
+    }
+}
+
+export async function getQuotationDialogData(quotationNo: string): Promise<{ quotation: Quotation; deal: Deal; cpds: Cpd[] } | null> {
+    if (!quotationNo) return null;
+
+    try {
+        const q = adminDb.collectionGroup('quotations').where('quotationNo', '==', quotationNo).limit(1);
+        const querySnapshot = await q.get();
+
+        if (querySnapshot.empty) {
+            return null;
+        }
+
+        const quotationDoc = querySnapshot.docs[0];
+        const quotationData = { id: quotationDoc.id, ...quotationDoc.data() } as Quotation;
+        
+        const pathParts = quotationDoc.ref.path.split('/');
+        const customerId = pathParts[1];
+        const dealId = pathParts[3];
+
+        const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
+        const [dealSnap, cpdsSnap] = await Promise.all([
+            dealRef.get(),
+            dealRef.collection('cpds').get()
+        ]);
+        
+        if (!dealSnap.exists) {
+            return null;
+        }
+
+        const dealData = { id: dealSnap.id, ...dealSnap.data() } as Deal;
+        const cpdsData = cpdsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Cpd);
+
+        // Data needs to be serializable
+        return JSON.parse(JSON.stringify({
+            quotation: quotationData,
+            deal: dealData,
+            cpds: cpdsData
+        }));
+        
+    } catch (error) {
+        console.error("Error in getQuotationDialogData:", error);
+        return null;
     }
 }
