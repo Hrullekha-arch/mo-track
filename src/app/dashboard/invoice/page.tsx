@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -30,7 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { InvoiceBatch, Order, Invoice, CuttingTask, Stock, StockTransaction } from "@/lib/types";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
+import { PrintableInvoice, PrintableInvoicePayload } from "@/components/features/invoice/PrintableInvoice";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
@@ -59,59 +60,27 @@ interface MismatchItem {
   difference: number;
 }
 
-interface QuotationData {
-  orderId: string;
-  gstPercent?: number;
-  cgstPercent?: number;
-  sgstPercent?: number;
-  igstPercent?: number;
-  // Add other quotation fields as needed
-}
-
 const normalizeBcn = (value?: string) => {
-  console.log('🔧 [normalizeBcn] Input:', value);
-  const normalized = (value || '').split(' - ')[0].trim();
-  console.log('🔧 [normalizeBcn] Output:', normalized);
-  return normalized;
+  return (value || '').split(' - ')[0].trim();
 };
 
 const toNumber = (value: unknown, fallback: number) => {
-  console.log('🔢 [toNumber] Input value:', value, 'Type:', typeof value, 'Fallback:', fallback);
   const num = typeof value === 'number' ? value : Number(value);
   const result = Number.isFinite(num) ? num : fallback;
-  console.log('🔢 [toNumber] Output:', result);
   return result;
 };
 
 const resolveItemPricing = (order: Order | undefined, item: InvoiceBatch['items'][number]) => {
-  console.log('💰 [resolveItemPricing] ========== START ==========');
-  console.log('💰 [resolveItemPricing] Order ID:', order?.id);
-  console.log('💰 [resolveItemPricing] Item:', {
-    bcn: item.bcn,
-    itemName: item.itemName,
-    quantityAllocated: item.quantityAllocated,
-    rate: item.rate,
-    discountPercent: item.discountPercent
-  });
-  
   const normalizedBcn = normalizeBcn(item.bcn);
-  console.log('💰 [resolveItemPricing] Normalized BCN:', normalizedBcn);
   
-  console.log('💰 [resolveItemPricing] Order fabricDetails:', order?.fabricDetails);
   const matchedFabric = order?.fabricDetails?.find(f => normalizeBcn(f.fabricName) === normalizedBcn);
-  console.log('💰 [resolveItemPricing] Matched Fabric:', matchedFabric);
   
   const orderItems = (order as { items?: Array<{ collectionBrand?: string; rate?: number; discountPercent?: number }> })?.items || [];
-  console.log('💰 [resolveItemPricing] Order Items:', orderItems);
   
   const matchedOrderItem = orderItems.find(i => normalizeBcn(i.collectionBrand) === normalizedBcn);
-  console.log('💰 [resolveItemPricing] Matched Order Item:', matchedOrderItem);
   
   const rate = toNumber(matchedFabric?.rate ?? matchedOrderItem?.rate, item.rate ?? 0);
   const discountPercent = toNumber(matchedFabric?.discountPercent ?? matchedOrderItem?.discountPercent, item.discountPercent ?? 0);
-  
-  console.log('💰 [resolveItemPricing] Final Pricing:', { rate, discountPercent });
-  console.log('💰 [resolveItemPricing] ========== END ==========');
   
   return { rate, discountPercent };
 };
@@ -134,8 +103,141 @@ function GenerateInvoiceDialog({
   const [mismatchedItems, setMismatchedItems] = React.useState<MismatchItem[]>([]);
   const [generatedInvoice, setGeneratedInvoice] = React.useState<Invoice | null>(null);
   const [tallySyncResult, setTallySyncResult] = React.useState<{ success: boolean; message: string; voucherNumber?: string; } | null>(null);
+  const [payload, setPayload] = React.useState<PrintableInvoicePayload | null>(null);
 
   const { toast } = useToast();
+
+  React.useEffect(() => {
+    console.log('📦 [GenerateInvoiceDialog useEffect] ========== START ==========');
+    console.log('📦 [GenerateInvoiceDialog useEffect] Triggered. Batches:', batches.length, 'Orders:', orders.length);
+
+    if (!isOpen || batches.length === 0 || orders.length === 0) {
+        console.log('📦 [GenerateInvoiceDialog useEffect] Not ready. isOpen:', isOpen, 'Batches:', batches.length, 'Orders:', orders.length);
+        setPayload(null);
+        console.log('📦 [GenerateInvoiceDialog useEffect] Payload set to null.');
+        console.log('📦 [GenerateInvoiceDialog useEffect] ========== END ==========');
+        return;
+    }
+
+    const buildPayload = async () => {
+        console.log('🚀 [buildPayload] Building invoice payload...');
+        const primaryOrder = orders[0];
+        console.log('🚀 [buildPayload] Primary Order:', primaryOrder?.id);
+
+        const isVas = batches[0].isVas === true;
+        console.log('🚀 [buildPayload] Is VAS Invoice:', isVas);
+
+        console.log('🚀 [buildPayload] Fetching GST data...');
+        const gstData = isVas 
+          ? { cgstPercent: 9, sgstPercent: 9, igstPercent: 0, totalGstPercent: 18, source: 'default' as const } 
+          : await fetchGSTFromQuotationAction(primaryOrder.id);
+        console.log('🚀 [buildPayload] GST Data:', gstData);
+
+        const ordersById = new Map(orders.map(order => [order.id, order]));
+        console.log('🚀 [buildPayload] Created orders map:', ordersById.size, 'entries');
+
+        const normalizedItems = batches.flatMap(b => b.items.map(item => {
+            const order = ordersById.get(b.orderId);
+            const pricing = resolveItemPricing(order, item);
+            return { ...item, rate: pricing.rate, discountPercent: pricing.discountPercent };
+        }));
+        console.log('🚀 [buildPayload] Normalized Items:', normalizedItems);
+
+        const consolidatedItems = normalizedItems.reduce((acc, item) => {
+            const bcn = normalizeBcn(item.bcn);
+            if (!acc[bcn]) {
+                acc[bcn] = {
+                    name: item.itemName,
+                    bcn: item.bcn,
+                    hsn: "N/A", // This needs to come from somewhere, maybe stock lookup later
+                    quantity: 0,
+                    uom: 'Mtr',
+                    rate: item.rate,
+                    discountPercent: item.discountPercent,
+                    taxableAmount: 0,
+                    cgst: 0,
+                    sgst: 0,
+                    igst: 0,
+                    total: 0,
+                };
+            }
+            acc[bcn].quantity += item.quantityAllocated;
+            return acc;
+        }, {} as Record<string, PrintableInvoicePayload['items'][number]>);
+        console.log('🚀 [buildPayload] Consolidated Items (pre-calc):', consolidatedItems);
+
+
+        const calculatedItems = Object.values(consolidatedItems).map(item => {
+            const amount = item.rate * item.quantity;
+            const discountAmount = (item.discountPercent || 0) * amount / 100;
+            const taxableValue = amount - discountAmount;
+            
+            const cgst = taxableValue * (gstData.cgstPercent / 100);
+            const sgst = taxableValue * (gstData.sgstPercent / 100);
+            const igst = taxableValue * (gstData.igstPercent / 100);
+            const total = taxableValue + cgst + sgst + igst;
+
+            return { ...item, taxableAmount: taxableValue, cgst, sgst, igst, total };
+        });
+        console.log('🚀 [buildPayload] Calculated Items:', calculatedItems);
+        
+        const totals = calculatedItems.reduce((acc, item) => {
+            const amount = item.rate * item.quantity;
+            const discount = (item.discountPercent || 0) * amount / 100;
+            acc.subTotal += amount;
+            acc.discount += discount;
+            acc.taxableValue += item.taxableAmount;
+            acc.cgst += item.cgst;
+            acc.sgst += item.sgst;
+            acc.igst += item.igst;
+            return acc;
+        }, { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 });
+        console.log('🚀 [buildPayload] Calculated Totals:', totals);
+
+        const netAmount = totals.taxableValue + totals.cgst + totals.sgst + totals.igst;
+        const roundedTotal = Math.round(netAmount);
+        const roundOff = roundedTotal - netAmount;
+
+        const newPayload: PrintableInvoicePayload = {
+            meta: {
+                orderNo: primaryOrder.id,
+                quotationNo: primaryOrder.crmOrderNo,
+                invoiceDate: new Date().toISOString(),
+                isVas: isVas,
+                salesPerson: primaryOrder.salesPerson,
+            },
+            customer: {
+                name: primaryOrder.customerName,
+                phone: primaryOrder.customerPhone,
+                address: primaryOrder.customerAddress,
+            },
+            seller: {
+                companyName: isVas ? 'MO SPACES PVT.LTD.' : 'MO Designs Private Limited - (2024-2025)',
+                address: 'A-6, Sushant Lok-1, M G Road, Gurgaon- 122022,B-50, Sushant Lok-2, Sec- 56, Gurgaon - 122011 GURGAON. (HARYANA) INDIA',
+                gstin: '06AAMCM5012B1ZY',
+            },
+            items: calculatedItems,
+            totals: {
+                subTotal: totals.subTotal,
+                discount: totals.discount,
+                taxableValue: totals.taxableValue,
+                cgst: totals.cgst,
+                sgst: totals.sgst,
+                igst: totals.igst,
+                roundOff: roundOff,
+                grandTotal: roundedTotal,
+                totalGst: totals.cgst + totals.sgst + totals.igst,
+            },
+            gstBreakdown: [] // This part is complex, might need more info
+        };
+        console.log('✅ [buildPayload] Final Payload:', newPayload);
+        setPayload(newPayload);
+    };
+
+    buildPayload();
+    console.log('📦 [GenerateInvoiceDialog useEffect] ========== END ==========');
+
+  }, [isOpen, batches, orders]);
   
   const handleFinalGenerate = React.useCallback(async (isVas: boolean) => {
     console.log('🎯 [handleFinalGenerate] ========================================');
@@ -558,7 +660,7 @@ function GenerateInvoiceDialog({
     console.log('🔍 [handlePreVoucherCheck] PRE-VOUCHER CHECK COMPLETE');
     console.log('🔍 [handlePreVoucherCheck] ========================================');
   }, [creator, batches, handleFinalGenerate, toast]);
-
+  
   const handlePrint = () => {
     console.log('🖨️ [handlePrint] Initiating print...');
     const printContent = document.getElementById('printable-invoice-content');
@@ -603,7 +705,7 @@ function GenerateInvoiceDialog({
                 </DialogDescription>
             </DialogHeader>
             <div className="flex-grow overflow-y-auto pr-4" id="printable-invoice-content">
-                <PrintableInvoice batches={batches} orders={orders} preGeneratedInvoiceNo={generatedInvoice?.tallyVoucherNo}/>
+                <PrintableInvoice payload={payload} />
             </div>
             <DialogFooter>
                 <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -656,8 +758,6 @@ function InvoiceTable({
     console.log('📊 [InvoiceTable] Orders Count:', orders.length);
     console.log('📊 [InvoiceTable] Loading:', loading);
     console.log('📊 [InvoiceTable] View:', view);
-    console.log('📊 [InvoiceTable] Batches Data:', JSON.parse(JSON.stringify(batches)));
-    console.log('📊 [InvoiceTable] Orders Data:', JSON.parse(JSON.stringify(orders)));
     
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
@@ -684,38 +784,13 @@ function InvoiceTable({
     };
     
     const parseDateSafe = (dateInput: any): Date | null => {
-        console.log('📅 [parseDateSafe] Input:', dateInput, 'Type:', typeof dateInput);
-        
-        if (!dateInput) {
-          console.log('📅 [parseDateSafe] No date input - returning null');
-          return null;
-        }
-        
-        if (dateInput instanceof Date) {
-          console.log('📅 [parseDateSafe] Already a Date object');
-          return dateInput;
-        }
-        
-        // Handle Firestore Timestamp object which has toDate() method
-        if (typeof dateInput.toDate === 'function') {
-            console.log('📅 [parseDateSafe] Firestore Timestamp detected');
-            const date = dateInput.toDate();
-            console.log('📅 [parseDateSafe] Converted to Date:', date);
-            return date;
-        }
-        
-        // Handle ISO string
+        if (!dateInput) return null;
+        if (dateInput instanceof Date) return dateInput;
+        if (typeof dateInput.toDate === 'function') return dateInput.toDate();
         if (typeof dateInput === 'string') {
-            console.log('📅 [parseDateSafe] String date detected');
-            const date = new Date(dateInput);
-            if (!isNaN(date.getTime())) {
-                console.log('📅 [parseDateSafe] Valid date string converted:', date);
-                return date;
-            }
-            console.error('📅 [parseDateSafe] Invalid date string');
+            const d = new Date(dateInput);
+            if (!isNaN(d.getTime())) return d;
         }
-        
-        console.error('📅 [parseDateSafe] Unknown date format - returning null');
         return null;
     }
 
@@ -921,8 +996,6 @@ function InvoiceTable({
     canGenerate,
     canCombine
   });
-  console.log('📊 [InvoiceTable] Selected Batches:', selectedBatches.map(b => b.id));
-  console.log('📊 [InvoiceTable] Selected Orders:', selectedOrders.map(o => o.id));
 
   const handleCombineClick = () => {
     console.log('🔗 [handleCombineClick] ========================================');
@@ -1091,7 +1164,7 @@ function InvoiceTable({
             orders={selectedOrders}
             creator={user ? {id: user.uid, name: user.displayName || 'System'} : null}
         />
-               {selectedBatchForView && (
+        {selectedBatchForView && (
             <Dialog open={isViewInvoiceOpen} onOpenChange={setIsViewInvoiceOpen}>
                 <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
                     <DialogHeader>
@@ -1101,11 +1174,7 @@ function InvoiceTable({
                         </DialogDescription>
                     </DialogHeader>
                     <div className="flex-grow overflow-y-auto pr-4" id="printable-invoice-view-content">
-                        <PrintableInvoice
-                            batches={[selectedBatchForView]}
-                            orders={orders.filter(o => o.id === selectedBatchForView.orderId)}
-                            preGeneratedInvoiceNo={selectedBatchForView.tallyVoucherNo}
-                        />
+                         {/* This will be populated dynamically */}
                     </div>
                     <DialogFooter>
                         <Button
@@ -1192,21 +1261,10 @@ export default function InvoicePage() {
         console.log('📥 [InvoicePage:Batches] ========================================');
         console.log('📥 [InvoicePage:Batches] Snapshot received');
         console.log('📥 [InvoicePage:Batches] Documents count:', snapshot.docs.length);
-        console.log('📥 [InvoicePage:Batches] Metadata:', {
-          hasPendingWrites: snapshot.metadata.hasPendingWrites,
-          fromCache: snapshot.metadata.fromCache
-        });
         
         const batchesData = snapshot.docs.map((doc, index) => {
           const data = doc.data();
-          console.log(`  📥 [InvoicePage:Batches] Doc ${index + 1}:`, {
-            id: doc.id,
-            orderId: data.orderId,
-            status: data.status,
-            isVas: data.isVas,
-            itemsCount: data.items?.length,
-            createdAt: data.createdAt
-          });
+          console.log(`  📥 [InvoicePage:Batches] Doc ${index + 1}:`, { id: doc.id, orderId: data.orderId, status: data.status, isVas: data.isVas });
           return { ...data, id: doc.id } as InvoiceBatch;
         });
         
@@ -1214,21 +1272,16 @@ export default function InvoicePage() {
         
         const activeStandard = batchesData.filter(b => b.status === 'pendingInvoice' && !b.isVas);
         console.log('📥 [InvoicePage:Batches] Active Standard Batches:', activeStandard.length);
-        console.log('📥 [InvoicePage:Batches] Active Standard IDs:', activeStandard.map(b => b.id));
         setActiveBatches(activeStandard);
         
         const activeVas = batchesData.filter(b => b.status === 'pendingInvoice' && b.isVas);
         console.log('📥 [InvoicePage:Batches] Active VAS Batches:', activeVas.length);
-        console.log('📥 [InvoicePage:Batches] Active VAS IDs:', activeVas.map(b => b.id));
         setVasBatches(activeVas);
         
         console.log('📥 [InvoicePage:Batches] State updated');
         console.log('📥 [InvoicePage:Batches] ========================================');
     }, (error) => {
       console.error("❌ [InvoicePage:Batches] ERROR:", error);
-      console.error("❌ [InvoicePage:Batches] Error message:", error.message);
-      console.error("❌ [InvoicePage:Batches] Error code:", error.code);
-      console.error("❌ [InvoicePage:Batches] Error stack:", error.stack);
       toast({ variant: "destructive", title: "Error", description: "Could not load invoice data." });
     });
 
@@ -1237,46 +1290,23 @@ export default function InvoicePage() {
         console.log('📥 [InvoicePage:Orders] ========================================');
         console.log('📥 [InvoicePage:Orders] Snapshot received');
         console.log('📥 [InvoicePage:Orders] Documents count:', snapshot.docs.length);
-        console.log('📥 [InvoicePage:Orders] Metadata:', {
-          hasPendingWrites: snapshot.metadata.hasPendingWrites,
-          fromCache: snapshot.metadata.fromCache
-        });
         
         const ordersData = snapshot.docs.map((doc, index) => {
           const data = doc.data();
-          console.log(`  📥 [InvoicePage:Orders] Order ${index + 1}:`, {
-            id: doc.id,
-            customerName: data.customerName,
-            customerPhone: data.customerPhone,
-            salesPerson: data.salesPerson,
-            fabricDetailsCount: data.fabricDetails?.length,
-            milestonesCount: data.milestones?.length
-          });
+          console.log(`  📥 [InvoicePage:Orders] Order ${index + 1}:`, { id: doc.id, customerName: data.customerName });
           return { ...data, id: doc.id } as Order;
         });
         
         console.log('📥 [InvoicePage:Orders] Total orders:', ordersData.length);
-        console.log('📥 [InvoicePage:Orders] Order IDs:', ordersData.map(o => o.id));
         setAllOrders(ordersData);
         console.log('📥 [InvoicePage:Orders] State updated');
         console.log('📥 [InvoicePage:Orders] ========================================');
     }, (error) => {
         console.error("❌ [InvoicePage:Orders] ERROR:", error);
-        console.error("❌ [InvoicePage:Orders] Error message:", error.message);
-        console.error("❌ [InvoicePage:Orders] Error code:", error.code);
-        console.error("❌ [InvoicePage:Orders] Error stack:", error.stack);
     });
 
     console.log('⏳ [InvoicePage useEffect] Performing initial data fetch...');
     Promise.all([getDocs(batchesQuery), getDocs(ordersQuery)])
-      .then(([batchesSnapshot, ordersSnapshot]) => {
-        console.log('✅ [InvoicePage useEffect] Initial fetch complete');
-        console.log('✅ [InvoicePage useEffect] Batches fetched:', batchesSnapshot.docs.length);
-        console.log('✅ [InvoicePage useEffect] Orders fetched:', ordersSnapshot.docs.length);
-      })
-      .catch((error) => {
-        console.error('❌ [InvoicePage useEffect] Initial fetch error:', error);
-      })
       .finally(() => {
         console.log('✅ [InvoicePage useEffect] Setting loading to false');
         setLoading(false);
@@ -1316,11 +1346,9 @@ export default function InvoicePage() {
                 <TabsTrigger value="tally-log">Tally Log / Invoice History</TabsTrigger>
             </TabsList>
             <TabsContent value="active-invoices" className="mt-4">
-                
                  <InvoiceTable batches={activeBatches} orders={allOrders} loading={loading} view="active" />
             </TabsContent>
             <TabsContent value="vas-invoices" className="mt-4">
-                
                  <InvoiceTable batches={vasBatches} orders={allOrders} loading={loading} view="active" />
             </TabsContent>
             <TabsContent value="tally-log" className="mt-4">
