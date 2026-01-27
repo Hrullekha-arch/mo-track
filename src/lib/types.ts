@@ -190,6 +190,7 @@ export interface Order {
   fullKittingTime?: string;
   fullKittingTimeReupdated?: boolean;
   approvedAt?: string;
+  items?: any[];
 }
 
 export interface SalesmanCrmAssignment {
@@ -376,6 +377,7 @@ export interface Customer {
     pinCode?: string;
     createdAt: string;
     createdBy: string;
+    savedAddresses?: Array<{ address: string; landmark?: string }>;
 }
 
 export interface DealProduct {
@@ -420,7 +422,7 @@ export interface DealVisit {
     deliveryInstallations?: DeliveryInstallationItem[];
     subDeliveryInstallations?: DeliveryInstallationItem[];
     otherDelivery?: string;
-    status?: 'requested' | 'approved' | 'completed'; // New status flow
+    status?: 'requested' | 'approved' | 'completed' | 'CWC';
     visitStatus?: 'Out for Delivery' | 'Working';
     visitStartTime?: string;
     visitEndTime?: string;
@@ -475,6 +477,8 @@ export interface DealMeasurement {
     createdAt: string; // ISO string
     createdBy: string;
     pdfUrl: string;
+    rooms: any[];
+    status?: string;
 }
 
 export interface AdvanceDetail {
@@ -546,6 +550,7 @@ export interface Deal {
     measurements?: DealMeasurement[];
     advanceForMeasurement?: 'Yes' | 'No' | 'Old';
     isAcknowledged?: boolean; // True if the O2D process is complete.
+    latestSelectionId?: string;
 }
 
 export interface QuotationItem {
@@ -561,6 +566,10 @@ export interface QuotationItem {
   remark?: string;
   gstPercent?: number;
   hsnCode?: string;
+  taxableAmt?: number;
+  cgst?: number;
+  sgst?: number;
+  igst?: number;
 }
 
 export interface Quotation {
@@ -672,6 +681,61 @@ export interface Invoice {
     tallySalesXml?: string; // To store the generated XML
 }
 
+export interface PrintableInvoicePayload {
+  meta: {
+    invoiceNo?: string;
+    orderNo: string;
+    quotationNo?: string;
+    invoiceDate: string; // ISO string
+    isVas: boolean;
+    salesPerson?: string;
+    architect?: string;
+  };
+  customer: {
+    name: string;
+    phone: string;
+    address: string;
+    gstin?: string;
+  };
+  seller: {
+    companyName: string;
+    address: string;
+    gstin: string;
+  };
+  items: Array<{
+    name: string;
+    bcn: string;
+    hsn: string;
+    quantity: number;
+    uom: string;
+    rate: number;
+    discountPercent: number;
+    taxableAmount: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+    total: number;
+  }>;
+  totals: {
+    subTotal: number;
+    discount: number;
+    taxableValue: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+    roundOff: number;
+    grandTotal: number;
+    totalGst: number;
+  };
+  gstBreakdown: Array<{
+    rate: number;
+    taxable: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+  }>
+}
+
 export interface CuttingTaskItem {
     itemName: string;
     bcn: string;
@@ -733,15 +797,49 @@ export interface ApprovedStockItem {
     itemDetail: FabricDetail;
 }
 
-export { type ComboboxOption };
+// Owner types for handover logic
+export type OwnerType = "CRM" | "SALESMAN" | "ALLOCATOR" | "ACCOUNT";
 
-// Slot booking types for installer scheduling
-export type SlotId = string;
-
-export type SlotSelection = {
-  slotDate: string;
-  slotId: SlotId;
-  slotLabel: string;
-  slotStart: string;
-  slotEnd: string;
+export type OwnerRef = {
+  id: string;
+  type: OwnerType;
 };
+
+export type HandoverStatus = "PENDING" | "ACCEPTED" | "REJECTED" | "ACTIVE" | "EXPIRED";
+export type HandoverScopeType = "ALL_WORK" | "CHILD_OWNERS";
+export type OwnerAvailabilityStatus = "AVAILABLE" | "AWAY" | "ON_LEAVE" | "BUSY";
+export type AssignmentReason = "NORMAL" | "HANDOVER" | "EMERGENCY" | "ESCALATION";
+
+export type OwnerAvailability = {
+  owner: OwnerRef;
+  status: OwnerAvailabilityStatus;
+  backupOwnerId?: string;
+};
+
+export type AssignmentEnvelope = {
+  originalOwner: OwnerRef;
+  assignedOwner: OwnerRef;
+  assignmentReason: AssignmentReason;
+  handoverRequestId: string | null;
+  assignedAt: string;
+};
+
+export type HandoverRequest = {
+  id: string;
+  fromOwner: OwnerRef;
+  toOwner: OwnerRef;
+  scopeType: HandoverScopeType;
+  childOwnerType?: OwnerType;
+  childOwnerIds?: string[];
+  startAt: string;
+  endAt: string | null;
+  status: HandoverStatus;
+  note: string;
+  createdAt: string;
+  acceptedAt?: string | null;
+  acceptedBy?: string | null;
+  rejectedAt?: string | null;
+  rejectedBy?: string | null;
+};
+
+export { type ComboboxOption };

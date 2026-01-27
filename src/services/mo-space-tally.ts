@@ -28,66 +28,29 @@ export async function buildMoSpaceSalesVoucherXML(invoice: Invoice): Promise<{xm
     const voucherType = "Installation / Stitching";
     
     let salesmanRefText = invoice.salesPerson;
-    const orderDoc = await adminDb.collection('orders').doc(invoice.orderId).get();
-    if (orderDoc.exists && orderDoc.data()?.representativeId) {
-        const salesmanDoc = await adminDb.collection('users').doc(orderDoc.data()?.representativeId).get();
-        if (salesmanDoc.exists) {
-            const salesmanData = salesmanDoc.data() as User;
-            salesmanRefText = `${salesmanData.name} (${salesmanData.salesmanCode || 'N/A'})`;
-        }
-    }
     
     const totalQty = invoice.items.reduce((sum, item) => sum + item.quantityAllocated, 0);
     const firstItemName = invoice.items[0]?.itemName || 'items';
     const narration = escapeXml(`Sale of ${firstItemName}`);
     const stateName = "Haryana"; 
   
-    const uniqueBcns = [...new Set(invoice.items.map(item => item.bcn))];
-    const stockDetailsMap = new Map<string, Stock>();
-    const taxDetailsMap = new Map<string, TaxDetail>();
-  
-    for (const bcn of uniqueBcns) {
-        const stockId = bcn.replace(/\//g, '-');
-        const stockDoc = await adminDb.collection('stocks').doc(stockId).get();
-        if (stockDoc.exists) {
-            const stockData = stockDoc.data() as Stock;
-            stockDetailsMap.set(bcn, stockData);
-            if (stockData.hsnCode) {
-                const taxDoc = await adminDb.collection('taxDetails').doc(stockData.hsnCode).get();
-                if (taxDoc.exists) {
-                    taxDetailsMap.set(stockData.hsnCode, taxDoc.data() as TaxDetail);
-                }
-            }
-        }
-    }
-  
     let inventoryEntries = '';
-    let totalTaxableValue = 0;
-    let totalCgst = 0;
-    let totalSgst = 0;
 
     for (const item of invoice.items) {
-        const stockDetail = stockDetailsMap.get(item.bcn);
-        const taxDetail = stockDetail?.hsnCode ? taxDetailsMap.get(stockDetail.hsnCode) : undefined;
-        const gstRate = taxDetail?.gst ?? 18; 
-        const unit = 'Pcs';
+        const gstRate = (item as any).gstPercent || 18; 
         const salesLedgerName = `Haryana Stitching Services @ ${gstRate}%`;
   
         const qty = money(Number(item.quantityAllocated || 0));
         const rate = money(Number(item.rate || 0));
         const itemTaxableValue = money(rate * qty);
         
-        totalTaxableValue += itemTaxableValue;
-        totalCgst += money(itemTaxableValue * ((taxDetail?.cgst ?? 9) / 100));
-        totalSgst += money(itemTaxableValue * ((taxDetail?.sgst ?? 9) / 100));
-        
         inventoryEntries += `
             <ALLINVENTORYENTRIES.LIST>
               <STOCKITEMNAME>${escapeXml(item.bcn)}</STOCKITEMNAME>
               <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <ACTUALQTY>${qty} ${unit}</ACTUALQTY>
-              <BILLEDQTY>${qty} ${unit}</BILLEDQTY>
-              <RATE>${fmt(rate)}/${unit}</RATE>
+              <ACTUALQTY>${qty} Pcs</ACTUALQTY>
+              <BILLEDQTY>${qty} Pcs</BILLEDQTY>
+              <RATE>${fmt(rate)}/Pcs</RATE>
               <AMOUNT>${fmt(itemTaxableValue)}</AMOUNT>
               <ACCOUNTINGALLOCATIONS.LIST>
                 <LEDGERNAME>${escapeXml(salesLedgerName)}</LEDGERNAME>
@@ -97,8 +60,7 @@ export async function buildMoSpaceSalesVoucherXML(invoice: Invoice): Promise<{xm
             </ALLINVENTORYENTRIES.LIST>`;
     }
 
-    const totalAmountBeforeRoundOff = money(totalTaxableValue + totalCgst + totalSgst);
-    const roundedTotal = Math.round(totalAmountBeforeRoundOff);
+    const { roundedTotal, totalCgst, totalSgst } = invoice.totals;
     
     let partyDebitLedger = `<LEDGERENTRIES.LIST>
               <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
