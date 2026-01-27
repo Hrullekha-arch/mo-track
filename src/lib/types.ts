@@ -382,6 +382,7 @@ export interface Customer {
 
 export interface DealProduct {
     id?: string;
+    productType?: string;
     productCategory?: string;
     collectionBrand: string;
     serialNo?: string;

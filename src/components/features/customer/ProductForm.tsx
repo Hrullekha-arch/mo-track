@@ -415,6 +415,7 @@ export function ProductForm({
         bcn: payload.bcn || null,
         rate: payload.rate || "",
         quantity: payload.quantity || "",
+        room: payload.room,
         image: payload.image || null,
         timestamp: payload.timestamp,
       },
@@ -543,14 +544,34 @@ const handleStageItem = () => {
     }
     const timestamp = Date.now();
     const newProductsForForm: DealProduct[] = stagedItems.map((item, index) => {
-      const label = (item as any).collectionBrand || (item as any).items?.itemLabel || "item";
+      const isHardware = item.productType === "Hardware";
+      const isVAS = item.productType === "VAS";
+      
+      let collectionBrand;
+      let salesDescription;
+
+      if (isHardware) {
+        collectionBrand = item.bcn || item.subCategory || item.productCategory;
+        salesDescription = item.subCategory ? `${item.productCategory} → ${item.subCategory}` : item.productCategory;
+      } else if (isVAS) {
+        collectionBrand = item.productCategory || "VAS";
+        salesDescription = item.subCategory;
+      } else {
+        collectionBrand = item.collectionBrand;
+        salesDescription = item.salesDescription;
+      }
+      
+      const label = collectionBrand || `item-${index}`;
+
       return {
         ...(item as any),
-        collectionBrand: (item as any).collectionBrand || label,
+        id: `${label}-${timestamp}-${index}`,
+        collectionBrand: collectionBrand,
+        salesDescription: salesDescription,
+        productType: item.productType || 'fabric',
         quantity: (item as any).quantity ?? (item as any).items?.itemQty ?? "0",
         room,
         isBlind: false,
-        id: `${label}-${timestamp}-${index}`,
       };
     });
 
