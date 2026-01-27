@@ -19,13 +19,15 @@ export async function searchCustomersAction(filters: {
 
     // Priority search: by order or quotation number
     if (filters.orderNo) {
-        const orderQuery = adminDb.collection('orders').where('crmOrderNo', '==', filters.orderNo.trim()).limit(1);
-        const orderSnapshot = await orderQuery.get();
-        if (!orderSnapshot.empty) {
-            const order = orderSnapshot.docs[0].data();
-            if (order.customerId) {
-                const customerDoc = await customersRef.doc(order.customerId).get();
-                if (customerDoc.exists) {
+        const quotationQuery = adminDb.collectionGroup('quotations').where('orderNo', '==', filters.orderNo.trim()).limit(1);
+        const quotationSnapshot = await quotationQuery.get();
+        if (!quotationSnapshot.empty) {
+            const quotationDoc = quotationSnapshot.docs[0];
+            const pathParts = quotationDoc.ref.path.split('/');
+            const customerId = pathParts[1]; // Path: customers/{customerId}/...
+            if (customerId) {
+                 const customerDoc = await customersRef.doc(customerId).get();
+                 if (customerDoc.exists) {
                     return JSON.parse(JSON.stringify([{ id: customerDoc.id, ...customerDoc.data() }]));
                 }
             }
