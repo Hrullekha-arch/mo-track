@@ -262,61 +262,151 @@ export async function createPurchaseRequestAction(
     }
 }
 
-export async function getQuotationDialogData(dealId: string, quotationNo: string): Promise<{ quotation: Quotation; deal: Deal; cpds: Cpd[] } | null> {
-    console.log(`[getQuotationDialogData] Initiated. Searching for quotationNo: "${quotationNo}"`);
-    if (!quotationNo) {
-        console.error("[getQuotationDialogData] Error: Missing quotationNo.");
-        return null;
+export async function getQuotationDialogData(
+  orderNo: string,        // e.g. MOTRACK-4160 or 8647
+  quotationNo: string     // e.g. 4160 / 8647
+): Promise<{ quotation: Quotation; deal: Deal; cpds: Cpd[] } | null> {
+
+  console.log(`[getQuotationDialogData] Started. orderNo=${orderNo}, quotationNo=${quotationNo}`);
+
+  try {
+    /* =====================================================
+       1️⃣ FETCH CENTRAL ORDER
+    ===================================================== */
+    const orderSnap = await adminDb.collection('orders').doc(`MOTRACK-${orderNo}`).get();
+
+    if (!orderSnap.exists) {
+      console.error(`[getQuotationDialogData] Order ${orderNo} not found`);
+      return null;
     }
 
-    try {
-        // 1. Find the quotation document directly using the quotation number
-        console.log(`[getQuotationDialogData] Querying 'quotations' collection group for quotationNo: "${quotationNo}"`);
-        const quotationQuery = adminDb.collectionGroup('quotations').where('quotationNo', '==', quotationNo).limit(1);
-        const quotationSnapshot = await quotationQuery.get();
+    const orderData = orderSnap.data() as any;
+    const { customerId, dealId } = orderData;
 
-        if (quotationSnapshot.empty) {
-            console.warn(`[getQuotationDialogData] ⚠️ Quotation with number "${quotationNo}" not found.`);
-            return null;
-        }
-        
-        const quotationDoc = quotationSnapshot.docs[0];
-        const quotationData = { id: quotationDoc.id, ...quotationDoc.data() } as Quotation;
-        console.log(`[getQuotationDialogData] ✅ Found quotation document at path: ${quotationDoc.ref.path}`);
-
-        // 2. From the quotation, get the parent deal document reference
-        const dealRef = quotationDoc.ref.parent.parent;
-        if (!dealRef) {
-             console.error("[getQuotationDialogData] ❌ Could not resolve parent 'deal' from quotation.");
-             return null;
-        }
-
-        const dealSnap = await dealRef.get();
-        if (!dealSnap.exists) {
-            console.warn(`[getQuotationDialogData] ⚠️ Deal document at path ${dealRef.path} does not exist.`);
-            return null;
-        }
-        const dealData = { id: dealSnap.id, ...dealSnap.data() } as Deal;
-        console.log(`[getQuotationDialogData] ✅ Found deal document: ${dealSnap.id}`);
-
-        
-        // 3. Fetch CPDs from the deal's subcollection
-        console.log(`[getQuotationDialogData] Fetching CPDs for deal ${dealSnap.id}...`);
-        const cpdsSnap = await dealRef.collection('cpds').get();
-        const cpdsData = cpdsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Cpd);
-        console.log(`[getQuotationDialogData] ✅ Found ${cpdsData.length} CPDs.`);
-
-        // 4. Serialize and return the complete payload
-        const result = {
-            quotation: quotationData,
-            deal: dealData,
-            cpds: cpdsData
-        };
-        console.log("[getQuotationDialogData] 🎉 Successfully compiled all data. Returning to client.");
-        return JSON.parse(JSON.stringify(result));
-        
-    } catch (error) {
-        console.error("[getQuotationDialogData] ❌ CRITICAL ERROR:", error);
-        return null;
+    if (!customerId || !dealId) {
+      console.error("[getQuotationDialogData] Missing customerId or dealId in order");
+      return null;
     }
+
+    /* =====================================================
+       2️⃣ FIND DEAL BY *FIELD* dealId
+    ===================================================== */
+    const dealSnap = await adminDb
+      .collection('customers')
+      .doc(customerId)
+      .collection('deals')
+      .where('dealId', '==', String(dealId))
+      .limit(1)
+      .get();
+
+    if (dealSnap.empty) {
+      console.error(`[getQuotationDialogData] Deal with dealId=${dealId} not found for customer ${customerId}`);
+      return null;
+    }
+
+    const dealDoc = dealSnap.docs[0];
+    const dealRef = dealDoc.ref;
+
+    const dealData = {
+      id: dealDoc.id,
+      ...dealDoc.data()
+    } as Deal;
+
+    /* =====================================================
+       3️⃣ FIND QUOTATION INSIDE DEAL
+    ===================================================== */
+    const quotationSnap = await dealRef
+      .collection('quotations')
+      .where('quotationNo', '==', String(quotationNo))
+      .limit(1)
+      .get();
+
+    if (quotationSnap.empty) {
+      console.error(`[getQuotationDialogData] Quotation ${quotationNo} not found under deal ${dealDoc.id}`);
+      return null;
+    }
+
+    const quotationDoc = quotationSnap.docs[0];
+    const quotationData = {
+      id: quotationDoc.id,
+      ...quotationDoc.data()
+    } as Quotation;
+
+    /* =====================================================
+       4️⃣ FETCH CPDs
+    ===================================================== */
+    const cpdsSnap = await dealRef.collection('cpds').get();
+    const cpdsData = cpdsSnap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Cpd[];
+
+    console.log("[getQuotationDialogData] ✅ Success");
+
+    return JSON.parse(JSON.stringify({
+      quotation: quotationData,
+      deal: dealData,
+      cpds: cpdsData
+    }));
+
+  } catch (error) {
+    console.error("[getQuotationDialogData] ❌ CRITICAL ERROR:", error);
+    return null;
+  }
 }
+
+async function fallbackByQuotationNo(
+  quotationNo: string
+): Promise<{ quotation: Quotation; deal: Deal; cpds: Cpd[] } | null> {
+
+  console.log(`[fallbackByQuotationNo] Using collectionGroup for quotationNo=${quotationNo}`);
+
+  try {
+    const quotationSnap = await adminDb
+      .collectionGroup('quotations')
+      .where('quotationNo', '==', quotationNo)
+      .limit(1)
+      .get();
+
+    if (quotationSnap.empty) {
+      console.warn(`[fallbackByQuotationNo] Quotation ${quotationNo} not found`);
+      return null;
+    }
+
+    const quotationDoc = quotationSnap.docs[0];
+    const quotationData = {
+      id: quotationDoc.id,
+      ...quotationDoc.data()
+    } as Quotation;
+
+    const dealRef = quotationDoc.ref.parent.parent;
+    if (!dealRef) return null;
+
+    const dealSnap = await dealRef.get();
+    if (!dealSnap.exists) return null;
+
+    const dealData = {
+      id: dealSnap.id,
+      ...dealSnap.data()
+    } as Deal;
+
+    const cpdsSnap = await dealRef.collection('cpds').get();
+    const cpdsData = cpdsSnap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Cpd[];
+
+    console.log("[fallbackByQuotationNo] Success");
+
+    return JSON.parse(JSON.stringify({
+      quotation: quotationData,
+      deal: dealData,
+      cpds: cpdsData
+    }));
+
+  } catch (error) {
+    console.error("[fallbackByQuotationNo] Error:", error);
+    return null;
+  }
+}
+

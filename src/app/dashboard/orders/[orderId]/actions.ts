@@ -177,6 +177,8 @@ export async function allocateStockToAction(
                 orderId: orderId,
                 customerName: orderData.customerName,
                 customerPhone: orderData.customerPhone,
+                customerAddress: orderData.customerAddress,
+                salesPerson: orderData.salesPerson,
                 createdAt: new Date().toISOString(),
                 status: 'pendingInvoice',
                 items: newInvoiceItems

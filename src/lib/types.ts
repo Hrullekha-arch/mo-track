@@ -624,6 +624,8 @@ export interface InvoiceBatch {
     orderId: string;
     customerName: string;
     customerPhone: string;
+    customerAddress: string;
+    salesPerson: string;
     createdAt: string | AdminTimestamp;
     status: 'pendingInvoice' | 'invoiced';
     items: InvoiceBatchItem[];
@@ -631,7 +633,8 @@ export interface InvoiceBatch {
     tallyVoucherNo?: string;
     invoiceId?: string;
     isCombined?: boolean;
-    isVas?: boolean; // New field to identify VAS invoices
+    isVas?: boolean;
+    combinedFromBatches?: string[];
 }
 
 export interface Invoice {
