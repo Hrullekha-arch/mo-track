@@ -3,7 +3,6 @@
     "name": "invoice",
     "main": "./PrintableInvoice.tsx",
     "components": [
-        "./InvoiceLogTable.tsx",
-        "./StockMismatchDialog.tsx"
+        "./InvoiceLogTable.tsx"
     ]
 }
