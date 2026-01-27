@@ -110,7 +110,7 @@ export interface FabricDetail {
     type?: string;
     panels?: string;
     status?: 'pending for po' | 'po generated' | 'in stock' | 'allocated';
-    rate?: number; // Added rate from quotation
+    rate?: number; // Added from quotation
     discountPercent?: number; // Added discount from quotation
 }
 
@@ -633,8 +633,8 @@ export interface InvoiceBatch {
     orderId: string;
     customerName: string;
     customerPhone: string;
-    customerAddress: string;
-    salesPerson: string;
+    customerAddress?: string;
+    salesPerson?: string;
     createdAt: string | AdminTimestamp;
     status: 'pendingInvoice' | 'invoiced';
     items: InvoiceBatchItem[];

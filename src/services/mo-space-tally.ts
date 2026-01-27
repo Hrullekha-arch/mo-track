@@ -1,8 +1,8 @@
 
+
 'use server';
 
-import { Invoice, Stock, TaxDetail, User } from '@/lib/types';
-import { adminDb } from '@/lib/firebase-admin';
+import { Invoice } from '@/lib/types';
 import { format } from 'date-fns';
 
 function escapeXml(unsafe: string): string {
@@ -37,12 +37,14 @@ export async function buildMoSpaceSalesVoucherXML(invoice: Invoice): Promise<{xm
     let inventoryEntries = '';
 
     for (const item of invoice.items) {
-        const gstRate = (item as any).gstPercent || 18; 
-        const salesLedgerName = `Haryana Stitching Services @ ${gstRate}%`;
+        const gstPercent = (item as any).gstPercent || 18; 
+        const salesLedgerName = `Haryana Stitching Services @ ${gstPercent}%`;
   
         const qty = money(Number(item.quantityAllocated || 0));
         const rate = money(Number(item.rate || 0));
-        const itemTaxableValue = money(rate * qty);
+        
+        // Use the pre-calculated taxable amount from the payload
+        const itemTaxableValue = money((item as any).taxableAmount || (rate * qty));
         
         inventoryEntries += `
             <ALLINVENTORYENTRIES.LIST>
@@ -60,7 +62,7 @@ export async function buildMoSpaceSalesVoucherXML(invoice: Invoice): Promise<{xm
             </ALLINVENTORYENTRIES.LIST>`;
     }
 
-    const { roundedTotal, totalCgst, totalSgst } = invoice.totals;
+    const { roundedTotal, cgst, sgst } = invoice.totals;
     
     let partyDebitLedger = `<LEDGERENTRIES.LIST>
               <LEDGERNAME>${partyLedgerName}</LEDGERNAME>
@@ -71,21 +73,21 @@ export async function buildMoSpaceSalesVoucherXML(invoice: Invoice): Promise<{xm
     
     let taxLedgers = '';
 
-    if (totalCgst > 0) {
+    if (cgst > 0) {
         taxLedgers += `
             <LEDGERENTRIES.LIST>
               <LEDGERNAME>Output CGST</LEDGERNAME>
               <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <AMOUNT>${fmt(totalCgst)}</AMOUNT>
+              <AMOUNT>${fmt(cgst)}</AMOUNT>
             </LEDGERENTRIES.LIST>`;
     }
   
-    if (totalSgst > 0) {
+    if (sgst > 0) {
         taxLedgers += `
             <LEDGERENTRIES.LIST>
               <LEDGERNAME>Output SGST</LEDGERNAME>
               <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-              <AMOUNT>${fmt(totalSgst)}</AMOUNT>
+              <AMOUNT>${fmt(sgst)}</AMOUNT>
             </LEDGERENTRIES.LIST>`;
     }
         
