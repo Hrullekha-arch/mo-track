@@ -263,44 +263,56 @@ export async function createPurchaseRequestAction(
 }
 
 export async function getQuotationDialogData(dealId: string, quotationNo: string): Promise<{ quotation: Quotation; deal: Deal; cpds: Cpd[] } | null> {
-    if (!dealId || !quotationNo) return null;
+    console.log(`[getQuotationDialogData] Initiated. Searching for dealId: "${dealId}", quotationNo: "${quotationNo}"`);
+    if (!dealId || !quotationNo) {
+        console.error("[getQuotationDialogData] Error: Missing dealId or quotationNo.");
+        return null;
+    }
 
     try {
         // 1. Find the deal document using the numeric dealId
+        console.log(`[getQuotationDialogData] Querying 'deals' collection group for dealId: "${dealId}"`);
         const dealQuery = adminDb.collectionGroup('deals').where('dealId', '==', dealId).limit(1);
         const dealSnapshot = await dealQuery.get();
 
         if (dealSnapshot.empty) {
-            console.warn(`Deal with numeric ID ${dealId} not found.`);
+            console.warn(`[getQuotationDialogData] ⚠️ Deal with numeric ID "${dealId}" not found in any customer's deals subcollection.`);
             return null;
         }
         const dealDoc = dealSnapshot.docs[0];
         const dealData = { id: dealDoc.id, ...dealDoc.data() } as Deal;
+        console.log(`[getQuotationDialogData] ✅ Found deal document at path: ${dealDoc.ref.path}`);
 
         // 2. Now that we have the deal document, query its subcollection for the quotation
+        console.log(`[getQuotationDialogData] Querying subcollection '${dealDoc.ref.path}/quotations' for quotationNo: "${quotationNo}"`);
         const quotationQuery = dealDoc.ref.collection('quotations').where('quotationNo', '==', quotationNo).limit(1);
         const quotationSnapshot = await quotationQuery.get();
         
         if (quotationSnapshot.empty) {
-            console.warn(`Quotation #${quotationNo} not found within deal ${dealDoc.id}`);
+            console.warn(`[getQuotationDialogData] ⚠️ Quotation #${quotationNo} not found within deal ${dealDoc.id}.`);
             return null;
         }
         const quotationDoc = quotationSnapshot.docs[0];
         const quotationData = { id: quotationDoc.id, ...quotationDoc.data() } as Quotation;
+        console.log(`[getQuotationDialogData] ✅ Found quotation document at path: ${quotationDoc.ref.path}`);
         
         // 3. Fetch CPDs (existing logic)
+        console.log(`[getQuotationDialogData] Fetching CPDs for deal ${dealDoc.id}...`);
         const cpdsSnap = await dealDoc.ref.collection('cpds').get();
         const cpdsData = cpdsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Cpd);
+        console.log(`[getQuotationDialogData] ✅ Found ${cpdsData.length} CPDs.`);
 
         // Data needs to be serializable
-        return JSON.parse(JSON.stringify({
+        const result = {
             quotation: quotationData,
             deal: dealData,
             cpds: cpdsData
-        }));
+        };
+        console.log("[getQuotationDialogData] 🎉 Successfully compiled all data. Returning to client.");
+        return JSON.parse(JSON.stringify(result));
         
     } catch (error) {
-        console.error("Error in getQuotationDialogData:", error);
+        console.error("[getQuotationDialogData] ❌ CRITICAL ERROR:", error);
         return null;
     }
 }
