@@ -3,21 +3,57 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Customer, Deal, User, Quotation, O2DProcess, O2DStatus } from '@/lib/types';
+import { Customer, Deal, User, Quotation, O2DProcess } from '@/lib/types';
 import { query, where } from 'firebase/firestore';
+import { revalidatePath } from 'next/cache';
 
 export async function searchCustomersAction(filters: {
   customerName?: string;
   mobileNo?: string;
   salesSupport?: string;
+  quotationNo?: string;
+  orderNo?: string;
 }): Promise<Customer[]> {
   try {
     const customersRef = adminDb.collection('customers');
+
+    // Priority search: by order or quotation number
+    if (filters.orderNo) {
+        const orderQuery = adminDb.collection('orders').where('crmOrderNo', '==', filters.orderNo.trim()).limit(1);
+        const orderSnapshot = await orderQuery.get();
+        if (!orderSnapshot.empty) {
+            const order = orderSnapshot.docs[0].data();
+            if (order.customerId) {
+                const customerDoc = await customersRef.doc(order.customerId).get();
+                if (customerDoc.exists) {
+                    return JSON.parse(JSON.stringify([{ id: customerDoc.id, ...customerDoc.data() }]));
+                }
+            }
+        }
+        return []; // Not found
+    }
+
+    if (filters.quotationNo) {
+        const quotationQuery = adminDb.collectionGroup('quotations').where('quotationNo', '==', filters.quotationNo.trim()).limit(1);
+        const quotationSnapshot = await quotationQuery.get();
+        if (!quotationSnapshot.empty) {
+            const quotationDoc = quotationSnapshot.docs[0];
+            const pathParts = quotationDoc.ref.path.split('/');
+            const customerId = pathParts[1]; // Path: customers/{customerId}/...
+            if (customerId) {
+                 const customerDoc = await customersRef.doc(customerId).get();
+                 if (customerDoc.exists) {
+                    return JSON.parse(JSON.stringify([{ id: customerDoc.id, ...customerDoc.data() }]));
+                }
+            }
+        }
+        return []; // Not found
+    }
+
+
+    // Original search logic for other filters
     let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = customersRef;
 
-    // Firestore doesn't support case-insensitive or partial text search natively on the backend efficiently.
-    // A more scalable solution would involve a third-party search service like Algolia or Typesense.
-    // For now, we fetch all and filter in memory, which works for small-to-medium datasets.
     const querySnapshot = await q.orderBy('createdAt', 'desc').get();
     const allCustomers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Customer);
 
@@ -112,7 +148,11 @@ export async function getSalesmen(): Promise<User[]> {
 }
 
 
-interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {}
+interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {
+  savedAddresses?: Array<{ address: string; landmark?: string }>;
+  addressPinCode?: string;
+  landmark?: string;
+}
 
 export async function addCustomerAction(data: AddCustomerInput): Promise<{ success: boolean; message: string; customer?: Customer }> {
   try {
@@ -126,43 +166,15 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
     }
 
     const newContactRef = customersRef.doc();
-    const normalizeAddress = (addr?: { address?: string; landmark?: string; label?: string; createdAt?: string }) => {
-      const address = String(addr?.address || "").trim();
-      if (!address) return null;
-      const cleaned: Record<string, string> = { address };
-      const landmark = String(addr?.landmark || "").trim();
-      if (landmark) cleaned.landmark = landmark;
-      const label = String(addr?.label || "").trim();
-      if (label) cleaned.label = label;
-      if (addr?.createdAt) cleaned.createdAt = String(addr.createdAt);
-      return cleaned;
-    };
 
-    const providedAddresses = Array.isArray(data.savedAddresses)
-      ? data.savedAddresses
-          .map((addr) => normalizeAddress(addr))
-          .filter(Boolean)
-      : [];
-
-    const fallbackAddress = data.addressPinCode
-      ? normalizeAddress({ address: data.addressPinCode, landmark: data.landmark })
-      : null;
-
-    const savedAddresses =
-      providedAddresses.length > 0
-        ? providedAddresses
-        : fallbackAddress
-        ? [fallbackAddress]
-        : [];
-
-    const newCustomerDataRaw: Omit<Customer, "id"> = {
-      ...data,
-      savedAddresses,
+    const newCustomerData: Omit<Customer, 'id'> = {
+      name: data.name,
+      mobileNo: data.mobileNo,
+      email: data.email,
+      salesSupport: data.salesSupport,
+      createdBy: data.createdBy,
       createdAt: new Date().toISOString(),
     };
-    const newCustomerData = Object.fromEntries(
-      Object.entries(newCustomerDataRaw).filter(([, value]) => value !== undefined)
-    ) as Omit<Customer, "id">;
 
     await newContactRef.set(newCustomerData);
     
@@ -173,6 +185,64 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
     console.error("Error creating contact in server action:", error);
     return { success: false, message: `Server error: ${error.message}` };
   }
+}
+
+type UpdateCustomerPayload = {
+  name: string;
+  mobileNo: string;
+  email?: string;
+  address?: string;
+};
+
+export async function updateCustomerAction(
+  customerId: string,
+  payload: UpdateCustomerPayload
+): Promise<Customer> {
+  if (!customerId) throw new Error("Missing customerId");
+
+  const clean: any = {
+    name: (payload.name || "").trim(),
+    mobileNo: (payload.mobileNo || "").trim(),
+    addressPinCode: (payload.address || "").trim(),
+  };
+
+  const email = (payload.email || "").trim();
+  if (email) clean.email = email;
+  else clean.email = adminDb.fieldValue?.delete?.() ?? undefined; 
+  // If your wrapper doesn't expose fieldValue, use admin.firestore.FieldValue.delete() below.
+
+  const ref = adminDb.collection("customers").doc(customerId);
+  const snap = await ref.get();
+
+  if (!snap.exists) throw new Error("Customer not found");
+
+  // ✅ if you want to enforce unique mobile
+  const dupSnap = await adminDb
+    .collection("customers")
+    .where("mobileNo", "==", clean.mobileNo)
+    .limit(1)
+    .get();
+
+  const dup = dupSnap.docs.find((d) => d.id !== customerId);
+  if (dup) throw new Error("Mobile number already exists for another customer.");
+
+  // ✅ update
+  await ref.set(
+    {
+      ...clean,
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true }
+  );
+
+  const updatedSnap = await ref.get();
+  const updated = { id: updatedSnap.id, ...(updatedSnap.data() as any) } as Customer;
+
+  // ✅ optional cache revalidate
+  revalidatePath(`/dashboard/customers`);
+  revalidatePath(`/dashboard/customers/${customerId}`);
+
+  return JSON.parse(JSON.stringify(updated));
 }
 
 type AddDealInput = Omit<Deal, 'id' | 'createdAt' | 'dealId'> & { customerId: string };
@@ -214,19 +284,6 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
     const salesmanDoc = await adminDb.collection('users').doc(dealData.representativeId).get();
     const salesmanName = salesmanDoc.exists ? salesmanDoc.data()?.name : 'N/A';
 
-    // Conditionally create the first milestone
-    const initialMilestones: O2DStatus[] = [];
-    if (dealData.advanceForMeasurement === 'Yes' || dealData.advanceForMeasurement === 'Old') {
-        initialMilestones.push({
-            stepId: 1,
-            status: 'completed',
-            completedAt: new Date().toISOString(),
-            completedBy: salesmanName,
-            remarks: dealData.advanceForMeasurement === 'Old' ? 'Old' : 'Advance Received',
-            selection: 'Done'
-        });
-    }
-
     // Create the O2D document
     const newO2dProcess: Omit<O2DProcess, 'id'> = {
         dealId: dealId,
@@ -234,7 +291,7 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
         customerId: customerId,
         customerName: customerData.name,
         salesPerson: salesmanName,
-        milestones: initialMilestones,
+        milestones: [], // Starts empty
         createdAt: newDeal.createdAt,
         isAcknowledged: false,
     };

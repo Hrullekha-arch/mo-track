@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -21,6 +22,8 @@ import { searchCustomersAction } from './actions';
 const searchSchema = z.object({
   customerName: z.string().optional(),
   mobileNo: z.string().optional(),
+  quotationNo: z.string().optional(),
+  orderNo: z.string().optional(),
   salesSupport: z.string().optional(),
 });
 
@@ -40,6 +43,8 @@ export default function CustomersPage() {
     defaultValues: {
       customerName: "",
       mobileNo: "",
+      quotationNo: "",
+      orderNo: "",
       salesSupport: "all",
     }
   });
@@ -52,6 +57,8 @@ export default function CustomersPage() {
         customerName: data.customerName,
         mobileNo: data.mobileNo,
         salesSupport: data.salesSupport,
+        quotationNo: data.quotationNo,
+        orderNo: data.orderNo,
       });
       setSearchResults(results);
     } catch (error) {
@@ -104,6 +111,14 @@ export default function CustomersPage() {
                 <div className="space-y-2">
                     <Label htmlFor="mobileNo" className="flex items-center gap-1">Mobile No <Tooltip><TooltipTrigger asChild><Info className="h-3 w-3" /></TooltipTrigger><TooltipContent><p>Search by customer's mobile number.</p></TooltipContent></Tooltip></Label>
                     <Input id="mobileNo" {...form.register("mobileNo")} />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="quotationNo">Quotation No</Label>
+                    <Input id="quotationNo" {...form.register("quotationNo")} />
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="orderNo">Order No</Label>
+                    <Input id="orderNo" {...form.register("orderNo")} />
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="salesSupport" className="flex items-center gap-1">Architect / Sales Support</Label>
