@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -350,7 +351,8 @@ export default function PendingPOPage() {
   }
 
   const columns: ColumnDef<PendingPoItem>[] = [
-    { accessorKey: "orderId", header: "Order ID" },
+    { accessorKey: "orderId", header: "Quotation No" },
+    { accessorKey: "customerName", header: "Customer Name" },
     { accessorKey: "salesman", header: "Salesman" },
     { accessorKey: "collectionBrand", header: "BCN" },
     { accessorKey: "itemName", header: "Item Name" },
@@ -377,19 +379,7 @@ export default function PendingPOPage() {
   getCoreRowModel: getCoreRowModel(),
   getPaginationRowModel: getPaginationRowModel(),
   getSortedRowModel: getSortedRowModel(),
-
-  // ✅ THIS IS THE KEY
   getFilteredRowModel: getFilteredRowModel(),
-
-  // ✅ Global search logic
-  globalFilterFn: (row, columnId, filterValue) => {
-    const search = String(filterValue).toLowerCase();
-
-    return Object.values(row.original).some((value) =>
-      String(value).toLowerCase().includes(search)
-    );
-  },
-
   onGlobalFilterChange: setGlobalFilter,
   state: {
     globalFilter,

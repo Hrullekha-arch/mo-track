@@ -2,15 +2,14 @@
 
 'use server';
 
-import { adminDb } from "@/lib/firebase-admin";
-import { PurchaseRequest, Stock, InboundRequest, InboundItem, PurchaseStatus } from "@/lib/types";
-import { FieldValue } from 'firebase-admin/firestore';
-import { addDays } from 'date-fns';
+import { adminDb } from '@/lib/firebase-admin';
+import { PurchaseRequest, Stock } from '@/lib/types';
 
 export interface PendingPoItem {
   id: string;
   purchaseRequestId?: string;
   orderId: string;
+  customerName: string;
   salesman: string;
   collectionBrand: string;
   itemName: string;
@@ -109,6 +108,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
           id: `${requestDoc.id}-${bcn}`,
           purchaseRequestId: requestDoc.id,
           orderId: request.dealId,
+          customerName: request.customerName,
           salesman: request.salesman,
           collectionBrand: bcn,
 
