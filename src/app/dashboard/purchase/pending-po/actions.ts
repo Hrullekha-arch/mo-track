@@ -263,46 +263,50 @@ export async function createPurchaseRequestAction(
 }
 
 export async function getQuotationDialogData(dealId: string, quotationNo: string): Promise<{ quotation: Quotation; deal: Deal; cpds: Cpd[] } | null> {
-    console.log(`[getQuotationDialogData] Initiated. Searching for dealId: "${dealId}", quotationNo: "${quotationNo}"`);
-    if (!dealId || !quotationNo) {
-        console.error("[getQuotationDialogData] Error: Missing dealId or quotationNo.");
+    console.log(`[getQuotationDialogData] Initiated. Searching for quotationNo: "${quotationNo}"`);
+    if (!quotationNo) {
+        console.error("[getQuotationDialogData] Error: Missing quotationNo.");
         return null;
     }
 
     try {
-        // 1. Find the deal document using the numeric dealId
-        console.log(`[getQuotationDialogData] Querying 'deals' collection group for dealId: "${dealId}"`);
-        const dealQuery = adminDb.collectionGroup('deals').where('dealId', '==', dealId).limit(1);
-        const dealSnapshot = await dealQuery.get();
-
-        if (dealSnapshot.empty) {
-            console.warn(`[getQuotationDialogData] ⚠️ Deal with numeric ID "${dealId}" not found in any customer's deals subcollection.`);
-            return null;
-        }
-        const dealDoc = dealSnapshot.docs[0];
-        const dealData = { id: dealDoc.id, ...dealDoc.data() } as Deal;
-        console.log(`[getQuotationDialogData] ✅ Found deal document at path: ${dealDoc.ref.path}`);
-
-        // 2. Now that we have the deal document, query its subcollection for the quotation
-        console.log(`[getQuotationDialogData] Querying subcollection '${dealDoc.ref.path}/quotations' for quotationNo: "${quotationNo}"`);
-        const quotationQuery = dealDoc.ref.collection('quotations').where('quotationNo', '==', quotationNo).limit(1);
+        // 1. Find the quotation document directly using the quotation number
+        console.log(`[getQuotationDialogData] Querying 'quotations' collection group for quotationNo: "${quotationNo}"`);
+        const quotationQuery = adminDb.collectionGroup('quotations').where('quotationNo', '==', quotationNo).limit(1);
         const quotationSnapshot = await quotationQuery.get();
-        
+
         if (quotationSnapshot.empty) {
-            console.warn(`[getQuotationDialogData] ⚠️ Quotation #${quotationNo} not found within deal ${dealDoc.id}.`);
+            console.warn(`[getQuotationDialogData] ⚠️ Quotation with number "${quotationNo}" not found.`);
             return null;
         }
+        
         const quotationDoc = quotationSnapshot.docs[0];
         const quotationData = { id: quotationDoc.id, ...quotationDoc.data() } as Quotation;
         console.log(`[getQuotationDialogData] ✅ Found quotation document at path: ${quotationDoc.ref.path}`);
+
+        // 2. From the quotation, get the parent deal document reference
+        const dealRef = quotationDoc.ref.parent.parent;
+        if (!dealRef) {
+             console.error("[getQuotationDialogData] ❌ Could not resolve parent 'deal' from quotation.");
+             return null;
+        }
+
+        const dealSnap = await dealRef.get();
+        if (!dealSnap.exists) {
+            console.warn(`[getQuotationDialogData] ⚠️ Deal document at path ${dealRef.path} does not exist.`);
+            return null;
+        }
+        const dealData = { id: dealSnap.id, ...dealSnap.data() } as Deal;
+        console.log(`[getQuotationDialogData] ✅ Found deal document: ${dealSnap.id}`);
+
         
-        // 3. Fetch CPDs (existing logic)
-        console.log(`[getQuotationDialogData] Fetching CPDs for deal ${dealDoc.id}...`);
-        const cpdsSnap = await dealDoc.ref.collection('cpds').get();
+        // 3. Fetch CPDs from the deal's subcollection
+        console.log(`[getQuotationDialogData] Fetching CPDs for deal ${dealSnap.id}...`);
+        const cpdsSnap = await dealRef.collection('cpds').get();
         const cpdsData = cpdsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Cpd);
         console.log(`[getQuotationDialogData] ✅ Found ${cpdsData.length} CPDs.`);
 
-        // Data needs to be serializable
+        // 4. Serialize and return the complete payload
         const result = {
             quotation: quotationData,
             deal: dealData,
