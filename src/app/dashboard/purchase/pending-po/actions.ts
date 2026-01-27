@@ -262,35 +262,34 @@ export async function createPurchaseRequestAction(
     }
 }
 
-export async function getQuotationDialogData(quotationNo: string): Promise<{ quotation: Quotation; deal: Deal; cpds: Cpd[] } | null> {
-    if (!quotationNo) return null;
+export async function getQuotationDialogData(dealId: string, quotationNo: string): Promise<{ quotation: Quotation; deal: Deal; cpds: Cpd[] } | null> {
+    if (!dealId || !quotationNo) return null;
 
     try {
-        const q = adminDb.collectionGroup('quotations').where('quotationNo', '==', quotationNo).limit(1);
-        const querySnapshot = await q.get();
+        // 1. Find the deal document using the numeric dealId
+        const dealQuery = adminDb.collectionGroup('deals').where('dealId', '==', dealId).limit(1);
+        const dealSnapshot = await dealQuery.get();
 
-        if (querySnapshot.empty) {
+        if (dealSnapshot.empty) {
+            console.warn(`Deal with numeric ID ${dealId} not found.`);
             return null;
         }
+        const dealDoc = dealSnapshot.docs[0];
+        const dealData = { id: dealDoc.id, ...dealDoc.data() } as Deal;
 
-        const quotationDoc = querySnapshot.docs[0];
+        // 2. Now that we have the deal document, query its subcollection for the quotation
+        const quotationQuery = dealDoc.ref.collection('quotations').where('quotationNo', '==', quotationNo).limit(1);
+        const quotationSnapshot = await quotationQuery.get();
+        
+        if (quotationSnapshot.empty) {
+            console.warn(`Quotation #${quotationNo} not found within deal ${dealDoc.id}`);
+            return null;
+        }
+        const quotationDoc = quotationSnapshot.docs[0];
         const quotationData = { id: quotationDoc.id, ...quotationDoc.data() } as Quotation;
         
-        const pathParts = quotationDoc.ref.path.split('/');
-        const customerId = pathParts[1];
-        const dealId = pathParts[3];
-
-        const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
-        const [dealSnap, cpdsSnap] = await Promise.all([
-            dealRef.get(),
-            dealRef.collection('cpds').get()
-        ]);
-        
-        if (!dealSnap.exists) {
-            return null;
-        }
-
-        const dealData = { id: dealSnap.id, ...dealSnap.data() } as Deal;
+        // 3. Fetch CPDs (existing logic)
+        const cpdsSnap = await dealDoc.ref.collection('cpds').get();
         const cpdsData = cpdsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Cpd);
 
         // Data needs to be serializable

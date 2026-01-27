@@ -361,13 +361,13 @@ export default function PendingPOPage() {
       setIsCreatePoOpen(true);
   }
 
-  const handleQuotationClick = async (quotationNo: string) => {
-    if (!quotationNo) return;
+  const handleQuotationClick = async (dealId: string, quotationNo: string) => {
+    if (!dealId || !quotationNo) return;
     setIsDialogLoading(true);
     setSelectedQuotation(null);
 
     try {
-        const result = await getQuotationDialogData(quotationNo);
+        const result = await getQuotationDialogData(dealId, quotationNo);
         if (result) {
             setSelectedQuotation(result.quotation);
             setSelectedDeal(result.deal);
@@ -388,12 +388,13 @@ export default function PendingPOPage() {
       accessorKey: "quotationNo",
       header: "Quotation No",
       cell: ({ row }) => {
-        const quotationNo = row.getValue("quotationNo") as string;
+        const quotationNo = row.original.quotationNo;
+        const dealId = row.original.dealId;
         return (
           <Button
             variant="link"
             className="p-0 h-auto font-medium"
-            onClick={() => handleQuotationClick(quotationNo)}
+            onClick={() => handleQuotationClick(dealId, quotationNo)}
           >
             {quotationNo}
           </Button>
