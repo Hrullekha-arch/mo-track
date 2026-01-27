@@ -445,7 +445,7 @@ export default function PendingPOPage() {
 
   const selectedItems = table.getFilteredSelectedRowModel().rows.map(row => row.original);
   
-  const canCreatePo = useMemo(() => {
+  const canCreatePo = React.useMemo(() => {
     if (selectedItems.length === 0) return false;
     const firstVendor = selectedItems[0].vendorName;
     if (!firstVendor) return false; // Can't create PO for items without a vendor

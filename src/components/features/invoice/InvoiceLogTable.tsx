@@ -59,32 +59,11 @@ export function InvoiceLogTable() {
   }, [toast]);
   
   const handleGenerateTallyInvoice = async () => {
-    const selectedInvoices = table.getFilteredSelectedRowModel().rows.map(row => row.original);
-    if (selectedInvoices.length === 0) {
-      toast({ variant: 'destructive', title: 'No Invoices Selected', description: 'Please select at least one invoice to sync.' });
-      return;
-    }
-    
-    setIsSyncing(true);
-    toast({ title: 'Sync Started', description: `Sending ${selectedInvoices.length} invoices to Tally...` });
-
-    for (const invoice of selectedInvoices) {
-        try {
-            const result = await sendInvoiceToTally(invoice, invoice.isVas);
-            if (result.success && result.voucherNumber) {
-                const invoiceRef = doc(db, "invoices", invoice.id);
-                await updateDoc(invoiceRef, { tallyVoucherNo: result.voucherNumber });
-                toast({ title: `Success for #${invoice.invoiceNo}`, description: `Voucher created in Tally: ${result.voucherNumber}` });
-            } else {
-                toast({ variant: 'destructive', title: `Failed for #${invoice.invoiceNo}`, description: result.message });
-            }
-        } catch (error: any) {
-            toast({ variant: 'destructive', title: `Error for #${invoice.invoiceNo}`, description: error.message });
-        }
-    }
-    
-    setIsSyncing(false);
-    table.resetRowSelection();
+    toast({
+        title: "Tally Sync Disabled",
+        description: "This feature has been temporarily disabled."
+    });
+    return;
   };
 
   const columns: ColumnDef<Invoice>[] = [
