@@ -47,6 +47,16 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "quotations",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "quotationNo",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []
