@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { AssignInstallerDialog, SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX } from "lucide-react";
+import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -37,7 +37,13 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { unassignVisitAction } from "./actions";
+import { unassignVisitAction, updateVisitDetailsAction } from "./actions";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 
     interface EnrichedDealVisit extends DealVisit {
@@ -309,11 +315,11 @@ const InstallerCard = ({
           tx.update(visitRef, {
             assignedTo: installerId,
             slotDate: slot.slotDate,
-            slotId: slot.slotId,
-            slotIds: [slot.slotId],
-            slotLabel: slot.slotLabel,
-            slotStart: slot.slotStart,
-            slotEnd: slot.slotEnd,
+            slotId: firstSlot.id,
+            slotIds: sortedSlotIds,
+            slotLabel: combinedLabel,
+            slotStart: firstSlot.start,
+            slotEnd: lastSlot.end,
             assignedAt,
           });
         });
@@ -796,6 +802,144 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
     );
 }
 
+function EditVisitDialog({
+    visit,
+    isOpen,
+    onClose,
+    salesmen,
+    onSuccess,
+}: {
+    visit: EnrichedDealVisit | null;
+    isOpen: boolean;
+    onClose: () => void;
+    salesmen: User[];
+    onSuccess: () => void;
+}) {
+    const { toast } = useToast();
+    const [isSubmitting, setIsSubmitting] = React.useState(false);
+    
+    const formSchema = z.object({
+        dueDate: z.string().min(1, "Due date is required."),
+        representative: z.string().min(1, "Representative is required."),
+        remark: z.string().optional(),
+    });
+
+    const form = useForm<z.infer<typeof formSchema>>({
+        resolver: zodResolver(formSchema),
+        defaultValues: {
+            dueDate: "",
+            representative: "",
+            remark: "",
+        },
+    });
+
+    React.useEffect(() => {
+        if (visit) {
+            form.reset({
+                dueDate: visit.dueDate ? format(new Date(visit.dueDate), 'yyyy-MM-dd') : "",
+                representative: visit.representative || "",
+                remark: visit.remark || "",
+            });
+        }
+    }, [visit, form]);
+
+    if (!visit) return null;
+
+    const onSubmit = async (values: z.infer<typeof formSchema>) => {
+        setIsSubmitting(true);
+        try {
+            const result = await updateVisitDetailsAction(visit.customerId, visit.dealDocId, visit.id, {
+                dueDate: new Date(values.dueDate).toISOString(),
+                representative: values.representative,
+                remark: values.remark,
+            });
+
+            if (result.success) {
+                toast({ title: "Visit Updated", description: result.message });
+                onSuccess();
+                onClose();
+            } else {
+                toast({ variant: "destructive", title: "Update Failed", description: result.message });
+            }
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error", description: error.message });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Edit Visit</DialogTitle>
+                    <DialogDescription>
+                        Update details for visit to {visit.customerName}.
+                    </DialogDescription>
+                </DialogHeader>
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+                        <FormField
+                            control={form.control}
+                            name="dueDate"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Due Date</FormLabel>
+                                    <FormControl>
+                                        <Input type="date" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="representative"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Representative</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select a representative" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            {salesmen.map(s => (
+                                                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="remark"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Remarks</FormLabel>
+                                    <FormControl>
+                                        <Textarea placeholder="Add any notes..." {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <DialogFooter>
+                            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+                            <Button type="submit" disabled={isSubmitting}>
+                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Save Changes
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
+            </DialogContent>
+        </Dialog>
+    );
+}
 
 export default function AllVisitsPage() {
     const [allVisits, setAllVisits] = React.useState<EnrichedDealVisit[]>([]);
@@ -1355,21 +1499,13 @@ if (loading) {
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={!!editingVisit} onOpenChange={() => setEditingVisit(null)}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Edit Visit</DialogTitle>
-                        <DialogDescription>Editing functionality is under construction.</DialogDescription>
-                    </DialogHeader>
-                    <div className="py-4">
-                        <p>You can view details and re-assign, but full editing is not yet available.</p>
-                    </div>
-                    <DialogFooter>
-                         <Button onClick={() => setEditingVisit(null)}>Close</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            <EditVisitDialog 
+                visit={editingVisit} 
+                isOpen={!!editingVisit} 
+                onClose={() => setEditingVisit(null)}
+                salesmen={users}
+                onSuccess={() => { /* onSnapshot will handle refresh */ }}
+            />
         </div>
     );
 }
-

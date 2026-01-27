@@ -1,3 +1,4 @@
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -65,5 +66,40 @@ export async function unassignVisitAction(visitId: string, customerId: string, d
     } catch (error: any) {
         console.error('Error in unassignVisitAction:', error);
         return { success: false, message: error.message || 'Failed to unassign visit.' };
+    }
+}
+
+export async function updateVisitDetailsAction(
+    customerId: string,
+    dealDocId: string,
+    visitId: string,
+    updates: {
+        dueDate?: string;
+        representative?: string;
+        remark?: string;
+    }
+): Promise<{ success: boolean; message: string }> {
+    if (!visitId || !customerId || !dealDocId) {
+        return { success: false, message: 'Missing required IDs to update visit.' };
+    }
+
+    const visitRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealDocId).collection('visits').doc(visitId);
+
+    try {
+        const payload: Record<string, any> = {};
+        if (updates.dueDate) payload.dueDate = updates.dueDate;
+        if (updates.representative) payload.representative = updates.representative;
+        if (updates.remark) payload.remark = updates.remark;
+        
+        if (Object.keys(payload).length === 0) {
+            return { success: true, message: 'No changes to update.' };
+        }
+
+        await visitRef.update(payload);
+
+        return { success: true, message: 'Visit details updated successfully.' };
+    } catch (error: any) {
+        console.error('Error updating visit details:', error);
+        return { success: false, message: error.message || 'Failed to update visit.' };
     }
 }
