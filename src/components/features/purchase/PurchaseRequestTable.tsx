@@ -38,9 +38,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { doc, deleteDoc } from "firebase/firestore";
+import { collection, doc, deleteDoc, query, where, getDocs, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { PurchaseRequest, PurchaseStatus } from "@/lib/types";
+import { PurchaseRequest, PurchaseStatus, Stock } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
@@ -55,18 +55,20 @@ import { PURCHASE_PROCESS_CONFIG } from "@/lib/constants";
 import { getPurchaseViewDetails } from "./action";
 
 interface FlattenedPurchaseItem {
-    id: string; // Unique ID for the row
-    dealId: string;
-    customerName: string;
-    salesman: string;
-    status: string;
-    createdAt: string;
-    itemName: string;
-    quantity: string;
-    poNumber?: string;
-    vendorName?: string;
-    type: 'fabric' | 'furniture';
-    originalRequest: PurchaseRequest;
+  id: string; // Unique ID for the row
+  dealId: string;
+  customerName: string;
+  salesman: string;
+  status: string;
+  createdAt: string;
+  itemName: string;
+  quantity: string;
+  poNumber?: string;
+  vendorName?: string;
+  type: 'fabric' | 'furniture';
+  originalRequest: PurchaseRequest;
+  supplierCollectionName?: string;
+  supplierCollectionCode?: string;
 }
 
 
@@ -78,6 +80,7 @@ export function PurchaseRequestTable({ tableData, view = "default", timelineType
   const [rowSelection, setRowSelection] = React.useState({});
   const [deletingRequest, setDeletingRequest] = React.useState<PurchaseRequest | null>(null);
   const [timelineRequest, setTimelineRequest] = React.useState<PurchaseRequest | null>(null);
+  const [globalFilter, setGlobalFilter] = React.useState('');
 
 const [detailsOpen, setDetailsOpen] = React.useState(false);
 const [detailsLoading, setDetailsLoading] = React.useState(false);
@@ -91,30 +94,74 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
   
   const isAuthorized = role === 'admin' || role === 'Accounts';
 
-  React.useEffect(() => {
-    let flattenedData: FlattenedPurchaseItem[] = tableData.flatMap(req => {
-        const fabricItems = (req.fabricDetails || []).map(item => ({
-            id: `${req.id}-${item.fabricName}`,
-            dealId: req.dealId,
-            customerName: req.customerName,
-            salesman: req.salesman,
-            status: req.status || 'Pending Approval',
-            createdAt: req.createdAt,
-            itemName: item.fabricName,
-            quantity: item.quantity,
-            poNumber: item.poNumber,
-            vendorName: item.vendorName,
-            type: 'fabric' as const,
-            originalRequest: req,
-        }));
+    React.useEffect(() => {
+    const processData = async () => {
+        const allBcns = tableData.flatMap(req => (req.fabricDetails || []).map(item => item.fabricName));
+        const uniqueBcns = [...new Set(allBcns)];
+        const stockDataMap = new Map<string, Stock>();
 
-        return [...fabricItems];
-    });
+        if (uniqueBcns.length > 0) {
+            const chunks: string[][] = [];
+            for (let i = 0; i < uniqueBcns.length; i += 30) {
+                chunks.push(uniqueBcns.slice(i, i + 30));
+            }
+            for (const chunk of chunks) {
+                const stockQuery = query(collection(db, 'stocks'), where('bcn', 'in', chunk));
+                const stockSnapshot = await getDocs(stockQuery);
+                stockSnapshot.forEach(doc => {
+                    stockDataMap.set(doc.data().bcn, doc.data() as Stock);
+                });
+            }
+        }
+        
+        let flattenedData: FlattenedPurchaseItem[] = tableData.flatMap(req => {
+            const fabricItems = (req.fabricDetails || []).map(item => {
+                 const stockData = stockDataMap.get(item.fabricName);
+                 return {
+                    id: `${req.id}-${item.fabricName}`,
+                    dealId: req.dealId,
+                    customerName: req.customerName,
+                    salesman: req.salesman,
+                    status: req.status || 'Pending Approval',
+                    createdAt: req.createdAt,
+                    itemName: item.fabricName,
+                    quantity: item.quantity,
+                    poNumber: item.poNumber,
+                    vendorName: item.vendorName,
+                    type: 'fabric' as const,
+                    originalRequest: req,
+                    supplierCollectionName: stockData?.supplierCollectionName || '',
+                    supplierCollectionCode: stockData?.supplierCollectionCode || '',
+                }
+            });
 
-    if (view === 'po-tracking') {
-        flattenedData = flattenedData.filter(item => !!item.poNumber);
-    }
-    setRequests(flattenedData);
+            const furnitureItems = (req.furnitureDetails || []).map(item => ({
+                id: `${req.id}-${item.furnitureName}`,
+                dealId: req.dealId,
+                customerName: req.customerName,
+                salesman: req.salesman,
+                status: req.status || 'Pending Approval',
+                createdAt: req.createdAt,
+                itemName: item.furnitureName,
+                quantity: item.quantity,
+                poNumber: item.poNumber,
+                vendorName: item.vendorName,
+                type: 'furniture' as const,
+                originalRequest: req,
+                supplierCollectionName: '',
+                supplierCollectionCode: '',
+            }));
+
+            return [...fabricItems, ...furnitureItems];
+        });
+
+        if (view === 'po-tracking') {
+            flattenedData = flattenedData.filter(item => !!item.poNumber);
+        }
+        setRequests(flattenedData);
+    };
+    
+    processData();
   }, [tableData, view]);
   
   const handleDeleteRequest = async () => {
@@ -156,17 +203,6 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
     {
       accessorKey: "dealId",
       header: "Order ID",
-      cell: ({ row }) => {
-        const poNumber = row.original.poNumber;
-        const link = poNumber ? `/dashboard/inbound/${poNumber}` : '#';
-        return (
-          <Button asChild variant="link" className="p-0 h-auto font-medium" disabled={!poNumber}>
-            <Link href={link}>
-              {row.getValue("dealId")}
-            </Link>
-          </Button>
-        )
-      },
     },
     {
         accessorKey: 'poNumber',
@@ -196,6 +232,14 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
     {
         accessorKey: "itemName",
         header: "Item Name",
+    },
+    {
+        accessorKey: "supplierCollectionName",
+        header: "Supplier Collection",
+    },
+    {
+        accessorKey: "supplierCollectionCode",
+        header: "Supplier Code",
     },
     {
         accessorKey: "quantity",
@@ -305,11 +349,13 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
     getFilteredRowModel: getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
+    onGlobalFilterChange: setGlobalFilter,
     state: {
       sorting,
       columnFilters,
       columnVisibility,
       rowSelection,
+      globalFilter
     },
   });
 
@@ -390,11 +436,11 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
             <CardContent className="p-4">
                 <div className="flex flex-wrap items-center py-4 gap-4">
                     <Input
-                        placeholder="Filter by customer or Order ID..."
-                        value={(table.getColumn("customerName")?.getFilterValue() as string) ?? ""}
-                        onChange={(event) => {
-                            table.getColumn("customerName")?.setFilterValue(event.target.value)
-                        }}
+                        placeholder="Search all columns..."
+                        value={globalFilter ?? ''}
+                        onChange={(event) =>
+                            setGlobalFilter(event.target.value)
+                        }
                         className="max-w-sm"
                     />
                      <Select
@@ -409,6 +455,7 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
                         <SelectContent>
                             <SelectItem value="all">All Types</SelectItem>
                             <SelectItem value="fabric">Fabric</SelectItem>
+                            <SelectItem value="furniture">Furniture</SelectItem>
                         </SelectContent>
                     </Select>
                      <Select
@@ -1098,3 +1145,5 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
     </>
   );
 }
+
+    
