@@ -39,16 +39,8 @@ import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
 import { sendInvoiceToTally } from "@/services/tally";
 import { buildAndFetchInvoicePayload } from "./actions";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
-interface MismatchItem {
-  itemName: string;
-  crmQty: number;
-  tallyQty: number;
-  requiredQty?: number;
-  errorType: 'mismatch' | 'insufficient';
-  difference: number;
-}
- 
 function GenerateInvoiceDialog({
   isOpen,
   onClose,
@@ -59,13 +51,11 @@ function GenerateInvoiceDialog({
   payload: PrintableInvoicePayload | null;
 }) {
   const [isGenerating, setIsGenerating] = React.useState(false);
-  const [tallySyncResult, setTallySyncResult] = React.useState<{ success: boolean; message: string; voucherNumber?: string; } | null>(null);
-
   const { toast } = useToast();
   const { user } = useAuth();
   
   const handleFinalGenerate = React.useCallback(async () => {
-    if (!creator || !payload) {
+    if (!user || !payload) {
         toast({ variant: 'destructive', title: 'Error', description: 'Missing required data' });
         return;
     }
@@ -74,12 +64,7 @@ function GenerateInvoiceDialog({
     
     try {
         const batch = writeBatch(db);
-        const primaryOrder = orders[0];
         
-        const invoicesRef = collection(db, "invoices");
-        const q = query(invoicesRef, orderBy("invoiceNo", "desc"), limit(1));
-        
-        // Simplified invoice generation
         const randomInvoiceNo = Math.floor(1000 + Math.random() * 9000).toString();
         const newInvoiceRef = doc(collection(db, "invoices"));
 
@@ -108,7 +93,6 @@ function GenerateInvoiceDialog({
             const stockId = item.bcn.replace(/\//g, '-');
             const stockRef = doc(db, 'stocks', stockId);
 
-            // Decrement master physical quantity and reservedQty, increment cutQty
             batch.update(stockRef, {
                 quantity: increment(-item.quantity),
                 reservedQty: increment(-item.quantity),
@@ -139,17 +123,13 @@ function GenerateInvoiceDialog({
         batch.set(cuttingTaskRef, cuttingTask);
 
         await batch.commit();
-
-        setTallySyncResult({
-          success: true,
-          message: `Invoice ${randomInvoiceNo} generated successfully. Tally sync is disabled.`,
-          voucherNumber: randomInvoiceNo
-        });
-
+        
         toast({ 
           title: 'Success', 
           description: `Invoice ${randomInvoiceNo} generated successfully.` 
         });
+
+        onClose();
 
     } catch (error) {
       toast({ 
@@ -160,7 +140,7 @@ function GenerateInvoiceDialog({
     } finally {
         setIsGenerating(false);
     }
-  }, [user, toast, payload]);
+  }, [user, toast, payload, onClose]);
   
   const handlePrint = () => {
     const printContent = document.getElementById('printable-invoice-content');
@@ -179,14 +159,8 @@ function GenerateInvoiceDialog({
     }, 250);
   };
 
-  const resetAndClose = () => {
-    setTallySyncResult(null);
-    onClose();
-  };
-
   return (
-    <>
-      <Dialog open={isOpen && !tallySyncResult} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Generate Invoice</DialogTitle>
@@ -209,37 +183,7 @@ function GenerateInvoiceDialog({
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={!!tallySyncResult} onOpenChange={resetAndClose}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              {tallySyncResult?.success ? (
-                <CheckCircle className="text-green-500" />
-              ) : (
-                <XCircle className="text-destructive" />
-              )}
-              Invoice {tallySyncResult?.success ? "Generated Successfully" : "Generation Failed"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {tallySyncResult?.message}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {tallySyncResult?.voucherNumber && (
-            <div className="py-2">
-              <p className="text-sm font-semibold">Invoice Number:</p>
-              <p className="text-lg font-mono p-2 bg-muted rounded-md">
-                {tallySyncResult.voucherNumber}
-              </p>
-            </div>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={resetAndClose}>Close</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+    </Dialog>
   );
 }
 

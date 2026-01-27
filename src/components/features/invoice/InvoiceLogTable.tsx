@@ -12,7 +12,7 @@ import {
   SortingState,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, FileText, Loader2 } from "lucide-react";
+import { ArrowUpDown, FileText, Loader2, Eye, Printer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,10 +29,13 @@ import { collection, onSnapshot, query, orderBy, doc, updateDoc } from "firebase
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import { Invoice } from "@/lib/types";
+import { Invoice, PrintableInvoicePayload } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from 'next/link';
 import { sendInvoiceToTally } from "@/services/tally";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
+import { buildAndFetchInvoicePayload } from "@/app/dashboard/invoice/actions";
 
 export function InvoiceLogTable() {
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
@@ -40,6 +43,10 @@ export function InvoiceLogTable() {
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }]);
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
+
+  const [isViewOpen, setIsViewOpen] = React.useState(false);
+  const [isFetchingPayload, setIsFetchingPayload] = React.useState(false);
+  const [viewPayload, setViewPayload] = React.useState<PrintableInvoicePayload | null>(null);
 
   const { toast } = useToast();
 
@@ -64,6 +71,33 @@ export function InvoiceLogTable() {
         description: "This feature has been temporarily disabled."
     });
     return;
+  };
+  
+  const handleViewInvoice = async (invoice: Invoice) => {
+    setIsFetchingPayload(true);
+    setIsViewOpen(true);
+    try {
+      const result = await buildAndFetchInvoicePayload(invoice.orderId);
+      if (result.success && result.payload) {
+        // The generated payload might have a new invoiceNo, but we want to show the one already saved.
+        const payloadWithSavedInvoiceNo = {
+            ...result.payload,
+            meta: {
+                ...result.payload.meta,
+                invoiceNo: invoice.invoiceNo,
+            }
+        };
+        setViewPayload(payloadWithSavedInvoiceNo);
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: result.message || 'Could not fetch invoice data.' });
+        setIsViewOpen(false);
+      }
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Error', description: e.message });
+      setIsViewOpen(false);
+    } finally {
+      setIsFetchingPayload(false);
+    }
   };
 
   const columns: ColumnDef<Invoice>[] = [
@@ -142,6 +176,18 @@ export function InvoiceLogTable() {
       accessorKey: "createdBy",
       header: "Created By",
     },
+    {
+        id: "actions",
+        header: "View",
+        cell: ({ row }) => {
+            const invoice = row.original;
+            return (
+                <Button variant="ghost" size="icon" onClick={() => handleViewInvoice(invoice)}>
+                    <Eye className="h-4 w-4" />
+                </Button>
+            );
+        },
+    }
   ];
 
   const table = useReactTable({
@@ -161,7 +207,25 @@ export function InvoiceLogTable() {
   const selectedRows = table.getFilteredSelectedRowModel().rows;
   const canSync = selectedRows.length > 0 && selectedRows.every(row => !row.original.tallyVoucherNo);
 
+  const handlePrint = () => {
+    const printContent = document.getElementById('printable-invoice-view');
+    if (!printContent) return;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    printWindow.document.write('<html><head><title>Print Invoice</title></head><body>');
+    printWindow.document.write(printContent.innerHTML);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+    }, 250);
+  };
+
   return (
+    <>
     <Card>
         <CardHeader>
             <CardTitle>Tally Log / Invoice History</CardTitle>
@@ -225,5 +289,29 @@ export function InvoiceLogTable() {
             </div>
         </CardContent>
       </Card>
+      <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
+            <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
+                <DialogHeader>
+                    <DialogTitle>Invoice Preview</DialogTitle>
+                    <DialogDescription>
+                        Viewing invoice #{viewPayload?.meta.invoiceNo} for order {viewPayload?.meta.orderNo}
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="flex-grow overflow-y-auto pr-4" id="printable-invoice-view">
+                    {isFetchingPayload ? (
+                        <div className="flex items-center justify-center h-full">
+                            <Loader2 className="h-8 w-8 animate-spin" />
+                        </div>
+                    ) : (
+                        <PrintableInvoice payload={viewPayload} />
+                    )}
+                </div>
+                <DialogFooter>
+                    <Button variant="ghost" onClick={() => setIsViewOpen(false)}>Close</Button>
+                    <Button variant="outline" onClick={handlePrint}><Printer className="mr-2 h-4 w-4"/>Print</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    </>
   )
 }
