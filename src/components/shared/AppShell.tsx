@@ -29,6 +29,7 @@ import {
   Factory,
   Download,
   UserPlus,
+  PackageSearch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -57,6 +58,7 @@ export const navItems = [
     { href: "/dashboard", icon: Home, label: "Home", roles: ['admin', 'employee', 'Accounts'] },
     { href: "/dashboard/fms", icon: Factory, label: "FMS", roles: ['admin', 'employee'] },
     { href: "/dashboard/approvals", icon: FileSignature, label: "Approvals", roles: ['admin', 'Accounts'] },
+    { href: "/dashboard/stock-verification", icon: PackageSearch, label: "Stock Verification", roles: ['admin', 'employee'] },
     { href: "/dashboard/visits", icon: CalendarCheck, label: "Visits", roles: ['admin', 'employee'] },
     { href: "/dashboard/customers", icon: Contact, label: "Customers", roles: ['admin', 'employee'] },
     { href: "/dashboard/walk-in", icon: UserPlus, label: "Walk-in", roles: ['admin', 'employee'] },
@@ -140,7 +142,7 @@ function UserProfile() {
             <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="w-full justify-start items-center gap-3 p-2 h-auto">
                     <Avatar className="h-9 w-9">
-                      <AvatarImage src={`https://placehold.co/100x100.png`} data-ai-hint="avatar" />
+                      <AvatarImage src={`https://placehold.co/100x100.png`} />
                       <AvatarFallback>{user?.name?.charAt(0).toUpperCase()}</AvatarFallback>
                     </Avatar>
                     <div className="flex-grow opacity-0 group-hover:opacity-100 transition-opacity duration-200 overflow-hidden text-left">

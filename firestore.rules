@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -66,6 +67,10 @@ service cloud.firestore {
     match /visitTracking/{visitId}/{document=**} {
       allow read: if request.auth != null;
       allow write: if false;
+    }
+
+    match /approvedStock/{stockId} {
+        allow read, write: if request.auth != null;
     }
 
     // Default deny all other access

@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from "@/lib/firebase-admin";
-import { Order, PurchaseRequest, Stock, FabricDetail, O2DStatus, Quotation, PurchaseStatus } from "@/lib/types";
+import { Order, O2DStatus, Quotation } from "@/lib/types";
 import { FieldValue } from "firebase-admin/firestore";
 
 
@@ -38,136 +38,36 @@ export async function approveOrderAndCreatePurchaseRequest(
             approvedAt: new Date().toISOString(),
         });
 
-        // 2️⃣ Aggregate BCN quantities from THIS order
-        const aggregatedItems = new Map<
-            string,
-            { totalQuantity: number; itemDetail: FabricDetail }
-        >();
+        // 2️⃣ Create items in 'approvedStock' collection
+        const approvedStockRef = adminDb.collection('approvedStock');
+        const createdAt = new Date().toISOString();
 
-        (orderData.fabricDetails || []).forEach(item => {
-            if (!item.fabricName) return;
-
-            const qty = Number(item.quantity || 0);
-            const existing = aggregatedItems.get(item.fabricName);
-
-            if (existing) {
-                existing.totalQuantity += qty;
-            } else {
-                aggregatedItems.set(item.fabricName, {
-                    totalQuantity: qty,
+        if (orderData.fabricDetails && orderData.fabricDetails.length > 0) {
+            for (const item of orderData.fabricDetails) {
+                const newDocRef = approvedStockRef.doc(); // Auto-generate ID
+                const stockItem = {
+                    orderId: orderId,
+                    crmOrderNo: orderData.crmOrderNo,
+                    customerName: orderData.customerName,
+                    salesPerson: orderData.salesPerson,
+                    fabricName: item.fabricName,
+                    quantity: item.quantity,
+                    status: 'Pending Stock Verification',
+                    createdAt: createdAt,
+                    createdBy: approver,
                     itemDetail: item,
-                });
+                };
+                batch.set(newDocRef, stockItem);
             }
-        });
-
-        console.log(
-            "📦 Aggregated BCN list",
-            JSON.stringify(Array.from(aggregatedItems.entries()), null, 2)
-        );
-
-        let purchaseMessage = "";
-
-        // 3️⃣ BCN-WISE CHECK
-        for (const [bcn, { totalQuantity, itemDetail }] of aggregatedItems.entries()) {
-            console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            console.log("🧵 BCN CHECK START", bcn);
-            console.log("📦 Order Qty:", totalQuantity);
-
-            // 3A️⃣ Calculate TOTAL pending demand across ALL orders
-            const allOrdersSnap = await adminDb.collection("orders").get();
-            let totalUnallocatedDemand = 0;
-
-            allOrdersSnap.forEach(doc => {
-                const o = doc.data() as Order;
-                (o.fabricDetails || []).forEach(fd => {
-                    if (
-                        fd.fabricName === bcn &&
-                        fd.status === "pending for po"
-                    ) {
-                        const q = Number(fd.quantity || 0);
-                        totalUnallocatedDemand += q;
-
-                        console.log("➕ Pending demand", {
-                            fromOrder: doc.id,
-                            qty: q,
-                        });
-                    }
-                });
-            });
-
-            if (totalUnallocatedDemand === 0) {
-                totalUnallocatedDemand = totalQuantity;
-                console.log("ℹ️ No other pending demand, using order qty");
-            }
-
-            // 3B️⃣ FETCH STOCK CORRECTLY (🔥 YOUR STRUCTURE 🔥)
-            const lengthsSnap = await adminDb
-                .collection("stocks")
-                .doc(bcn)
-                .collection("lengths")
-                .get();
-
-            let availableQty = 0;
-
-            lengthsSnap.forEach(doc => {
-                const data = doc.data();
-                availableQty += Number(data.availableQty || 0);
-            });
-
-            console.log("🏬 STOCK SUMMARY", {
-                bcn,
-                totalAvailableQty: availableQty,
-                lengthsCount: lengthsSnap.size,
-            });
-
-            console.log("📊 FINAL CHECK", {
-                bcn,
-                totalUnallocatedDemand,
-                availableQty,
-                willCreatePR: totalUnallocatedDemand > availableQty,
-            });
-
-            // 🛑 HARD SAFETY STOP
-            if (availableQty >= totalUnallocatedDemand) {
-                console.log("🛑 STOCK SUFFICIENT → PR SKIPPED", bcn);
-                continue;
-            }
-
-            // 4️⃣ CREATE PURCHASE REQUEST
-            const requiredQty = totalUnallocatedDemand - availableQty;
-
-            console.warn("❌ STOCK SHORT → CREATING PR", {
-                bcn,
-                requiredQty,
-            });
-
-            const prDocId = `${orderData.crmOrderNo}-${bcn.replace(/\s+/g, "-")}`;
-            const prRef = adminDb.collection("purchaseRequests").doc(prDocId);
-
-            batch.set(prRef, {
-                dealId: orderData.crmOrderNo,
-                customerName: orderData.customerName,
-                salesman: orderData.salesPerson,
-                type: "fabric",
-                fabricDetails: [
-                    { ...itemDetail, quantity: String(requiredQty) },
-                ],
-                createdAt: new Date().toISOString(),
-                createdBy: approver,
-                vendorType: "undecided",
-                status: "Approved",
-            });
-
-            purchaseMessage += ` PR created for ${requiredQty} of ${bcn}.`;
         }
 
         await batch.commit();
 
-        console.log("🎉 ORDER APPROVAL COMPLETED");
+        console.log("🎉 ORDER APPROVAL COMPLETED & MOVED TO STOCK VERIFICATION");
 
         return {
             success: true,
-            message: `Order approved.${purchaseMessage}`,
+            message: `Order approved and items sent for stock verification.`,
         };
     } catch (error: any) {
         console.error("🔥 ERROR IN ORDER APPROVAL", error);

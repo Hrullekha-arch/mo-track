@@ -711,6 +711,22 @@ export interface Receipt {
     createdAt: string;
 }
 
+export interface ApprovedStockItem {
+    id: string;
+    orderId: string;
+    crmOrderNo: string;
+    customerName: string;
+    salesPerson: string;
+    fabricName: string;
+    quantity: string;
+    status: 'Pending Stock Verification' | 'In Stock' | 'PR Created';
+    createdAt: string;
+    createdBy: {
+        id: string;
+        name: string;
+    };
+    itemDetail: FabricDetail;
+}
 
 export { type ComboboxOption };
 
