@@ -23,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
-import { InboundRequest, PurchaseRequest, PurchaseStatus } from "@/lib/types";
+import { InboundRequest, PurchaseRequest, PurchaseStatus, Stock } from "@/lib/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,10 +34,10 @@ import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InboundProcessTimeline } from "./InboundProcessTimeline";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { INBOUND_PROCESS_CONFIG } from "@/lib/constants";
-import { format } from 'date-fns';
+import { format } from "date-fns";
 
 interface FlattenedInboundItem {
   id: string; // Unique ID for the row
@@ -48,6 +48,8 @@ interface FlattenedInboundItem {
   status: string;
   createdAt: string;
   itemName: string;
+  supplierCollectionName?: string;
+  supplierCollectionCode?: string;
   quantity: string;
   vendorName?: string;
   type: 'fabric' | 'furniture';
@@ -61,12 +63,30 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
 
   React.useEffect(() => {
     const processData = async () => {
+        const allBcns = tableData.flatMap(req => (req.fabricDetails || []).map(item => item.fabricName));
+        const uniqueBcns = [...new Set(allBcns)];
+        const stockDataMap = new Map<string, Stock>();
+
+        if (uniqueBcns.length > 0) {
+            const chunks: string[][] = [];
+            for (let i = 0; i < uniqueBcns.length; i += 30) {
+                chunks.push(uniqueBcns.slice(i, i + 30));
+            }
+            for (const chunk of chunks) {
+                const stockQuery = query(collection(db, 'stocks'), where('bcn', 'in', chunk));
+                const stockSnapshot = await getDocs(stockQuery);
+                stockSnapshot.forEach(doc => {
+                    stockDataMap.set(doc.data().bcn, doc.data() as Stock);
+                });
+            }
+        }
+
         const flattenedDataPromises = tableData.flatMap(req => {
-            // Filter for items that actually have a PO number, as those are the only ones relevant for inbound.
             const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
 
             return itemsWithPo.map(async item => {
                 let statusText = 'Pending Receiving'; // Default status
+                const stockData = stockDataMap.get(item.fabricName);
 
                 if (item.poNumber) {
                     const inboundRef = doc(db, 'inbounds', item.poNumber);
@@ -74,7 +94,6 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                         const inboundSnap = await getDoc(inboundRef);
                         if (inboundSnap.exists()) {
                             const inboundData = inboundSnap.data() as InboundRequest;
-                            // Check the specific item within the inbound document
                             const inboundItem = inboundData.items.find(i => i.itemName === item.fabricName);
                             const completedMilestones = (inboundItem?.inboundMilestones || []);
                             const completedStepsCount = completedMilestones.length;
@@ -82,17 +101,14 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                             if (completedStepsCount === INBOUND_PROCESS_CONFIG.length) {
                                 statusText = 'Received';
                             } else if (completedStepsCount > 0) {
-                                // Sort milestones by date to find the most recent one
-                                const lastCompletedMilestone = completedMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())[0];
+                                const lastCompletedMilestone = completedMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.createdAt).getTime())[0];
                                 const lastStepConfig = INBOUND_PROCESS_CONFIG.find(step => step.id === lastCompletedMilestone.stepId);
                                 statusText = lastStepConfig?.name || "In Progress";
                             } else {
-                                // If the inbound doc exists but no milestones, it's pending the first step
                                 statusText = INBOUND_PROCESS_CONFIG[0]?.name ? `Pending: ${INBOUND_PROCESS_CONFIG[0].name}` : "Pending Receiving";
                             }
                         }
                     } catch (e) {
-                        console.error(`Could not fetch inbound doc for PO ${item.poNumber}`, e);
                         statusText = "Error fetching status";
                     }
                 }
@@ -106,6 +122,8 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                     status: statusText,
                     createdAt: req.createdAt,
                     itemName: item.fabricName,
+                    supplierCollectionName: stockData?.supplierCollectionName || '',
+                    supplierCollectionCode: stockData?.supplierCollectionCode || '',
                     quantity: item.quantity,
                     vendorName: item.vendorName,
                     type: 'fabric' as const,
@@ -140,7 +158,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
         const poNumber = row.original.poNumber;
         const link = poNumber ? `/dashboard/inbound/${poNumber}` : '#';
         return (
-          <Button asChild variant="link" className="p-0 h-auto font-medium">
+          <Button asChild variant="link" className="p-0 h-auto font-medium" disabled={!poNumber}>
             <Link href={link}>
               {row.getValue("dealId")}
             </Link>
@@ -160,6 +178,8 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
     },
     { accessorKey: "customerName", header: "Customer Name" },
     { accessorKey: "itemName", header: "Item Name" },
+    { accessorKey: "supplierCollectionName", header: "Supplier Collection" },
+    { accessorKey: "supplierCollectionCode", header: "Supplier Code" },
     { accessorKey: "quantity", header: "Qty" },
     {
         accessorKey: "status",
@@ -212,7 +232,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
       <CardContent className="p-4">
         <div className="flex items-center py-4">
           <Input
-            placeholder="Search..."
+            placeholder="Search by Order, Customer, Item, or Supplier Collection..."
             value={globalFilter}
             onChange={(event) => setGlobalFilter(event.target.value)}
             className="max-w-sm"
