@@ -11,8 +11,9 @@ import {
   getSortedRowModel,
   getFilteredRowModel,
   useReactTable,
+  RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowLeft, Search, Loader2, Calendar as CalendarIcon } from "lucide-react";
+import { ArrowLeft, Search, Loader2, Calendar as CalendarIcon, Edit, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,13 +26,13 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
 import Link from 'next/link';
-import { getPendingPoItems, createPurchaseRequestAction, PendingPoItem, PoCreationData, getQuotationDialogData } from "./actions";
+import { getPendingPoItems, createPurchaseOrderAction, PendingPoItem, PoCreationData, getQuotationDialogData } from "./actions";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { useForm } from "react-hook-form";
+import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,12 +44,17 @@ import { cn } from "@/lib/utils";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
 import { getSalesmen } from "@/app/dashboard/customers/actions";
 import { Quotation, Deal, User, Cpd } from "@/lib/types";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const createPoSchema = z.object({
   vendor: z.string().min(1, "Vendor name is required."),
   courier: z.string().min(1, "Courier is required."),
   mode: z.enum(['AIR', 'SURFACE'], { required_error: "Mode is required." }),
-  purchaseQty: z.number().min(0.01, "Quantity must be greater than 0."),
+  items: z.array(z.object({
+    id: z.string(),
+    purchaseQty: z.number().min(0.01, "Quantity must be > 0."),
+  })),
   promiseDeliveryDate: z.date({ required_error: "Promise delivery date is required." }),
 });
 
@@ -57,45 +63,42 @@ type CreatePoFormValues = z.infer<typeof createPoSchema>;
 function CreatePoDialog({ 
     isOpen, 
     onClose, 
-    item, 
+    items, 
     creator,
     onSuccess,
     isNewVendor
 }: { 
     isOpen: boolean;
     onClose: () => void; 
-    item: PendingPoItem | null; 
+    items: PendingPoItem[]; 
     creator: { id: string; name: string; } | null;
     onSuccess: () => void;
     isNewVendor: boolean;
 }) {
-
-    console.log("Item in CreatePoDialog:", item);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const { toast } = useToast();
 
     const form = useForm<CreatePoFormValues>({
         resolver: zodResolver(createPoSchema),
-        defaultValues: { vendor: '', courier: '', mode: 'SURFACE' }
+        defaultValues: { vendor: '', courier: '', mode: 'SURFACE', items: [] }
     });
-    const [detailedStockItem, setDetailedStockItem] = React.useState<Stock | null>(null);
-    const [isStockLoading, setIsStockLoading] = React.useState(false);
-
+    
+    const { control, handleSubmit, register } = form;
 
     React.useEffect(() => {
-        if (item) {
+        if (items.length > 0) {
             form.reset({
-                vendor: item.vendorName || '',
+                vendor: items[0].vendorName || '',
                 courier: '',
                 mode: 'SURFACE',
-                purchaseQty: item.neededQty,
+                items: items.map(item => ({ id: item.id, purchaseQty: item.neededQty })),
                 promiseDeliveryDate: undefined,
             });
         }
-    }, [item, form]);
+    }, [items, form]);
 
-    const handleSubmit = async (values: CreatePoFormValues) => {
-        if (!creator || !item) {
+    const onSubmit = async (values: CreatePoFormValues) => {
+        if (!creator || items.length === 0) {
             toast({ variant: 'destructive', title: 'Error', description: 'Missing required data to create a PO.' });
             return;
         }
@@ -105,18 +108,21 @@ function CreatePoDialog({
                 vendor: values.vendor,
                 courier: values.courier,
                 mode: values.mode,
-                item: {
-                    ...item,
-                    neededQty: values.purchaseQty, // Use the editable purchaseQty
-                },
+                items: items.map(originalItem => {
+                    const formItem = values.items.find(i => i.id === originalItem.id);
+                    return {
+                        ...originalItem,
+                        neededQty: formItem?.purchaseQty || originalItem.neededQty,
+                    };
+                }),
                 isNewVendor,
                 promiseDeliveryDate: values.promiseDeliveryDate?.toISOString(),
             };
-            const result = await createPurchaseRequestAction(poData, creator);
+            const result = await createPurchaseOrderAction(poData, creator);
 
             if (result.success) {
                 toast({ title: 'Success!', description: result.message });
-                onSuccess(); // This will trigger a data refresh in the parent
+                onSuccess();
                 onClose();
             } else {
                 toast({ variant: 'destructive', title: 'Error', description: result.message });
@@ -129,7 +135,7 @@ function CreatePoDialog({
         }
     };
     
-    if (!item) return null;
+    if (!items || items.length === 0) return null;
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -138,16 +144,16 @@ function CreatePoDialog({
                     <DialogTitle>Create Purchase Order</DialogTitle>
                 </DialogHeader>
                  <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+                    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <FormField name="vendor" control={form.control} render={({ field }) => (
+                            <FormField name="vendor" control={control} render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Vendor</FormLabel>
                                     <FormControl><Input {...field} /></FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}/>
-                             <FormField name="courier" control={form.control} render={({ field }) => (
+                             <FormField name="courier" control={control} render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Courier</FormLabel>
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
@@ -160,7 +166,7 @@ function CreatePoDialog({
                                     <FormMessage />
                                 </FormItem>
                             )}/>
-                            <FormField name="mode" control={form.control} render={({ field }) => (
+                            <FormField name="mode" control={control} render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Mode</FormLabel>
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
@@ -174,7 +180,7 @@ function CreatePoDialog({
                                 </FormItem>
                             )}/>
                             <FormField
-                                control={form.control}
+                                control={control}
                                 name="promiseDeliveryDate"
                                 render={({ field }) => (
                                     <FormItem>
@@ -216,47 +222,43 @@ function CreatePoDialog({
                         
                         <Separator />
                         
-                        <div>
-                             <div className="grid grid-cols-12 px-4 py-2 font-medium text-muted-foreground text-sm">
-                                <div className="col-span-1">#</div>
-                                <div className="col-span-5">BCN/Item Name</div>
-                                <div className="col-span-2 text-right">Stock Qty</div>
-                                <div className="col-span-2 text-right">Order Qty</div>
-                                <div className="col-span-2 text-right">Purchase Qty</div>
-                            </div>
-                            <div className="border rounded-md px-4 py-3">
-                                 <div className="grid grid-cols-12 items-center">
-                                    <div className="col-span-1 font-semibold">1</div>
-                                    <div className="col-span-5">
-                                        <p className="font-semibold text-primary">{item.collectionBrand}</p>
-                                        <p className="text-sm text-black">#: {item.itemName}</p>
-                                        <p className="text-xs text-black">#: SN: {item.serialNo}</p>
-                                        <p className="text-xs text-black capitalize">#: Category: {item.category}</p>
-                                    </div>
-                                    <div className="col-span-2 text-right font-bold text-blue-600">{item.stock.toFixed(2)}</div>
-                                    <div className="col-span-2 text-right font-bold text-orange-600">{item.neededQty.toFixed(2)}</div>
-                                    <div className="col-span-2 text-right font-bold">
-                                        <FormField 
-                                            name="purchaseQty"
-                                            control={form.control}
-                                            render={({ field }) => (
-                                                <FormItem>
-                                                    <FormControl>
-                                                        <Input 
-                                                            {...field}
-                                                            type="number"
-                                                            className="text-right"
-                                                            onChange={e => field.onChange(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                                                        />
-                                                    </FormControl>
-                                                     <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <Table>
+                             <TableHeader>
+                                <TableRow>
+                                    <TableHead>#</TableHead>
+                                    <TableHead>BCN/Item Name</TableHead>
+                                    <TableHead>Needed</TableHead>
+                                    <TableHead>In Stock</TableHead>
+                                    <TableHead className="w-40">Purchase Qty</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {items.map((item, index) => (
+                                    <TableRow key={item.id}>
+                                        <TableCell>{index + 1}</TableCell>
+                                        <TableCell>
+                                            <p className="font-semibold">{item.collectionBrand}</p>
+                                            <p className="text-xs text-muted-foreground">{item.itemName}</p>
+                                        </TableCell>
+                                        <TableCell>{item.neededQty.toFixed(2)}</TableCell>
+                                        <TableCell>{item.stock.toFixed(2)}</TableCell>
+                                        <TableCell>
+                                            <FormField
+                                                name={`items.${index}.purchaseQty`}
+                                                control={control}
+                                                render={({ field }) => (
+                                                    <Input
+                                                        {...field}
+                                                        type="number"
+                                                        onChange={e => field.onChange(parseFloat(e.target.value))}
+                                                    />
+                                                )}
+                                            />
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
 
                         <DialogFooter className="pt-4">
                             <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
@@ -313,15 +315,15 @@ function VendorVerificationDialog({
 export default function PendingPOPage() {
   const [data, setData] = React.useState<PendingPoItem[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [itemForPo, setItemForPo] = React.useState<PendingPoItem | null>(null);
   const [isVerificationOpen, setIsVerificationOpen] = React.useState(false);
   const [isCreatePoOpen, setIsCreatePoOpen] = React.useState(false);
   const [isNewVendor, setIsNewVendor] = React.useState(false);
   const [globalFilter, setGlobalFilter] = React.useState('');
+  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
+  
   const { toast } = useToast();
   const { user } = useAuth();
 
-  // State for Quotation Dialog
   const [selectedQuotation, setSelectedQuotation] = React.useState<Quotation | null>(null);
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
   const [salesmen, setSalesmen] = React.useState<User[]>([]);
@@ -350,8 +352,7 @@ export default function PendingPOPage() {
       getSalesmen().then(setSalesmen);
   }, [fetchData]);
 
-  const handleCreatePoClick = (item: PendingPoItem) => {
-    setItemForPo(item);
+  const handleCreatePoClick = () => {
     setIsVerificationOpen(true);
   };
 
@@ -385,6 +386,24 @@ export default function PendingPOPage() {
 
   const columns: ColumnDef<PendingPoItem>[] = [
     {
+      id: "select",
+      header: ({ table }) => (
+        <Checkbox
+          checked={table.getIsAllPageRowsSelected()}
+          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+          aria-label="Select all"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+        />
+      ),
+      enableSorting: false,
+    },
+    {
       accessorKey: "quotationNo",
       header: "Quotation No",
       cell: ({ row }) => {
@@ -405,39 +424,37 @@ export default function PendingPOPage() {
     { accessorKey: "salesman", header: "Salesman" },
     { accessorKey: "collectionBrand", header: "BCN" },
     { accessorKey: "itemName", header: "Item Name" },
-    { accessorKey: "serialNo", header: "Serial No" },
     { accessorKey: "neededQty", header: "Order Qty" },
     { accessorKey: "vendorName", header: "Vendor Name" },
-    {
-      id: "actions",
-      cell: ({ row }) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handleCreatePoClick(row.original)}
-        >
-          Create PO
-        </Button>
-      ),
-    },
   ];
 
   const table = useReactTable({
-  data,
-  columns,
-  getCoreRowModel: getCoreRowModel(),
-  getPaginationRowModel: getPaginationRowModel(),
-  getSortedRowModel: getSortedRowModel(),
-  getFilteredRowModel: getFilteredRowModel(),
-  onGlobalFilterChange: setGlobalFilter,
-  state: {
-    globalFilter,
-  },
-});
+    data,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    onGlobalFilterChange: setGlobalFilter,
+    onRowSelectionChange: setRowSelection,
+    state: {
+        globalFilter,
+        rowSelection
+    },
+  });
 
+  const selectedItems = table.getFilteredSelectedRowModel().rows.map(row => row.original);
+  
+  const canCreatePo = useMemo(() => {
+    if (selectedItems.length === 0) return false;
+    const firstVendor = selectedItems[0].vendorName;
+    if (!firstVendor) return false; // Can't create PO for items without a vendor
+    return selectedItems.every(item => item.vendorName === firstVendor);
+  }, [selectedItems]);
 
   return (
     <>
+    <TooltipProvider>
     <div className="w-full p-4 md:p-6 lg:p-8">
         <header className="flex items-center justify-between mb-8">
             <div>
@@ -463,6 +480,20 @@ export default function PendingPOPage() {
                             className="w-full max-w-sm pl-9"
                         />
                     </div>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div className="ml-auto"> {/* Wrapper div for tooltip */}
+                                <Button onClick={handleCreatePoClick} disabled={!canCreatePo}>
+                                    Create PO for Selected ({selectedItems.length})
+                                </Button>
+                            </div>
+                        </TooltipTrigger>
+                        {!canCreatePo && selectedItems.length > 0 && (
+                            <TooltipContent>
+                                <p>Select items from the same vendor to create a bulk PO.</p>
+                            </TooltipContent>
+                        )}
+                    </Tooltip>
                 </div>
 
                 <div className="rounded-md border">
@@ -487,7 +518,7 @@ export default function PendingPOPage() {
                                 </TableRow>
                             ) : table.getRowModel().rows?.length ? (
                                 table.getRowModel().rows.map((row) => (
-                                    <TableRow key={row.id}>
+                                    <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                                     {row.getVisibleCells().map((cell) => (
                                         <TableCell key={cell.id}>
                                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -506,6 +537,10 @@ export default function PendingPOPage() {
                     </Table>
                 </div>
                  <div className="flex items-center justify-end space-x-2 py-4">
+                    <div className="flex-1 text-sm text-muted-foreground">
+                        {table.getFilteredSelectedRowModel().rows.length} of{" "}
+                        {table.getFilteredRowModel().rows.length} row(s) selected.
+                    </div>
                     <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>Previous</Button>
                     <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next</Button>
                 </div>
@@ -520,9 +555,12 @@ export default function PendingPOPage() {
     <CreatePoDialog 
         isOpen={isCreatePoOpen}
         onClose={() => setIsCreatePoOpen(false)}
-        item={itemForPo}
+        items={selectedItems}
         creator={user ? { id: user.id, name: user.name } : null}
-        onSuccess={fetchData}
+        onSuccess={() => {
+            fetchData();
+            table.resetRowSelection();
+        }}
         isNewVendor={isNewVendor}
     />
      <QuotationDetailDialog
@@ -533,6 +571,7 @@ export default function PendingPOPage() {
         salesmen={salesmen}
         cpds={cpds}
     />
+    </TooltipProvider>
     </>
   )
 }

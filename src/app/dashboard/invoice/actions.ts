@@ -1,122 +1,192 @@
-
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Invoice, Order, Quotation, PrintableInvoicePayload } from '@/lib/types';
-import { format } from 'date-fns';
-import { buildSalesVoucherXML } from '@/services/tally';
+import { Order, PrintableInvoicePayload } from '@/lib/types';
 
-export async function buildAndFetchInvoicePayload(orderId: string): Promise<{ success: boolean; payload?: PrintableInvoicePayload; message?: string }> {
-  console.log(`[buildAndFetchInvoicePayload] Initiated. orderId=${orderId}`);
-  
+interface QuotationItem {
+  collectionBrand: string;
+  salesDescription: string;
+  quantity: number;
+  rate: number;
+  discountPercent: number;
+  gstPercent: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  subtotal: number;
+  taxableAmt: number;
+  hsnCode?: string;
+}
+
+interface QuotationVasItem {
+  vasName: string;
+  quantity: string;
+  rate: string;
+  gstPercent: string;
+  hsnCode?: string;
+}
+
+interface QuotationData {
+  quotationNo: string;
+  billingName?: string;
+  billingAddress?: string;
+  company?: string;
+  customerName: string;
+  items?: QuotationItem[];
+  vasDetails?: QuotationVasItem[];
+}
+
+export async function buildAndFetchInvoicePayload(
+  orderId: string
+): Promise<{ success: boolean; payload?: PrintableInvoicePayload; message?: string }> {
   try {
     const fullOrderId = orderId.startsWith("MOTRACK-") ? orderId : `MOTRACK-${orderId}`;
     
-    // 1. Fetch Order
-    console.log(`[buildAndFetchInvoicePayload] Fetching order: ${fullOrderId}`);
+    // Fetch Order
     const orderRef = adminDb.collection("orders").doc(fullOrderId);
     const orderSnap = await orderRef.get();
+    
     if (!orderSnap.exists) {
-      return { success: false, message: `Order with ID ${fullOrderId} not found.` };
+      return { success: false, message: `Order ${fullOrderId} not found` };
     }
-    const order = orderSnap.data() as Order;
-    console.log(`[buildAndFetchInvoicePayload] Order found. crmOrderNo: ${order.crmOrderNo}`);
-
-    // 2. Fetch Quotation using crmOrderNo
+    
+    const order = { id: orderSnap.id, ...orderSnap.data() } as Order & { id: string };
     const quotationNo = order.crmOrderNo;
-    console.log(`[buildAndFetchInvoicePayload] Fetching quotation where quotationNo == ${quotationNo}`);
-    const quotationQuery = adminDb.collectionGroup('quotations').where('quotationNo', '==', quotationNo).limit(1);
-    const quotationSnapshot = await quotationQuery.get();
+
+    // Fetch Quotation using collectionGroup
+    const quotationSnapshot = await adminDb
+      .collectionGroup('quotations')
+      .where('quotationNo', '==', quotationNo)
+      .limit(1)
+      .get();
     
     if (quotationSnapshot.empty) {
-      return { success: false, message: `Quotation #${quotationNo} linked to this order could not be found.` };
+      return { success: false, message: `Quotation ${quotationNo} not found` };
     }
-    const quotation = quotationSnapshot.docs[0].data() as Quotation;
-    console.log(`[buildAndFetchInvoicePayload] Quotation found: ${quotation.id}`);
+    
+    const quotation = quotationSnapshot.docs[0].data() as QuotationData;
 
-    // 3. Construct Payload
-    console.log(`[buildAndFetchInvoicePayload] Constructing payload...`);
-    const calculatedItems = (quotation.items || []).map(item => {
-        const taxableAmount = Number(item.taxableAmt) || 0;
-        const cgst = Number(item.cgst) || 0;
-        const sgst = Number(item.sgst) || 0;
-        const igst = Number(item.igst) || 0;
-        const total = taxableAmount + cgst + sgst + igst;
+    // Process fabric items from quotation
+    const fabricItems = (quotation.items || []).map(item => ({
+      name: item.salesDescription || item.collectionBrand,
+      bcn: item.collectionBrand,
+      hsn: item.hsnCode || '54076190',
+      quantity: Number(item.quantity) || 0,
+      uom: 'Mtr' as const,
+      rate: Number(item.rate) || 0,
+      discountPercent: Number(item.discountPercent) || 0,
+      taxableAmount: Number(item.taxableAmt) || 0,
+      cgst: Number(item.cgst) || 0,
+      sgst: Number(item.sgst) || 0,
+      igst: Number(item.igst) || 0,
+      total: Number(item.subtotal) || 0,
+    }));
 
-        return {
-            name: item.salesDescription || item.collectionBrand,
-            bcn: item.collectionBrand,
-            hsn: item.hsnCode || 'N/A',
-            quantity: Number(item.quantity) || 0,
-            uom: 'Mtr',
-            rate: Number(item.rate) || 0,
-            discountPercent: Number(item.discountPercent) || 0,
-            taxableAmount,
-            cgst,
-            sgst,
-            igst,
-            total,
-        };
-    });
+    // Process VAS items from quotation
+    const vasItems = (quotation.vasDetails || []).map(vas => {
+      const quantity = Number(vas.quantity) || 0;
+      const rate = Number(vas.rate) || 0;
+      const gstPercent = Number(vas.gstPercent) || 18;
+      
+      const amount = quantity * rate;
+      const taxableAmount = amount;
+      const totalGst = taxableAmount * (gstPercent / 100);
+      const cgst = totalGst / 2;
+      const sgst = totalGst / 2;
+      const total = taxableAmount + totalGst;
 
-    const calculatedVasItems = (quotation.vasDetails || []).map(vas => {
-        const taxableAmount = (Number(vas.rate) || 0) * (Number(vas.quantity) || 0);
-        const gstPercent = Number(vas.gstPercent ?? 18); // Default to 18% for VAS if not present
-        const totalGst = taxableAmount * (gstPercent / 100);
-        const cgst = totalGst / 2;
-        const sgst = totalGst / 2;
-        const total = taxableAmount + totalGst;
-
-        return {
-            name: vas.vasName,
-            bcn: `VAS-${vas.vasName}`,
-            hsn: vas.hsnCode || '9988',
-            quantity: Number(vas.quantity) || 0,
-            uom: 'Pcs',
-            rate: Number(vas.rate) || 0,
-            discountPercent: 0,
-            taxableAmount: taxableAmount,
-            cgst,
-            sgst,
-            igst: 0,
-            total,
-        };
+      return {
+        name: vas.vasName,
+        bcn: `VAS-${vas.vasName}`,
+        hsn: vas.hsnCode || '998819',
+        quantity,
+        uom: 'Pcs' as const,
+        rate,
+        discountPercent: 0,
+        taxableAmount,
+        cgst,
+        sgst,
+        igst: 0,
+        total,
+      };
     });
     
-    const allItems = [...calculatedItems, ...calculatedVasItems];
+    const allItems = [...fabricItems, ...vasItems];
 
-    const totals = allItems.reduce((acc, item) => {
+    // Calculate totals
+    const totals = allItems.reduce(
+      (acc, item) => {
         const amount = item.rate * item.quantity;
         const discount = amount * (item.discountPercent / 100);
+        
         acc.subTotal += amount;
         acc.discount += discount;
         acc.taxableValue += item.taxableAmount;
         acc.cgst += item.cgst;
         acc.sgst += item.sgst;
         acc.igst += item.igst;
+        
         return acc;
-    }, { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 });
+      },
+      { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
+    );
 
     const netAmount = totals.taxableValue + totals.cgst + totals.sgst + totals.igst;
     const roundedTotal = Math.round(netAmount);
     const roundOff = roundedTotal - netAmount;
 
+    // Build GST breakdown by rate
+    const gstBreakdownMap = new Map<number, {
+      rate: number;
+      taxable: number;
+      cgst: number;
+      sgst: number;
+      igst: number;
+    }>();
+
+    allItems.forEach(item => {
+      const gstRate = item.cgst > 0 ? (item.cgst / item.taxableAmount) * 100 * 2 : 0;
+      const roundedRate = Math.round(gstRate);
+      
+      const existing = gstBreakdownMap.get(roundedRate);
+      if (existing) {
+        existing.taxable += item.taxableAmount;
+        existing.cgst += item.cgst;
+        existing.sgst += item.sgst;
+        existing.igst += item.igst;
+      } else {
+        gstBreakdownMap.set(roundedRate, {
+          rate: roundedRate,
+          taxable: item.taxableAmount,
+          cgst: item.cgst,
+          sgst: item.sgst,
+          igst: item.igst,
+        });
+      }
+    });
+
+    const gstBreakdown = Array.from(gstBreakdownMap.values());
+
+    // Determine if this is a VAS-only invoice
+    const isVas = vasItems.length > 0 && fabricItems.length === 0;
+
+    // Build final payload
     const payload: PrintableInvoicePayload = {
       meta: {
         orderNo: order.id,
         quotationNo: quotation.quotationNo,
         invoiceDate: new Date().toISOString(),
-        isVas: (quotation.vasDetails || []).length > 0 && (quotation.items || []).length === 0,
+        isVas,
         salesPerson: order.salesPerson,
       },
       customer: {
-        name: order.customerName,
+        name: quotation.billingName || order.customerName,
         phone: order.customerPhone,
-        address: order.customerAddress,
+        address: quotation.billingAddress || order.customerAddress,
       },
       seller: {
-        companyName: 'MO Designs Private Limited - (2024-2025)',
-        address: 'A-6, Sushant Lok-1, M G Road, Gurgaon- 122022,B-50, Sushant Lok-2, Sec- 56, Gurgaon - 122011 GURGAON. (HARYANA) INDIA',
+        companyName: quotation.company || (isVas ? 'MO SPACES PVT.LTD.' : 'MO Designs Private Limited - (2024-2025)'),
+        address: 'A-6, Sushant Lok-1, M G Road, Gurgaon- 122022, B-50, Sushant Lok-2, Sec- 56, Gurgaon - 122011 GURGAON. (HARYANA) INDIA',
         gstin: '06AAMCM5012B1ZY',
       },
       items: allItems,
@@ -127,18 +197,21 @@ export async function buildAndFetchInvoicePayload(orderId: string): Promise<{ su
         cgst: totals.cgst,
         sgst: totals.sgst,
         igst: totals.igst,
-        roundOff: roundOff,
+        roundOff,
         grandTotal: roundedTotal,
         totalGst: totals.cgst + totals.sgst + totals.igst,
       },
-      gstBreakdown: [] // This can be calculated if needed, but for now we have totals.
+      gstBreakdown,
     };
 
-    console.log(`[buildAndFetchInvoicePayload] Payload constructed successfully.`);
+    // Serialize to ensure no Firestore objects
     return { success: true, payload: JSON.parse(JSON.stringify(payload)) };
 
-  } catch (error: any) {
-    console.error("[buildAndFetchInvoicePayload] Error building invoice payload:", error);
-    return { success: false, message: error.message };
+  } catch (error) {
+    console.error("[buildAndFetchInvoicePayload] Error:", error);
+    return { 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Failed to build invoice payload' 
+    };
   }
 }

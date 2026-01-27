@@ -148,103 +148,112 @@ export interface PoCreationData {
     courier: string;
     mode: string;
     isNewVendor: boolean;
-    item: PendingPoItem;
+    items: PendingPoItem[];
     promiseDeliveryDate?: string;
 }
 
-export async function createPurchaseRequestAction(
+export async function createPurchaseOrderAction(
     poData: PoCreationData,
     creator: { id: string; name: string }
 ): Promise<{ success: boolean, message: string }> {
-    if (!poData || !poData.item) {
-        return { success: false, message: "No data provided to create purchase request." };
+    if (!poData || !poData.items || poData.items.length === 0) {
+        return { success: false, message: "No items provided to create purchase order." };
     }
 
     try {
         const batch = adminDb.batch();
         const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
-        const { item, vendor, courier, mode, isNewVendor, promiseDeliveryDate } = poData;
-        const purchaseRequestId = item.purchaseRequestId || item.id.split('-')[0]; // Extract the original request ID
+        const { items, vendor, courier, mode, isNewVendor, promiseDeliveryDate } = poData;
 
-        const requestRef = adminDb.collection('purchaseRequests').doc(purchaseRequestId);
-        const originalRequestDoc = await requestRef.get();
-
-        if (!originalRequestDoc.exists) {
-            throw new Error(`Purchase request ${purchaseRequestId} not found.`);
-        }
-        
-        const originalRequestData = originalRequestDoc.data() as PurchaseRequest;
-
-        // Find the specific item in the fabricDetails array and update it
-        let itemFoundAndUpdated = false;
-        const newFabricDetails = (originalRequestData.fabricDetails || []).map(originalItem => {
-            if (originalItem.fabricName === item.collectionBrand && !originalItem.poNumber) {
-                itemFoundAndUpdated = true;
-                return {
-                    ...originalItem,
-                    poNumber: poNumber,
-                    vendorName: vendor,
-                    expectedDeliveryDate: promiseDeliveryDate || new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString(),
-                };
+        // Group items by their original purchaseRequestId
+        const requestsToUpdate = new Map<string, PendingPoItem[]>();
+        for (const item of items) {
+            const requestId = item.purchaseRequestId!;
+            if (!requestsToUpdate.has(requestId)) {
+                requestsToUpdate.set(requestId, []);
             }
-            return originalItem;
-        });
-        
-        if (!itemFoundAndUpdated) {
-            throw new Error(`Item ${item.collectionBrand} not found or already has a PO in request ${purchaseRequestId}.`);
+            requestsToUpdate.get(requestId)!.push(item);
         }
 
-        const allItemsNowHavePo = newFabricDetails.every(i => !!i.poNumber);
+        for (const [requestId, requestItems] of requestsToUpdate.entries()) {
+            const requestRef = adminDb.collection('purchaseRequests').doc(requestId);
+            const originalRequestDoc = await requestRef.get();
 
-        const vendorTypeMilestone = {
-            stepId: 3,
-            status: 'completed',
-            completedAt: new Date().toISOString(),
-            completedBy: creator.name,
-            remarks: isNewVendor ? "New Vendor" : "Existing Vendor"
-        };
-        const placeOrderMilestone = {
-            stepId: 4, // Corrected Step ID for "Place Order"
-            status: 'completed',
-            completedAt: new Date().toISOString(),
-            completedBy: creator.name,
-            remarks: `PO ${poNumber} generated.`
-        };
+            if (!originalRequestDoc.exists) {
+                console.warn(`Purchase request ${requestId} not found while creating PO. Skipping.`);
+                continue;
+            }
+            
+            const originalRequestData = originalRequestDoc.data() as PurchaseRequest;
+            const itemsToUpdateInThisRequest = new Set(requestItems.map(i => i.collectionBrand));
 
-        // --- AUTOMATION: Automatically complete PO Confirmation ---
-        const poConfirmationMilestone = {
-            stepId: 1, // Step ID for "PO Confirmation" from PO_PROCESS_CONFIG
-            status: 'completed',
-            completedAt: new Date().toISOString(),
-            completedBy: creator.name,
-            remarks: `Automatically confirmed upon PO generation for item ${item.collectionBrand}.`
-        };
+            const newFabricDetails = (originalRequestData.fabricDetails || []).map(originalItem => {
+                if (itemsToUpdateInThisRequest.has(originalItem.fabricName) && !originalItem.poNumber) {
+                    const updatedItemData = requestItems.find(i => i.collectionBrand === originalItem.fabricName)!;
+                    return {
+                        ...originalItem,
+                        poNumber: poNumber,
+                        vendorName: vendor,
+                        expectedDeliveryDate: promiseDeliveryDate,
+                        quantity: updatedItemData.neededQty.toString(),
+                    };
+                }
+                return originalItem;
+            });
 
-        batch.update(requestRef, {
-            status: allItemsNowHavePo ? 'PO Generated' : 'Approved',
-            vendor: vendor, 
-            courier: courier,
-            mode: mode,
-            fabricDetails: newFabricDetails,
-            milestones: adminDb.firestore.FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
-            poMilestones: adminDb.firestore.FieldValue.arrayUnion(poConfirmationMilestone),
-            promiseDeliveryDate: promiseDeliveryDate || new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString(),
-        });
+            const allItemsInRequestHavePo = newFabricDetails.every(i => !!i.poNumber);
+
+            const vendorTypeMilestone = {
+                stepId: 3,
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: creator.name,
+                remarks: isNewVendor ? "New Vendor" : "Existing Vendor"
+            };
+            const placeOrderMilestone = {
+                stepId: 4,
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: creator.name,
+                remarks: `PO ${poNumber} generated.`
+            };
+            const poConfirmationMilestone = {
+                stepId: 1,
+                status: 'completed',
+                completedAt: new Date().toISOString(),
+                completedBy: creator.name,
+                remarks: `Automatically confirmed upon PO generation.`
+            };
+
+            batch.update(requestRef, {
+                status: allItemsInRequestHavePo ? 'PO Generated' : 'Approved',
+                vendor: vendor, 
+                courier: courier,
+                mode: mode,
+                fabricDetails: newFabricDetails,
+                milestones: adminDb.firestore.FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
+                poMilestones: adminDb.firestore.FieldValue.arrayUnion(poConfirmationMilestone),
+                promiseDeliveryDate: promiseDeliveryDate,
+            });
+        }
+        
+        const firstItem = items[0];
+        const primaryRequest = firstItem.originalRequest;
 
         const inboundRef = adminDb.collection('inbounds').doc(poNumber);
-        const inboundItems = [{
+        const inboundItems = items.map(item => ({
             itemName: item.collectionBrand,
             quantity: String(item.neededQty),
-            unit: 'Mtr', // Assuming fabric
+            unit: 'Mtr',
             poNumber: poNumber,
             inboundMilestones: [],
-        }];
+        }));
 
         const newInboundRequest = {
             id: poNumber,
-            purchaseRequestId: purchaseRequestId,
-            dealId: originalRequestData.dealId,
-            customerName: originalRequestData.customerName,
+            purchaseRequestId: primaryRequest.id,
+            dealId: primaryRequest.dealId,
+            customerName: primaryRequest.customerName,
             vendor: vendor,
             createdAt: new Date().toISOString(),
             status: 'Active',
@@ -255,94 +264,53 @@ export async function createPurchaseRequestAction(
         
         await batch.commit();
 
-        return { success: true, message: `Successfully created Purchase Order ${poNumber} for item ${item.collectionBrand}. It has been moved to Inbound.` };
+        return { success: true, message: `Successfully created Purchase Order ${poNumber} for ${items.length} item(s).` };
     } catch (error: any) {
-        console.error("Error creating purchase request:", error);
+        console.error("Error creating purchase order:", error);
         return { success: false, message: `Server error: ${error.message}` };
     }
 }
 
+
 export async function getQuotationDialogData(
-  orderNo: string,        // e.g. MOTRACK-4160 or 8647
-  quotationNo: string     // e.g. 4160 / 8647
+  dealId: string,
+  quotationNo: string
 ): Promise<{ quotation: Quotation; deal: Deal; cpds: Cpd[] } | null> {
 
-  console.log(`[getQuotationDialogData] Started. orderNo=${orderNo}, quotationNo=${quotationNo}`);
+  console.log(`[getQuotationDialogData] Initiated. Searching for dealId: "${dealId}", quotationNo: "${quotationNo}"`);
 
   try {
-    /* =====================================================
-       1️⃣ FETCH CENTRAL ORDER
-    ===================================================== */
-    const orderSnap = await adminDb.collection('orders').doc(`MOTRACK-${orderNo}`).get();
+    console.log(`[getQuotationDialogData] Querying 'quotations' collection group for quotationNo: "${quotationNo}"`);
+    const quotationQuery = adminDb.collectionGroup('quotations').where('quotationNo', '==', quotationNo).limit(1);
+    const quotationSnapshot = await quotationQuery.get();
 
-    if (!orderSnap.exists) {
-      console.error(`[getQuotationDialogData] Order ${orderNo} not found`);
+    if (quotationSnapshot.empty) {
+        console.warn(`[getQuotationDialogData] ⚠️ Quotation with number "${quotationNo}" not found.`);
       return null;
     }
 
-    const orderData = orderSnap.data() as any;
-    const { customerId, dealId } = orderData;
+    const quotationDoc = quotationSnapshot.docs[0];
+    const quotationData = { id: quotationDoc.id, ...quotationDoc.data() } as Quotation;
+    console.log(`[getQuotationDialogData] ✅ Found quotation:`, quotationDoc.ref.path);
 
-    if (!customerId || !dealId) {
-      console.error("[getQuotationDialogData] Missing customerId or dealId in order");
+    const dealRef = quotationDoc.ref.parent.parent;
+    if (!dealRef) {
+      console.error(`[getQuotationDialogData] ❌ Could not get parent 'deal' reference from quotation.`);
       return null;
     }
-
-    /* =====================================================
-       2️⃣ FIND DEAL BY *FIELD* dealId
-    ===================================================== */
-    const dealSnap = await adminDb
-      .collection('customers')
-      .doc(customerId)
-      .collection('deals')
-      .where('dealId', '==', String(dealId))
-      .limit(1)
-      .get();
-
-    if (dealSnap.empty) {
-      console.error(`[getQuotationDialogData] Deal with dealId=${dealId} not found for customer ${customerId}`);
-      return null;
+    
+    const dealSnap = await dealRef.get();
+    if (!dealSnap.exists) {
+       console.warn(`[getQuotationDialogData] ⚠️ Deal document not found at path: ${dealRef.path}`);
+       return null;
     }
+    const dealData = { id: dealSnap.id, ...dealSnap.data() } as Deal;
+    console.log(`[getQuotationDialogData] ✅ Found deal:`, dealSnap.id);
 
-    const dealDoc = dealSnap.docs[0];
-    const dealRef = dealDoc.ref;
-
-    const dealData = {
-      id: dealDoc.id,
-      ...dealDoc.data()
-    } as Deal;
-
-    /* =====================================================
-       3️⃣ FIND QUOTATION INSIDE DEAL
-    ===================================================== */
-    const quotationSnap = await dealRef
-      .collection('quotations')
-      .where('quotationNo', '==', String(quotationNo))
-      .limit(1)
-      .get();
-
-    if (quotationSnap.empty) {
-      console.error(`[getQuotationDialogData] Quotation ${quotationNo} not found under deal ${dealDoc.id}`);
-      return null;
-    }
-
-    const quotationDoc = quotationSnap.docs[0];
-    const quotationData = {
-      id: quotationDoc.id,
-      ...quotationDoc.data()
-    } as Quotation;
-
-    /* =====================================================
-       4️⃣ FETCH CPDs
-    ===================================================== */
     const cpdsSnap = await dealRef.collection('cpds').get();
-    const cpdsData = cpdsSnap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Cpd[];
-
-    console.log("[getQuotationDialogData] ✅ Success");
-
+    const cpdsData = cpdsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Cpd[];
+    console.log(`[getQuotationDialogData] ✅ Found ${cpdsData.length} CPDs for this deal.`);
+    
     return JSON.parse(JSON.stringify({
       quotation: quotationData,
       deal: dealData,
@@ -354,59 +322,3 @@ export async function getQuotationDialogData(
     return null;
   }
 }
-
-async function fallbackByQuotationNo(
-  quotationNo: string
-): Promise<{ quotation: Quotation; deal: Deal; cpds: Cpd[] } | null> {
-
-  console.log(`[fallbackByQuotationNo] Using collectionGroup for quotationNo=${quotationNo}`);
-
-  try {
-    const quotationSnap = await adminDb
-      .collectionGroup('quotations')
-      .where('quotationNo', '==', quotationNo)
-      .limit(1)
-      .get();
-
-    if (quotationSnap.empty) {
-      console.warn(`[fallbackByQuotationNo] Quotation ${quotationNo} not found`);
-      return null;
-    }
-
-    const quotationDoc = quotationSnap.docs[0];
-    const quotationData = {
-      id: quotationDoc.id,
-      ...quotationDoc.data()
-    } as Quotation;
-
-    const dealRef = quotationDoc.ref.parent.parent;
-    if (!dealRef) return null;
-
-    const dealSnap = await dealRef.get();
-    if (!dealSnap.exists) return null;
-
-    const dealData = {
-      id: dealSnap.id,
-      ...dealSnap.data()
-    } as Deal;
-
-    const cpdsSnap = await dealRef.collection('cpds').get();
-    const cpdsData = cpdsSnap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Cpd[];
-
-    console.log("[fallbackByQuotationNo] Success");
-
-    return JSON.parse(JSON.stringify({
-      quotation: quotationData,
-      deal: dealData,
-      cpds: cpdsData
-    }));
-
-  } catch (error) {
-    console.error("[fallbackByQuotationNo] Error:", error);
-    return null;
-  }
-}
-
