@@ -48,6 +48,7 @@ export async function approveOrderAndCreatePurchaseRequest(
                 const stockItem = {
                     orderId: orderId,
                     crmOrderNo: orderData.crmOrderNo,
+                    dealId: orderData.dealId,
                     customerName: orderData.customerName,
                     salesPerson: orderData.salesPerson,
                     fabricName: item.fabricName,

@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
@@ -44,6 +45,7 @@ interface CreatePrPayload {
     approvedStockId: string;
     orderId: string;
     crmOrderNo: string;
+    dealId: string;
     fabricName: string;
     quantity: string;
     customerName: string;
@@ -60,6 +62,7 @@ export async function createPurchaseRequestFromOutOfStockAction(
             approvedStockId,
             orderId,
             crmOrderNo,
+            dealId,
             fabricName,
             quantity,
             customerName,
@@ -79,7 +82,8 @@ export async function createPurchaseRequestFromOutOfStockAction(
         const prRef = adminDb.collection("purchaseRequests").doc(prDocId);
         
         const newPurchaseRequest: Omit<PurchaseRequest, 'id'> = {
-            dealId: crmOrderNo,
+            dealId: dealId,
+            quotationNo: crmOrderNo,
             customerName: customerName,
             salesman: salesPerson,
             type: 'fabric',

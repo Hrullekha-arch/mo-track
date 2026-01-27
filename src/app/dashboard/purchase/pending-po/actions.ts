@@ -8,7 +8,8 @@ import { PurchaseRequest, Stock, Quotation, Deal, Cpd } from '@/lib/types';
 export interface PendingPoItem {
   id: string;
   purchaseRequestId?: string;
-  orderId: string;
+  quotationNo: string;
+  dealId: string;
   customerName: string;
   salesman: string;
   collectionBrand: string;
@@ -108,7 +109,8 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
         pendingItems.push({
           id: `${requestDoc.id}-${bcn}`,
           purchaseRequestId: requestDoc.id,
-          orderId: request.dealId,
+          quotationNo: request.quotationNo || request.dealId,
+          dealId: request.dealId,
           customerName: request.customerName,
           salesman: request.salesman,
           collectionBrand: bcn,

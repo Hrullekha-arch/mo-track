@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -56,12 +57,17 @@ export default function StockVerificationPage() {
     };
 
     const handleCreatePr = async (item: ApprovedStockItem) => {
+        if (!item.dealId) {
+            toast({ variant: 'destructive', title: 'Error', description: "Cannot create PR: Deal ID is missing."});
+            return;
+        }
         setUpdatingId(item.id);
         try {
             const result = await createPurchaseRequestFromOutOfStockAction({
                 approvedStockId: item.id,
                 orderId: item.orderId,
                 crmOrderNo: item.crmOrderNo,
+                dealId: item.dealId,
                 fabricName: item.fabricName,
                 quantity: item.quantity,
                 customerName: item.customerName,

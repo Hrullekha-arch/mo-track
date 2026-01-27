@@ -385,17 +385,17 @@ export default function PendingPOPage() {
 
   const columns: ColumnDef<PendingPoItem>[] = [
     {
-      accessorKey: "orderId",
+      accessorKey: "quotationNo",
       header: "Quotation No",
       cell: ({ row }) => {
-        const orderId = row.getValue("orderId") as string;
+        const quotationNo = row.getValue("quotationNo") as string;
         return (
           <Button
             variant="link"
             className="p-0 h-auto font-medium"
-            onClick={() => handleQuotationClick(orderId)}
+            onClick={() => handleQuotationClick(quotationNo)}
           >
-            {orderId}
+            {quotationNo}
           </Button>
         );
       },

@@ -201,6 +201,7 @@ export interface SalesmanCrmAssignment {
 export interface PurchaseRequest {
   id: string;
   dealId: string;
+  quotationNo?: string;
   customerName: string;
   promiseDeliveryDate: string; // ISO Date string
   salesman: string;
@@ -715,6 +716,7 @@ export interface ApprovedStockItem {
     id: string;
     orderId: string;
     crmOrderNo: string;
+    dealId?: string;
     customerName: string;
     salesPerson: string;
     fabricName: string;
