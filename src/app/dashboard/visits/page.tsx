@@ -1,5 +1,4 @@
 
-
       "use client";
 
 import * as React from "react";
@@ -22,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { AssignInstallerDialog, SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync } from "lucide-react";
+import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -31,6 +30,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { getAuth } from "firebase/auth";
 import { useAuth } from "@/context/AuthContext";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { unassignVisitAction } from "./actions";
 
 
     interface EnrichedDealVisit extends DealVisit {
@@ -78,9 +85,9 @@ const renderVisitStatus = (visit: EnrichedDealVisit) => {
     if (visit.status === 'completed') {
         return <Badge className="mt-1 bg-green-500">Completed</Badge>;
     }
-    // if (visit.visitStatus === 'Working') {
-    //     return <Badge className="mt-1 bg-blue-500 animate-pulse">Working</Badge>;
-    // }
+    if (visit.visitStatus === 'Working') {
+        return <Badge className="mt-1 bg-blue-500 animate-pulse">Working</Badge>;
+    }
     if (visit.status === 'approved') {
         return <Badge className="mt-1" variant="secondary">Approved</Badge>;
     }
@@ -249,26 +256,24 @@ const InstallerCard = ({
             (s: any) => s && (s.slotId || s.id) !== slot.slotId && s.visitId !== visit.id
           );
     
-          const slotPayload = {
-            slotId: slot.slotId,
-            id: slot.slotId,
-            slotLabel: slot.slotLabel,
-            slotStart: slot.slotStart,
-            slotEnd: slot.slotEnd,
-            slotDate: slot.slotDate,
-            visitId: visit.id,
-            customerId: visit.customerId,
-            customerName: visit.customer?.name || "",
-            dealId: visit.deal?.dealId || visit.dealId || "",
-            dealDocId: visit.dealDocId,
-            dealName: visit.deal?.dealName || "",
-            assignedAt,
-            assignedTo: installerId,
-            status: "booked",
-          };
-    
           const slotsForDay = SLOT_OPTIONS.map((opt) => {
-            if (opt.id === slot.slotId) return slotPayload;
+            if (opt.id === slot.slotId) return {
+              slotId: slot.slotId,
+              id: slot.slotId,
+              slotLabel: slot.slotLabel,
+              slotStart: slot.slotStart,
+              slotEnd: slot.slotEnd,
+              slotDate: slot.slotDate,
+              visitId: visit.id,
+              customerId: visit.customerId,
+              customerName: visit.customer?.name || "",
+              dealId: visit.deal?.dealId || visit.dealId || "",
+              dealDocId: visit.dealDocId,
+              dealName: visit.deal?.dealName || "",
+              assignedAt,
+              assignedTo: installerId,
+              status: "booked",
+            };
     
             const existing = filteredNew.find((s: any) => (s?.slotId || s?.id) === opt.id);
             if (existing) {
@@ -305,6 +310,7 @@ const InstallerCard = ({
             assignedTo: installerId,
             slotDate: slot.slotDate,
             slotId: slot.slotId,
+            slotIds: [slot.slotId],
             slotLabel: slot.slotLabel,
             slotStart: slot.slotStart,
             slotEnd: slot.slotEnd,
@@ -591,7 +597,16 @@ const InstallerCard = ({
 }
 
 
-function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDetails, onTransfer }: { visits: EnrichedDealVisit[], assigneeNameById: Record<string, string>, onAssign: (visit: EnrichedDealVisit) => void, onShare: (visit: EnrichedDealVisit) => void, onViewDetails: (visit: EnrichedDealVisit) => void, onTransfer: (v: EnrichedDealVisit) => void; }) {
+function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDetails, onTransfer, onUnassign, onEdit }: { 
+    visits: EnrichedDealVisit[], 
+    assigneeNameById: Record<string, string>, 
+    onAssign: (visit: EnrichedDealVisit) => void, 
+    onShare: (visit: EnrichedDealVisit) => void, 
+    onViewDetails: (visit: EnrichedDealVisit) => void, 
+    onTransfer: (v: EnrichedDealVisit) => void,
+    onUnassign: (v: EnrichedDealVisit) => void,
+    onEdit: (v: EnrichedDealVisit) => void
+}) {
     const [dateFrom, setDateFrom] = React.useState<string>("");
     const [dateTo, setDateTo] = React.useState<string>("");
     const [typeFilter, setTypeFilter] = React.useState<string>("all");
@@ -711,8 +726,7 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                             <TableHead>Date & Slot</TableHead>
                             <TableHead>Assigned To</TableHead>
                             <TableHead>Status</TableHead>
-                            <TableHead>Assign</TableHead>
-                            <TableHead>Action / View</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -740,40 +754,38 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                                     {visit.assignedTo ? (assigneeNameById[visit.assignedTo] || 'Unknown') : 'Unassigned'}
                                 </TableCell>
                                 <TableCell>{renderVisitStatus(visit)}</TableCell>
-                                <TableCell>
-                                    <Button
-                                        size="sm"
-                                        variant="default"
-                                        disabled={visit.status === "completed" || visit.status === "CWC"}
-                                        className={
-                                        visit.status === "completed"
-                                            ? "bg-green-600 hover:bg-green-700 cursor-not-allowed"
-                                            :visit.assignedTo
-                                            ? "bg-orange-600 hover:bg-orange-700"
-                                            : "bg-blue-700 hover:bg-blue-800"
-                                        }
-                                        onClick={() => onAssign(visit)}
-                                    >
-                                        {
-                                            visit.status === "completed"
-                                                ? "Completed"
-                                                : visit.assignedTo
-                                                ? "Reassign"
-                                                : "Assign"
-                                            }
-                                    </Button>
-                                </TableCell>
-                                <TableCell className="flex flex-col gap-2">
-                                    <Button size="sm" variant="ghost" onClick={() => onViewDetails(visit)}><Eye className="h-4 w-4" /></Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        disabled={visit.status === "completed" || visit.status === "CWC"}
-                                        onClick={() => onTransfer(visit)}
-                                    >
-                                        <CalendarSync className="mr-2 h-4 w-4" />
-                                        Transfer Visit
-                                    </Button>
+                                <TableCell className="text-right">
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="ghost" className="h-8 w-8 p-0">
+                                                <span className="sr-only">Open menu</span>
+                                                <MoreHorizontal className="h-4 w-4" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => onViewDetails(visit)}>
+                                                <Eye className="mr-2 h-4 w-4" />
+                                                View Details
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => onAssign(visit)}>
+                                                <UserCheck className="mr-2 h-4 w-4" />
+                                                {visit.assignedTo ? 'Re-assign' : 'Assign'}
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => onEdit(visit)}>
+                                                <Edit className="mr-2 h-4 w-4" />
+                                                Edit Visit
+                                            </DropdownMenuItem>
+                                            {visit.assignedTo && (
+                                                <>
+                                                    <DropdownMenuSeparator />
+                                                    <DropdownMenuItem onClick={() => onUnassign(visit)} className="text-destructive focus:text-destructive">
+                                                        <UserX className="mr-2 h-4 w-4" />
+                                                        Unassign
+                                                    </DropdownMenuItem>
+                                                </>
+                                            )}
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
                                 </TableCell>
                             </TableRow>
                         ))}
@@ -796,6 +808,7 @@ export default function AllVisitsPage() {
     const [shareableLink, setShareableLink] = React.useState<string | null>(null);
     const [detailsVisit, setDetailsVisit] = React.useState<EnrichedDealVisit | null>(null);
     const [dailyStatsMap, setDailyStatsMap] = React.useState<Record<string, AdminDailyStats>>({});
+    const [editingVisit, setEditingVisit] = React.useState<EnrichedDealVisit | null>(null);
 
     console.log("detailsVisit:", detailsVisit);
 
@@ -1127,6 +1140,24 @@ export default function AllVisitsPage() {
         }
     };
 
+    const handleUnassign = async (visit: EnrichedDealVisit) => {
+        if (!visit) return;
+        try {
+            const result = await unassignVisitAction(visit.id, visit.customerId, visit.dealDocId);
+            if (result.success) {
+                toast({ title: "Visit Unassigned", description: result.message });
+            } else {
+                toast({ variant: "destructive", title: "Error", description: result.message });
+            }
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Server Error", description: e.message });
+        }
+    };
+    
+    const handleEdit = (visit: EnrichedDealVisit) => {
+        setEditingVisit(visit);
+    };
+
 if (loading) {
         return <div className="p-8"><Skeleton className="h-64 w-full" /></div>;
     }
@@ -1224,6 +1255,7 @@ if (loading) {
                                 installer={installer}
                                 live={trackingByInstaller.get(installer.id)}
                                 suggestion={suggestMap[installer.id]}
+                                dailyStats={dailyStatsMap[installer.id]}
                                 visits={groupedVisits.get(installer.id) || []}
                                 onAssign={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
                                 onShare={handleShareClick}
@@ -1233,21 +1265,6 @@ if (loading) {
                     </div>
                 </TabsContent>
                 <TabsContent value="all" className="mt-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-4">
-                        {installers.map(installer => (
-                            <InstallerCard
-                                key={installer.id}
-                                installer={installer}
-                                live={trackingByInstaller.get(installer.id)}
-                                suggestion={suggestMap[installer.id]}
-                                dailyStats={dailyStatsMap[installer.id]}
-                                visits={groupedVisits.get(installer.id) || []}
-                                onAssign={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
-                                onShare={handleShareClick}
-                                onViewDetails={(visit) => setDetailsVisit(visit)}
-                            />
-                        ))}
-                    </div>
                     <div>
                         <AllVisitsTable
                             visits={allVisits}
@@ -1256,6 +1273,8 @@ if (loading) {
                             onShare={handleShareClick}
                             onViewDetails={(visit) => setDetailsVisit(visit)}
                             onTransfer={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
+                            onUnassign={handleUnassign}
+                            onEdit={handleEdit}
                         />
                     </div>
                 </TabsContent>
@@ -1335,9 +1354,22 @@ if (loading) {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <Dialog open={!!editingVisit} onOpenChange={() => setEditingVisit(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Edit Visit</DialogTitle>
+                        <DialogDescription>Editing functionality is under construction.</DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <p>You can view details and re-assign, but full editing is not yet available.</p>
+                    </div>
+                    <DialogFooter>
+                         <Button onClick={() => setEditingVisit(null)}>Close</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
 
-
-    
