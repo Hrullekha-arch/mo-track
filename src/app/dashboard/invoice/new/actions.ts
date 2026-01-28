@@ -3,7 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType, CuttingTask } from '@/lib/types';
+import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType, CuttingTask, InvoiceBatch, InvoiceBatchItem } from '@/lib/types';
 import { getMilestonesForOrder } from '@/lib/constants';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -82,7 +82,9 @@ export async function createDealOrderAction(
     const orderId = `MOTRACK-${quotation.quotationNo}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
 
-    const allFabricDetails: FabricDetail[] = quotation.items.map(item => ({
+    const isVasOnly = (!quotation.items || quotation.items.length === 0) && (quotation.vasDetails && quotation.vasDetails.length > 0);
+
+    const allFabricDetails: FabricDetail[] = (quotation.items || []).map(item => ({
       fabricName: item.collectionBrand,
       quantity: String(item.quantity),
       status: 'pending for po', 
@@ -98,7 +100,6 @@ export async function createDealOrderAction(
         firstMilestone.completedBy = creator.name;
     }
 
-
     const newOrder: Order = {
       id: orderId,
       crmOrderNo: quotation.quotationNo,
@@ -110,7 +111,7 @@ export async function createDealOrderAction(
       milestones: initialMilestones,
       createdAt: new Date().toISOString(),
       isAcknowledged: true,
-      status: 'Pending Approval',
+      status: isVasOnly ? 'Approved' : 'Pending Approval',
       customerId: customerId,
       dealId: dealData.dealId,
       dealOrderDocId: newDealOrderRef.id,
@@ -127,6 +128,31 @@ export async function createDealOrderAction(
 
     batch.set(newOrderRef, newOrder);
     
+    // If it's a VAS-only order, create the invoice batch immediately.
+    if (isVasOnly) {
+        const vasInvoiceItems: InvoiceBatchItem[] = (quotation.vasDetails || []).map(vas => ({
+            itemName: vas.vasName,
+            bcn: `VAS-${vas.vasName}`,
+            quantityAllocated: Number(vas.quantity) || 0,
+            rate: Number(vas.rate) || 0,
+            discountPercent: 0,
+        }));
+        
+        const vasBatchRef = adminDb.collection("invoiceBatches").doc();
+        const newVasInvoiceBatch: Omit<InvoiceBatch, 'id'> = {
+            orderId: newOrder.id,
+            customerName: newOrder.customerName,
+            customerPhone: newOrder.customerPhone,
+            customerAddress: newOrder.customerAddress,
+            salesPerson: newOrder.salesPerson,
+            createdAt: new Date().toISOString(),
+            status: 'pendingInvoice',
+            items: vasInvoiceItems,
+            isVas: true,
+        };
+        batch.set(vasBatchRef, newVasInvoiceBatch);
+    }
+    
     const newDealOrder: DealOrder = {
       orderNo: newOrder.id,
       id: newDealOrderRef.id,
@@ -134,7 +160,7 @@ export async function createDealOrderAction(
       createdBy: creator.name,
       remark: quotation.billingName || '',
       items: quotation.items,
-      status: 'Pending Approval'
+      status: isVasOnly ? 'Approved' : 'Pending Approval'
     };
 
     batch.set(newDealOrderRef, newDealOrder);
@@ -148,7 +174,7 @@ export async function createDealOrderAction(
 
     return {
       success: true,
-      message: 'Order created and sent for approval.',
+      message: isVasOnly ? 'VAS Order created and sent directly for invoicing.' : 'Order created and sent for approval.',
       order: JSON.parse(JSON.stringify(newOrder)),
     };
   } catch (error: any) {
