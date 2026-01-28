@@ -2,13 +2,12 @@
 
 'use server'
 
-import { adminDb } from '@/lib/firebase-admin';
+import { adminDb, adminStorage } from '@/lib/firebase-admin';
 import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess, Selection, Stock, Receipt } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 
 import { getMilestonesForOrder } from '@/lib/constants';
 import { FieldValue } from 'firebase-admin/firestore';
-import { google } from 'googleapis';
 import { Readable } from 'stream';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { firebase } from 'googleapis/build/src/apis/firebase';
@@ -27,67 +26,32 @@ async function sendVisitSms(customerPhone: string, message: string) {
     return { success: true, message: "WhatsApp link generated." , link: whatsappLink};
 }
 
-export async function uploadFileToDriveAction(
+export async function uploadFileToStorageAction(
   fileName: string,
   mimeType: string,
   base64Data: string
 ): Promise<string> {
-  const FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
-  if (!FOLDER_ID) {
-    throw new Error('Google Drive folder ID is not configured in environment variables.');
+  if (!adminStorage) {
+    throw new Error('Firebase Admin Storage is not initialized. Ensure FIREBASE_SERVICE_ACCOUNT_KEY and NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET are set.');
   }
 
-  const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  if (!serviceAccountKey) {
-    throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set.');
-  }
-  const credentials = JSON.parse(serviceAccountKey);
+  const bucket = adminStorage.bucket();
+  // Create a unique path for each file to prevent overwrites
+  const filePath = `measurements/${Date.now()}_${fileName.replace(/\s/g, '_')}`;
+  const file = bucket.file(filePath);
+  const buffer = Buffer.from(base64Data, 'base64');
 
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/drive.file'],
+  await file.save(buffer, {
+    metadata: {
+      contentType: mimeType,
+    },
   });
 
-  const drive = google.drive({ version: 'v3', auth });
-  const fileBuffer = Buffer.from(base64Data, 'base64');
-  const media = {
-    mimeType: mimeType,
-    body: Readable.from(fileBuffer),
-  };
+  // Make the file publicly readable
+  await file.makePublic();
 
-  try {
-    const file = await drive.files.create({
-      requestBody: {
-        name: fileName,
-        parents: [FOLDER_ID],
-      },
-      media: media,
-      supportsAllDrives: true,
-      fields: 'id, webViewLink',
-    });
-
-    if (!file.data.id || !file.data.webViewLink) {
-        throw new Error("File ID or link not returned from Google Drive API.");
-    }
-    
-    // Make file publicly readable
-    await drive.permissions.create({
-        fileId: file.data.id,
-        requestBody: {
-            role: 'reader',
-            type: 'anyone'
-        },
-        supportsAllDrives: true,
-    });
-    
-    // The webViewLink is the user-facing URL. For direct embedding/access, we might need webContentLink.
-    return file.data.webViewLink;
-
-  } catch (error: any) {
-    console.error("Google Drive API Error:", error.response?.data?.error || error.message);
-    const specificError = error.response?.data?.error?.message || error.message;
-    throw new Error(`Failed to upload file to Google Drive. API Error: ${specificError}`);
-  }
+  // Return the public URL
+  return file.publicUrl();
 }
 
 export async function getDealById(customerId: string, dealId: string): Promise<Deal | null> {
@@ -1282,8 +1246,6 @@ export async function saveMeasurementToDeal({
     console.log("🔥 saveMeasurementToDeal CALLED");
     console.log({ customerId, dealId, visitId, createdBy, doerName });
 
-    /* ---------------- FALLBACKS ---------------- */
-
     const safeCreatedBy =
       (createdBy && createdBy.trim()) ||
       (doerName && doerName.trim()) ||
@@ -1292,16 +1254,9 @@ export async function saveMeasurementToDeal({
     const safeStatus = status || "completed";
     const safeFlags = Array.isArray(flags) ? flags : [];
 
-    /* ---------------- RESOLVE REFS ---------------- */
+    let dealRef: FirebaseFirestore.DocumentReference | null = null;
+    let visitRef: FirebaseFirestore.DocumentReference | null = null;
 
-    let dealRef:
-      | FirebaseFirestore.DocumentReference
-      | null = null;
-    let visitRef:
-      | FirebaseFirestore.DocumentReference
-      | null = null;
-
-    // ✅ If customerId + dealId (doc id) provided, use them
     if (customerId && dealId) {
       dealRef = adminDb
         .collection("customers")
@@ -1314,11 +1269,9 @@ export async function saveMeasurementToDeal({
       }
     }
 
-    // ✅ Otherwise resolve from visitId (BEST for your new payload)
     if (!dealRef) {
       if (!visitId) throw new Error("visitId missing (cannot resolve deal)");
 
-      // 1) Nested visits: customers/{cid}/deals/{did}/visits/{visitId}
       const cg = await adminDb
         .collectionGroup("visits")
         .where(admin.firestore.FieldPath.documentId(), "==", visitId)
@@ -1327,11 +1280,9 @@ export async function saveMeasurementToDeal({
 
       if (!cg.empty) {
         visitRef = cg.docs[0].ref;
-        // visits -> parent is visits collection -> parent.parent is deal doc
         dealRef = visitRef.parent.parent || null;
       }
 
-      // 2) Optional fallback if you have top-level visits/{visitId}
       if (!dealRef) {
         const direct = await adminDb.collection("visits").doc(visitId).get();
         if (direct.exists) {
@@ -1339,7 +1290,7 @@ export async function saveMeasurementToDeal({
 
           const v = direct.data() || {};
           const cid = v.customerId;
-          const did = v.dealId; // ⚠️ must be deal doc id to work
+          const did = v.dealId; 
 
           if (cid && did) {
             dealRef = adminDb
@@ -1358,13 +1309,11 @@ export async function saveMeasurementToDeal({
       }
     }
 
-    /* ---------------- SANITIZE DATA ---------------- */
-
     const stripPrivateKeys = (obj: any) => {
       if (!obj || typeof obj !== "object") return {};
       const out: any = {};
       for (const [k, v] of Object.entries(obj)) {
-        if (k.startsWith("_")) continue; // removes _showPanelDropdown etc
+        if (k.startsWith("_")) continue;
         out[k] = v;
       }
       return out;
@@ -1384,32 +1333,24 @@ export async function saveMeasurementToDeal({
       ? itemDetails.filter(Boolean)
       : [];
 
-    /* ---------------- SAVE ---------------- */
-
     const measurementRef = dealRef.collection("measurements").doc();
 
     const saveData = {
       id: measurementRef.id,
       createdAt: new Date().toISOString(),
       createdBy: safeCreatedBy,
-
       selectionId: selectionId ?? null,
       typeOf: typeOf ?? null,
       doerName: doerName ?? null,
-
       rooms: sanitizeRooms,
       itemDetails: safeItemDetails,
-
       status: safeStatus,
       flags: safeFlags,
     };
 
     const batch = adminDb.batch();
-
-    // 1️⃣ Save Measurement
     batch.set(measurementRef, saveData, { merge: true });
 
-    // 2️⃣ Update Visit (ONLY if visitRef resolved)
     if (visitRef) {
       batch.set(
         visitRef,
@@ -1423,7 +1364,6 @@ export async function saveMeasurementToDeal({
       );
     }
 
-    // 3️⃣ Update Deal
     batch.set(
       dealRef,
       {

@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from "react";
@@ -6,11 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, ArrowLeft, Edit } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { getSelectionById } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import { getSelectionById, uploadFileToStorageAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { processMeasurementSubmission } from "@/services/measurement-selection-middleware";
-import { uploadFileToDriveAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 
 export default function SummaryPage() {
     const params = useParams();
@@ -60,7 +60,7 @@ export default function SummaryPage() {
             type: "application/pdf"
         });
 
-        return await uploadFileToDriveAction(pdfFile.name, pdfFile.type, await blobToBase64(pdfFile));
+        return await uploadFileToStorageAction(pdfFile.name, pdfFile.type, await blobToBase64(pdfFile));
     };
 
     const blobToBase64 = (file: File): Promise<string> => {

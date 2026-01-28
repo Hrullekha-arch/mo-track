@@ -1,8 +1,10 @@
 
+
 import { initializeApp, getApps, cert, App } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { getMessaging } from "firebase-admin/messaging";
+import { getStorage } from "firebase-admin/storage";
 import { PHASE_PRODUCTION_BUILD } from "next/constants";
 
 const isBuildPhase = process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD;
@@ -38,9 +40,11 @@ if (getApps().length) {
 } else if (serviceAccount) {
   adminApp = initializeApp({
     credential: cert(serviceAccount),
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   });
 }
 
 export const adminDb = adminApp ? getFirestore(adminApp) : (null as any);
 export const adminAuth = adminApp ? getAuth(adminApp) : (null as any);
 export const adminMessaging = adminApp ? getMessaging(adminApp) : (null as any);
+export const adminStorage = adminApp ? getStorage(adminApp) : (null as any);
