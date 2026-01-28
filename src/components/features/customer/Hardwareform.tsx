@@ -70,6 +70,7 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
   const [dialogTitle, setDialogTitle] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [selectedItemValue, setSelectedItemValue] = useState<string | null>(null);
+  const [selectedItemName, setSelectedItemName] = useState<string | null>(null);
   const [rate, setRate] = useState("");
   const [quantity, setQuantity] = useState("");
   const [image, setImage] = useState<string | null>(null);
@@ -81,6 +82,7 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
     setRate("");
     setQuantity("");
     setSelectedItemValue("");
+    setSelectedItemName(null);
     setImage(null);
   };
 
@@ -110,6 +112,8 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
     const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
     if (selectedOption) {
       const stockItem = selectedOption.stockItem;
+      setSelectedItemName(stockItem?.itemName || null);
+      setFinalItem(stockItem?.itemName || value);
       setRate(stockItem?.mrp ? stockItem.mrp.toString() : "");
     }
   };
@@ -131,6 +135,7 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
       productCategory: mainCategory,
       subCategory,
       bcn: selectedItemValue || null,
+      itemName: selectedItemName || null,
       rate: rate || "",
       quantity: quantity || "",
       room,

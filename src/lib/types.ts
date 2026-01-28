@@ -386,6 +386,7 @@ export interface DealProduct {
     productCategory?: string;
     collectionBrand: string;
     serialNo?: string;
+    itemName?: string;
     salesDescription?: string;
     quantity: string;
     mrp?: string;

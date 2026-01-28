@@ -120,6 +120,10 @@ export default function AddedProduct({
                         {productsInRoom.map((product) => {
                             const isHardware = product.productSource === "Hardware" || product.productType === "Hardware";
                             const isVAS = product.productType === "VAS";
+                            const hardwareLabel =
+                              product.itemName && product.bcn
+                                ? String(product.subCategory || "").replace(product.bcn, product.itemName)
+                                : (product.itemName || product.subCategory);
 
                             return (
                             <TableRow key={product.id || product.collectionBrand}>
@@ -148,7 +152,7 @@ export default function AddedProduct({
                                 {/* Display Name */}
                                 <TableCell>
                                 {isHardware
-                                    ? <div className="flex flex-col gap-1">{product.productCategory}<Badge variant={"outline"}>{product.subCategory}</Badge></div>
+                                    ? <div className="flex flex-col gap-1">{product.productCategory}<Badge variant={"outline"}>{hardwareLabel}</Badge></div>
                                     : isVAS ? <div className="flex flex-col gap-1">{product.productCategory}<Badge variant={"outline"}>{product.subCategory} -&gt; {product.VasType}</Badge></div> 
                                     : product.collectionBrand}
                                 </TableCell>
@@ -187,7 +191,7 @@ export default function AddedProduct({
                                 <TableCell>
                                 {isHardware ? (
                                     <>
-                                    {product.type}
+                                    {product.type || hardwareLabel}
                                     {product.bcn ? ` (BCN: ${product.bcn})` : ""}
                                     </>
                                 ) : isVAS ? (

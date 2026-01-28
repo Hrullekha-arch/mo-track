@@ -413,6 +413,7 @@ export function ProductForm({
         productCategory: payload.productCategory,
         subCategory: payload.subCategory,
         bcn: payload.bcn || null,
+        itemName: payload.itemName || null,
         rate: payload.rate || "",
         quantity: payload.quantity || "",
         room: payload.room,
@@ -1492,7 +1493,9 @@ const handleStageItem = () => {
                           <span>
                             <strong>{item.productCategory}</strong>
                             {" → "}
-                            {item.subCategory}
+                            {item.itemName && item.bcn
+                              ? (item.subCategory || "").replace(item.bcn, item.itemName)
+                              : item.itemName || item.subCategory}
                             {item.quantity && <span>{` (Qty: ${item.quantity})`}</span>}
                             {item.bcn && <span>{` | BCN: ${item.bcn}`}</span>}
                           </span>
