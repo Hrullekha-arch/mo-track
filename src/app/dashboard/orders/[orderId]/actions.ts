@@ -49,6 +49,7 @@ export async function allocateStockToAction(
         const recentBatchesQuery = invoiceBatchesRef
                 .where("orderId", "==", orderId)
                 .where("status", "==", "pendingInvoice")
+                .where("isVas", "==", false) // Ensure we only get non-VAS batches
                 .orderBy("createdAt", "desc") 
                 .limit(1);
 
@@ -153,13 +154,13 @@ export async function allocateStockToAction(
         });
         transaction.update(orderRef, { milestones: updatedMilestones });
 
-        // 6. Add to invoice batch
+        // 6. Add to invoice batch for FABRIC
         let targetBatchRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
         let isNewBatch = true;
         
         if (!recentBatchesSnap.empty) {
             const lastBatchDoc = recentBatchesSnap.docs[0];
-            const lastBatchTimestamp = new Date(lastBatchDoc.data().createdAt as string);
+            const lastBatchTimestamp = new Date((lastBatchDoc.data().createdAt as Timestamp).toDate());
             const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
             
             if (lastBatchTimestamp > tenMinutesAgo) {
@@ -181,7 +182,8 @@ export async function allocateStockToAction(
                 salesPerson: orderData.salesPerson,
                 createdAt: new Date().toISOString(),
                 status: 'pendingInvoice',
-                items: newInvoiceItems
+                items: newInvoiceItems,
+                isVas: false,
             };
             transaction.set(targetBatchRef, newInvoiceBatch);
         } else {
@@ -189,9 +191,45 @@ export async function allocateStockToAction(
                 items: FieldValue.arrayUnion(...newInvoiceItems)
             });
         }
+        
+        // 7. Handle VAS Invoice Batch Creation
+        const vasItems = orderData.vasDetails;
+        if (vasItems && vasItems.length > 0) {
+            const vasInvoiceBatchQuery = invoiceBatchesRef
+                .where("orderId", "==", orderId)
+                .where("isVas", "==", true)
+                .limit(1);
+            
+            const vasBatchesSnap = await transaction.get(vasInvoiceBatchQuery);
+
+            if (vasBatchesSnap.empty) {
+                // No VAS batch exists for this order, so create one.
+                const vasInvoiceItems: InvoiceBatchItem[] = vasItems.map(vas => ({
+                    itemName: vas.vasName,
+                    bcn: `VAS-${vas.vasName}`,
+                    quantityAllocated: Number(vas.quantity) || 0,
+                    rate: Number(vas.rate) || 0,
+                    discountPercent: 0,
+                }));
+                
+                const vasBatchRef = invoiceBatchesRef.doc(); // New document for VAS
+                const newVasInvoiceBatch: Omit<InvoiceBatch, 'id'> = {
+                    orderId: orderId,
+                    customerName: orderData.customerName,
+                    customerPhone: orderData.customerPhone,
+                    customerAddress: orderData.customerAddress,
+                    salesPerson: orderData.salesPerson,
+                    createdAt: new Date().toISOString(),
+                    status: 'pendingInvoice',
+                    items: vasInvoiceItems,
+                    isVas: true,
+                };
+                transaction.set(vasBatchRef, newVasInvoiceBatch);
+            }
+        }
       });
   
-      return { success: true, message: 'Stock reserved successfully and sent for invoicing.' };
+      return { success: true, message: 'Stock reserved and items queued for invoicing.' };
   
     } catch (error: any) {
       console.error("Error in allocateStockToAction:", error);
@@ -199,7 +237,6 @@ export async function allocateStockToAction(
     }
   }
   
-
 export async function getOrderAllocations(orderId: string): Promise<any[]> {
     try {
         const stockRef = adminDb.collection('stocks');
