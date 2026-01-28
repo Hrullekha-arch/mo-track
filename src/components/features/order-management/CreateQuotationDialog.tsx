@@ -162,6 +162,7 @@ function gstPercentForBcnType(bcnType?: BcnType): number {
   if (bcnType === "foxwoodenBlind") return 18;
   if (bcnType === "baswoodenBlind") return 5;
   if (bcnType === "Blind") return 18;
+  if (bcnType === "channel") return 18;
   return 5;
 }
 

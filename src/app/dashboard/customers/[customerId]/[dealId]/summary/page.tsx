@@ -60,7 +60,12 @@ export default function SummaryPage() {
             type: "application/pdf"
         });
 
-        return await uploadFileToStorageAction(pdfFile.name, pdfFile.type, await blobToBase64(pdfFile));
+        return await uploadFileToStorageAction(
+            pdfFile.name,
+            pdfFile.type,
+            await blobToBase64(pdfFile),
+            "measurements/pdfs"
+        );
     };
 
     const blobToBase64 = (file: File): Promise<string> => {

@@ -205,7 +205,7 @@ const handleDownloadPdf = async () => {
         </DialogHeader>
 
         {/* 📄 SCROLLABLE PREVIEW CONTAINER */}
-        <div className="h-full w-full overflow-y-auto overflow-x-hidden">
+        <div className="h-full w-full overflow-y-auto overflow-x-auto bg-gray-100">
           <div
             id="measurement-preview-content"
             ref={previewRef}
@@ -804,7 +804,7 @@ const handleDownloadPdf = async () => {
             Cancel
           </Button>
 
-          <Button
+          {/* <Button
             type="button"
             onClick={handleDownloadPdf}
             disabled={pdfLoading || saving}
@@ -819,7 +819,7 @@ const handleDownloadPdf = async () => {
             ) : (
               "📄 Download PDF"
             )}
-          </Button>
+          </Button> */}
 
           <Button
             type="button"

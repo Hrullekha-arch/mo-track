@@ -44,6 +44,8 @@ const parseDateSafe = (dateInput: any): Date => {
   }
   return new Date();
 };
+
+
 // #endregion
 
 // #region Type Definitions (The Contract)
@@ -114,6 +116,18 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
   
   const { meta, customer, seller, items, totals, gstBreakdown } = payload;
   const roundedTotal = totals.grandTotal;
+  const getGstPercentFromItem = (item: {
+  taxableAmount: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+}) => {
+  const taxable = Number(item.taxableAmount || 0);
+  if (!taxable) return 0;
+
+  const totalTax = Number(item.igst || 0) + Number(item.cgst || 0) + Number(item.sgst || 0);
+  return (totalTax / taxable) * 100; // e.g. 18
+};
 
   return (
     <div
@@ -229,7 +243,15 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
           </thead>
           <tbody>
             {items.map((item, index) => {
-              const amount = item.rate * item.quantity;
+              const gstPercent = getGstPercentFromItem(item);
+               const displayRate =
+                meta.isVas
+                  ? item.rate
+                  : gstPercent > 0
+                    ? item.rate / (1 + gstPercent / 100)
+                    : item.rate;
+
+              const amount = item.rate * item.quantity; // keep your old amount logic if you want totals unchanged
               const gstRate = item.cgst > 0 ? (item.cgst / item.taxableAmount) * 100 * 2 : 0;
               return (
                 <tr key={item.bcn || index}>
@@ -242,7 +264,7 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
                   <td style={{ padding: "4px", border: "1px solid #ddd" }}>{item.hsn || ""}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{item.quantity.toFixed(2)}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>{item.uom || 'Mtr'}</td>
-                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(item.rate)}</td>
+                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}> {formatToINR(displayRate)}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(amount)}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{item.discountPercent.toFixed(2)}%</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(item.taxableAmount)}</td>

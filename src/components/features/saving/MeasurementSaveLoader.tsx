@@ -4,7 +4,7 @@ import { Loader2, CheckCircle2, FileText } from "lucide-react";
 
 const steps = [
   { key: "pdf", label: "📄 Generating measurement PDF" },
-  { key: "upload", label: "☁️ Saving PDF to Drive" },
+  { key: "upload", label: "☁️ Saving files to Storage" },
   { key: "sheet", label: "📊 Saving measurement entries" },
   { key: "done", label: "✅ Saved successfully" },
 ];

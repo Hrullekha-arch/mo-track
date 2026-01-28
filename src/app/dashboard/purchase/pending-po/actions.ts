@@ -3,6 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { PurchaseRequest, Stock, Quotation, Deal, Cpd } from '@/lib/types';
 
 export interface PendingPoItem {
@@ -231,8 +232,8 @@ export async function createPurchaseOrderAction(
                 courier: courier,
                 mode: mode,
                 fabricDetails: newFabricDetails,
-                milestones: adminDb.firestore.FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
-                poMilestones: adminDb.firestore.FieldValue.arrayUnion(poConfirmationMilestone),
+                milestones: FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
+                poMilestones: FieldValue.arrayUnion(poConfirmationMilestone),
                 promiseDeliveryDate: promiseDeliveryDate,
             });
         }

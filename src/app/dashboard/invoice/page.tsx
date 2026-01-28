@@ -36,7 +36,6 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/context/AuthContext";
 import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
 import { sendInvoiceToTally } from "@/services/tally";
-import { combineInvoiceBatchesAction } from "./actions";
 
 interface QuotationItem {
   collectionBrand: string;
@@ -60,6 +59,21 @@ interface QuotationData {
   customerName: string;
   items: QuotationItem[];
 }
+const num = (v: any) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const computeVasTax = (taxable: number, gstPercent: number) => {
+  const tax = taxable * (gstPercent / 100);
+  return {
+    cgst: tax / 2,
+    sgst: tax / 2,
+    igst: 0,
+    total: taxable + tax,
+  };
+};
+
 
 function GenerateInvoiceDialog({
   isOpen,
@@ -72,31 +86,29 @@ function GenerateInvoiceDialog({
   onClose: () => void;
   batches: InvoiceBatch[];
   orders: Order[];
-  creator: { id: string, name: string } | null;
+  creator: { id: string; name: string } | null;
 }) {
+  const [normalPayload, setNormalPayload] = React.useState<PrintableInvoicePayload | null>(null);
+  const [vasPayload, setVasPayload] = React.useState<PrintableInvoicePayload | null>(null);
   const [isGenerating, setIsGenerating] = React.useState(false);
-  const [tallySyncResult, setTallySyncResult] = React.useState<{ success: boolean; message: string; voucherNumber?: string; } | null>(null);
-  const [payload, setPayload] = React.useState<PrintableInvoicePayload | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const { toast } = useToast();
 
+  /* ================= FETCH + BUILD ================= */
   React.useEffect(() => {
-    if (!isOpen || batches.length === 0 || orders.length === 0) {
-      setPayload(null);
+    if (!isOpen || !orders.length) {
+      setNormalPayload(null);
+      setVasPayload(null);
       return;
     }
 
     const fetchAndBuildPayload = async () => {
       try {
-        const primaryOrder = orders[0];
-        const isVas = batches[0].isVas === true;
+        const order = orders[0];
+        const quotationNo = order.crmOrderNo;
 
-        // Extract quotation number from order
-        const quotationNo = primaryOrder.crmOrderNo;
-
-        // Fetch quotation from collectionGroup
-        const quotationSnapshot = await getDocs(
+        const snap = await getDocs(
           query(
             collectionGroup(db, "quotations"),
             where("quotationNo", "==", quotationNo),
@@ -104,345 +116,224 @@ function GenerateInvoiceDialog({
           )
         );
 
-        if (quotationSnapshot.empty) {
-          setError(`Quotation not found for order ${quotationNo}`);
-          return;
+        if (snap.empty) throw new Error("Quotation not found");
+
+        const q = snap.docs[0].data() as any;
+
+        const hasItems = q.items?.length > 0;
+        const hasVas = q.vasDetails?.length > 0;
+
+        /* ========== NORMAL ITEMS ========== */
+        if (hasItems) {
+          const items = q.items.map((i: any) => ({
+            name: i.salesDescription || i.collectionBrand,
+            bcn: i.collectionBrand,
+            hsn: "54076190",
+            quantity: num(i.quantity),
+            uom: "Mtr",
+            rate: num(i.rate),
+            discountPercent: num(i.discountPercent),
+            taxableAmount: num(i.taxableAmt),
+            cgst: num(i.cgst),
+            sgst: num(i.sgst),
+            igst: num(i.igst),
+            total: num(i.subtotal),
+          }));
+
+          const totals = items.reduce(
+            (a, i) => {
+              a.subTotal += i.rate * i.quantity;
+              a.discount += (i.rate * i.quantity * i.discountPercent) / 100;
+              a.taxableValue += i.taxableAmount;
+              a.cgst += i.cgst;
+              a.sgst += i.sgst;
+              a.igst += i.igst;
+              return a;
+            },
+            { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
+          );
+
+          const gross = totals.taxableValue + totals.cgst + totals.sgst + totals.igst;
+          const rounded = Math.round(gross);
+
+          setNormalPayload({
+            meta: {
+              orderNo: order.id,
+              quotationNo,
+              invoiceDate: new Date().toISOString(),
+              isVas: false,
+              salesPerson: order.salesPerson,
+            },
+            customer: {
+              name: q.billingName || order.customerName,
+              phone: order.customerPhone,
+              address: q.billingAddress || order.customerAddress,
+            },
+            seller: {
+              companyName: "MO Designs Private Limited - (2024-2025)",
+              address: "A-6, Sushant Lok-1, Gurgaon",
+              gstin: "06AAMCM5012B1ZY",
+            },
+            items,
+            totals: {
+              ...totals,
+              roundOff: rounded - gross,
+              grandTotal: rounded,
+              totalGst: totals.cgst + totals.sgst + totals.igst,
+            },
+            gstBreakdown: [],
+          });
         }
 
-        const quotationData = quotationSnapshot.docs[0].data() as QuotationData;
+        /* ========== VAS ITEMS ========== */
+        if (hasVas) {
+          const items = q.vasDetails.map((v: any) => {
+            const qty = num(v.quantity);
+            const rate = num(v.rate);
+            const taxable = qty * rate;
+            const gst = num(v.gstPercent || 18);
+            const tax = computeVasTax(taxable, gst);
 
-        // Build invoice items from quotation
-        const invoiceItems = quotationData.items.map(item => ({
-          name: item.salesDescription || item.collectionBrand,
-          bcn: item.collectionBrand,
-          hsn: "54076190",
-          quantity: item.quantity,
-          uom: 'Mtr' as const,
-          rate: item.rate,
-          discountPercent: item.discountPercent,
-          taxableAmount: item.taxableAmt,
-          cgst: item.cgst,
-          sgst: item.sgst,
-          igst: item.igst,
-          total: item.subtotal,
-        }));
+            return {
+              name: v.vasName,
+              bcn: `VAS-${v.vasName}`,
+              hsn: "998819",
+              quantity: qty,
+              uom: "Pcs",
+              rate,
+              discountPercent: 0,
+              taxableAmount: taxable,
+              cgst: tax.cgst,
+              sgst: tax.sgst,
+              igst: 0,
+              total: tax.total,
+            };
+          });
 
-        // Calculate totals from quotation items
-        const totals = quotationData.items.reduce(
-          (acc, item) => ({
-            subTotal: acc.subTotal + (item.rate * item.quantity),
-            discount: acc.discount + ((item.rate * item.quantity * item.discountPercent) / 100),
-            taxableValue: acc.taxableValue + item.taxableAmt,
-            cgst: acc.cgst + item.cgst,
-            sgst: acc.sgst + item.sgst,
-            igst: acc.igst + item.igst,
-          }),
-          { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
-        );
+          const totals = items.reduce(
+            (a, i) => {
+              a.subTotal += i.rate * i.quantity;
+              a.taxableValue += i.taxableAmount;
+              a.cgst += i.cgst;
+              a.sgst += i.sgst;
+              return a;
+            },
+            { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
+          );
 
-        const grandTotal = totals.taxableValue + totals.cgst + totals.sgst + totals.igst;
-        const roundedTotal = Math.round(grandTotal);
-        const roundOff = roundedTotal - grandTotal;
+          const gross = totals.taxableValue + totals.cgst + totals.sgst;
+          const rounded = Math.round(gross);
 
-        // Build GST breakdown by rate
-        const gstBreakdownMap = new Map<number, { rate: number; taxable: number; cgst: number; sgst: number; igst: number }>();
-        
-        quotationData.items.forEach(item => {
-          const existing = gstBreakdownMap.get(item.gstPercent);
-          if (existing) {
-            existing.taxable += item.taxableAmt;
-            existing.cgst += item.cgst;
-            existing.sgst += item.sgst;
-            existing.igst += item.igst;
-          } else {
-            gstBreakdownMap.set(item.gstPercent, {
-              rate: item.gstPercent,
-              taxable: item.taxableAmt,
-              cgst: item.cgst,
-              sgst: item.sgst,
-              igst: item.igst,
-            });
-          }
-        });
-
-        const gstBreakdown = Array.from(gstBreakdownMap.values());
-
-        const newPayload: PrintableInvoicePayload = {
-          meta: {
-            orderNo: primaryOrder.id,
-            quotationNo: primaryOrder.crmOrderNo,
-            invoiceDate: new Date().toISOString(),
-            isVas: isVas,
-            salesPerson: primaryOrder.salesPerson,
-          },
-          customer: {
-            name: quotationData.billingName || primaryOrder.customerName,
-            phone: primaryOrder.customerPhone,
-            address: quotationData.billingAddress || primaryOrder.customerAddress,
-          },
-          seller: {
-            companyName: quotationData.company || (isVas ? 'MO SPACES PVT.LTD.' : 'MO Designs Private Limited - (2024-2025)'),
-            address: 'A-6, Sushant Lok-1, M G Road, Gurgaon- 122022, B-50, Sushant Lok-2, Sec- 56, Gurgaon - 122011 GURGAON. (HARYANA) INDIA',
-            gstin: '06AAMCM5012B1ZY',
-          },
-          items: invoiceItems,
-          totals: {
-            subTotal: totals.subTotal,
-            discount: totals.discount,
-            taxableValue: totals.taxableValue,
-            cgst: totals.cgst,
-            sgst: totals.sgst,
-            igst: totals.igst,
-            roundOff: roundOff,
-            grandTotal: roundedTotal,
-            totalGst: totals.cgst + totals.sgst + totals.igst,
-          },
-          gstBreakdown: gstBreakdown,
-        };
-
-        setPayload(newPayload);
-        setError(null);
-
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to build invoice');
+          setVasPayload({
+            meta: {
+              orderNo: order.id,
+              quotationNo,
+              invoiceDate: new Date().toISOString(),
+              isVas: true,
+              salesPerson: order.salesPerson,
+            },
+            customer: {
+              name: q.billingName || order.customerName,
+              phone: order.customerPhone,
+              address: q.billingAddress || order.customerAddress,
+            },
+            seller: {
+              companyName: "MO SPACES PVT.LTD.",
+              address: "A-6, Sushant Lok-1, Gurgaon",
+              gstin: "06AAMCM5012B1ZY",
+            },
+            items,
+            totals: {
+              ...totals,
+              roundOff: rounded - gross,
+              grandTotal: rounded,
+              totalGst: totals.cgst + totals.sgst,
+            },
+            gstBreakdown: [],
+          });
+        }
+      } catch (e: any) {
+        setError(e.message);
       }
     };
 
     fetchAndBuildPayload();
-  }, [isOpen, batches, orders]);
+  }, [isOpen, orders]);
 
-  const handleGenerate = React.useCallback(async () => {
-    if (!creator || !payload) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Missing required data' });
-      return;
-    }
-
-    setIsGenerating(true);
+  /* ================= GENERATE ================= */
+  const handleGenerate = async () => {
+    if (!creator) return;
 
     try {
+      setIsGenerating(true);
       const batch = writeBatch(db);
-      const primaryOrder = orders[0];
-      const isVas = batches[0].isVas === true;
+      const order = orders[0];
 
-      console.log("batch :", batch);
-      console.log("order :", primaryOrder);
+      const createInvoice = async (payload: PrintableInvoicePayload) => {
+        const ref = doc(collection(db, "invoices"));
+        batch.set(ref, {
+          orderId: order.id,
+          isVas: payload.meta.isVas,
+          customer: payload.customer,
+          salesPerson: payload.meta.salesPerson,
+          items: payload.items,
+          totals: payload.totals,
+          createdAt: new Date().toISOString(),
+          createdBy: creator.name,
+        });
 
-      // Create invoice
-      const invoiceRef = doc(collection(db, "invoices"));
-      
-      const invoiceData: Omit<Invoice, 'id' | 'invoiceNo'> = {
-        orderId: primaryOrder.id,
-        isVas: isVas,
-        customer: payload.customer,
-        salesPerson: primaryOrder.salesPerson,
-        items: payload.items.map(item => ({
-          itemName: item.name,
-          bcn: item.bcn,
-          quantityAllocated: item.quantity,
-          rate: item.rate,
-          discountPercent: item.discountPercent,
-        })),
-        totals: payload.totals,
-        gstPercentages: {
-          cgst: payload.gstBreakdown[0]?.rate / 2 || 2.5,
-          sgst: payload.gstBreakdown[0]?.rate / 2 || 2.5,
-          igst: 0,
-          total: payload.gstBreakdown[0]?.rate || 5,
-        },
-        createdAt: new Date().toISOString(),
-        createdBy: creator.name,
-        invoiceNo: '',
+        // Stock + Cutting ONLY for non-VAS
+        if (!payload.meta.isVas) {
+          for (const item of payload.items) {
+            const stockRef = doc(db, "stocks", item.bcn.replace(/\//g, "-"));
+            batch.update(stockRef, {
+              quantity: increment(-item.quantity),
+              reservedQty: increment(-item.quantity),
+              cutQty: increment(item.quantity),
+            });
+          }
+        }
       };
 
-      batch.set(invoiceRef, invoiceData);
-
-      // Send to Tally
-      // const tallyResult = await sendInvoiceToTally(
-      //   { ...invoiceData, id: invoiceRef.id, invoiceNo: '' },
-      //   isVas
-      // );
-
-      // if (tallyResult.success && tallyResult.voucherNumber) {
-      //   batch.update(invoiceRef, {
-      //     tallyVoucherNo: tallyResult.voucherNumber,
-      //     invoiceNo: tallyResult.voucherNumber,
-      //   });
-      // }
-
-      // Handle stock deduction for non-VAS
-      if (!isVas) {
-        for (const item of payload.items) {
-          const stockId = item.bcn.replace(/\//g, '-');
-          const stockRef = doc(db, 'stocks', stockId);
-
-          batch.update(stockRef, {
-            quantity: increment(-item.quantity),
-            reservedQty: increment(-item.quantity),
-            cutQty: increment(item.quantity),
-          });
-
-          const transactionRef = doc(collection(stockRef, 'stockSold'));
-          const transaction: Omit<StockTransaction, 'id'> = {
-            stockId: stockId,
-            bcn: item.bcn,
-            type: 'deduction',
-            quantityChange: -item.quantity,
-            orderId: primaryOrder.id,
-            createdAt: new Date().toISOString(),
-            createdBy: creator.name,
-            status: 'cut'
-          };
-          batch.set(transactionRef, transaction);
-        }
-
-        // Create cutting task
-        const cuttingTaskRef = doc(collection(db, "Cutting"));
-        const cuttingTask: Omit<CuttingTask, 'id'> = {
-          invoiceId: invoiceRef.id,
-          orderId: primaryOrder.id,
-          customerName: primaryOrder.customerName,
-          customerPhone: primaryOrder.customerPhone,
-          salesPerson: primaryOrder.salesPerson,
-          items: payload.items.map(item => ({
-            itemName: item.name,
-            bcn: item.bcn,
-            quantityAllocated: item.quantity,
-            rate: item.rate,
-            discountPercent: item.discountPercent,
-            status: 'pending',
-            originalLength: 0,
-          })),
-          createdAt: new Date().toISOString(),
-          status: "Pending",
-        };
-        batch.set(cuttingTaskRef, cuttingTask);
-      }
-
-      // Update batches
-      batches.forEach((b) => {
-        const batchRef = doc(db, "invoiceBatches", b.id);
-        batch.update(batchRef, { status: "invoiced", invoiceId: invoiceRef.id });
-      });
+      if (normalPayload) await createInvoice(normalPayload);
+      if (vasPayload) await createInvoice(vasPayload);
 
       await batch.commit();
-      // setTallySyncResult(tallyResult);
 
-      toast({ 
-        title: 'Success', 
-        description: 'Invoice generated successfully' 
-      });
+      toast({ title: "Success", description: "Invoice(s) generated successfully" });
+      onClose();
 
-    } catch (error) {
-      toast({ 
-        variant: 'destructive', 
-        title: 'Error', 
-        description: error instanceof Error ? error.message : 'Failed to generate invoice' 
-      });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Error", description: e.message });
     } finally {
       setIsGenerating(false);
     }
-  }, [creator, toast, batches, orders, payload]);
-
-  const handlePrint = () => {
-    const printContent = document.getElementById('printable-invoice-content');
-    if (!printContent) return;
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    printWindow.document.write('<html><head><title>Print Invoice</title></head><body>');
-    printWindow.document.write(printContent.innerHTML);
-    printWindow.document.write('</body></html>');
-    printWindow.document.close();
-    setTimeout(() => {
-      printWindow.focus();
-      printWindow.print();
-    }, 250);
   };
 
-  const resetAndClose = () => {
-    setTallySyncResult(null);
-    setError(null);
-    onClose();
-  };
-
-  if (error) {
-    return (
-      <AlertDialog open={isOpen} onOpenChange={onClose}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <XCircle className="text-destructive" />
-              Error Loading Invoice
-            </AlertDialogTitle>
-            <AlertDialogDescription>{error}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={onClose}>Close</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    );
-  }
-
+  /* ================= UI ================= */
   return (
-    <>
-      <Dialog open={isOpen && !tallySyncResult} onOpenChange={onClose}>
-        <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Generate Invoice</DialogTitle>
-            <DialogDescription>
-              Review the invoice details before generating.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex-grow overflow-y-auto pr-4" id="printable-invoice-content">
-            {payload ? <PrintableInvoice payload={payload} /> : <Loader2 className="h-6 w-6 animate-spin mx-auto" />}
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button variant="outline" onClick={handlePrint} disabled={!payload}>
-              <Printer className="mr-2 h-4 w-4" /> Print
-            </Button>
-            <Button onClick={handleGenerate} disabled={isGenerating || !payload}>
-              {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              <FileText className="mr-2 h-4 w-4" />
-              Generate Invoice
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-7xl h-[90vh]">
+        <DialogHeader>
+          <DialogTitle>Generate Invoice</DialogTitle>
+        </DialogHeader>
 
-      <AlertDialog open={!!tallySyncResult} onOpenChange={resetAndClose}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              {tallySyncResult?.success ? (
-                <CheckCircle className="text-green-500" />
-              ) : (
-                <XCircle className="text-destructive" />
-              )}
-              Invoice {tallySyncResult?.success ? "Generated Successfully" : "Generation Failed"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {tallySyncResult?.message}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {tallySyncResult?.voucherNumber && (
-            <div className="py-2">
-              <p className="text-sm font-semibold">Invoice Number:</p>
-              <p className="text-lg font-mono p-2 bg-muted rounded-md">
-                {tallySyncResult.voucherNumber}
-              </p>
-            </div>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={resetAndClose}>Close</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+        <div className="overflow-y-auto space-y-10">
+          {normalPayload && <PrintableInvoice payload={normalPayload} />}
+          {vasPayload && <PrintableInvoice payload={vasPayload} />}
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleGenerate} disabled={isGenerating}>
+            Generate Invoice{normalPayload && vasPayload ? "s" : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
+
 
 function InvoiceTable({
   batches,
@@ -588,15 +479,15 @@ function InvoiceTable({
 
   const handleConfirmCombine = async () => {
     const plainBatches = JSON.parse(JSON.stringify(selectedBatches));
-    const result = await combineInvoiceBatchesAction(plainBatches);
+  //   const result = await combineInvoiceBatchesAction(plainBatches);
 
-    if (result.success) {
-      toast({ title: 'Success', description: result.message });
-      table.resetRowSelection();
-    } else {
-      toast({ variant: 'destructive', title: 'Error', description: result.message });
-    }
-    setIsCombineDialogOpen(false);
+  //   if (result.success) {
+  //     toast({ title: 'Success', description: result.message });
+  //     table.resetRowSelection();
+  //   } else {
+  //     toast({ variant: 'destructive', title: 'Error', description: result.message });
+  //   }
+  //   setIsCombineDialogOpen(false);
   };
 
   return (
@@ -770,4 +661,4 @@ export default function InvoicePage() {
       </Tabs>
     </div>
   );
-}
+ }

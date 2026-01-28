@@ -26,33 +26,71 @@ async function sendVisitSms(customerPhone: string, message: string) {
     return { success: true, message: "WhatsApp link generated." , link: whatsappLink};
 }
 
-export async function uploadFileToStorageAction(
-  fileName: string,
-  mimeType: string,
-  base64Data: string
-): Promise<string> {
-  if (!adminStorage) {
-    throw new Error('Firebase Admin Storage is not initialized. Ensure FIREBASE_SERVICE_ACCOUNT_KEY and NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET are set.');
-  }
+const base64Marker = "base64,";
 
-  const bucket = adminStorage.bucket();
-  // Create a unique path for each file to prevent overwrites
-  const filePath = `measurements/${Date.now()}_${fileName.replace(/\s/g, '_')}`;
+const normalizeBase64 = (value: string) => {
+  if (!value) return "";
+  const markerIndex = value.indexOf(base64Marker);
+  return markerIndex >= 0 ? value.slice(markerIndex + base64Marker.length) : value;
+};
+
+const sanitizeFileName = (value: string) =>
+  (value || "file").replace(/[^\w.-]/g, "_");
+
+const uploadBufferToStorage = async (
+  bucket: any,
+  filePath: string,
+  buffer: Buffer,
+  mimeType: string
+) => {
   const file = bucket.file(filePath);
-  const buffer = Buffer.from(base64Data, 'base64');
 
+  // ✅ Upload file (no ACL changes)
   await file.save(buffer, {
+    resumable: false,
     metadata: {
       contentType: mimeType,
+      cacheControl: "private, max-age=0, no-cache",
     },
   });
 
-  // Make the file publicly readable
-  await file.makePublic();
+  // ✅ Signed URL (works with UBLA)
+  const [url] = await file.getSignedUrl({
+    action: "read",
+    expires: Date.now() + 1000 * 60 * 60 * 24 * 7, // 7 days
+  });
 
-  // Return the public URL
-  return file.publicUrl();
+  return url;
+};
+
+export async function uploadFileToStorageAction(
+  fileName: string,
+  mimeType: string,
+  base64Data: string,
+  folder: string = "measurements"
+): Promise<string> {
+  if (!adminStorage) {
+    throw new Error(
+      "Firebase Admin Storage is not initialized. Ensure FIREBASE_SERVICE_ACCOUNT_KEY and FIREBASE_STORAGE_BUCKET are set."
+    );
+  }
+
+  const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+  if (!bucketName) {
+    throw new Error("FIREBASE_STORAGE_BUCKET env missing. Example: studio-3799785967-d0d9d.firebasestorage.app");
+  }
+
+  const bucket = adminStorage.bucket(bucketName); // ✅ explicit bucket
+  const safeName = sanitizeFileName(fileName);
+  const filePath = `${folder}/${Date.now()}_${safeName}`;
+
+  const cleanBase64 = normalizeBase64(base64Data);
+  if (!cleanBase64) throw new Error("Empty file payload.");
+
+  const buffer = Buffer.from(cleanBase64, "base64");
+  return uploadBufferToStorage(bucket, filePath, buffer, mimeType);
 }
+
 
 export async function getDealById(customerId: string, dealId: string): Promise<Deal | null> {
     try {
@@ -1227,6 +1265,7 @@ export async function saveMeasurementToDeal({
   rooms,
   itemDetails = [],
   createdBy,
+  pdfUrl,
   status,
   flags,
 }: {
@@ -1239,6 +1278,7 @@ export async function saveMeasurementToDeal({
   rooms: any[];
   itemDetails?: any[];
   createdBy?: string;
+  pdfUrl?: string | null;
   status?: string;
   flags?: string[];
 }) {
@@ -1335,7 +1375,7 @@ export async function saveMeasurementToDeal({
 
     const measurementRef = dealRef.collection("measurements").doc();
 
-    const saveData = {
+    const saveData: Record<string, any> = {
       id: measurementRef.id,
       createdAt: new Date().toISOString(),
       createdBy: safeCreatedBy,
@@ -1347,21 +1387,25 @@ export async function saveMeasurementToDeal({
       status: safeStatus,
       flags: safeFlags,
     };
+    if (pdfUrl) {
+      saveData.pdfUrl = pdfUrl;
+    }
 
     const batch = adminDb.batch();
     batch.set(measurementRef, saveData, { merge: true });
 
     if (visitRef) {
-      batch.set(
-        visitRef,
-        {
-          status: "completed",
-          visitEndTime: new Date().toISOString(),
-          measurementId: measurementRef.id,
-          measurementSavedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      const visitUpdate: Record<string, any> = {
+        status: "completed",
+        visitEndTime: new Date().toISOString(),
+        measurementId: measurementRef.id,
+        measurementSavedAt: new Date().toISOString(),
+      };
+      if (pdfUrl) {
+        visitUpdate.measurementPdfUrl = pdfUrl;
+      }
+
+      batch.set(visitRef, visitUpdate, { merge: true });
     }
 
     batch.set(

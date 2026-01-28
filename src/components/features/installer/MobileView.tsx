@@ -224,23 +224,59 @@ export function MobileView() {
   }, [user]);
 
   const activeTasks = useMemo(() => {
-    return tasks
-      .filter(task => {
-        if (task.type === 'order') {
-          const isCompleted = task.data.milestones.every(m => m.completed) && (!!task.data.feedbackRating || task.data.bypassedOtp === true);
-          return !isCompleted;
-        }
-        if (task.type === 'visit') {
-          return task.data.status !== 'completed' && task.data.status !== 'CWC';
-        }
-        return false;
-      })
-      .sort((a, b) => {
-        const dateA = a.type === 'order' ? new Date(a.data.createdAt) : new Date(a.data.dueDate);
-        const dateB = b.type === 'order' ? new Date(b.data.createdAt) : new Date(b.data.dueDate);
-        return dateA.getTime() - dateB.getTime();
-      });
-  }, [tasks]);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const isToday = (date?: string | Date) => {
+    if (!date) return false;
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime() === today.getTime();
+  };
+
+  return tasks
+    .filter(task => {
+      // ---------- DATE FILTER (TODAY ONLY) ----------
+      const taskDate =
+        task.type === "order"
+          ? task.data.createdAt
+          : task.data.dueDate;
+
+      if (!isToday(taskDate)) return false;
+
+      // ---------- STATUS FILTER ----------
+      if (task.type === "order") {
+        const isCompleted =
+          task.data.milestones.every(m => m.completed) &&
+          (!!task.data.feedbackRating || task.data.bypassedOtp === true);
+
+        return !isCompleted;
+      }
+
+      if (task.type === "visit") {
+        return (
+          task.data.status !== "completed" &&
+          task.data.status !== "CWC"
+        );
+      }
+
+      return false;
+    })
+    .sort((a, b) => {
+      const dateA =
+        a.type === "order"
+          ? new Date(a.data.createdAt)
+          : new Date(a.data.dueDate);
+
+      const dateB =
+        b.type === "order"
+          ? new Date(b.data.createdAt)
+          : new Date(b.data.dueDate);
+
+      return dateA.getTime() - dateB.getTime();
+    });
+}, [tasks]);
+
 
 
   async function fetchUserNames(ids: string[]) {

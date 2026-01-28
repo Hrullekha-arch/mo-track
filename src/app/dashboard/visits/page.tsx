@@ -1,5 +1,5 @@
 
-"use client";
+      "use client";
 
 import * as React from "react";
 import {
@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { AssignInstallerDialog, SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX, Loader2, Download } from "lucide-react";
+import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -529,19 +529,11 @@ const InstallerCard = ({
                                                 <div className="flex-1">
                                                     <h3 className="font-semibold text-lg">{visit.customerName}</h3>
                                                 </div>
-                                                <div className="flex flex-col items-end gap-1">
+                                                <div className="flex items-center gap-2">
+                                                    <Badge variant="outline" className="text-xs">
+                                                        {visit.slotLabel || 'No Slot'}
+                                                    </Badge>
                                                     {renderVisitStatus(visit)}
-                                                    {visit.typeOfVisit === 'measurement' && visit.status === 'completed' && (
-                                                        visit.measurementPdfUrl ? (
-                                                            <Button variant="outline" size="sm" asChild className="h-6 text-xs px-2 mt-1">
-                                                                <a href={visit.measurementPdfUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
-                                                                    <Download className="h-3 w-3" /> Download
-                                                                </a>
-                                                            </Button>
-                                                        ) : (
-                                                            <span className="text-xs text-muted-foreground mt-1">-</span>
-                                                        )
-                                                    )}
                                                 </div>
                                             </div>
 
@@ -616,7 +608,7 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
     assigneeNameById: Record<string, string>, 
     onAssign: (visit: EnrichedDealVisit) => void, 
     onShare: (visit: EnrichedDealVisit) => void, 
-    onViewDetails: (EnrichedDealVisit) => void, 
+    onViewDetails: (visit: EnrichedDealVisit) => void, 
     onTransfer: (v: EnrichedDealVisit) => void,
     onUnassign: (v: EnrichedDealVisit) => void,
     onEdit: (v: EnrichedDealVisit) => void
@@ -737,7 +729,7 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                             <TableHead>Address</TableHead>
                             <TableHead>Deal ID</TableHead>
                             <TableHead>Type / Created By</TableHead>
-                            <TableHead>Date &amp; Slot</TableHead>
+                            <TableHead>Date & Slot</TableHead>
                             <TableHead>Assigned To</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -767,22 +759,7 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                                 <TableCell>
                                     {visit.assignedTo ? (assigneeNameById[visit.assignedTo] || 'Unknown') : 'Unassigned'}
                                 </TableCell>
-                                <TableCell>
-                                    <div className="flex flex-col items-start gap-1">
-                                        {renderVisitStatus(visit)}
-                                        {visit.typeOfVisit === 'measurement' && visit.status === 'completed' && (
-                                            visit.measurementPdfUrl ? (
-                                                <Button variant="outline" size="sm" asChild className="h-6 text-xs px-2 mt-1">
-                                                    <a href={visit.measurementPdfUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
-                                                        <Download className="h-3 w-3" /> Download
-                                                    </a>
-                                                </Button>
-                                            ) : (
-                                                <span className="text-xs text-muted-foreground mt-1">-</span>
-                                            )
-                                        )}
-                                    </div>
-                                </TableCell>
+                                <TableCell>{renderVisitStatus(visit)}</TableCell>
                                 <TableCell className="text-right">
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
@@ -824,4 +801,711 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
         </Card>
     );
 }
-//...rest of the file
+
+function EditVisitDialog({
+    visit,
+    isOpen,
+    onClose,
+    salesmen,
+    onSuccess,
+}: {
+    visit: EnrichedDealVisit | null;
+    isOpen: boolean;
+    onClose: () => void;
+    salesmen: User[];
+    onSuccess: () => void;
+}) {
+    const { toast } = useToast();
+    const [isSubmitting, setIsSubmitting] = React.useState(false);
+    
+    const formSchema = z.object({
+        dueDate: z.string().min(1, "Due date is required."),
+        representative: z.string().min(1, "Representative is required."),
+        remark: z.string().optional(),
+    });
+
+    const form = useForm<z.infer<typeof formSchema>>({
+        resolver: zodResolver(formSchema),
+        defaultValues: {
+            dueDate: "",
+            representative: "",
+            remark: "",
+        },
+    });
+
+    React.useEffect(() => {
+        if (visit) {
+            form.reset({
+                dueDate: visit.dueDate ? format(new Date(visit.dueDate), 'yyyy-MM-dd') : "",
+                representative: visit.representative || "",
+                remark: visit.remark || "",
+            });
+        }
+    }, [visit, form]);
+
+    if (!visit) return null;
+
+    const onSubmit = async (values: z.infer<typeof formSchema>) => {
+        setIsSubmitting(true);
+        try {
+            const result = await updateVisitDetailsAction(visit.customerId, visit.dealDocId, visit.id, {
+                dueDate: new Date(values.dueDate).toISOString(),
+                representative: values.representative,
+                remark: values.remark,
+            });
+
+            if (result.success) {
+                toast({ title: "Visit Updated", description: result.message });
+                onSuccess();
+                onClose();
+            } else {
+                toast({ variant: "destructive", title: "Update Failed", description: result.message });
+            }
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error", description: error.message });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Edit Visit</DialogTitle>
+                    <DialogDescription>
+                        Update details for visit to {visit.customerName}.
+                    </DialogDescription>
+                </DialogHeader>
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+                        <FormField
+                            control={form.control}
+                            name="dueDate"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Due Date</FormLabel>
+                                    <FormControl>
+                                        <Input type="date" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="representative"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Representative</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select a representative" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            {salesmen.map(s => (
+                                                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="remark"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Remarks</FormLabel>
+                                    <FormControl>
+                                        <Textarea placeholder="Add any notes..." {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <DialogFooter>
+                            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+                            <Button type="submit" disabled={isSubmitting}>
+                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Save Changes
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+export default function AllVisitsPage() {
+    const [allVisits, setAllVisits] = React.useState<EnrichedDealVisit[]>([]);
+    const [users, setUsers] = React.useState<User[]>([]);
+    const [loading, setLoading] = React.useState(true);
+    const [tracking, setTracking] = React.useState<InstallerTracking[]>([]);
+    const [trackingLoading, setTrackingLoading] = React.useState(true);
+    const [selectedVisit, setSelectedVisit] = React.useState<EnrichedDealVisit | null>(null);
+    const [isAssigning, setIsAssigning] = React.useState(false);
+    const [shareableLink, setShareableLink] = React.useState<string | null>(null);
+    const [detailsVisit, setDetailsVisit] = React.useState<EnrichedDealVisit | null>(null);
+    const [dailyStatsMap, setDailyStatsMap] = React.useState<Record<string, AdminDailyStats>>({});
+    const [editingVisit, setEditingVisit] = React.useState<EnrichedDealVisit | null>(null);
+
+    console.log("detailsVisit:", detailsVisit);
+
+    const { toast } = useToast();
+    
+    const installers = React.useMemo(() => users.filter(u => u.role === 'installer'), [users]);
+    const assigneeNameById = React.useMemo(() => {
+        const map: Record<string, string> = {};
+        users.forEach(user => {
+            map[user.id] = user.name;
+        });
+        return map;
+    }, [users]);
+
+    const groupedVisits = React.useMemo(() => {
+        const map = new Map<string, EnrichedDealVisit[]>();
+        installers.forEach(installer => map.set(installer.id, [])); // Initialize for all installers
+        allVisits.forEach(visit => {
+            if (visit.assignedTo) {
+                if (!map.has(visit.assignedTo)) {
+                    map.set(visit.assignedTo, []);
+                }
+                map.get(visit.assignedTo)!.push(visit);
+            }
+        });
+        return map;
+    }, [allVisits, installers]);
+
+    const trackingByInstaller = React.useMemo(() => {
+        const map = new Map<string, InstallerTracking>();
+        tracking.forEach(doc => {
+            const key = doc.installerId || doc.id;
+            map.set(key, { ...doc, installerId: key, id: doc.id || key });
+        });
+        return map;
+    }, [tracking]);
+
+    //=======Suggestion Map
+    const [suggestMap, setSuggestMap] = React.useState<Record<string, JobSuggestion>>({});
+
+        React.useEffect(() => {
+        const unsub = onSnapshot(collection(db, "jobSuggestions"), (snap) => {
+            const next: Record<string, JobSuggestion> = {};
+            snap.forEach((d) => {
+            next[d.id] = { installerId: d.id, ...(d.data() as any) };
+            });
+            setSuggestMap(next);
+        });
+        return () => unsub();
+        }, []);
+
+    //=======Daily Stats Map\
+    React.useEffect(() => {
+    const unsub = onSnapshot(collection(db, "adminDailyStats"), (snap) => {
+        const next: Record<string, AdminDailyStats> = {};
+        snap.forEach((d) => {
+        const data = d.data() as any;
+        if (data?.installerId) next[data.installerId] = data;
+        });
+        setDailyStatsMap(next);
+    });
+    return () => unsub();
+    }, []);    
+
+    const visitsById = React.useMemo(() => {
+        const map = new Map<string, EnrichedDealVisit>();
+        allVisits.forEach(visit => map.set(visit.id, visit));
+        return map;
+    }, [allVisits]);
+
+    const completedTodayByInstaller = React.useMemo(() => {
+        const map = new Map<string, number>();
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        allVisits.forEach(visit => {
+            if (!visit.assignedTo || visit.status !== 'completed' || !visit.visitEndTime) return;
+            const endTime = new Date(visit.visitEndTime);
+            if (Number.isNaN(endTime.getTime()) || endTime < todayStart) return;
+            map.set(visit.assignedTo, (map.get(visit.assignedTo) || 0) + 1);
+        });
+
+        return map;
+    }, [allVisits]);
+
+    React.useEffect(() => {
+        setLoading(true);
+
+        const usersQuery = query(collection(db, "users"));
+        const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+            const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+            setUsers(usersData);
+        });
+
+        const visitsQuery = collectionGroup(db, 'visits');
+        const unsubscribeVisits = onSnapshot(visitsQuery, async (snapshot) => {
+            const customerCache = new Map<string, Customer>();
+            const dealCache = new Map<string, Deal>();
+
+            const visitsDataPromises = snapshot.docs.map(async (docSnap) => {
+                const visit = docSnap.data() as DealVisit;
+                const pathParts = docSnap.ref.path.split('/');
+                const customerId = pathParts[1];
+                const dealDocId = pathParts[3];
+
+                let customerName = 'Unknown';
+                let dealName = 'Unknown';
+                let dealId = 'N/A';
+                
+                if (!customerCache.has(customerId)) {
+                    const customerRef = doc(db, 'customers', customerId);
+                    const customerSnap = await getDoc(customerRef);
+                    if (customerSnap.exists()) {
+                        customerCache.set(customerId, { id: customerSnap.id, ...customerSnap.data() } as Customer);
+                    }
+                }
+                customerName = customerCache.get(customerId)?.name || 'Unknown';
+                
+                const dealCacheKey = `${customerId}-${dealDocId}`;
+                if (!dealCache.has(dealCacheKey)) {
+                     const dealRef = doc(db, 'customers', customerId, 'deals', dealDocId);
+                     const dealSnap = await getDoc(dealRef);
+                     if (dealSnap.exists()) {
+                        dealCache.set(dealCacheKey, { id: dealSnap.id, ...dealSnap.data() } as Deal);
+                    }
+                }
+                const dealData = dealCache.get(dealCacheKey);
+                dealName = dealData?.dealName || 'Unknown';
+                dealId = dealData?.dealId || 'N/A';
+
+                return { ...visit, id: docSnap.id, customerId, dealDocId, customerName, dealName, dealId, customer: customerCache.get(customerId) || null };
+            });
+            
+            const visitsData = await Promise.all(visitsDataPromises);
+            setAllVisits(visitsData);
+            setLoading(false);
+        });
+
+        const trackingQuery = collection(db, "installerTracking");
+        const unsubscribeTracking = onSnapshot(trackingQuery, (snapshot) => {
+            const trackingData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InstallerTracking));
+            setTracking(trackingData);
+            setTrackingLoading(false);
+        });
+
+        return () => {
+            unsubscribeUsers();
+            unsubscribeVisits();
+            unsubscribeTracking();
+        };
+    }, []);
+
+    const handleShareClick = (visit: EnrichedDealVisit) => {
+        const baseURL = "https://mo-track-yerq.vercel.app";
+        const link = `${baseURL}/visit/confirm/${visit.id}?customerId=${visit.customerId}&dealId=${visit.dealDocId}`;
+        setShareableLink(link);
+    };
+
+    const handleAssignInstaller = async (installerId: string, slots?: SlotSelection[]) => {
+        if (!selectedVisit || !slots || slots.length === 0) return;
+        setIsAssigning(false); // To close the dialog immediately
+
+        try {
+            const assignedAt = new Date().toISOString();
+            const slotDate = slots[0].slotDate;
+            const slotIndex = new Map(SLOT_OPTIONS.map((opt, idx) => [opt.id, idx]));
+            const uniqueSlotIds = Array.from(new Set(slots.map((s) => s.slotId)));
+            const sortedSlotIds = uniqueSlotIds.sort(
+                (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
+            );
+            const firstSlot = SLOT_OPTIONS.find((s) => s.id === sortedSlotIds[0]);
+            const lastSlot = SLOT_OPTIONS.find((s) => s.id === sortedSlotIds[sortedSlotIds.length - 1]);
+            if (!firstSlot || !lastSlot) return;
+
+            const combinedLabel = `${firstSlot.start} - ${lastSlot.end}`;
+            const previousInstallerId = selectedVisit.assignedTo || "";
+            const previousSlotDate = selectedVisit.slotDate || "";
+            const previousSlotIds = selectedVisit.slotIds?.length
+                ? selectedVisit.slotIds
+                : selectedVisit.slotId
+                    ? [selectedVisit.slotId]
+                    : [];
+            const previousSorted = [...previousSlotIds].sort(
+                (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
+            );
+            const selectionUnchanged =
+                previousInstallerId === installerId &&
+                previousSlotDate === slotDate &&
+                previousSorted.length === sortedSlotIds.length &&
+                previousSorted.every((id, idx) => id === sortedSlotIds[idx]);
+
+            if (selectionUnchanged) {
+                setSelectedVisit(null);
+                return;
+            }
+
+            await runTransaction(db, async (transaction) => {
+                const visitRef = doc(db, "customers", selectedVisit.customerId, "deals", selectedVisit.dealDocId, "visits", selectedVisit.id);
+                const newDateRef = doc(db, "installers", installerId, "dates", slotDate);
+                const prevRef = previousInstallerId && previousSlotDate
+                    ? doc(db, "installers", previousInstallerId, "dates", previousSlotDate)
+                    : null;
+
+                const prevSnap = prevRef ? await transaction.get(prevRef) : null;
+                const newSnap = await transaction.get(newDateRef);
+
+                const prevSlots = prevSnap?.exists() && Array.isArray((prevSnap.data() as any)?.slots)
+                    ? (prevSnap.data() as any).slots
+                    : [];
+                const cleanedPrev = prevSlots.filter((s: any) => s?.visitId !== selectedVisit.id);
+
+                const newSlots = newSnap.exists() && Array.isArray((newSnap.data() as any)?.slots)
+                    ? (newSnap.data() as any).slots
+                    : [];
+
+                const selectedSlotSet = new Set(sortedSlotIds);
+                const blocking = newSlots.find(
+                    (s: any) => selectedSlotSet.has(s?.slotId || s?.id) && s?.visitId && s.visitId !== selectedVisit.id
+                );
+                if (blocking) {
+                    throw new Error(`Slot ${blocking.slotLabel || blocking.slotId} already booked.`);
+                }
+
+                const filteredNew = newSlots.filter((s: any) => s && s.visitId !== selectedVisit.id);
+
+                const slotsForDay = SLOT_OPTIONS.map((opt) => {
+                    if (selectedSlotSet.has(opt.id)) {
+                        return {
+                            slotId: opt.id,
+                            id: opt.id,
+                            slotLabel: opt.label,
+                            slotStart: opt.start,
+                            slotEnd: opt.end,
+                            slotDate: slotDate,
+                            visitId: selectedVisit.id,
+                            customerId: selectedVisit.customerId,
+                            customerName: selectedVisit.customerName || "",
+                            dealId: selectedVisit.dealId || "",
+                            dealDocId: selectedVisit.dealDocId,
+                            dealName: selectedVisit.dealName || "",
+                            assignedAt,
+                            assignedTo: installerId,
+                            status: "booked",
+                        };
+                    }
+
+                    const existing = filteredNew.find((s: any) => (s?.slotId || s?.id) === opt.id);
+                    if (existing) {
+                        return {
+                            ...existing,
+                            slotId: opt.id,
+                            id: opt.id,
+                            slotLabel: existing.slotLabel || opt.label,
+                            slotStart: existing.slotStart || opt.start,
+                            slotEnd: existing.slotEnd || opt.end,
+                            slotDate: slotDate,
+                            status: existing.status || (existing.visitId ? "booked" : "free"),
+                        };
+                    }
+
+                    return {
+                        slotId: opt.id,
+                        id: opt.id,
+                        slotLabel: opt.label,
+                        slotStart: opt.start,
+                        slotEnd: opt.end,
+                        slotDate: slotDate,
+                        status: "free",
+                    };
+                });
+
+                if (prevRef) {
+                    transaction.set(
+                        prevRef,
+                        {
+                            slotDate: previousSlotDate,
+                            slots: SLOT_OPTIONS.map((opt) => {
+                                const existing = cleanedPrev.find((s: any) => (s?.slotId || s?.id) === opt.id);
+                                if (existing) {
+                                    return {
+                                        ...existing,
+                                        slotId: opt.id,
+                                        id: opt.id,
+                                        slotLabel: existing.slotLabel || opt.label,
+                                        slotStart: existing.slotStart || opt.start,
+                                        slotEnd: existing.slotEnd || opt.end,
+                                        slotDate: previousSlotDate,
+                                        status: existing.status || (existing.visitId ? "booked" : "free"),
+                                    };
+                                }
+                                return {
+                                    slotId: opt.id,
+                                    id: opt.id,
+                                    slotLabel: opt.label,
+                                    slotStart: opt.start,
+                                    slotEnd: opt.end,
+                                    slotDate: previousSlotDate,
+                                    status: "free",
+                                };
+                            }),
+                        },
+                        { merge: true }
+                    );
+                }
+
+                transaction.set(
+                    newDateRef,
+                    { slotDate: slotDate, slots: slotsForDay },
+                    { merge: true }
+                );
+
+                transaction.update(visitRef, {
+                    assignedTo: installerId,
+                    slotDate: slotDate,
+                    slotId: firstSlot.id,
+                    slotIds: sortedSlotIds,
+                    slotLabel: combinedLabel,
+                    slotStart: firstSlot.start,
+                    slotEnd: lastSlot.end,
+                    assignedAt,
+                });
+            });
+
+            toast({ title: "Assigned", description: "Installer and slot updated successfully." });
+            setSelectedVisit(null);
+        } catch (error: any) {
+            console.error("Failed to assign installer:", error);
+            toast({ variant: "destructive", title: "Assignment Failed", description: error?.message || "Could not save slot." });
+        }
+    };
+
+    const handleUnassign = async (visit: EnrichedDealVisit) => {
+        if (!visit) return;
+        try {
+            const result = await unassignVisitAction(visit.id, visit.customerId, visit.dealDocId);
+            if (result.success) {
+                toast({ title: "Visit Unassigned", description: result.message });
+            } else {
+                toast({ variant: "destructive", title: "Error", description: result.message });
+            }
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Server Error", description: e.message });
+        }
+    };
+    
+    const handleEdit = (visit: EnrichedDealVisit) => {
+        setEditingVisit(visit);
+    };
+
+if (loading) {
+        return <div className="p-8"><Skeleton className="h-64 w-full" /></div>;
+    }
+
+    return (
+        <div className="p-4 md:p-6 lg:p-8 space-y-6">
+            <header className="flex items-start justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">All Visits</h1>
+                    <p className="text-muted-foreground">A centralized log of all customer visits and appointments.</p>
+                </div>
+            </header>
+            
+            <Tabs defaultValue="live" className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="live">Live</TabsTrigger>
+                    <TabsTrigger value="installers">Installers</TabsTrigger>
+                    <TabsTrigger value="all">All Visits</TabsTrigger>
+                </TabsList>
+                <TabsContent value="live" className="mt-4">
+                    {trackingLoading ? (
+                        <Skeleton className="h-64 w-full" />
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                            {installers.map(installer => {
+                                const trackingDoc = trackingByInstaller.get(installer.id);
+                                const currentVisit = trackingDoc?.currentVisitId
+                                    ? visitsById.get(trackingDoc.currentVisitId)
+                                    : null;
+                                const assignedVisits = groupedVisits.get(installer.id) || [];
+                                const fallbackVisit = assignedVisits.find(visit => visit.status !== 'completed') || null;
+                                const activeVisit = currentVisit || fallbackVisit;
+                                const taskLabel = activeVisit
+                                    ? `${activeVisit.customerName} (${activeVisit.typeOfVisit})`
+                                    : trackingDoc?.currentVisitId
+                                        ? `Visit ${trackingDoc.currentVisitId}`
+                                        : "Unassigned";
+                                const completedCount = completedTodayByInstaller.get(installer.id) || 0;
+                                const mapSrc = trackingDoc?.location
+                                    ? `https://maps.google.com/maps?q=${trackingDoc.location.latitude},${trackingDoc.location.longitude}&z=15&output=embed`
+                                    : null;
+                                const lastPingDate = trackingDoc?.lastPingAt
+                                    ? new Date(trackingDoc.lastPingAt)
+                                    : null;
+                                const lastPingAt =
+                                    lastPingDate && !Number.isNaN(lastPingDate.getTime())
+                                        ? format(lastPingDate, "p")
+                                        : "No signal";
+
+                                return (
+                                    <Card key={installer.id}>
+                                        <CardHeader className="space-y-1">
+                                            <CardTitle className="flex items-center justify-between">
+                                                <span>{installer.name}</span>
+                                                {renderLiveStatus(trackingDoc?.status)}
+                                            </CardTitle>
+                                            <CardDescription>Last ping: {lastPingAt}</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-3 text-sm">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-muted-foreground">Current task</span>
+                                                <span className="font-medium">{taskLabel}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-muted-foreground">Completed today</span>
+                                                <span className="font-semibold">{completedCount}</span>
+                                            </div>
+                                        
+                                            {mapSrc ? (
+                                                <div className="overflow-hidden rounded-md border">
+                                                    <iframe
+                                                        title={`${installer.name} location`}
+                                                        src={mapSrc}
+                                                        className="h-40 w-full"
+                                                        loading="lazy"
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div className="rounded-md border px-3 py-4 text-xs text-muted-foreground text-center">
+                                                    No live location yet.
+                                                </div>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                );
+                            })}
+                        </div>
+                    )}
+                </TabsContent>
+                <TabsContent value="installers" className="mt-4">
+                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-4">
+                        {installers.map(installer => (
+                            <InstallerCard
+                                key={installer.id}
+                                installer={installer}
+                                live={trackingByInstaller.get(installer.id)}
+                                suggestion={suggestMap[installer.id]}
+                                dailyStats={dailyStatsMap[installer.id]}
+                                visits={groupedVisits.get(installer.id) || []}
+                                onAssign={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
+                                onShare={handleShareClick}
+                                onViewDetails={(visit) => setDetailsVisit(visit)}
+                            />
+                        ))}
+                    </div>
+                </TabsContent>
+                <TabsContent value="all" className="mt-4">
+                    <div>
+                        <AllVisitsTable
+                            visits={allVisits}
+                            assigneeNameById={assigneeNameById}
+                            onAssign={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
+                            onShare={handleShareClick}
+                            onViewDetails={(visit) => setDetailsVisit(visit)}
+                            onTransfer={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
+                            onUnassign={handleUnassign}
+                            onEdit={handleEdit}
+                        />
+                    </div>
+                </TabsContent>
+            </Tabs>
+            
+            <Dialog open={!!detailsVisit} onOpenChange={() => setDetailsVisit(null)} >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Visit Details</DialogTitle>
+                    </DialogHeader>
+                    
+                    {detailsVisit && (
+                        <div className="py-4 space-y-4">
+                            <p><strong>Customer Name:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.customer?.name}</Badge></p>
+                            <p><strong>Customer Mobile No:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.customer?.mobileNo}</Badge></p>
+                            <p><strong>Customer Address:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.customer?.addressPinCode}</Badge></p>
+                            <p><strong>Type:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.typeOfVisit}</Badge></p>
+                            {detailsVisit.typeOfVisit === 'measurement' ? (
+                                <div className="space-y-2">
+                                    <h4 className="font-semibold">Measurement Details:</h4>
+                                    <p>Measurements: {detailsVisit.measurements?.join(', ') || 'N/A'}</p>
+                                    {detailsVisit.blinds && <p>Blinds: {detailsVisit.blinds.join(', ')}</p>}
+                                </div>
+                            ) : (
+                                 <div className="space-y-2">
+                                    <h4 className="font-semibold">Delivery/Installation Details:</h4>
+                                     <p>Items: {detailsVisit.deliveryInstallations?.map(d => `${d?.id} (x${d?.noOfPcs || 1})`).join(', ') || 'N/A'}</p>
+                                </div>
+                            )}
+                            <p><strong>Scheduled Date:</strong> {detailsVisit.dueDate ? format(new Date(detailsVisit.dueDate), 'PPP') : 'Not Set'}</p>
+                            <p><strong>Scheduled Slot:</strong> {detailsVisit.slotLabel || 'N/A'}</p>
+                            <p><strong>Assigned To:</strong> {detailsVisit.assignedTo ? (assigneeNameById[detailsVisit.assignedTo] || 'Unknown') : 'Unassigned'}</p>
+                            <p><strong>Status:</strong> {renderVisitStatus(detailsVisit)}</p>
+                            <p><strong>Created By:</strong> {detailsVisit.createdBy}</p>
+                            <p><strong>Created At:</strong> {detailsVisit.createdAt ? format(new Date(detailsVisit.createdAt), 'PPP p') : 'N/A'}</p>
+                            {detailsVisit.visitStartTime && <p><strong>Visit Start Time:</strong> {format(new Date(detailsVisit.visitStartTime), 'PPP p')}</p>}
+                            {detailsVisit.visitEndTime && <p><strong>Visit End Time:</strong> {format(new Date(detailsVisit.visitEndTime), 'PPP p')}</p>}
+                            {detailsVisit.remark && <p><strong>Remark:</strong> {detailsVisit.remark}</p>}
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            <AssignInstallerDialog
+                isOpen={isAssigning}
+                onClose={() => setIsAssigning(false)}
+                onAssign={handleAssignInstaller}
+                installers={installers}
+                currentInstallerId={selectedVisit?.assignedTo}
+                currentVisitId={selectedVisit?.id}
+                currentSlotSelection={selectedVisit ? { 
+                    slotDate: selectedVisit.slotDate, 
+                    slotId: selectedVisit.slotId || undefined,
+                    slotIds: selectedVisit.slotIds?.length
+                      ? selectedVisit.slotIds
+                      : selectedVisit.slotId
+                        ? [selectedVisit.slotId]
+                        : undefined,
+                    slotLabel: selectedVisit.slotLabel,
+                    slotStart: selectedVisit.slotStart,
+                    slotEnd: selectedVisit.slotEnd,
+                } : undefined}
+            />
+
+            <Dialog open={!!shareableLink} onOpenChange={() => setShareableLink(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Share Confirmation Link</DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Input value={shareableLink || ""} readOnly />
+                    </div>
+                    <DialogFooter>
+                        <Button onClick={() => { navigator.clipboard.writeText(shareableLink || ""); toast({title: "Link Copied!"}); }}>
+                            <Copy className="mr-2 h-4 w-4"/> Copy Link
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <EditVisitDialog 
+                visit={editingVisit} 
+                isOpen={!!editingVisit} 
+                onClose={() => setEditingVisit(null)}
+                salesmen={users}
+                onSuccess={() => { /* onSnapshot will handle refresh */ }}
+            />
+        </div>
+    );
+}
