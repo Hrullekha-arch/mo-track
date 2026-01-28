@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, ReactNode, useMemo } from "react";
@@ -159,6 +158,10 @@ function gstPercentForBcnType(bcnType?: BcnType): number {
   if (bcnType === "hardware") return 18;
   if (bcnType === "fabric") return 5;
   if (bcnType === "tassel") return 5;
+  if (bcnType === "rollerBlind") return 18;
+  if (bcnType === "foxwoodenBlind") return 18;
+  if (bcnType === "baswoodenBlind") return 5;
+  if (bcnType === "Blind") return 18;
   return 5;
 }
 
@@ -310,32 +313,18 @@ const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove 
                                   <p className="font-medium text-primary cursor-pointer hover:underline">
                                     {getValues(`items.${index}.collectionBrand`)}
                                   </p>
-                                    {getValues(`items.${index}.bcnType`) === 'fabric' ? (
-                                        <FormField 
-                                            control={control} 
-                                            name={`items.${index}.salesDescription`} 
-                                            render={({ field }) => (
-                                            <Combobox 
-                                                options={descriptionOptions} 
-                                                value={field.value} 
-                                                onSelect={field.onChange} 
-                                                placeholder="--SELECT--" 
-                                            />
-                                            )} 
-                                        />
-                                    ) : (
-                                        <FormField 
-                                            control={control} 
-                                            name={`items.${index}.salesDescription`} 
-                                            render={({ field }) => (
-                                            <Input 
-                                                {...field}
-                                                value={field.value || ''}
-                                                className="mt-1"
-                                            />
-                                            )}
-                                        />
-                                    )}
+                                  <FormField 
+                                    control={control} 
+                                    name={`items.${index}.salesDescription`} 
+                                    render={({ field }) => (
+                                      <Combobox 
+                                        options={descriptionOptions} 
+                                        value={field.value} 
+                                        onSelect={field.onChange} 
+                                        placeholder="--SELECT--" 
+                                      />
+                                    )} 
+                                  />
                               </TableCell>
                               <TableCell>
                                    <FormField 
@@ -464,6 +453,7 @@ const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove 
 
 const VasForm = ({ control }: { control: Control<FormValues> }) => {
   const { fields, append, remove } = useFieldArray({ control, name: "vasDetails" });
+  console.log("VAS Fields:", fields);
   return (
       <div className="space-y-4">
            <h3 className="text-lg font-semibold border-b pb-2">Add VAS Details (Value Added Services)</h3>
@@ -623,7 +613,7 @@ const calculatedItems = useMemo(() => {
                                       <TableCell>{item.quantity.toFixed(2)}</TableCell>
                                       <TableCell>{item.rate.toFixed(2)}</TableCell>
                                       <TableCell>{item.subtotal.toFixed(2)}</TableCell>
-                                      <TableCell>{item.discount.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@{(item.discountPercent || 0).toFixed(2)}%</span></TableCell>
+                                      <TableCell>{item.discount.toFixed(2)}<br /><span className="text-xs text-muted-foreground">@{item.discountPercent.toFixed(2)}%</span></TableCell>
                                       <TableCell>{item.room}</TableCell>
                                       <TableCell>{item.noOfPcs}</TableCell>
                                       <TableCell>{item.taxableAmt.toFixed(2)}</TableCell>
@@ -763,7 +753,7 @@ const calculatedItems = useMemo(() => {
                               <AlertDialogHeader>
                                   <AlertDialogTitle>Confirm Quotation Creation</AlertDialogTitle>
                                   <AlertDialogDescription>
-                                      This will create a quotation with status 'Pending Approval' for an amount of ₹{totals.quotationAmount.toFixed(2)}. Are you sure you want to continue?
+                                      This will create a quotation with status 'Pending Approval' for an amount of Γé╣{totals.quotationAmount.toFixed(2)}. Are you sure you want to continue?
                                   </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
@@ -855,7 +845,7 @@ export function CreateQuotationDialog({
       return;
     }
 
-    const stockItem = (selectedOption as any).stockItem;
+    const stockItem = selectedOption.stockItem;
     const resolvedRate = resolveStockRate(stockItem);
     setSelectedStock(stockItem);
     setAddItem((prev) => ({
@@ -929,23 +919,24 @@ export function CreateQuotationDialog({
         const itemsForForm: any[] = initialItems.map((item: any, idx) => {
           const bcn = String(item.collectionBrand || "").trim();
           const stock = stockMap.get(bcn);
-          
-          const rawDbType = item.productType || stock?.type;
+
+          const rawDbType = stock?.type;
           const detectedBcnType = normalizeBcnType(rawDbType);
           const resolvedBcnType = detectedBcnType || "fabric";
-          const detectedGst = stock?.tax || gstPercentForBcnType(resolvedBcnType as BcnType);
+          const detectedGst = gstPercentForBcnType(resolvedBcnType);
 
           let effectiveRate = 0;
           if (item.rate != null && !isNaN(Number(item.rate))) effectiveRate = Number(item.rate);
           if (effectiveRate === 0 && item.mrp != null && !isNaN(Number(item.mrp))) effectiveRate = Number(item.mrp);
 
           const originalMrp = item.mrp != null ? Number(item.mrp) : effectiveRate;
+          const description = `${item.collectionBrand || ""} - ${item.salesDescription || ""}`.trim();
 
           return {
             id: item.id || `item-${idx}`,
             collectionBrand: item.collectionBrand || "",
             serialNo: item.serialNo || "",
-            salesDescription: item.salesDescription || "",
+            salesDescription: description,
             quantity: Number(item.quantity) || 0,
             rate: effectiveRate,
             originalMrp,
@@ -1105,9 +1096,158 @@ async function handleCreateQuotation() {
             <FormProvider {...form}>
             <form className="space-y-6 py-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {/* Form fields here, similar to CreateQuotationDialog */}
+                    <FormField 
+                      control={form.control} 
+                      name="store" 
+                      render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Store*</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select a store" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                    {storeOptions.map(opt => (
+                                      <SelectItem key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <FormMessage />
+                        </FormItem>
+                    )} 
+                    />
+                    <FormField 
+                      control={form.control} 
+                      name="date" 
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Date*</FormLabel>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button 
+                                  variant={"outline"} 
+                                  className="w-full justify-start text-left font-normal"
+                                >
+                                  <CalendarIcon className="mr-2 h-4 w-4" />
+                                  {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                              <Calendar 
+                                mode="single" 
+                                selected={field.value} 
+                                onSelect={field.onChange} 
+                                initialFocus 
+                              />
+                            </PopoverContent>
+                          </Popover>
+                          <FormMessage />
+                        </FormItem>
+                      )} 
+                    />
+                    <FormField 
+                      control={form.control} 
+                      name="validTillDate" 
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Valid Till Date</FormLabel>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button 
+                                  variant={"outline"} 
+                                  className="w-full justify-start text-left font-normal"
+                                >
+                                  <CalendarIcon className="mr-2 h-4 w-4" />
+                                  {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                              <Calendar 
+                                mode="single" 
+                                selected={field.value} 
+                                onSelect={field.onChange} 
+                                initialFocus 
+                              />
+                            </PopoverContent>
+                          </Popover>
+                          <FormMessage />
+                        </FormItem>
+                      )} 
+                    />
+                    <FormField 
+                      control={form.control} 
+                      name="customerName" 
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Customer Name*</FormLabel>
+                          <FormControl>
+                            <Input {...field} readOnly />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} 
+                    />
+                    <FormField 
+                      control={form.control} 
+                      name="dealName" 
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Deal Name*</FormLabel>
+                          <Combobox 
+                            options={[{value: deal.dealName, label: deal.dealName}]} 
+                            value={field.value} 
+                            onSelect={field.onChange} 
+                            placeholder="--SELECT--" 
+                          />
+                          <FormMessage />
+                        </FormItem>
+                      )} 
+                    />
+                     <FormField
+                        control={form.control}
+                        name="selectedCpdId"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Select CPD (for reference)</FormLabel>
+                                <Select 
+                                  onValueChange={(value) => {
+                                    field.onChange(value);
+                                    handleCpdSelect(value);
+                                  }} 
+                                  value={field.value}
+                                >
+                                    <FormControl>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Load items from a CPD" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="none">None</SelectItem>
+                                        {cpds.map(cpd => (
+                                          <SelectItem key={cpd.id} value={cpd.id}>
+                                            {cpd.cpdId}
+                                          </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <FormDescription>
+                                  Selecting a CPD is for reference only.
+                                </FormDescription>
+                            </FormItem>
+                        )}
+                    />
                 </div>
-                {/* Other form sections */}
+
+                <Separator />
+
                 <PreviouslySelectedItems 
                   control={form.control} 
                   setValue={form.setValue} 
@@ -1224,3 +1364,4 @@ async function handleCreateQuotation() {
     </Dialog>
   );
 }
+

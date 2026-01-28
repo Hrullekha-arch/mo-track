@@ -148,8 +148,8 @@ export default function AddedProduct({
                                 {/* Display Name */}
                                 <TableCell>
                                 {isHardware
-                                    ? product.type || product.label || "Hardware Item"
-                                    : isVAS ? <div className="flex flex-col gap-1">{product.productCategory}<Badge variant={"outline"}>{product.subCategory}</Badge></div> 
+                                    ? <div className="flex flex-col gap-1">{product.productCategory}<Badge variant={"outline"}>{product.subCategory}</Badge></div>
+                                    : isVAS ? <div className="flex flex-col gap-1">{product.productCategory}<Badge variant={"outline"}>{product.subCategory} -&gt; {product.VasType}</Badge></div> 
                                     : product.collectionBrand}
                                 </TableCell>
 
@@ -157,9 +157,7 @@ export default function AddedProduct({
                                 <TableCell className="text-xs">
                                 {isHardware ? (
                                     <>
-                                    <p>Category: {product.category || "Hardware"}</p>
-                                    <p>Type: {product.type || "-"}</p>
-                                    {product.bcn && <p>BCN: {product.bcn}</p>}
+                                    <p>MRP: ₹ {product.rate}</p>
                                     </>
                                 ) : product.isBlind ? (
                                     <>
@@ -168,10 +166,10 @@ export default function AddedProduct({
                                     </>
                                 ) :isVAS ? (
                                   <>
-                                  <p>MRP: {product.rate}</p>
+                                  <p>MRP: ₹ {product.rate}</p>
                                   </>
                                 ):(
-                                    <p>MRP: {product.mrp}</p>
+                                    <p>MRP: ₹ {product.mrp}</p>
                                 )}
 
                                 </TableCell>
