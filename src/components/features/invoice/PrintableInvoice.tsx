@@ -233,12 +233,13 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "8%" }}>Qty</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left", width: "8%" }}>UOM</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "10%" }}>Rate</th>
-              <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "10%" }}>Amt</th>
+              
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "8%" }}>Disc. %</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "10%" }}>Value</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "6%" }}>CGST</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "6%" }}>SGST</th>
               <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "6%" }}>IGST</th>
+              <th style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", width: "10%" }}>Amt</th>
             </tr>
           </thead>
           <tbody>
@@ -265,7 +266,8 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{item.quantity.toFixed(2)}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "left" }}>{item.uom || 'Mtr'}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}> {formatToINR(displayRate)}</td>
-                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(amount)}</td>
+
+                  
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{item.discountPercent.toFixed(2)}%</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(item.taxableAmount)}</td>
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px", lineHeight: "1.2" }}>
@@ -277,6 +279,7 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
                   <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px", lineHeight: "1.2" }}>
                     {item.igst > 0 ? `${formatToINR(item.igst)}\n@${gstRate.toFixed(1)}%` : formatToINR(item.igst)}
                   </td>
+                  <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(amount)}</td>
                 </tr>
               );
             })}
@@ -288,12 +291,13 @@ export function PrintableInvoice({ payload }: PrintableInvoiceProps) {
               </td>
               <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(items.reduce((sum, i) => sum + i.quantity, 0))}</td>
               <td colSpan={2} style={{ padding: "4px", border: "1px solid #ddd" }} />
-              <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(totals.subTotal)}</td>
+              
               <td colSpan={1} style={{ padding: "4px", border: "1px solid #ddd" }} />
               <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(totals.taxableValue)}</td>
               <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px" }}>{formatToINR(totals.cgst)}</td>
               <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px" }}>{formatToINR(totals.sgst)}</td>
               <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right", fontSize: "9px" }}>{formatToINR(totals.igst)}</td>
+              <td style={{ padding: "4px", border: "1px solid #ddd", textAlign: "right" }}>{formatToINR(totals.subTotal)}</td>
             </tr>
           </tfoot>
         </table>

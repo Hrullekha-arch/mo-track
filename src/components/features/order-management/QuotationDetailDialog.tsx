@@ -76,6 +76,8 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
     item.serialNo?.toLowerCase().includes(lineItemSearch.toLowerCase())
   );
 
+  console.log('Filtered LineItem:', filteredLineItems);
+
   const filteredVasItems = (quotation.vasDetails || []).filter(item => 
     item.vasName?.toLowerCase().includes(vasSearch.toLowerCase())
   );
