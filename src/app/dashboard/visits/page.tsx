@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { AssignInstallerDialog, SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX, Loader2 } from "lucide-react";
+import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX, Loader2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -759,7 +759,22 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                                 <TableCell>
                                     {visit.assignedTo ? (assigneeNameById[visit.assignedTo] || 'Unknown') : 'Unassigned'}
                                 </TableCell>
-                                <TableCell>{renderVisitStatus(visit)}</TableCell>
+                                <TableCell>
+                                    <div className="flex flex-col items-start gap-1">
+                                        {renderVisitStatus(visit)}
+                                        {visit.typeOfVisit === 'measurement' && visit.status === 'completed' ? (
+                                            visit.measurementPdfUrl ? (
+                                                <Button variant="outline" size="sm" asChild className="h-6 text-xs px-2">
+                                                    <a href={visit.measurementPdfUrl} target="_blank" rel="noopener noreferrer">
+                                                        <Download className="mr-1 h-3 w-3" /> Download
+                                                    </a>
+                                                </Button>
+                                            ) : (
+                                                <span className="text-xs text-muted-foreground">-</span>
+                                            )
+                                        ) : null}
+                                    </div>
+                                </TableCell>
                                 <TableCell className="text-right">
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
@@ -1149,15 +1164,15 @@ export default function AllVisitsPage() {
                 return;
             }
 
-            await runTransaction(db, async (transaction) => {
+            await runTransaction(db, async (tx) => {
                 const visitRef = doc(db, "customers", selectedVisit.customerId, "deals", selectedVisit.dealDocId, "visits", selectedVisit.id);
                 const newDateRef = doc(db, "installers", installerId, "dates", slotDate);
                 const prevRef = previousInstallerId && previousSlotDate
                     ? doc(db, "installers", previousInstallerId, "dates", previousSlotDate)
                     : null;
 
-                const prevSnap = prevRef ? await transaction.get(prevRef) : null;
-                const newSnap = await transaction.get(newDateRef);
+                const prevSnap = prevRef ? await tx.get(prevRef) : null;
+                const newSnap = await tx.get(newDateRef);
 
                 const prevSlots = prevSnap?.exists() && Array.isArray((prevSnap.data() as any)?.slots)
                     ? (prevSnap.data() as any).slots
@@ -1225,7 +1240,7 @@ export default function AllVisitsPage() {
                 });
 
                 if (prevRef) {
-                    transaction.set(
+                    tx.set(
                         prevRef,
                         {
                             slotDate: previousSlotDate,
@@ -1258,13 +1273,13 @@ export default function AllVisitsPage() {
                     );
                 }
 
-                transaction.set(
+                tx.set(
                     newDateRef,
                     { slotDate: slotDate, slots: slotsForDay },
                     { merge: true }
                 );
 
-                transaction.update(visitRef, {
+                tx.update(visitRef, {
                     assignedTo: installerId,
                     slotDate: slotDate,
                     slotId: firstSlot.id,
@@ -1448,7 +1463,7 @@ if (loading) {
                                      <p>Items: {detailsVisit.deliveryInstallations?.map(d => `${d?.id} (x${d?.noOfPcs || 1})`).join(', ') || 'N/A'}</p>
                                 </div>
                             )}
-                            <p><strong>Scheduled Date:</strong> {detailsVisit.dueDate ? format(new Date(detailsVisit.dueDate), 'PPP') : 'Not Set'}</p>
+                            <p><strong>Scheduled Date:</strong> {detailsVisit.dueDate ? format(new Date(detailsVisit.dueDate), 'PPP p') : 'Not Set'}</p>
                             <p><strong>Scheduled Slot:</strong> {detailsVisit.slotLabel || 'N/A'}</p>
                             <p><strong>Assigned To:</strong> {detailsVisit.assignedTo ? (assigneeNameById[detailsVisit.assignedTo] || 'Unknown') : 'Unassigned'}</p>
                             <p><strong>Status:</strong> {renderVisitStatus(detailsVisit)}</p>
