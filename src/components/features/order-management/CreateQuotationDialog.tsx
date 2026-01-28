@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, ReactNode, useMemo } from "react";
@@ -227,254 +228,6 @@ async function fetchStockTypeMapByBcn(bcns: string[]) {
   return map; // bcn -> full stock doc
 }
 
-const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove }: { 
-  control: Control<FormValues>, 
-  setValue: UseFormReturn<FormValues>['setValue'], 
-  getValues: UseFormReturn<FormValues>['getValues'],
-  fields: FieldArrayWithId<FormValues, "items", "id">[],
-  remove: (index: number) => void,
-}) => {
-    const items = useWatch({ control, name: 'items' });
-    console.log("Watched Items:", items);
-
-  useEffect(() => {
-    items.forEach((item, index) => {
-        const quantity = Number(item.quantity) || 0;
-        const rate = Number(item.rate) || 0;
-        const subtotal = quantity * rate; // GST-inclusive
-        const discountPercent = Number(item.discountPercent) || 0;
-        const discount = subtotal * (discountPercent / 100);
-        const amountAfterDiscount = subtotal - discount; // Still GST-inclusive
-        
-        const gstFromItem = Number((item as any).gstPercent);
-        const resolvedGst =
-          Number.isFinite(gstFromItem) && gstFromItem > 0
-            ? gstFromItem
-            : gstPercentForBcnType((item as any).bcnType);
-        
-        // Calculate taxable amount (GST-exclusive base)
-        const taxableAmt = amountAfterDiscount / (1 + resolvedGst / 100);
-        
-        // Calculate GST components
-        const totalGst = amountAfterDiscount - taxableAmt;
-        const cgst = totalGst / 2;
-        const sgst = totalGst / 2;
-        const igst = 0;
-
-        const updates = [
-          { path: `items.${index}.subtotal`, value: subtotal },
-          { path: `items.${index}.discount`, value: discount },
-          { path: `items.${index}.taxableAmt`, value: taxableAmt },
-          { path: `items.${index}.cgst`, value: cgst },
-          { path: `items.${index}.sgst`, value: sgst },
-          { path: `items.${index}.igst`, value: igst },
-        ];
-
-        updates.forEach(({ path, value }) => {
-          const currentValue = Number(getValues(path as any) ?? 0);
-          if (!Number.isFinite(currentValue) || Math.abs(currentValue - value) > 0.001) {
-            setValue(path as any, value, { shouldValidate: false });
-          }
-        });
-    });
-}, [items, setValue, getValues]);
-
-
-  return (
-      <div className="space-y-4">
-           <h3 className="text-lg font-semibold border-b pb-2">Previously Selected Items</h3>
-           <div className="border rounded-md">
-               <Table>
-                  <TableHeader>
-                      <TableRow>
-                          <TableHead className="w-10">#</TableHead>
-                          <TableHead>Description</TableHead>
-                          <TableHead>Quantity</TableHead>
-                          <TableHead className="w-32">Rate</TableHead>
-                          <TableHead>Discount %</TableHead>
-                          <TableHead>Amount</TableHead>
-                          <TableHead>Room</TableHead>
-                          <TableHead className="w-10">Remark</TableHead>
-                          <TableHead className="w-10">Details</TableHead>
-                          <TableHead className="w-10">Delete</TableHead>
-                      </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                      {fields.map((field, index) => {
-                         const currentItem = items[index];
-                         const rateIsLower = currentItem && 
-                                            typeof currentItem.originalMrp === 'number' && 
-                                            typeof currentItem.rate === 'number' &&
-                                            currentItem.rate < currentItem.originalMrp;
-                         
-                         return (
-                             <TableRow key={field.id}>
-                               <TableCell>{index + 1}</TableCell>
-                               <TableCell>
-                                  <p className="font-medium text-primary cursor-pointer hover:underline">
-                                    {getValues(`items.${index}.collectionBrand`)}
-                                  </p>
-                                  <FormField 
-                                    control={control} 
-                                    name={`items.${index}.salesDescription`} 
-                                    render={({ field }) => (
-                                      <Combobox 
-                                        options={descriptionOptions} 
-                                        value={field.value} 
-                                        onSelect={field.onChange} 
-                                        placeholder="--SELECT--" 
-                                      />
-                                    )} 
-                                  />
-                              </TableCell>
-                              <TableCell>
-                                   <FormField 
-                                     control={control} 
-                                     name={`items.${index}.quantity`} 
-                                     render={({ field }) => (
-                                       <Input 
-                                         type="number" 
-                                         value={field.value || ""}
-                                         onChange={(e) => {
-                                           const val = e.target.value;
-                                           field.onChange(val === "" ? 0 : parseFloat(val));
-                                         }}
-                                         onBlur={field.onBlur}
-                                         className="w-24"
-                                       />
-                                     )} 
-                                   />
-                              </TableCell>
-                              <TableCell>
-                                   <FormField
-                                      control={control}
-                                      name={`items.${index}.rate`}
-                                      render={({ field }) => (
-                                          <Input
-                                            type="number"
-                                            step="0.01"
-                                            value={field.value || ""}
-                                            onChange={(e) => {
-                                              const val = e.target.value;
-                                              field.onChange(val === "" ? 0 : parseFloat(val));
-                                            }}
-                                            onBlur={field.onBlur}
-                                            className={rateIsLower ? "border-red-500 ring-2 ring-red-200 w-28" : "w-28"}
-                                            placeholder="Enter rate"
-                                          />
-                                      )}
-                                    />
-                              </TableCell>
-                              <TableCell>
-                                   <FormField 
-                                     control={control} 
-                                     name={`items.${index}.discountPercent`} 
-                                     render={({ field }) => (
-                                       <Input 
-                                         type="number" 
-                                         step="0.01"
-                                         value={field.value || ""}
-                                         onChange={(e) => {
-                                           const val = e.target.value;
-                                           field.onChange(val === "" ? 0 : parseFloat(val));
-                                         }}
-                                         onBlur={field.onBlur}
-                                         className="w-20"
-                                       />
-                                     )} 
-                                   />
-                              </TableCell>
-                               <TableCell>
-                                  <FormField 
-                                    control={control} 
-                                    name={`items.${index}.taxableAmt`} 
-                                    render={({ field }) => (
-                                      <Input 
-                                        readOnly 
-                                        disabled 
-                                        value={Number(field.value || 0).toFixed(2)} 
-                                        className="w-24 bg-gray-50"
-                                      />
-                                    )} 
-                                  />
-                              </TableCell>
-                               <TableCell>
-                                  <FormField 
-                                    control={control} 
-                                    name={`items.${index}.room`} 
-                                    render={({ field }) => (
-                                      <Combobox 
-                                        options={roomOptions} 
-                                        value={field.value || ""} 
-                                        onSelect={field.onChange} 
-                                        placeholder="--SELECT--" 
-                                      />
-                                    )} 
-                                  />
-                              </TableCell>
-                              <TableCell>
-                                <Button 
-                                  type="button" 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  className="text-blue-500"
-                                >
-                                  <Edit className="h-4 w-4"/>
-                                </Button>
-                              </TableCell>
-                              <TableCell>
-                                <Button 
-                                  type="button" 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  className="text-blue-500"
-                                >
-                                  <PlusCircle className="h-4 w-4"/>
-                                </Button>
-                              </TableCell>
-                              <TableCell>
-                                <Button 
-                                  type="button" 
-                                  variant="destructive" 
-                                  size="icon" 
-                                  onClick={() => remove(index)}
-                                >
-                                  <Trash2 className="h-4 w-4"/>
-                                </Button>
-                              </TableCell>
-                             </TableRow>
-                         )
-                      })}
-                  </TableBody>
-               </Table>
-           </div>
-      </div>
-  );
-};
-
-const VasForm = ({ control }: { control: Control<FormValues> }) => {
-  const { fields, append, remove } = useFieldArray({ control, name: "vasDetails" });
-  console.log("VAS Fields:", fields);
-  return (
-      <div className="space-y-4">
-           <h3 className="text-lg font-semibold border-b pb-2">Add VAS Details (Value Added Services)</h3>
-          {fields.map((field, index) => (
-              <div key={field.id} className="p-4 border rounded-lg flex items-end gap-4">
-                  <FormField control={control} name={`vasDetails.${index}.vasName`} render={({ field }) => (<FormItem className="flex-grow"><FormLabel>VAS*</FormLabel><Combobox options={vasOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
-                  <FormField control={control} name={`vasDetails.${index}.quantity`} render={({ field }) => (<FormItem><FormLabel>Quantity*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                  <FormField control={control} name={`vasDetails.${index}.rate`} render={({ field }) => (<FormItem><FormLabel>Rate*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                  <FormField control={control} name={`vasDetails.${index}.gstPercent`} render={({ field }) => (<FormItem><FormLabel>GST %</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                  <FormField control={control} name={`vasDetails.${index}.room`} render={({ field }) => (<FormItem className="flex-grow"><FormLabel>Room</FormLabel><Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
-                  <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button>
-              </div>
-          ))}
-          <div className="flex gap-2">
-              <Button type="button" variant="default" onClick={() => append({ vasName: '', quantity: '1', rate: '0', gstPercent: 0, room: '' })}>Add</Button>
-              <Button type="button" variant="outline" onClick={() => remove()}>Reset</Button>
-          </div>
-      </div>
-  );
-};
 
 const QuotationPreview = ({ form, onBack, onSubmit, loading }: { form: UseFormReturn<FormValues>, onBack: () => void, onSubmit: () => void, loading: boolean }) => {
   const values = form.getValues();
@@ -772,6 +525,255 @@ const calculatedItems = useMemo(() => {
   )
 }
 
+const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove }: { 
+  control: Control<FormValues>, 
+  setValue: UseFormReturn<FormValues>['setValue'], 
+  getValues: UseFormReturn<FormValues>['getValues'],
+  fields: FieldArrayWithId<FormValues, "items", "id">[],
+  remove: (index: number) => void,
+}) => {
+    const items = useWatch({ control, name: 'items' });
+    console.log("Watched Items:", items);
+
+  useEffect(() => {
+    items.forEach((item, index) => {
+        const quantity = Number(item.quantity) || 0;
+        const rate = Number(item.rate) || 0;
+        const subtotal = quantity * rate; // GST-inclusive
+        const discountPercent = Number(item.discountPercent) || 0;
+        const discount = subtotal * (discountPercent / 100);
+        const amountAfterDiscount = subtotal - discount; // Still GST-inclusive
+        
+        const gstFromItem = Number((item as any).gstPercent);
+        const resolvedGst =
+          Number.isFinite(gstFromItem) && gstFromItem > 0
+            ? gstFromItem
+            : gstPercentForBcnType((item as any).bcnType);
+        
+        // Calculate taxable amount (GST-exclusive base)
+        const taxableAmt = amountAfterDiscount / (1 + resolvedGst / 100);
+        
+        // Calculate GST components
+        const totalGst = amountAfterDiscount - taxableAmt;
+        const cgst = totalGst / 2;
+        const sgst = totalGst / 2;
+        const igst = 0;
+
+        const updates = [
+          { path: `items.${index}.subtotal`, value: subtotal },
+          { path: `items.${index}.discount`, value: discount },
+          { path: `items.${index}.taxableAmt`, value: taxableAmt },
+          { path: `items.${index}.cgst`, value: cgst },
+          { path: `items.${index}.sgst`, value: sgst },
+          { path: `items.${index}.igst`, value: igst },
+        ];
+
+        updates.forEach(({ path, value }) => {
+          const currentValue = Number(getValues(path as any) ?? 0);
+          if (!Number.isFinite(currentValue) || Math.abs(currentValue - value) > 0.001) {
+            setValue(path as any, value, { shouldValidate: false });
+          }
+        });
+    });
+}, [items, setValue, getValues]);
+
+
+  return (
+      <div className="space-y-4">
+           <h3 className="text-lg font-semibold border-b pb-2">Previously Selected Items</h3>
+           <div className="border rounded-md">
+               <Table>
+                  <TableHeader>
+                      <TableRow>
+                          <TableHead className="w-10">#</TableHead>
+                          <TableHead>Description</TableHead>
+                          <TableHead>Quantity</TableHead>
+                          <TableHead className="w-32">Rate</TableHead>
+                          <TableHead>Discount %</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Room</TableHead>
+                          <TableHead className="w-10">Remark</TableHead>
+                          <TableHead className="w-10">Details</TableHead>
+                          <TableHead className="w-10">Delete</TableHead>
+                      </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                      {fields.map((field, index) => {
+                         const currentItem = items[index];
+                         const rateIsLower = currentItem && 
+                                            typeof currentItem.originalMrp === 'number' && 
+                                            typeof currentItem.rate === 'number' &&
+                                            currentItem.rate < currentItem.originalMrp;
+                         
+                         return (
+                             <TableRow key={field.id}>
+                               <TableCell>{index + 1}</TableCell>
+                               <TableCell>
+                                  <p className="font-medium text-primary cursor-pointer hover:underline">
+                                    {getValues(`items.${index}.collectionBrand`)}
+                                  </p>
+                                  <FormField 
+                                    control={control} 
+                                    name={`items.${index}.salesDescription`} 
+                                    render={({ field }) => (
+                                      <Combobox 
+                                        options={descriptionOptions} 
+                                        value={field.value} 
+                                        onSelect={field.onChange} 
+                                        placeholder="--SELECT--" 
+                                      />
+                                    )} 
+                                  />
+                              </TableCell>
+                              <TableCell>
+                                   <FormField 
+                                     control={control} 
+                                     name={`items.${index}.quantity`} 
+                                     render={({ field }) => (
+                                       <Input 
+                                         type="number" 
+                                         value={field.value || ""}
+                                         onChange={(e) => {
+                                           const val = e.target.value;
+                                           field.onChange(val === "" ? 0 : parseFloat(val));
+                                         }}
+                                         onBlur={field.onBlur}
+                                         className="w-24"
+                                       />
+                                     )} 
+                                   />
+                              </TableCell>
+                              <TableCell>
+                                   <FormField
+                                      control={control}
+                                      name={`items.${index}.rate`}
+                                      render={({ field }) => (
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={field.value || ""}
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              field.onChange(val === "" ? 0 : parseFloat(val));
+                                            }}
+                                            onBlur={field.onBlur}
+                                            className={rateIsLower ? "border-red-500 ring-2 ring-red-200 w-28" : "w-28"}
+                                            placeholder="Enter rate"
+                                          />
+                                      )}
+                                    />
+                              </TableCell>
+                              <TableCell>
+                                   <FormField 
+                                     control={control} 
+                                     name={`items.${index}.discountPercent`} 
+                                     render={({ field }) => (
+                                       <Input 
+                                         type="number" 
+                                         step="0.01"
+                                         value={field.value || ""}
+                                         onChange={(e) => {
+                                           const val = e.target.value;
+                                           field.onChange(val === "" ? 0 : parseFloat(val));
+                                         }}
+                                         onBlur={field.onBlur}
+                                         className="w-20"
+                                       />
+                                     )} 
+                                   />
+                              </TableCell>
+                               <TableCell>
+                                  <FormField 
+                                    control={control} 
+                                    name={`items.${index}.taxableAmt`} 
+                                    render={({ field }) => (
+                                      <Input 
+                                        readOnly 
+                                        disabled 
+                                        value={Number(field.value || 0).toFixed(2)} 
+                                        className="w-24 bg-gray-50"
+                                      />
+                                    )} 
+                                  />
+                              </TableCell>
+                               <TableCell>
+                                  <FormField 
+                                    control={control} 
+                                    name={`items.${index}.room`} 
+                                    render={({ field }) => (
+                                      <Combobox 
+                                        options={roomOptions} 
+                                        value={field.value || ""} 
+                                        onSelect={field.onChange} 
+                                        placeholder="--SELECT--" 
+                                      />
+                                    )} 
+                                  />
+                              </TableCell>
+                              <TableCell>
+                                <Button 
+                                  type="button" 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="text-blue-500"
+                                >
+                                  <Edit className="h-4 w-4"/>
+                                </Button>
+                              </TableCell>
+                              <TableCell>
+                                <Button 
+                                  type="button" 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="text-blue-500"
+                                >
+                                  <PlusCircle className="h-4 w-4"/>
+                                </Button>
+                              </TableCell>
+                              <TableCell>
+                                <Button 
+                                  type="button" 
+                                  variant="destructive" 
+                                  size="icon" 
+                                  onClick={() => remove(index)}
+                                >
+                                  <Trash2 className="h-4 w-4"/>
+                                </Button>
+                              </TableCell>
+                             </TableRow>
+                         )
+                      })}
+                  </TableBody>
+               </Table>
+           </div>
+      </div>
+  );
+};
+
+const VasForm = ({ control }: { control: Control<FormValues> }) => {
+  const { fields, append, remove } = useFieldArray({ control, name: "vasDetails" });
+  console.log("VAS Fields:", fields);
+  return (
+      <div className="space-y-4">
+           <h3 className="text-lg font-semibold border-b pb-2">Add VAS Details (Value Added Services)</h3>
+          {fields.map((field, index) => (
+              <div key={field.id} className="p-4 border rounded-lg flex items-end gap-4">
+                  <FormField control={control} name={`vasDetails.${index}.vasName`} render={({ field }) => (<FormItem className="flex-grow"><FormLabel>VAS*</FormLabel><Combobox options={vasOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                  <FormField control={control} name={`vasDetails.${index}.quantity`} render={({ field }) => (<FormItem><FormLabel>Quantity*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                  <FormField control={control} name={`vasDetails.${index}.rate`} render={({ field }) => (<FormItem><FormLabel>Rate*</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
+                  <FormField control={control} name={`vasDetails.${index}.gstPercent`} render={({ field }) => (<FormItem><FormLabel>GST %</FormLabel><FormControl><Input type="number" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                  <FormField control={control} name={`vasDetails.${index}.room`} render={({ field }) => (<FormItem className="flex-grow"><FormLabel>Room</FormLabel><Combobox options={roomOptions} value={field.value} onSelect={field.onChange} placeholder="--SELECT--" /><FormMessage /></FormItem>)} />
+                  <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button>
+              </div>
+          ))}
+          <div className="flex gap-2">
+              <Button type="button" variant="default" onClick={() => append({ vasName: '', quantity: '1', rate: '0', gstPercent: 0, room: '' })}>Add</Button>
+              <Button type="button" variant="outline" onClick={() => remove()}>Reset</Button>
+          </div>
+      </div>
+  );
+};
+
 export function CreateQuotationDialog({
   isOpen,
   onOpenChange,
@@ -908,31 +910,39 @@ export function CreateQuotationDialog({
       setBcnOptions([]);
       return;
     }
-
+  
     (async () => {
       if (deal && customer) {
         const bcns = initialItems
           .map((it: any) => String(it.collectionBrand || "").trim())
           .filter(Boolean);
-
+  
         const stockMap = await fetchStockTypeMapByBcn(bcns);
-
+  
         const itemsForForm: any[] = initialItems.map((item: any, idx) => {
           const bcn = String(item.collectionBrand || "").trim();
           const stock = stockMap.get(bcn);
-
-          const rawDbType = stock?.type;
-          const detectedBcnType = normalizeBcnType(rawDbType);
-          const resolvedBcnType = detectedBcnType || "fabric";
+  
+          let resolvedBcnType: BcnType | undefined;
+          if (item.productType === 'Hardware') {
+              resolvedBcnType = 'hardware';
+          } else {
+              const rawDbType = stock?.type;
+              resolvedBcnType = normalizeBcnType(rawDbType) || "fabric";
+          }
           const detectedGst = gstPercentForBcnType(resolvedBcnType);
-
+  
           let effectiveRate = 0;
           if (item.rate != null && !isNaN(Number(item.rate))) effectiveRate = Number(item.rate);
           if (effectiveRate === 0 && item.mrp != null && !isNaN(Number(item.mrp))) effectiveRate = Number(item.mrp);
-
+  
           const originalMrp = item.mrp != null ? Number(item.mrp) : effectiveRate;
-          const description = `${item.collectionBrand || ""} - ${item.salesDescription || ""}`.trim();
-
+          
+          let description = item.salesDescription || item.collectionBrand;
+          if (item.productType === "Hardware" || item.productType === "VAS") {
+            description = item.subCategory ? `${item.productCategory} → ${item.subCategory}` : item.productCategory;
+          }
+  
           return {
             id: item.id || `item-${idx}`,
             collectionBrand: item.collectionBrand || "",
@@ -956,7 +966,7 @@ export function CreateQuotationDialog({
             stitchingType: item.stitchingType || "",
           };
         });
-
+  
         const vasForForm = (initialVasDetails || []).map((vas: any) => ({
           vasName: vas.vasName,
           rate: String(vas.rate),
@@ -968,7 +978,7 @@ export function CreateQuotationDialog({
           sgst: 0,
           igst: 0,
         }));
-
+  
         const initialStore = initialQuotation?.store || user?.store || "MO GCR BRANCH";
         const initialCompany = initialQuotation?.company || "MO DESIGNS PRIVATE LIMITED";
         const initialDate = parseDateValue(initialQuotation?.date) || new Date();
@@ -978,7 +988,7 @@ export function CreateQuotationDialog({
         const initialDealName = initialQuotation?.dealName || deal.dealName;
         const initialSelectedCpdId = initialQuotation?.cpdId || selectedCpdId;
         const initialRepresentativeId = initialQuotation?.representativeId || deal.representativeId;
-
+  
         form.reset({
           store: initialStore,
           company: initialCompany,
@@ -995,11 +1005,11 @@ export function CreateQuotationDialog({
           sendSms: false,
           representativeId: initialRepresentativeId,
         });
-
+  
         setView("edit");
       }
     })();
-  }, [isOpen, deal, customer, initialItems, initialVasDetails, selectedCpdId, initialQuotation, user]);
+  }, [isOpen, deal, customer, initialItems, initialVasDetails, selectedCpdId, initialQuotation, user, form]);
 
 
 async function handleCreateQuotation() {
@@ -1365,4 +1375,3 @@ async function handleCreateQuotation() {
     </Dialog>
   );
 }
-

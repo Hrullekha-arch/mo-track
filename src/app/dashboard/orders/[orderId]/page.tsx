@@ -283,8 +283,31 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 poPromise,
                 invoicePromise
             ]);
+            const sumAvailableFromLengths = lengthsSnapshot.docs.reduce((sum, docSnap) => {
+                const value = Number((docSnap.data() as any)?.availableQty);
+                return sum + (Number.isFinite(value) ? value : 0);
+            }, 0);
+            const sumReservedFromLengths = lengthsSnapshot.docs.reduce((sum, docSnap) => {
+                const value = Number((docSnap.data() as any)?.reservedQty);
+                return sum + (Number.isFinite(value) ? value : 0);
+            }, 0);
 
-            setStockInfo(stock);
+            const stockAvailable = Number(stock?.availableQty);
+            const stockReserved = Number(stock?.reservedQty);
+
+            const resolvedStock = stock
+                ? {
+                    ...stock,
+                    availableQty: Number.isFinite(stockAvailable) && stockAvailable >= 0
+                        ? stockAvailable
+                        : sumAvailableFromLengths,
+                    reservedQty: Number.isFinite(stockReserved) && stockReserved >= 0
+                        ? stockReserved
+                        : sumReservedFromLengths,
+                }
+                : stock;
+
+            setStockInfo(resolvedStock);
             
             let totalReservedForOrder = 0;
             for (const lengthDoc of lengthsSnapshot.docs) {
@@ -303,11 +326,15 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 return invoice.items.some(invItem => invItem.bcn === bcn);
             });
 
+            const availableQty = Number.isFinite(Number(resolvedStock?.availableQty))
+                ? Number(resolvedStock?.availableQty)
+                : 0;
+
             if (matchedInvoice) {
                  setStatus({ text: `Invoice Generated: ${matchedInvoice.data().tallyVoucherNo || ''}`, variant: 'default', tallyBillNo: matchedInvoice.data().tallyVoucherNo });
             } else if (totalReservedForOrder >= requiredQty) {
                 setStatus({ text: 'Pending for Invoice', variant: 'outline' });
-            } else if ((stock?.availableQty || 0) >= (requiredQty - totalReservedForOrder)) {
+            } else if (availableQty >= (requiredQty - totalReservedForOrder)) {
                 setStatus({ text: 'In Stock', variant: 'default' });
             } else {
                 let poFound = false;

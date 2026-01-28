@@ -6,6 +6,20 @@ import { adminDb } from '@/lib/firebase-admin';
 import { Order, Stock, StockTransaction, InvoiceBatch, InvoiceBatchItem, O2DStatus, FabricDetail } from '@/lib/types';
 import { FieldValue, Timestamp, doc } from 'firebase-admin/firestore';
 
+const parseFirestoreTimestamp = (value: unknown): Date | null => {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (value instanceof Timestamp) return value.toDate();
+    if (typeof (value as any)?.toDate === 'function') {
+        return (value as { toDate: () => Date }).toDate();
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+        const parsed = new Date(value);
+        if (!isNaN(parsed.getTime())) return parsed;
+    }
+    return null;
+};
+
 
 export async function getAvailableStockLengths(stockId: string): Promise<{ success: boolean; message: string; lengths?: { length: number; transactionId: string }[] }> {
     try {
@@ -138,10 +152,29 @@ export async function allocateStockToAction(
             });
         }
         
-        // 4. Update the main stock document once with the total
+        // 4. Update the main stock document once with the total (safe for missing fields)
+        const stockData = stockDoc.data() as Stock;
+        const sumLengthsAvailable = lengthDocs.reduce((sum, doc) => {
+            const value = Number((doc.data() as any)?.availableQty);
+            return sum + (Number.isFinite(value) ? value : 0);
+        }, 0);
+        const sumLengthsReserved = lengthDocs.reduce((sum, doc) => {
+            const value = Number((doc.data() as any)?.reservedQty);
+            return sum + (Number.isFinite(value) ? value : 0);
+        }, 0);
+
+        const stockAvailable = Number(stockData.availableQty);
+        const stockReserved = Number(stockData.reservedQty);
+        const currentAvailable = Number.isFinite(stockAvailable) && stockAvailable >= 0
+            ? stockAvailable
+            : sumLengthsAvailable;
+        const currentReserved = Number.isFinite(stockReserved) && stockReserved >= 0
+            ? stockReserved
+            : sumLengthsReserved;
+
         transaction.update(stockRef, {
-            reservedQty: FieldValue.increment(totalAllocatedQty),
-            availableQty: FieldValue.increment(-totalAllocatedQty),
+            reservedQty: currentReserved + totalAllocatedQty,
+            availableQty: Math.max(0, currentAvailable - totalAllocatedQty),
             lastUpdatedAt: updateTimestamp
         });
 
@@ -160,10 +193,10 @@ export async function allocateStockToAction(
         
         if (!recentBatchesSnap.empty) {
             const lastBatchDoc = recentBatchesSnap.docs[0];
-            const lastBatchTimestamp = new Date((lastBatchDoc.data().createdAt as Timestamp).toDate());
+            const lastBatchTimestamp = parseFirestoreTimestamp(lastBatchDoc.data().createdAt);
             const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
             
-            if (lastBatchTimestamp > tenMinutesAgo) {
+            if (lastBatchTimestamp && lastBatchTimestamp > tenMinutesAgo) {
                 targetBatchRef = lastBatchDoc.ref;
                 isNewBatch = false;
             } else {

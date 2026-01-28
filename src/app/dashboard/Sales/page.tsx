@@ -21,10 +21,10 @@ const actions = [
     color: "text-emerald-600",
   },
   {
-    title: "Approve Order",
-    description: "Approve pending orders",
+    title: "Stock Verification",
+    description: "Approve pending Stocks",
     icon: CheckCircle,
-    path: "/dashboard/approve-order",
+    path: "/dashboard/stock-verification",
     color: "text-violet-600",
   },
   {
