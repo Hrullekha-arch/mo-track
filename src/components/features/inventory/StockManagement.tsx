@@ -48,7 +48,9 @@ import {
   createStockItemAction,
   getStockFieldOptions,
   updateStockBatchAction,
+  updateStockQuantityAction,
 } from "@/app/dashboard/inventory/actions";
+import { useAuth } from "@/context/AuthContext";
 
 /** ✅ Updated Inventory Types (match new fields) */
 type InventoryItem = {
@@ -352,8 +354,13 @@ export function StockManagement() {
   const [isCreatingStock, setIsCreatingStock] = React.useState(false);
   const [showAdditionalFields, setShowAdditionalFields] = React.useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
+  const [isAddLengthDialogOpen, setIsAddLengthDialogOpen] = React.useState(false);
+  const [addLengthQty, setAddLengthQty] = React.useState("");
+  const [addLengthUnit, setAddLengthUnit] = React.useState("");
+  const [isAddingLength, setIsAddingLength] = React.useState(false);
 
   const { toast } = useToast();
+  const { user } = useAuth();
 
   React.useEffect(() => {
     if (!selectedStock) {
@@ -408,6 +415,12 @@ export function StockManagement() {
       isMounted = false;
     };
   }, [isAddDialogOpen, toast]);
+
+  React.useEffect(() => {
+    if (!isAddLengthDialogOpen) return;
+    setAddLengthQty("");
+    setAddLengthUnit(selectedStock?.unit || "Mtr");
+  }, [isAddLengthDialogOpen, selectedStock?.unit]);
 
   const updateEditValue = (field: keyof EditableStockFields, value: string) => {
     setEditValues((prev) => ({ ...prev, [field]: value }));
@@ -1010,6 +1023,58 @@ const handleSaveAll = async () => {
       toast({ variant: "destructive", title: "Refresh Failed" });
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleAddLength = async () => {
+    if (!selectedStock) return;
+    const quantity = Number(addLengthQty);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      toast({
+        variant: "destructive",
+        title: "Invalid quantity",
+        description: "Enter a quantity greater than 0.",
+      });
+      return;
+    }
+
+    const unitValue = (addLengthUnit || selectedStock.unit || "Mtr").trim() || "Mtr";
+    setIsAddingLength(true);
+    try {
+      const stockDocId = getStockDocId(selectedStock);
+      const result = await updateStockQuantityAction(stockDocId, {
+        stockId: stockDocId,
+        bcn: selectedStock.bcn,
+        type: "addition",
+        quantityChange: quantity,
+        createdAt: new Date().toISOString(),
+        createdBy: user?.name || "System",
+        unit: unitValue,
+      });
+
+      if (result.success) {
+        toast({
+          title: "Stock Added",
+          description: `${quantity} ${unitValue} added to ${selectedStock.bcn}.`,
+        });
+        setIsAddLengthDialogOpen(false);
+        await handleRefresh();
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Add Stock Failed",
+          description: result.message,
+        });
+      }
+    } catch (error) {
+      console.error("Error adding stock length:", error);
+      toast({
+        variant: "destructive",
+        title: "Add Stock Failed",
+        description: "Could not add stock length.",
+      });
+    } finally {
+      setIsAddingLength(false);
     }
   };
 
@@ -1632,6 +1697,56 @@ const handleSaveAll = async () => {
 
   </Dialog>
 
+  <Dialog open={isAddLengthDialogOpen} onOpenChange={setIsAddLengthDialogOpen}>
+    <DialogContent className="max-w-md">
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold">Add Stock</h3>
+          <p className="text-sm text-muted-foreground">
+            Add a new length for {selectedStock?.bcn || "this BCN"}.
+          </p>
+        </div>
+        <div className="grid gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="add-length-qty">
+              Quantity <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="add-length-qty"
+              type="number"
+              step="0.01"
+              value={addLengthQty}
+              onChange={(event) => setAddLengthQty(event.target.value)}
+              placeholder="Enter quantity"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="add-length-unit">Unit</Label>
+            <Input
+              id="add-length-unit"
+              value={addLengthUnit}
+              onChange={(event) => setAddLengthUnit(event.target.value)}
+              placeholder="e.g. Mtr, Pcs"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => setIsAddLengthDialogOpen(false)}
+            disabled={isAddingLength}
+          >
+            Cancel
+          </Button>
+          <Button onClick={handleAddLength} disabled={isAddingLength}>
+            {isAddingLength && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save
+          </Button>
+        </div>
+      </div>
+    </DialogContent>
+  </Dialog>
+
   {selectedStock && (
           <div className="space-y-4">
             <Card className="p-4">
@@ -1688,6 +1803,14 @@ const handleSaveAll = async () => {
                       <RefreshCw className="mr-2 h-4 w-4" />
                     )}
                     Refresh
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsAddLengthDialogOpen(true)}
+                    disabled={!selectedStock || isEditingAll || !!quickEditField || isSavingEdits}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Stock
                   </Button>
                   {isEditingAll ? (
                     <>

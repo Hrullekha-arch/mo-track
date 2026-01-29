@@ -15,6 +15,10 @@ const extractBcnDigits = (value: string) =>
   String(value ?? "").replace(/\D/g, "");
 const sanitizeBcnDocId = (value: string) =>
   String(value ?? "").trim().replace(/\//g, "-");
+const stripUndefined = <T extends Record<string, any>>(value: T): T =>
+  Object.fromEntries(
+    Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined)
+  ) as T;
 
 export async function getStockData(): Promise<Stock[]> {
     try {
@@ -660,6 +664,8 @@ export async function updateStockQuantityAction(
 
       await adminDb.runTransaction(async (tx) => {
           const stockDoc = await tx.get(stockRef); // READ FIRST
+          const stockData = stockDoc.exists ? (stockDoc.data() as Stock) : null;
+          const resolvedUnit = (transaction.unit || stockData?.unit || "Mtr").trim() || "Mtr";
           
           const newLengthData: Partial<Stock> & { bcnDigits?: string } = {
               bcn: transaction.bcn,
@@ -669,13 +675,16 @@ export async function updateStockQuantityAction(
               availableQty: transaction.quantityChange,
               reservedQty: 0,
               cutQty: 0,
-              unit: 'Mtr',
+              unit: resolvedUnit,
               lastUpdatedAt: transaction.createdAt,
               poNumber: transaction.poNumber,
               salesman: transaction.salesman,
           };
 
-          tx.set(newLengthRef, { ...newLengthData, id: newLengthRef.id }); // WRITE
+          tx.set(
+            newLengthRef,
+            stripUndefined({ ...newLengthData, id: newLengthRef.id })
+          ); // WRITE
 
           if (!stockDoc.exists) {
               tx.set(stockRef, { // WRITE

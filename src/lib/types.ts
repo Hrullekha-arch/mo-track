@@ -356,6 +356,7 @@ export interface StockTransaction {
   status?: 'pending for cutting' | 'cut';
   parentTransactionId?: string;
   salesman?: string;
+  unit?: string;
   cutHistory?: StockTransaction[];
 }
 
