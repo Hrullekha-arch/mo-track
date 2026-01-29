@@ -97,6 +97,17 @@ export async function allocateStockToAction(
         const resolvedRate = toNumber(matchedFabricDetail?.rate ?? matchedOrderItem?.rate, rate);
         const resolvedDiscount = toNumber(matchedFabricDetail?.discountPercent ?? matchedOrderItem?.discountPercent, 0);
         let totalAllocatedQty = 0;
+
+        // Pre-read VAS batch query before any writes (transaction requirement).
+        const vasItems = orderData.vasDetails;
+        let vasBatchesSnap: FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData> | null = null;
+        if (vasItems && vasItems.length > 0) {
+            const vasInvoiceBatchQuery = invoiceBatchesRef
+                .where("orderId", "==", orderId)
+                .where("isVas", "==", true)
+                .limit(1);
+            vasBatchesSnap = await transaction.get(vasInvoiceBatchQuery);
+        }
         
         for (const allocation of allocations) {
             const { lengthId, quantity } = allocation;
@@ -226,16 +237,7 @@ export async function allocateStockToAction(
         }
         
         // 7. Handle VAS Invoice Batch Creation
-        const vasItems = orderData.vasDetails;
-        if (vasItems && vasItems.length > 0) {
-            const vasInvoiceBatchQuery = invoiceBatchesRef
-                .where("orderId", "==", orderId)
-                .where("isVas", "==", true)
-                .limit(1);
-            
-            const vasBatchesSnap = await transaction.get(vasInvoiceBatchQuery);
-
-            if (vasBatchesSnap.empty) {
+        if (vasItems && vasItems.length > 0 && vasBatchesSnap && vasBatchesSnap.empty) {
                 // No VAS batch exists for this order, so create one.
                 const vasInvoiceItems: InvoiceBatchItem[] = vasItems.map(vas => ({
                     itemName: vas.vasName,
@@ -258,7 +260,6 @@ export async function allocateStockToAction(
                     isVas: true,
                 };
                 transaction.set(vasBatchRef, newVasInvoiceBatch);
-            }
         }
       });
   
