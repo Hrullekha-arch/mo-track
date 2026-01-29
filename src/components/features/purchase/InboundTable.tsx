@@ -32,8 +32,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { InboundProcessTimeline } from "./InboundProcessTimeline";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { INBOUND_PROCESS_CONFIG } from "@/lib/constants";
@@ -59,7 +57,6 @@ interface FlattenedInboundItem {
 export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
   const [requests, setRequests] = React.useState<FlattenedInboundItem[]>([]);
   const [globalFilter, setGlobalFilter] = React.useState('');
-  const [timelineRequest, setTimelineRequest] = React.useState<InboundRequest | null>(null);
 
   React.useEffect(() => {
     const processData = async () => {
@@ -138,25 +135,13 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
     processData();
   }, [tableData]);
 
-  const handlePoClick = async (poNumber: string) => {
-    const inboundRef = doc(db, 'inbounds', poNumber);
-    const inboundSnap = await getDoc(inboundRef);
-    if (inboundSnap.exists()) {
-        const data = { id: inboundSnap.id, ...inboundSnap.data() } as InboundRequest;
-        if (data.items) {
-            data.items = data.items.map(item => ({ ...item, inboundMilestones: item.inboundMilestones || [] }));
-        }
-        setTimelineRequest(data);
-    }
-  };
-
   const columns: ColumnDef<FlattenedInboundItem>[] = [
     {
       accessorKey: "dealId",
       header: "Order ID",
       cell: ({ row }) => {
         const poNumber = row.original.poNumber;
-        const link = poNumber ? `/dashboard/inbound/${poNumber}` : '#';
+        const link = poNumber ? `/dashboard/inbound/receive/${poNumber}` : '#';
         return (
           <Button asChild variant="link" className="p-0 h-auto font-medium" disabled={!poNumber}>
             <Link href={link}>
@@ -173,7 +158,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
             const poNumber = row.original.poNumber;
             return poNumber ? (
                 <Button asChild variant="link" className="p-0 h-auto">
-                    <Link href={`/dashboard/inbound/${poNumber}`}>
+                    <Link href={`/dashboard/inbound/receive/${poNumber}`}>
                         {poNumber}
                     </Link>
                 </Button>
@@ -207,8 +192,10 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {row.original.poNumber && (
-              <DropdownMenuItem onClick={() => handlePoClick(row.original.poNumber as string)}>
-                View Timeline
+              <DropdownMenuItem asChild>
+                <Link href={`/dashboard/inbound/receive/${row.original.poNumber}`}>
+                  Receive Material
+                </Link>
               </DropdownMenuItem>
             )}
             <DropdownMenuItem asChild>
@@ -287,19 +274,6 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
         </div>
       </CardContent>
     </Card>
-    <Dialog open={!!timelineRequest} onOpenChange={() => setTimelineRequest(null)}>
-        <DialogContent className="max-w-4xl">
-            <DialogHeader>
-                <DialogTitle>Inbound Process for PO #{timelineRequest?.id}</DialogTitle>
-                <DialogDescription>
-                    This timeline shows the receiving process for each item in the Purchase Order.
-                </DialogDescription>
-            </DialogHeader>
-            <div className="py-4 max-h-[70vh] overflow-y-auto">
-                {timelineRequest && <InboundProcessTimeline request={timelineRequest} />}
-            </div>
-        </DialogContent>
-    </Dialog>
     </>
   );
 }

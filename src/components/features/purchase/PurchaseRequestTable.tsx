@@ -210,9 +210,12 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
         cell: ({ row }) => {
           const poNumber = row.original.poNumber;
            return poNumber ? (
-              <Button variant="link" onClick={() => setTimelineRequest(row.original.originalRequest)} className="p-0 h-auto font-medium">
-                  {poNumber}
-              </Button>
+              <Link
+                href={`/dashboard/inbound/receive/${encodeURIComponent(poNumber)}`}
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                {poNumber}
+              </Link>
             ) : '-';
         }
     },

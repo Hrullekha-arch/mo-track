@@ -176,7 +176,7 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
           const poNumber = row.original.poNumber;
           return poNumber ? (
               <Button asChild variant="link" className="p-0 h-auto">
-                  <Link href={`/dashboard/inbound/${poNumber}`}>
+                  <Link href={`/dashboard/inbound/receive/${poNumber}`}>
                       {poNumber}
                   </Link>
               </Button>
