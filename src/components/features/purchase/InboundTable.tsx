@@ -172,7 +172,11 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
         cell: ({ row }) => {
             const poNumber = row.original.poNumber;
             return poNumber ? (
-                <Button variant="link" className="p-0 h-auto" onClick={() => handlePoClick(poNumber)}>{poNumber}</Button>
+                <Button asChild variant="link" className="p-0 h-auto">
+                    <Link href={`/dashboard/inbound/${poNumber}`}>
+                        {poNumber}
+                    </Link>
+                </Button>
             ) : null;
         }
     },
@@ -202,6 +206,11 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {row.original.poNumber && (
+              <DropdownMenuItem onClick={() => handlePoClick(row.original.poNumber as string)}>
+                View Timeline
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem asChild>
                 <Link href={`/dashboard/inbound/${row.original.poNumber}`}>
                     View Inbound Process

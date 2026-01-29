@@ -39,6 +39,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { collection, doc, getDoc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import Link from "next/link";
 
 
 interface FlattenedPoItem {
@@ -170,7 +171,18 @@ export function PoGenTable({ tableData }: { tableData: PurchaseRequest[] }) {
           </Button>
       )
     },
-    { accessorKey: "poNumber", header: "PO Number" },
+    { accessorKey: "poNumber", header: "PO Number",
+      cell: ({ row }) => {
+          const poNumber = row.original.poNumber;
+          return poNumber ? (
+              <Button asChild variant="link" className="p-0 h-auto">
+                  <Link href={`/dashboard/inbound/${poNumber}`}>
+                      {poNumber}
+                  </Link>
+              </Button>
+          ) : "-";
+      }
+    },
     { accessorKey: "customerName", header: "Customer Name" },
     { accessorKey: "itemName", header: "Item Name" },
     { accessorKey: "quantity", header: "Qty" },

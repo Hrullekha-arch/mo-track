@@ -41,7 +41,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
     const pendingItems: PendingPoItem[] = [];
 
     for (const requestDoc of approvedRequestsSnapshot.docs) {
-      const request = requestDoc.data() as PurchaseRequest;
+      const request = { id: requestDoc.id, ...requestDoc.data() } as PurchaseRequest;
       const items = request.fabricDetails || [];
 
       for (const item of items) {
@@ -252,7 +252,7 @@ export async function createPurchaseOrderAction(
 
         const newInboundRequest = {
             id: poNumber,
-            purchaseRequestId: primaryRequest.id,
+            purchaseRequestId: primaryRequest.id || primaryRequest.purchaseRequestId || firstItem.purchaseRequestId || poNumber,
             dealId: primaryRequest.dealId,
             customerName: primaryRequest.customerName,
             vendor: vendor,

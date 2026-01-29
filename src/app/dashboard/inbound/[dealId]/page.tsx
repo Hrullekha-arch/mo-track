@@ -176,9 +176,12 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                 const quantity = parseFloat(itemToUpdate.quantity);
                 
                 // Fetch the original purchase request to get the salesman
-                const purchaseRequestRef = doc(db, 'purchaseRequests', request.purchaseRequestId);
-                const prDoc = await getDoc(purchaseRequestRef);
-                const salesman = prDoc.exists() ? (prDoc.data() as PurchaseRequest).salesman : 'Unknown';
+                let salesman = 'Unknown';
+                if (request.purchaseRequestId) {
+                    const purchaseRequestRef = doc(db, 'purchaseRequests', request.purchaseRequestId);
+                    const prDoc = await getDoc(purchaseRequestRef);
+                    salesman = prDoc.exists() ? (prDoc.data() as PurchaseRequest).salesman : 'Unknown';
+                }
 
                 const transaction: Omit<StockTransaction, 'id'> = {
                     stockId: stockId,
@@ -216,6 +219,11 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
             }
 
              if (wasLastStep) {
+                if (!request.purchaseRequestId) {
+                    toast({ variant: "destructive", title: "Missing Purchase Request", description: "Cannot update PO milestones without purchaseRequestId." });
+                    setUpdating(null);
+                    return;
+                }
                 const purchaseRequestRef = doc(db, 'purchaseRequests', request.purchaseRequestId);
                  const receivingMilestone: PurchaseStatus = {
                     stepId: 3, // Receiving And Sent To Location
