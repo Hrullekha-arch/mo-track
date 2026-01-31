@@ -29,7 +29,7 @@ import { db } from "@/lib/firebase";
 
 // Re-using schemas and types from CreateQuotationDialog
 import { FormValues, itemDetailSchema, vasDetailSchema, ItemDetailValues } from './CreateQuotationDialog';
-import { QuotationPreview } from "./QuotationPreview";
+
 
 const formSchema = z.object({
   company: z.string().optional(),
@@ -128,9 +128,7 @@ export function QuotationForm({ deal, customer, cpds, onSuccess }: QuotationForm
         });
     };
 
-    if (view === 'preview') {
-        return <QuotationPreview form={form} onBack={() => setView('edit')} onSubmit={handleCreateQuotation} loading={loading} />
-    }
+
 
     return (
         <FormProvider {...form}>

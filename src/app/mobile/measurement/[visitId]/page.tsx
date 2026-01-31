@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -152,10 +153,74 @@ useEffect(() => {
     setEditingItemIndex(null);
   };
 
+  const compressImage = (file: File, quality = 0.7, maxSize = 1280): Promise<File> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let { width, height } = img;
+
+                if (width > height) {
+                    if (width > maxSize) {
+                        height = Math.round((height * maxSize) / width);
+                        width = maxSize;
+                    }
+                } else {
+                    if (height > maxSize) {
+                        width = Math.round((width * maxSize) / height);
+                        height = maxSize;
+                    }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    return reject(new Error('Could not get canvas context'));
+                }
+                ctx.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob(
+                    (blob) => {
+                        if (!blob) {
+                            return reject(new Error('Canvas to Blob failed'));
+                        }
+                        const newFile = new File([blob], file.name, {
+                            type: 'image/jpeg',
+                            lastModified: Date.now(),
+                        });
+                        resolve(newFile);
+                    },
+                    'image/jpeg',
+                    quality
+                );
+            };
+            img.onerror = (err) => reject(err);
+        };
+        reader.onerror = (err) => reject(err);
+    });
+  };
+
   // Handle photo upload
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    setItemPhotos([...itemPhotos, ...files]);
+    if (files.length === 0) return;
+
+    toast.info("Compressing images... Please wait.");
+    try {
+        const compressedFilesPromises = files.map(file => compressImage(file));
+        const compressedFiles = await Promise.all(compressedFilesPromises);
+        
+        setItemPhotos(prev => [...prev, ...compressedFiles]);
+        toast.success(`${compressedFiles.length} image(s) compressed and ready.`);
+    } catch (error) {
+        console.error("Image compression failed:", error);
+        toast.error("Could not process images. Please try a different file.");
+    }
   };
 
   // Remove photo
