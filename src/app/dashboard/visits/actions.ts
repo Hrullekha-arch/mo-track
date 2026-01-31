@@ -59,6 +59,8 @@ export async function unassignVisitAction(visitId: string, customerId: string, d
                 slotStart: admin.firestore.FieldValue.delete(),
                 slotEnd: admin.firestore.FieldValue.delete(),
                 assignedAt: admin.firestore.FieldValue.delete(),
+                assignment: admin.firestore.FieldValue.delete(),
+                updatedAt: new Date().toISOString(),
             });
         });
 
@@ -87,19 +89,96 @@ export async function updateVisitDetailsAction(
 
     try {
         const payload: Record<string, any> = {};
-        if (updates.dueDate) payload.dueDate = updates.dueDate;
-        if (updates.representative) payload.representative = updates.representative;
+        if (updates.dueDate) {
+            payload.dueDate = updates.dueDate;
+            const dateOnly = updates.dueDate.split("T")[0] || updates.dueDate;
+            payload["assignment.slot.date"] = dateOnly;
+        }
+        if (updates.representative) {
+            payload.representative = updates.representative;
+            try {
+                const repSnap = await adminDb.collection('users').doc(updates.representative).get();
+                const repName = repSnap.exists ? repSnap.data()?.name : undefined;
+                payload.assignedSalesPerson = { id: updates.representative, name: repName };
+            } catch (error) {
+                console.warn("Failed to resolve representative name:", updates.representative, error);
+                payload.assignedSalesPerson = { id: updates.representative };
+            }
+        }
         if (updates.remark) payload.remark = updates.remark;
         
         if (Object.keys(payload).length === 0) {
             return { success: true, message: 'No changes to update.' };
         }
 
+        payload.updatedAt = new Date().toISOString();
         await visitRef.update(payload);
 
         return { success: true, message: 'Visit details updated successfully.' };
     } catch (error: any) {
         console.error('Error updating visit details:', error);
         return { success: false, message: error.message || 'Failed to update visit.' };
+    }
+}
+
+export async function deleteVisitAction(
+    visitId: string,
+    customerId: string,
+    dealDocId: string
+): Promise<{ success: boolean; message: string }> {
+    if (!visitId || !customerId || !dealDocId) {
+        return { success: false, message: 'Missing required IDs to delete visit.' };
+    }
+
+    const visitRef = adminDb
+        .collection('customers')
+        .doc(customerId)
+        .collection('deals')
+        .doc(dealDocId)
+        .collection('visits')
+        .doc(visitId);
+
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const visitSnap = await transaction.get(visitRef);
+            if (!visitSnap.exists) {
+                throw new Error('Visit document not found.');
+            }
+
+            const visitData = visitSnap.data() as DealVisit;
+            const { assignedTo, slotDate, slotIds } = visitData;
+
+            if (assignedTo && slotDate) {
+                const installerDateRef = adminDb.collection('installers').doc(assignedTo).collection('dates').doc(slotDate);
+                const installerDateSnap = await transaction.get(installerDateRef);
+
+                if (installerDateSnap.exists) {
+                    const slots = (installerDateSnap.data()?.slots || []).map((slot: any) => {
+                        const visitSlotIds = slotIds || (visitData.slotId ? [visitData.slotId] : []);
+                        if (visitSlotIds.includes(slot.slotId || slot.id)) {
+                            return {
+                                ...slot,
+                                status: 'free',
+                                visitId: null,
+                                customerId: null,
+                                customerName: null,
+                                dealId: null,
+                                dealDocId: null,
+                                dealName: null
+                            };
+                        }
+                        return slot;
+                    });
+                    transaction.update(installerDateRef, { slots });
+                }
+            }
+
+            transaction.delete(visitRef);
+        });
+
+        return { success: true, message: 'Visit deleted permanently.' };
+    } catch (error: any) {
+        console.error('Error deleting visit:', error);
+        return { success: false, message: error.message || 'Failed to delete visit.' };
     }
 }

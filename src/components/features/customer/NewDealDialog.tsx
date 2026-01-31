@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -16,6 +16,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { User, Deal } from "@/lib/types";
 import { addDealAction } from "@/app/dashboard/customers/actions";
+import { db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 const dealSchema = z.object({
   dealName: z.string().min(1, "Deal Name is required."),
@@ -45,6 +47,9 @@ interface NewDealDialogProps {
 
 export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen }: NewDealDialogProps) {
   const [loading, setLoading] = useState(false);
+  const [crmUserId, setCrmUserId] = useState<string>("");
+  const [crmUserName, setCrmUserName] = useState<string>("");
+  const [crmLoading, setCrmLoading] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<DealFormValues>({
@@ -57,11 +62,63 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
     }
   });
 
+  const representativeId = form.watch("representativeId");
+
+  useEffect(() => {
+    const resolveCrm = async () => {
+      if (!representativeId) {
+        setCrmUserId("");
+        setCrmUserName("");
+        return;
+      }
+
+      const salesmanUser = salesmen.find(s => s.id === representativeId);
+      if (!salesmanUser) {
+        setCrmUserId("");
+        setCrmUserName("Unassigned");
+        return;
+      }
+
+      setCrmLoading(true);
+      try {
+        const assignmentRef = doc(db, "salesmanCrmAssignments", salesmanUser.name);
+        const assignmentSnap = await getDoc(assignmentRef);
+        const assignedCrmId = assignmentSnap.exists() ? assignmentSnap.data().crmUserId : "";
+
+        if (!assignedCrmId) {
+          setCrmUserId("");
+          setCrmUserName("Unassigned");
+          return;
+        }
+
+        const crmSnap = await getDoc(doc(db, "users", assignedCrmId));
+        const crmName = crmSnap.exists ? crmSnap.data()?.name || "Unknown" : "Unknown";
+
+        setCrmUserId(assignedCrmId);
+        setCrmUserName(crmName);
+      } catch (error) {
+        console.error("Failed to resolve CRM handler:", error);
+        setCrmUserId("");
+        setCrmUserName("Unassigned");
+      } finally {
+        setCrmLoading(false);
+      }
+    };
+
+    resolveCrm();
+  }, [representativeId, salesmen]);
+
   async function onSubmit(data: DealFormValues) {
     setLoading(true);
     try {
       const result = await addDealAction({
         customerId,
+        title: data.dealName,
+        expectedValue: data.dealAmount || 0,
+        assignedSalesPerson: data.representativeId
+          ? { id: data.representativeId, name: salesmen.find(s => s.id === data.representativeId)?.name || "" }
+          : undefined,
+        handleByCmr: crmUserId ? { id: crmUserId, name: crmUserName } : undefined,
         dealName: data.dealName,
         dealAmount: data.dealAmount || 0,
         representativeId: data.representativeId,
@@ -139,6 +196,15 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
                 </FormItem>
               )}
             />
+            <FormItem>
+              <FormLabel>CRM Handler</FormLabel>
+              <FormControl>
+                <Input
+                  value={crmLoading ? "Loading..." : (crmUserName || "Unassigned")}
+                  disabled
+                />
+              </FormControl>
+            </FormItem>
              <FormField
               control={form.control}
               name="advanceForMeasurement"

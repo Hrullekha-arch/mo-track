@@ -3,10 +3,10 @@
 'use server'
 
 import { adminDb, adminStorage } from '@/lib/firebase-admin';
-import { Deal, DealProduct, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess, Selection, Stock, Receipt } from '@/lib/types';
+import { Deal, DealProduct, DealProductsDoc, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess, Selection, Stock, Receipt } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 
-import { getMilestonesForOrder } from '@/lib/constants';
+import { getMilestonesForOrder, MILESTONES_CONFIG, ORDER_TYPE_MILESTONES } from '@/lib/constants';
 import { FieldValue } from 'firebase-admin/firestore';
 import { Readable } from 'stream';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -36,6 +36,135 @@ const normalizeBase64 = (value: string) => {
 
 const sanitizeFileName = (value: string) =>
   (value || "file").replace(/[^\w.-]/g, "_");
+
+const stripUndefined = (value: Record<string, any>) =>
+  Object.fromEntries(Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined));
+
+const toTrimmedString = (value: unknown) => {
+  const text = String(value ?? "").trim();
+  return text ? text : undefined;
+};
+
+const toNumber = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const stripUndefinedDeep = (value: any): any => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (Array.isArray(value)) {
+    const cleaned = value
+      .map((entry) => stripUndefinedDeep(entry))
+      .filter((entry) => entry !== undefined);
+    return cleaned;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value)
+      .map(([key, entry]) => [key, stripUndefinedDeep(entry)])
+      .filter(([, entry]) => entry !== undefined);
+    return Object.fromEntries(entries);
+  }
+  return value;
+};
+
+const buildDealProductMeta = (product: DealProduct) => {
+  const cloned: Record<string, any> = { ...product };
+  delete cloned.file;
+  delete cloned.meta;
+  return stripUndefinedDeep(cloned);
+};
+
+const toUpper = (value: unknown) => {
+  const text = toTrimmedString(value);
+  return text ? text.toUpperCase() : undefined;
+};
+
+const resolveDealProductType = (product: DealProduct) => {
+  const raw = toTrimmedString(product.productType || product.productSource || product.category);
+  if (!raw) return "FABRIC";
+  if (raw.toUpperCase() === "VAS") return "VAS";
+  return raw.toUpperCase();
+};
+
+const resolveDealProductCategory = (product: DealProduct) =>
+  toTrimmedString(product.categoryGroup || product.productCategory || product.category);
+
+const resolveDealProductGroup = (product: DealProduct) =>
+  toTrimmedString(product.group || product.productSource || product.productType || product.VasType);
+
+const resolveDealProductDescription = (product: DealProduct) => {
+  const supplierName = toTrimmedString(product.supplierCollectionName);
+  const supplierCode = toTrimmedString(product.supplierCollectionCode);
+  const combined = [supplierName, supplierCode].filter(Boolean).join(" ").trim();
+  if (combined) return combined;
+  return (
+    toTrimmedString(product.salesDescription) ||
+    toTrimmedString(product.subCategory) ||
+    toTrimmedString(product.itemName) ||
+    toTrimmedString(product.collectionBrand)
+  );
+};
+
+const buildDealProductItem = (product: DealProduct) =>
+  stripUndefined({
+    roomName: toTrimmedString(product.room),
+    type: resolveDealProductType(product),
+    category: resolveDealProductCategory(product),
+    bcn: toTrimmedString(product.bcn || product.collectionBrand),
+    description: resolveDealProductDescription(product),
+    unit: toUpper(product.unit),
+    rate: toNumber(product.rate ?? product.mrp),
+    qty: toNumber(product.quantity ?? (product as any).noOfBlind),
+    gst: toNumber(product.gstPercent),
+    hsn: toTrimmedString(product.hsnOrSac || product.hsnCode),
+    group: resolveDealProductGroup(product),
+    itemName: toTrimmedString(product.itemName),
+    meta: buildDealProductMeta(product),
+  });
+const normalizeVisitType = (value?: string) => {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized === "measurement") return "MEASUREMENT";
+  if (normalized === "sales") return "SALES";
+  if (normalized === "follow_up" || normalized === "follow up" || normalized === "follow-up") {
+    return "FOLLOW_UP";
+  }
+  return value.toUpperCase().replace(/\s+/g, "_");
+};
+
+const deriveVisitPurpose = (value?: string) => {
+  const normalized = normalizeVisitType(value);
+  if (normalized) return normalized;
+  return value?.trim() || "VISIT";
+};
+
+const buildVisitNo = (existing?: string, createdAt?: string) => {
+  if (existing) return existing;
+  const date = createdAt ? new Date(createdAt) : new Date();
+  const year = date.getFullYear();
+  const seq = Math.floor(1000 + Math.random() * 9000);
+  return `VIS-${year}-${seq}`;
+};
+
+const getDateOnly = (value?: string) => {
+  if (!value) return undefined;
+  const [datePart] = value.split("T");
+  return datePart || undefined;
+};
+
+const resolveUserName = async (userId?: string) => {
+  if (!userId) return undefined;
+  try {
+    const userSnap = await adminDb.collection("users").doc(userId).get();
+    return userSnap.exists ? userSnap.data()?.name : undefined;
+  } catch (error) {
+    console.warn("Failed to resolve user name:", userId, error);
+    return undefined;
+  }
+};
 
 const uploadBufferToStorage = async (
   bucket: any,
@@ -109,22 +238,77 @@ export async function getDealById(customerId: string, dealId: string): Promise<D
     }
 }
 
-export async function updateDealProducts(customerId: string, dealId: string, products: DealProduct[]): Promise<{ success: boolean; message: string }> {
-    try {
-        const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
-        
-        // Firestore cannot store `undefined` values from the form, so we clean the products array.
-        const cleanedProducts = products.map(p => 
-            Object.fromEntries(Object.entries(p).filter(([_, v]) => v !== undefined))
-        );
+export async function getDealProducts(dealId: string): Promise<DealProductsDoc | null> {
+  try {
+    const docRef = adminDb.collection("dealProducts").doc(String(dealId));
+    const snap = await docRef.get();
+    if (!snap.exists) return null;
+    const payload = { dealProductId: snap.id, ...snap.data() } as DealProductsDoc;
+    return JSON.parse(JSON.stringify(payload));
+  } catch (error) {
+    console.error(`Error fetching dealProducts for deal ${dealId}:`, error);
+    return null;
+  }
+}
 
-        await dealRef.update({ products: cleanedProducts });
+export async function updateDealProducts(
+  customerId: string,
+  dealId: string,
+  products: DealProduct[],
+  actor?: { id?: string; name?: string }
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const dealProductsRef = adminDb.collection("dealProducts").doc(String(dealId));
+    const existingSnap = await dealProductsRef.get();
+    const existing = existingSnap.exists ? (existingSnap.data() as DealProductsDoc) : null;
 
-        return { success: true, message: 'Products updated successfully.' };
-    } catch (error) {
-        console.error(`Error updating products for deal ${dealId}:`, error);
-        return { success: false, message: 'Failed to update products.' };
-    }
+    const safeProducts = Array.isArray(products) ? products.filter(Boolean) : [];
+
+    const now = new Date().toISOString();
+    const createdAt = existing?.createdAt || now;
+    const createdBy = existing?.createdBy || actor?.name || actor?.id || "System";
+    const status = existing?.status || "DRAFT";
+
+    const normalItems = safeProducts
+      .filter((product) => String(product.productType || "").toUpperCase() !== "VAS")
+      .map(buildDealProductItem);
+
+    const vasItems = safeProducts
+      .filter((product) => String(product.productType || "").toUpperCase() === "VAS")
+      .map(buildDealProductItem);
+
+    const updates = Array.isArray(existing?.updates) ? [...existing!.updates] : [];
+    updates.push(
+      stripUndefined({
+        updatedAt: now,
+        updatedBy: actor ? stripUndefined({ id: actor.id, name: actor.name }) : undefined,
+        action: "UPDATED",
+        message: `Products updated (${safeProducts.length}).`,
+      })
+    );
+
+    const payload: DealProductsDoc = stripUndefined({
+      dealProductId: String(dealId),
+      dealId: String(dealId),
+      customerId: String(customerId),
+      sections: {
+        NORMAL: { items: normalItems },
+        VAS: { items: vasItems },
+      },
+      status,
+      updates,
+      createdAt,
+      updatedAt: now,
+      createdBy,
+    }) as DealProductsDoc;
+
+    await dealProductsRef.set(payload, { merge: true });
+
+    return { success: true, message: "Products updated successfully." };
+  } catch (error) {
+    console.error(`Error updating dealProducts for deal ${dealId}:`, error);
+    return { success: false, message: `Failed to update products: ${(error as Error)?.message || "Unknown error"}` };
+  }
 }
 
 
@@ -189,6 +373,72 @@ export async function createQuotationAction(customerId: string, dealId: string, 
   }
 }
 
+const ORDER_MILESTONE_KEY_MAP: Record<number, string> = {
+  1: "ORDER_RECEIVED",
+  2: "FABRIC_ALLOCATED",
+  3: "SENT_TO_STITCHING",
+  4: "STITCHING_DONE",
+  5: "READY_FOR_DELIVERY",
+  6: "INSTALLATION_SCHEDULED",
+  7: "OUT_FOR_DELIVERY_INSTALLATION",
+  8: "INSTALLATION_DONE",
+};
+
+const coerceNumber = (value: unknown, fallback = 0) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const toIsoString = (value?: string | Date | null) => {
+  if (!value) return undefined;
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+};
+
+const resolveOrderItemType = (item: any) => {
+  const raw = String(item?.type || item?.productType || item?.bcnType || "").trim().toUpperCase();
+  if (raw.includes("HARDWARE")) return "HARDWARE";
+  if (raw.includes("CHANNEL")) return "CHANNEL";
+  if (raw.includes("ACCESSORY")) return "ACCESSORY";
+  if (raw.includes("VAS")) return "VAS";
+  return "FABRIC";
+};
+
+const resolveOrderItemUnit = (itemType: string, item: any) => {
+  const unit = String(item?.unit || "").trim().toUpperCase();
+  if (unit) return unit;
+  if (itemType === "FABRIC") return "MTR";
+  return "PCS";
+};
+
+const buildWorkflowMilestones = (
+  orderType: OrderType,
+  actor: { id?: string; name?: string }
+) => {
+  const ids = ORDER_TYPE_MILESTONES[orderType] || ORDER_TYPE_MILESTONES.delivery;
+  const now = new Date().toISOString();
+  return ids.map((id, index) => ({
+    key: ORDER_MILESTONE_KEY_MAP[id] || `MILESTONE_${id}`,
+    label: MILESTONES_CONFIG[id]?.name || `Step ${id}`,
+    status: index === 0 ? "DONE" : "PENDING",
+    at: index === 0 ? now : undefined,
+    by: index === 0 ? { id: actor.id, name: actor.name } : undefined,
+  }));
+};
+
+const summarizeOrderItems = (items: Array<{ taxableAmount?: number; gstAmount?: number; totalAmount?: number }>) => {
+  return items.reduce(
+    (acc, item) => {
+      acc.subTotal += coerceNumber(item.taxableAmount);
+      acc.gstTotal += coerceNumber(item.gstAmount);
+      acc.grandTotal += coerceNumber(item.totalAmount);
+      return acc;
+    },
+    { subTotal: 0, gstTotal: 0, grandTotal: 0 }
+  );
+};
+
 export async function createDealOrderAction(
   customerId: string,
   dealId: string,
@@ -222,8 +472,9 @@ export async function createDealOrderAction(
     const dealData = dealSnap.data() as Deal;
 
     let salesmanName = 'N/A';
-    if (dealData.representativeId) {
-        const salesmanRef = adminDb.collection('users').doc(dealData.representativeId);
+    const representativeId = dealData.assignedSalesPerson?.id || dealData.representativeId;
+    if (representativeId) {
+        const salesmanRef = adminDb.collection('users').doc(representativeId);
         const salesmanSnap = await salesmanRef.get();
         if (salesmanSnap.exists) {
             salesmanName = salesmanSnap.data()?.name || 'N/A';
@@ -231,59 +482,216 @@ export async function createDealOrderAction(
     }
 
     const batch = adminDb.batch();
-    
+
     const dealOrdersRef = dealRef.collection('orders');
     const newDealOrderRef = dealOrdersRef.doc();
 
     const orderId = `MOTRACK-${quotation.quotationNo}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
 
-    const allFabricDetails = quotation.items.map(item => ({
-      fabricName: item.collectionBrand,
-      quantity: String(item.quantity),
-      rate: item.rate || 0,
-      discountPercent: item.discountPercent || 0,
+    const now = new Date().toISOString();
+
+    const rawNormalItems = Array.isArray((quotation as any).sections?.NORMAL?.items)
+      ? (quotation as any).sections.NORMAL.items
+      : (quotation.items || []);
+    const rawVasItems = Array.isArray((quotation as any).sections?.VAS?.items)
+      ? (quotation as any).sections.VAS.items
+      : (quotation.vasDetails || []);
+
+    const normalItems = rawNormalItems.map((item: any) => {
+      const itemType = resolveOrderItemType(item);
+      const qty = coerceNumber(item.qty ?? item.quantity);
+      const exclusiveRate = coerceNumber(item.exclusiveRate ?? item.rate);
+      const gst = coerceNumber(item.gst ?? item.gstPercent);
+      const taxableAmount = coerceNumber(item.taxableAmount ?? item.taxableAmt, exclusiveRate * qty);
+      const gstAmount = coerceNumber(item.gstAmount, taxableAmount * (gst / 100));
+      const totalAmount = coerceNumber(item.totalAmount, taxableAmount + gstAmount);
+
+      return stripUndefinedDeep({
+        roomName: toTrimmedString(item.roomName ?? item.room),
+        type: itemType,
+        category: toTrimmedString(item.category || item.subCategory),
+        itemId: toTrimmedString(item.itemId),
+        bcn: toTrimmedString(item.bcn ?? item.collectionBrand),
+        description: toTrimmedString(item.description || item.salesDescription || item.collectionBrand),
+        unit: resolveOrderItemUnit(itemType, item),
+        rate: exclusiveRate,
+        exclusiveRate,
+        qty,
+        gst,
+        hsn: toTrimmedString(item.hsn ?? item.hsnCode),
+        group: toTrimmedString(item.group),
+        taxableAmount,
+        gstAmount,
+        totalAmount,
+        allocation: {
+          status: "PENDING",
+          lengths: [],
+          lots: [],
+        },
+      });
+    });
+
+    const vasItems = rawVasItems.map((vas: any) => {
+      const qty = coerceNumber(vas.qty ?? vas.quantity);
+      const rate = coerceNumber(vas.rate);
+      const gst = coerceNumber(vas.gst ?? vas.gstPercent);
+      const taxableAmount = coerceNumber(vas.taxableAmount ?? vas.taxableAmt, qty * rate);
+      const gstAmount = coerceNumber(vas.gstAmount, taxableAmount * (gst / 100));
+      const totalAmount = coerceNumber(vas.totalAmount, taxableAmount + gstAmount);
+
+      return stripUndefinedDeep({
+        roomName: toTrimmedString(vas.roomName ?? vas.room),
+        type: "VAS",
+        description: toTrimmedString(vas.description ?? vas.vasName),
+        unit: resolveOrderItemUnit("VAS", vas),
+        rate,
+        qty,
+        gst,
+        hsn: toTrimmedString(vas.hsn ?? vas.hsnCode),
+        group: toTrimmedString(vas.group),
+        taxableAmount,
+        gstAmount,
+        totalAmount,
+      });
+    });
+
+    const normalSummary = summarizeOrderItems(normalItems);
+    const vasSummary = summarizeOrderItems(vasItems);
+
+    const sections = {
+      NORMAL: { items: normalItems, summary: normalSummary },
+      VAS: { items: vasItems, summary: vasSummary },
+    };
+
+    const overallSummary = {
+      goodsTotal: normalSummary.grandTotal,
+      vasTotal: vasSummary.grandTotal,
+      grandTotal: normalSummary.grandTotal + vasSummary.grandTotal,
+    };
+
+    const workflowMilestones = buildWorkflowMilestones(orderType, creator);
+
+    const billingAddress = stripUndefinedDeep(
+      customerData.billingAddress || {
+        line1: customerData.addressPinCode || undefined,
+        city: customerData.city || undefined,
+        state: customerData.state || undefined,
+        pincode: customerData.pinCode || customerData.addressPinCode || undefined,
+      }
+    );
+
+    const customerSnapshot = stripUndefinedDeep({
+      name: customerData.name || quotation.customerName,
+      phone: customerData.phone || customerData.mobileNo || '',
+      gstin: customerData.gstin,
+      billingAddress,
+      shippingAddress: customerData.shippingAddress,
+    });
+
+    const dealSnapshot = stripUndefinedDeep({
+      dealCode: dealData.dealCode,
+      title: dealData.title || dealData.dealName,
+    });
+
+    const quotationSnapshotMeta = stripUndefinedDeep({
+      createdAt: toIsoString(quotation.createdAt),
+      validTill: toIsoString(quotation.validTillDate),
+      statusAtConversion: quotation.status,
+    });
+
+    const legacyFabricDetails = rawNormalItems.map((item: any) => ({
+      fabricName: item.bcn ?? item.collectionBrand ?? item.description ?? "N/A",
+      quantity: String(item.qty ?? item.quantity ?? 0),
+      status: "pending for po",
+      rate: coerceNumber(item.exclusiveRate ?? item.rate),
+      discountPercent: coerceNumber(item.discountPercent),
     }));
-    
+
+    const legacyVasDetails = (quotation.vasDetails && quotation.vasDetails.length > 0)
+      ? quotation.vasDetails
+      : rawVasItems.map((vas: any) => ({
+          vasName: vas.vasName ?? vas.description ?? "VAS",
+          rate: String(vas.rate ?? 0),
+          quantity: String(vas.qty ?? vas.quantity ?? 0),
+          room: vas.roomName ?? vas.room ?? undefined,
+          gstPercent: coerceNumber(vas.gst ?? vas.gstPercent),
+          hsnCode: vas.hsn ?? vas.hsnCode,
+        }));
+
     const initialMilestones = getMilestonesForOrder(orderType);
     const firstMilestone = initialMilestones.find(m => m.id === 1);
     if (firstMilestone) {
-        firstMilestone.completed = true;
-        firstMilestone.completedAt = new Date().toISOString();
-        firstMilestone.completedBy = creator.name;
+      firstMilestone.completed = true;
+      firstMilestone.completedAt = now;
+      firstMilestone.completedBy = creator.name;
     }
 
-    const newOrder: Order = {
+    const isVasOnly = normalItems.length === 0 && vasItems.length > 0;
+
+    const newOrder: Order = stripUndefinedDeep({
       id: orderId,
+      orderId,
+      orderNo: orderId,
+      quotationId: quotation.id,
+      quotationNo: quotation.quotationNo,
+      customerId: customerId,
+      dealId: dealData.dealId || dealId,
+      customerSnapshot,
+      dealSnapshot,
+      quotationSnapshotMeta,
+      sections,
+      overallSummary,
+      workflow: {
+        status: "CREATED",
+        milestones: workflowMilestones,
+      },
+      invoicing: {
+        status: "NOT_INVOICED",
+        invoices: [],
+        canCreateGoodsInvoice: normalItems.length > 0,
+        canCreateVasInvoice: vasItems.length > 0,
+      },
+      updates: [
+        {
+          updatedAt: now,
+          updatedBy: stripUndefined({ id: creator.id, name: creator.name }),
+          action: "ORDER_CREATED",
+          message: `Order created from quotation ${quotation.quotationNo}.`,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+      createdBy: { id: creator.id, name: creator.name },
+
+      // Legacy fields (kept to avoid breaking existing dashboards)
       crmOrderNo: quotation.quotationNo,
       customerName: quotation.customerName,
-      customerPhone: customerData.mobileNo || '',
-      customerAddress: customerData.addressPinCode || `${customerData.city}, ${customerData.state}`,
+      customerPhone: customerData.phone || customerData.mobileNo || '',
+      customerAddress: customerData.billingAddress?.line1 || customerData.addressPinCode || `${customerData.city || ""}${customerData.state ? `, ${customerData.state}` : ""}`,
       salesPerson: salesmanName,
       orderType: orderType,
       milestones: initialMilestones,
-      createdAt: new Date().toISOString(),
-      isAcknowledged: true,
-      status: 'Pending Approval',
-      customerId: customerId,
-      dealId: dealData.dealId, // Storing the numeric dealId
-      dealOrderDocId: newDealOrderRef.id,
       storeName: quotation.store,
-      fabricDetails: allFabricDetails,
-      totalAmount: quotation.totalAmount,
-      vasDetails: quotation.vasDetails || [],
-    };
+      fabricDetails: legacyFabricDetails,
+      totalAmount: overallSummary.grandTotal || quotation.totalAmount,
+      vasDetails: legacyVasDetails,
+      status: isVasOnly ? 'Approved' : 'Pending Approval',
+      isAcknowledged: true,
+      dealOrderDocId: newDealOrderRef.id,
+      representativeId: representativeId,
+    }) as Order;
 
     batch.set(newOrderRef, newOrder);
-    
+
     const newDealOrder: DealOrder = {
       orderNo: newOrder.id,
       id: newDealOrderRef.id,
-      orderDate: new Date().toISOString(),
+      orderDate: now,
       createdBy: creator.name,
       remark: quotation.billingName || '',
       items: quotation.items,
-      status: 'Pending Approval'
+      status: isVasOnly ? 'Approved' : 'Pending Approval'
     };
 
     batch.set(newDealOrderRef, newDealOrder);
@@ -297,7 +705,7 @@ export async function createDealOrderAction(
 
     return {
       success: true,
-      message: 'Order created and sent for approval.',
+      message: isVasOnly ? 'Order created and sent directly for invoicing.' : 'Order created and sent for approval.',
       order: JSON.parse(JSON.stringify(newOrder)),
     };
   } catch (error: any) {
@@ -428,11 +836,93 @@ export async function addVisitAction(
     const visitsRef = dealRef.collection('visits');
     const newVisitRef = visitsRef.doc();
 
+    const nowIso = new Date().toISOString();
+    const visitNo = buildVisitNo(undefined, nowIso);
+    const repId =
+      visitData.representative ||
+      dealData?.assignedSalesPerson?.id ||
+      dealData?.representativeId;
+    const repName =
+      dealData?.assignedSalesPerson?.name ||
+      (await resolveUserName(repId));
+
+    const assignedSalesPerson = stripUndefined({
+      id: repId,
+      name: repName,
+    });
+    const assignedSalesPersonPayload =
+      Object.keys(assignedSalesPerson).length > 0 ? assignedSalesPerson : undefined;
+
+    const customerSnapshot = stripUndefined({
+      id: customerId,
+      name: customerData?.name || "",
+      phone: customerData?.phone || customerData?.mobileNo || "",
+      address:
+        customerData?.billingAddress?.line1 ||
+        customerData?.addressPinCode ||
+        customerData?.address ||
+        "",
+      customerType: customerData?.customerType,
+    });
+    const customerSnapshotPayload =
+      Object.keys(customerSnapshot).length > 0 ? customerSnapshot : undefined;
+
+    const dealSnapshot = stripUndefined({
+      dealCode: dealData?.dealCode,
+      title: dealData?.title || dealData?.dealName || "",
+    });
+    const dealSnapshotPayload =
+      Object.keys(dealSnapshot).length > 0 ? dealSnapshot : undefined;
+
+    const location = stripUndefined({
+      address:
+        visitData.customerAddress ||
+        customerData?.billingAddress?.line1 ||
+        customerData?.addressPinCode ||
+        customerData?.address ||
+        undefined,
+    });
+    const locationPayload = Object.keys(location).length > 0 ? location : undefined;
+
+    const slotDate = getDateOnly(visitData.dueDate);
+    const assignmentSlot = stripUndefined({
+      date: slotDate,
+    });
+    const assignment = stripUndefined({
+      slot: Object.keys(assignmentSlot).length > 0 ? assignmentSlot : undefined,
+    });
+    const assignmentPayload =
+      Object.keys(assignment).length > 0 ? assignment : undefined;
+
+    const purpose = deriveVisitPurpose(visitData.typeOfVisit);
+
+    const updates = [
+      stripUndefined({
+        updatedAt: nowIso,
+        updatedBy: { name: creatorName },
+        action: "CREATED",
+        message: `Visit created${visitData.typeOfVisit ? ` (${visitData.typeOfVisit})` : ""}.`,
+      }),
+    ];
+
     // ⭐ FULL visit object (with selectionId FIXED)
     const newVisit: Omit<DealVisit, 'id'> = {
+      visitId: newVisitRef.id,
+      visitNo,
+      customerId,
+      dealId: dealData?.dealId || dealId,
+      customerSnapshot: customerSnapshotPayload,
+      dealSnapshot: dealSnapshotPayload,
+      assignedSalesPerson: assignedSalesPersonPayload,
+      visitType: normalizeVisitType(visitData.typeOfVisit) || visitData.typeOfVisit,
+      purpose,
+      assignment: assignmentPayload,
+      location: locationPayload,
+      updates,
+      updatedAt: nowIso,
       representative: visitData.representative,
       typeOfVisit: visitData.typeOfVisit,
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso,
       createdBy: creatorName,
 
       // ⭐ CRITICAL FIELD ADDED
@@ -500,7 +990,7 @@ export async function addVisitAction(
 Please confirm your visit from Mo Design Pvt. Ltd.:
 ${confirmationLink}`;
 
-    const smsResult = await sendVisitSms(customerData.mobileNo, smsMessage);
+    const smsResult = await sendVisitSms(customerData.phone || customerData.mobileNo || "", smsMessage);
 
     return {
       success: true,
@@ -570,6 +1060,7 @@ export async function addMeasurementAction(
         batch.update(visitRef, {
             status: 'completed',
             measurementPdfUrl: pdfUrl,
+            updatedAt: new Date().toISOString(),
         });
 
         // Update the O2D process if it's the first measurement for this deal
@@ -1400,6 +1891,7 @@ export async function saveMeasurementToDeal({
         visitEndTime: new Date().toISOString(),
         measurementId: measurementRef.id,
         measurementSavedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
       if (pdfUrl) {
         visitUpdate.measurementPdfUrl = pdfUrl;
@@ -1570,6 +2062,7 @@ export async function startVisitAction(customerId: string, dealDocId: string, vi
       await visitRef.update({
         visitStartTime: new Date().toISOString(),
         visitStatus: "Working",
+        updatedAt: new Date().toISOString(),
       });
     }
     return { success: true, message: "Visit started." };

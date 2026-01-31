@@ -3,7 +3,7 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Order, Stock, StockTransaction, InvoiceBatch, InvoiceBatchItem, O2DStatus, FabricDetail } from '@/lib/types';
+import { Order, Stock, StockTransaction, O2DStatus, FabricDetail } from '@/lib/types';
 import { FieldValue, Timestamp, doc } from 'firebase-admin/firestore';
 
 
@@ -14,8 +14,9 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
         const availableLengths: { length: number; transactionId: string; }[] = [];
         stockAddedSnapshot.docs.forEach(doc => {
             const data = doc.data();
-            if (data.availableQty > 0) {
-                 availableLengths.push({ length: data.availableQty, transactionId: doc.id });
+            const available = Number(data.availableLength ?? data.availableQty ?? 0);
+            if (available > 0) {
+                 availableLengths.push({ length: available, transactionId: doc.id });
             }
         });
 
@@ -44,20 +45,11 @@ export async function allocateStockToAction(
       await adminDb.runTransaction(async (transaction) => {
         const orderRef = adminDb.collection('orders').doc(orderId);
         const stockRef = adminDb.collection('stocks').doc(bcn);
-        const invoiceBatchesRef = adminDb.collection("invoiceBatches");
-        
-        const recentBatchesQuery = invoiceBatchesRef
-                .where("orderId", "==", orderId)
-                .where("status", "==", "pendingInvoice")
-                .orderBy("createdAt", "desc") 
-                .limit(1);
-
         // --- READ PHASE ---
         // 1. Get all base documents.
-        const [orderDoc, stockDoc, recentBatchesSnap] = await Promise.all([
+        const [orderDoc, stockDoc] = await Promise.all([
             transaction.get(orderRef),
-            transaction.get(stockRef),
-            transaction.get(recentBatchesQuery)
+            transaction.get(stockRef)
         ]);
         
         if (!orderDoc.exists) throw new Error("Order not found.");
@@ -75,6 +67,18 @@ export async function allocateStockToAction(
           const num = typeof value === 'number' ? value : Number(value);
           return Number.isFinite(num) ? num : fallback;
         };
+        const getAvailable = (data: Stock) =>
+          toNumber((data as any)?.availableLength ?? (data as any)?.availableQty, 0);
+        const getOriginal = (data: Stock, fallback: number) =>
+          toNumber((data as any)?.originalLength ?? (data as any)?.quantity, fallback);
+        const getReserved = (data: Stock, fallback: number) => {
+          const reserved = toNumber((data as any)?.reservedQty, Number.NaN);
+          if (Number.isFinite(reserved)) return reserved;
+          const original = getOriginal(data, fallback);
+          const available = getAvailable(data);
+          const derived = original - available;
+          return derived > 0 ? derived : 0;
+        };
         const normalizedBcn = normalizeBcn(bcn);
         const matchedFabricDetail = (orderData.fabricDetails || []).find(item => normalizeBcn(item.fabricName) === normalizedBcn);
         const orderItems = (orderData as { items?: Array<{ collectionBrand?: string; rate?: number; discountPercent?: number }> }).items || [];
@@ -82,6 +86,7 @@ export async function allocateStockToAction(
         const resolvedRate = toNumber(matchedFabricDetail?.rate ?? matchedOrderItem?.rate, rate);
         const resolvedDiscount = toNumber(matchedFabricDetail?.discountPercent ?? matchedOrderItem?.discountPercent, 0);
         let totalAllocatedQty = 0;
+        const lengthMeta = new Map<string, { available: number; original: number; reserved: number; status?: string }>();
         
         for (const allocation of allocations) {
             const { lengthId, quantity } = allocation;
@@ -93,17 +98,19 @@ export async function allocateStockToAction(
             }
             
             const lengthData = lengthDoc.data() as Stock;
-            if (lengthData.availableQty < quantity) {
-                throw new Error(`Insufficient stock for roll ${lengthId}. Available: ${lengthData.availableQty}, Required: ${quantity}`);
+            const available = getAvailable(lengthData);
+            const original = getOriginal(lengthData, available);
+            const reserved = getReserved(lengthData, original);
+            if (available < quantity) {
+                throw new Error(`Insufficient stock for roll ${lengthId}. Available: ${available}, Required: ${quantity}`);
             }
+            lengthMeta.set(lengthId, { available, original, reserved, status: lengthData.status });
             totalAllocatedQty += quantity;
         }
 
         // --- WRITE PHASE ---
         const updateTimestamp = new Date().toISOString();
-        const newInvoiceItems: InvoiceBatchItem[] = [];
-
-        // 3. Update each length document and prepare invoice items
+        // 3. Update each length document
         for (const allocation of allocations) {
             const { lengthId, quantity } = allocation;
             if (quantity <= 0) continue;
@@ -111,11 +118,24 @@ export async function allocateStockToAction(
             const lengthDoc = lengthDocsMap.get(lengthId)!;
             const lengthRef = lengthDoc.ref;
             const lengthData = lengthDoc.data() as Stock;
+            const meta = lengthMeta.get(lengthId);
+            const availableBefore = meta?.available ?? getAvailable(lengthData);
+            const remaining = availableBefore - quantity;
+            const nextStatus = remaining <= 0 ? "RESERVED" : (meta?.status || lengthData.status || "AVAILABLE");
 
             transaction.update(lengthRef, {
-                reservedQty: FieldValue.increment(quantity),
+                availableLength: FieldValue.increment(-quantity),
                 availableQty: FieldValue.increment(-quantity),
-                lastUpdatedAt: updateTimestamp
+                reservedQty: FieldValue.increment(quantity),
+                lastUpdatedAt: updateTimestamp,
+                status: nextStatus,
+                reservation: {
+                    orderId: orderId,
+                    orderNo: orderData.crmOrderNo || orderId,
+                    reservedQty: quantity,
+                    reservedAt: updateTimestamp,
+                    reservedBy: userName
+                }
             });
 
             const reservationRef = lengthRef.collection('reservedQty').doc();
@@ -124,16 +144,6 @@ export async function allocateStockToAction(
                 reservedQty: quantity,
                 reservedBy: userName,
                 timestamp: updateTimestamp
-            });
-
-            newInvoiceItems.push({
-                itemName: itemName,
-                bcn: bcn,
-                quantityAllocated: quantity,
-                rate: resolvedRate,
-                discountPercent: resolvedDiscount,
-                originalLength: lengthData.quantity,
-                stockAddedId: lengthId,
             });
         }
         
@@ -151,45 +161,99 @@ export async function allocateStockToAction(
           }
           return m;
         });
-        transaction.update(orderRef, { milestones: updatedMilestones });
+        const normalizeOrderBcn = (value?: string) => (value || '').split(' - ')[0].trim().toLowerCase();
+        const normalizedTargetBcn = normalizeOrderBcn(bcn);
+        const sections = orderData.sections || {};
+        const normalSection = sections.NORMAL || { items: [] };
+        const updatedNormalItems = (normalSection.items || []).map((orderItem: any) => {
+            const orderItemBcn = normalizeOrderBcn(orderItem.bcn || orderItem.description || orderItem.itemName || "");
+            if (!orderItemBcn || orderItemBcn !== normalizedTargetBcn) return orderItem;
 
-        // 6. Add to invoice batch
-        let targetBatchRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
-        let isNewBatch = true;
-        
-        if (!recentBatchesSnap.empty) {
-            const lastBatchDoc = recentBatchesSnap.docs[0];
-            const lastBatchTimestamp = new Date(lastBatchDoc.data().createdAt as string);
-            const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-            
-            if (lastBatchTimestamp > tenMinutesAgo) {
-                targetBatchRef = lastBatchDoc.ref;
-                isNewBatch = false;
-            } else {
-                 targetBatchRef = invoiceBatchesRef.doc();
+            const existingAllocation = orderItem.allocation || { status: "PENDING", lengths: [], lots: [] };
+            const updatedLengths = Array.isArray(existingAllocation.lengths) ? [...existingAllocation.lengths] : [];
+            const updatedLots = Array.isArray(existingAllocation.lots) ? [...existingAllocation.lots] : [];
+
+            for (const allocation of allocations) {
+                if (allocation.quantity <= 0) continue;
+                const lengthIndex = updatedLengths.findIndex((entry: any) => entry.lengthId === allocation.lengthId);
+                if (lengthIndex >= 0) {
+                    const existing = updatedLengths[lengthIndex];
+                    updatedLengths[lengthIndex] = {
+                        ...existing,
+                        allocatedQty: toNumber(existing.allocatedQty, 0) + allocation.quantity,
+                        reservedAt: updateTimestamp,
+                        reservedBy: { id: userId, name: userName },
+                    };
+                } else {
+                    updatedLengths.push({
+                        stockItemId: bcn,
+                        lengthId: allocation.lengthId,
+                        allocatedQty: allocation.quantity,
+                        unit: orderItem.unit,
+                        reservedAt: updateTimestamp,
+                        reservedBy: { id: userId, name: userName },
+                    });
+                }
             }
-        } else {
-            targetBatchRef = invoiceBatchesRef.doc();
-        }
-        
-        if (isNewBatch) {
-            const newInvoiceBatch: Omit<InvoiceBatch, 'id'> = {
-                orderId: orderId,
-                customerName: orderData.customerName,
-                customerPhone: orderData.customerPhone,
-                createdAt: new Date().toISOString(),
-                status: 'pendingInvoice',
-                items: newInvoiceItems
+
+            const totalAllocated = [...updatedLengths, ...updatedLots].reduce(
+                (sum: number, entry: any) => sum + toNumber(entry.allocatedQty, 0),
+                0
+            );
+            const requiredQty = toNumber(orderItem.qty, 0);
+            const allocationStatus =
+                totalAllocated <= 0 ? "PENDING" : totalAllocated >= requiredQty ? "ALLOCATED" : "PARTIAL";
+
+            return {
+                ...orderItem,
+                allocation: {
+                    ...existingAllocation,
+                    status: allocationStatus,
+                    lengths: updatedLengths,
+                    lots: updatedLots,
+                },
             };
-            transaction.set(targetBatchRef, newInvoiceBatch);
-        } else {
-            transaction.update(targetBatchRef, {
-                items: FieldValue.arrayUnion(...newInvoiceItems)
-            });
-        }
+        });
+
+        const updatedSections = {
+            ...sections,
+            NORMAL: {
+                ...normalSection,
+                items: updatedNormalItems,
+            },
+        };
+
+        const workflow = orderData.workflow || { status: "CREATED", milestones: [] };
+        const updatedWorkflowMilestones = (workflow.milestones || []).map((m: any) =>
+            m.key === "FABRIC_ALLOCATED"
+                ? { ...m, status: "DONE", at: updateTimestamp, by: { id: userId, name: userName } }
+                : m
+        );
+
+        const allocationStatuses = updatedNormalItems.map((item: any) => item.allocation?.status);
+        const anyAllocated = allocationStatuses.some((status: string) => status === "ALLOCATED" || status === "PARTIAL");
+        const allAllocated =
+            allocationStatuses.length > 0 &&
+            allocationStatuses.every((status: string) => status === "ALLOCATED");
+
+        const nextWorkflowStatus = allAllocated
+            ? "ALLOCATED"
+            : anyAllocated
+            ? "ALLOCATING"
+            : workflow.status || "CREATED";
+
+        transaction.update(orderRef, {
+            milestones: updatedMilestones,
+            sections: updatedSections,
+            workflow: {
+                ...workflow,
+                status: nextWorkflowStatus,
+                milestones: updatedWorkflowMilestones,
+            },
+        });
       });
   
-      return { success: true, message: 'Stock reserved successfully and sent for invoicing.' };
+      return { success: true, message: 'Stock reserved successfully.' };
   
     } catch (error: any) {
       console.error("Error in allocateStockToAction:", error);
@@ -232,7 +296,7 @@ export async function debugGetDiscountPercent(orderId: string, bcn: string, leng
   try {
     const orderSnap = await adminDb.collection("orders").doc(orderId).get();
     if (!orderSnap.exists) {
-      console.log(`❌ Order ${orderId} not found`);
+      console.log(`Order ${orderId} not found`);
       return null;
     }
 
@@ -242,11 +306,11 @@ export async function debugGetDiscountPercent(orderId: string, bcn: string, leng
     const orderItem = orderData?.items?.find((i: any) => i.collectionBrand === bcn);
 
     if (orderItem) {
-      console.log(`✅ Discount percent for BCN ${bcn} (order ${orderId}):`, orderItem.discountPercent);
+      console.log(`Discount percent for BCN ${bcn} (order ${orderId}):`, orderItem.discountPercent);
       return orderItem.discountPercent;
     }
 
-    console.log(`⚠️ No matching item found for BCN ${bcn} in order ${orderId}`);
+    console.log(`No matching item found for BCN ${bcn} in order ${orderId}`);
     return null;
 
   } catch (err) {

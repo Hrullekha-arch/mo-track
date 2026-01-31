@@ -18,6 +18,40 @@ import { toast } from "@/hooks/use-toast";
 import { Label } from "@/components/ui/label";
 import { FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { roomOptions } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+
+const normalizeText = (value: unknown) => String(value ?? "").toLowerCase();
+
+const matchesStockSection = (stock: any, section: string) => {
+  if (!stock || !section) return true;
+  const category = normalizeText(stock.category);
+  const type = normalizeText(stock.type);
+  const group = normalizeText(stock.categoryGroup);
+  const name = normalizeText(stock.name || stock.itemName);
+
+  const matchesAny = (value: string, terms: string[]) =>
+    terms.some((term) => value === term || value.includes(term));
+
+  if (section === "accessories") {
+    const terms = ["accessory", "accessories"];
+    return (
+      matchesAny(category, terms) ||
+      matchesAny(type, terms) ||
+      matchesAny(group, terms) ||
+      matchesAny(name, terms)
+    );
+  }
+  if (section === "hardware") {
+    const terms = ["hardware", "channel"];
+    return (
+      matchesAny(category, terms) ||
+      matchesAny(type, terms) ||
+      matchesAny(group, terms) ||
+      matchesAny(name, terms)
+    );
+  }
+  return true;
+};
 
 export default function HardwareTopLevel({ onSaveHardware, form }) {
   const {control} = form;
@@ -66,9 +100,11 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
   const [open, setOpen] = useState(false);
   const [bcnOptions, setBcnOptions] = useState<ComboboxOption[]>([]);
   const [step, setStep] = useState("main");
+  const [rootCategory, setRootCategory] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [dialogTitle, setDialogTitle] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [stockFilterSection, setStockFilterSection] = useState("hardware");
   const [selectedItemValue, setSelectedItemValue] = useState<string | null>(null);
   const [selectedItemName, setSelectedItemName] = useState<string | null>(null);
   const [rate, setRate] = useState("");
@@ -77,6 +113,7 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
   const [uploadImageAllowed, setUploadImageAllowed] = useState(false);
   const [finalItem, setFinalItem] = useState("");
   const [selectedBracketType, setSelectedBracketType] = useState("");
+  const [selectedStockMeta, setSelectedStockMeta] = useState<any | null>(null);
 
   const resetItemFields = () => {
     setRate("");
@@ -84,6 +121,19 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
     setSelectedItemValue("");
     setSelectedItemName(null);
     setImage(null);
+    setSelectedStockMeta(null);
+  };
+
+  const resetFlowState = () => {
+    setStep("main");
+    setSelectedItem(null);
+    setDialogTitle("");
+    setUploadImageAllowed(false);
+    setStockFilterSection("hardware");
+    setSelectedBracketType("");
+    setFinalItem("");
+    setRootCategory(null);
+    resetItemFields();
   };
 
   const handleBcnSearch = useCallback(async (query: string) => {
@@ -94,7 +144,8 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
     setIsSearching(true);
     try {
       const results = await searchStockByBcn(query);
-      const options = results.map(stock => ({
+      const filtered = results.filter((stock) => matchesStockSection(stock, stockFilterSection));
+      const options = filtered.map(stock => ({
         value: stock.bcn || stock.id,
         label: `${stock.bcn}`,
         stockItem: stock
@@ -106,7 +157,7 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
     } finally {
       setIsSearching(false);
     }
-  }, [toast]);
+  }, [toast, stockFilterSection]);
 
   const handleBcnSelect = (value: string) => {
     const selectedOption = bcnOptions.find(opt => opt.value === value) as any;
@@ -114,7 +165,25 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
       const stockItem = selectedOption.stockItem;
       setSelectedItemName(stockItem?.itemName || null);
       setFinalItem(stockItem?.itemName || value);
-      setRate(stockItem?.mrp ? stockItem.mrp.toString() : "");
+      const resolvedRate =
+        stockItem?.rrpWithGstRs != null
+          ? String(stockItem.rrpWithGstRs)
+          : stockItem?.mrp != null
+          ? String(stockItem.mrp)
+          : "";
+      setRate(resolvedRate);
+      setSelectedStockMeta({
+        unit: stockItem?.unit || "",
+        gstPercent: stockItem?.gstPercent ?? "",
+        hsnOrSac: stockItem?.hsnOrSac || "",
+        supplierCollectionName: stockItem?.supplierCollectionName || "",
+        supplierCollectionCode: stockItem?.supplierCollectionCode || "",
+        supplierCompanyName: stockItem?.supplierCompanyName || "",
+        category: stockItem?.category || "",
+        categoryGroup: stockItem?.categoryGroup || "",
+        itemName: stockItem?.itemName || stockItem?.name || "",
+        productId: stockItem?.productId || "",
+      });
     }
   };
 
@@ -130,17 +199,32 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
 
     const subCategory = [selectedItem, finalItem].filter(Boolean).join(" → ");
 
+    const supplierDescription = [selectedStockMeta?.supplierCollectionName, selectedStockMeta?.supplierCollectionCode]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
     const payload = {
       productType: "Hardware",
       productCategory: mainCategory,
       subCategory,
       bcn: selectedItemValue || null,
       itemName: selectedItemName || null,
+      salesDescription: supplierDescription || selectedStockMeta?.itemName || subCategory || mainCategory,
       rate: rate || "",
       quantity: quantity || "",
       room,
       image,
       timestamp: Date.now(),
+      unit: selectedStockMeta?.unit || "",
+      gstPercent: selectedStockMeta?.gstPercent ?? "",
+      hsnOrSac: selectedStockMeta?.hsnOrSac || "",
+      supplierCollectionName: selectedStockMeta?.supplierCollectionName || "",
+      supplierCollectionCode: selectedStockMeta?.supplierCollectionCode || "",
+      supplierCompanyName: selectedStockMeta?.supplierCompanyName || "",
+      category: selectedStockMeta?.category || "",
+      categoryGroup: selectedStockMeta?.categoryGroup || "",
+      productId: selectedStockMeta?.productId || "",
     };
 
     if (typeof onSaveHardware !== "function") {
@@ -155,23 +239,51 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
 
   const handleCategoryClick = (category) => {
     if (category === "Hardware") {
+      setRootCategory("Hardware");
       setDialogTitle("Hardware Options");
+      setStockFilterSection("hardware");
       setStep("subtop");
       setOpen(true);
     }
     if (category === "Accessories") {
+      setRootCategory("Accessories");
       setDialogTitle("Accessories");
+      setStockFilterSection("accessories");
       setStep("accessories");
       setUploadImageAllowed(true);
       setOpen(true);
     }
     if (category === "Pelmet") {
+      setRootCategory("Hardware");
       setDialogTitle("Pelmet");
+      setStockFilterSection("hardware");
       setUploadImageAllowed(true);
       setStep("pelmet");
       setOpen(true);
     }
   };
+
+  const detailSteps = new Set([
+    "item",
+    "bracketItem",
+    "finial",
+    "manualtrackitem",
+    "motorizedtrackitem",
+    "manualromantrackitem",
+    "motorizedromantrackitem",
+    "accessoriesitem",
+    "pelmetitem",
+  ]);
+
+  const stepStage = detailSteps.has(step) ? 3 : 2;
+  const stepLabels = ["Category", "Type", "Details"];
+  const stepTrail = [
+    rootCategory,
+    selectedItem,
+    selectedBracketType,
+    finalItem,
+    selectedItemValue,
+  ].filter(Boolean);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -203,7 +315,13 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
       </div>
 
       {/* DIALOG */}
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) resetFlowState();
+        }}
+      >
         <DialogContent className="max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{dialogTitle}</DialogTitle>
@@ -224,6 +342,35 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
               )}
             />
           </DialogHeader>
+          <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Step {stepStage} of 3</span>
+              <span>{rootCategory || "Select category"}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {stepLabels.map((label, index) => {
+                const stageIndex = index + 1;
+                return (
+                  <span
+                    key={label}
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-xs font-medium",
+                      stepStage >= stageIndex
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {stageIndex}. {label}
+                  </span>
+                );
+              })}
+            </div>
+            {stepTrail.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Path: {stepTrail.join(" / ")}
+              </p>
+            ) : null}
+          </div>
 
           {/* SUB TOP LEVEL */}
           {step === "subtop" && (

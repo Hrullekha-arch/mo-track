@@ -63,8 +63,8 @@ export function CustomerResultsTable({ customers, isLoading, hasSearched, onCust
                 <TableHeader>
                     <TableRow>
                         <TableHead>Name</TableHead>
-                        <TableHead>Mobile No</TableHead>
-                        <TableHead>Sales Support</TableHead>
+                        <TableHead>Phone</TableHead>
+                        <TableHead>Assigned To</TableHead>
                         <TableHead>Created At</TableHead>
                         <TableHead className="text-right"></TableHead>
                     </TableRow>
@@ -73,9 +73,9 @@ export function CustomerResultsTable({ customers, isLoading, hasSearched, onCust
                     {customers.map((customer) => (
                         <TableRow key={customer.id}>
                             <TableCell className="font-medium">{customer.name}</TableCell>
-                            <TableCell>{customer.mobileNo}</TableCell>
+                            <TableCell>{customer.phone || customer.mobileNo || "—"}</TableCell>
                             <TableCell>
-                                <Badge variant="outline">{customer.salesSupport || "N/A"}</Badge>
+                                <Badge variant="outline">{customer.assignedSalesPerson?.name || customer.salesSupport || "N/A"}</Badge>
                             </TableCell>
                             <TableCell>{format(new Date(customer.createdAt), "PPP")}</TableCell>
                             <TableCell className="text-right">
@@ -84,9 +84,9 @@ export function CustomerResultsTable({ customers, isLoading, hasSearched, onCust
                                       Next <ChevronRight className="h-4 w-4 ml-2" />
                                     </Button>
                                 ) : (
-                                    customer.id ? (
+                                    (customer.customerId || customer.id) ? (
                                         <Button asChild variant="ghost" size="icon">
-                                            <Link href={`/dashboard/customers/${customer.id}`}>
+                                            <Link href={`/dashboard/customers/${customer.customerId || customer.id}`}>
                                                 <ChevronRight className="h-4 w-4" />
                                             </Link>
                                         </Button>

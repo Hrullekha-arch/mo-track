@@ -79,7 +79,7 @@ const SalesmanDashboard = () => {
         try {
             // Step 1: Check if customer exists by mobile number
             const customersRef = collection(db, "customers");
-            const q = query(customersRef, where("mobileNo", "==", lead.mobile));
+            const q = query(customersRef, where("phone", "==", lead.mobile));
             const querySnapshot = await getDocs(q);
 
             let customerId: string;
@@ -88,9 +88,8 @@ const SalesmanDashboard = () => {
                 // Step 2a: Customer doesn't exist, so create them
                 const customerData = {
                     name: `${lead.firstName} ${lead.familyName}`,
-                    mobileNo: lead.mobile,
+                    phone: lead.mobile,
                     email: lead.email || '',
-                    createdAt: new Date().toISOString(),
                     createdBy: user.name,
                 };
                 const customerResult = await addCustomerAction(customerData);
@@ -296,7 +295,6 @@ const AdminDashboard = () => {
             purchaseRequests: query(collection(db, "purchaseRequests")),
             inbounds: query(collection(db, "inbounds"), where("status", "==", "Active")),
             visits: query(collectionGroup(db, 'visits')),
-            invoiceBatches: query(collection(db, "invoiceBatches"), where("status", "==", "pending")),
             cuttingTasks: query(collection(db, "Cutting"), where("status", "!=", "Completed")),
         };
 
@@ -310,6 +308,7 @@ const AdminDashboard = () => {
                         ...prev,
                         readyForDelivery: orders.filter(o => o.milestones.find(m => m.id === 5)?.completed && !o.milestones.find(m => m.id === 8)?.completed).length,
                         pendingOrderApproval: orders.filter(o => o.status === 'Pending Approval').length,
+                        pendingInvoice: orders.filter(o => o.invoicing?.status && o.invoicing.status !== 'INVOICED').length,
                         paymentConfirmation: orders.filter(o => o.balanceFollowUp === true && !o.paymentConfirmed).length,
                     }));
                 }
@@ -327,9 +326,6 @@ const AdminDashboard = () => {
                 }
                 if (key === 'visits') {
                     setCounts(prev => ({ ...prev, pendingVisits: snapshot.size }));
-                }
-                if (key === 'invoiceBatches') {
-                    setCounts(prev => ({ ...prev, pendingInvoice: snapshot.size }));
                 }
                 if (key === 'cuttingTasks') {
                     setCounts(prev => ({ ...prev, pendingCutting: snapshot.size }));

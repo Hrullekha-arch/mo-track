@@ -56,6 +56,7 @@ import { useAuth } from "@/context/AuthContext";
 type InventoryItem = {
   id?: string;
   bcn: string;
+  name?: string;
   itemName?: string;
 
   categoryGroup?: string;
@@ -964,7 +965,7 @@ const handleSaveAll = async () => {
         const cs = Number(stock.closingstock ?? stock.availableQty ?? 0);
         return {
           value: stock.bcn, // ✅ use BCN as unique selection key
-          label: `${stock.bcn} - ${stock.itemName || "Unnamed"} (${Number.isFinite(
+          label: `${stock.bcn} - ${stock.itemName || stock.name || "Unnamed"} (${Number.isFinite(
             cs
           )
             ? cs

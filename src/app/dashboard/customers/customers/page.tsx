@@ -21,7 +21,7 @@ import { searchCustomersAction } from '../actions';
 
 const searchSchema = z.object({
   customerName: z.string().optional(),
-  mobileNo: z.string().optional(),
+  phone: z.string().optional(),
   salesSupport: z.string().optional(),
 });
 
@@ -40,7 +40,7 @@ export default function CustomersPage() {
     resolver: zodResolver(searchSchema),
     defaultValues: {
       customerName: "",
-      mobileNo: "",
+      phone: "",
       salesSupport: "all",
     }
   });
@@ -51,7 +51,7 @@ export default function CustomersPage() {
     try {
       const results = await searchCustomersAction({
         customerName: data.customerName,
-        mobileNo: data.mobileNo,
+        phone: data.phone,
         salesSupport: data.salesSupport,
       });
       setSearchResults(results);
@@ -69,7 +69,7 @@ export default function CustomersPage() {
 
   const handleNewContactSuccess = (newCustomer: Customer) => {
     setIsNewContactOpen(false);
-    router.push(`/dashboard/customers/${newCustomer.id}`);
+    router.push(`/dashboard/customers/${newCustomer.customerId || newCustomer.id}`);
   };
 
   const clearForm = () => {
@@ -103,8 +103,8 @@ export default function CustomersPage() {
                     <Input id="customerName" {...form.register("customerName")} />
                 </div>
                 <div className="space-y-2">
-                    <Label htmlFor="mobileNo" className="flex items-center gap-1">Mobile No <Tooltip><TooltipTrigger asChild><Info className="h-3 w-3" /></TooltipTrigger><TooltipContent><p>Search by customer's mobile number.</p></TooltipContent></Tooltip></Label>
-                    <Input id="mobileNo" {...form.register("mobileNo")} />
+                    <Label htmlFor="phone" className="flex items-center gap-1">Phone <Tooltip><TooltipTrigger asChild><Info className="h-3 w-3" /></TooltipTrigger><TooltipContent><p>Search by customer's phone number.</p></TooltipContent></Tooltip></Label>
+                    <Input id="phone" {...form.register("phone")} />
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="salesSupport" className="flex items-center gap-1">Architect / Sales Support</Label>

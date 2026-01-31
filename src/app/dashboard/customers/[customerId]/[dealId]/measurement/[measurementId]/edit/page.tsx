@@ -441,7 +441,7 @@ export default function QuotationBuilderPage() {
 
       if (customer) {
         setCustomerName(customer.name || "");
-        setCustomerPhone(customer.mobileNo || "");
+        setCustomerPhone(customer.phone || customer.mobileNo || "");
       }
       if (deal) {
         setDealCode(deal.dealId || deal.id || "");

@@ -16,6 +16,7 @@ import { ArrowUpDown, FileText, Loader2, Eye, Printer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -25,7 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, orderBy, doc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -35,7 +36,7 @@ import Link from 'next/link';
 import { sendInvoiceToTally } from "@/services/tally";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
-import { buildAndFetchInvoicePayload } from "@/app/dashboard/invoice/actions";
+import { buildPrintablePayloadFromInvoice } from "@/lib/invoice-utils";
 
 export function InvoiceLogTable() {
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
@@ -73,27 +74,14 @@ export function InvoiceLogTable() {
     return;
   };
   
-  const handleViewInvoice = async (invoice: Invoice) => {
+  const handleViewInvoice = (invoice: Invoice) => {
     setIsFetchingPayload(true);
     setIsViewOpen(true);
     try {
-      const result = await buildAndFetchInvoicePayload(invoice.orderId);
-      if (result.success && result.payload) {
-        // The generated payload might have a new invoiceNo, but we want to show the one already saved.
-        const payloadWithSavedInvoiceNo = {
-            ...result.payload,
-            meta: {
-                ...result.payload.meta,
-                invoiceNo: invoice.invoiceNo,
-            }
-        };
-        setViewPayload(payloadWithSavedInvoiceNo);
-      } else {
-        toast({ variant: 'destructive', title: 'Error', description: result.message || 'Could not fetch invoice data.' });
-        setIsViewOpen(false);
-      }
+      const payload = buildPrintablePayloadFromInvoice(invoice);
+      setViewPayload(payload);
     } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Error', description: e.message });
+      toast({ variant: 'destructive', title: 'Error', description: e.message || 'Could not render invoice.' });
       setIsViewOpen(false);
     } finally {
       setIsFetchingPayload(false);
@@ -128,9 +116,21 @@ export function InvoiceLogTable() {
       cell: ({ row }) => <div className="font-mono">{row.getValue("invoiceNo")}</div>,
     },
     {
+      id: "type",
+      header: "Type",
+      cell: ({ row }) => {
+        const invoice = row.original;
+        const type = invoice.invoiceType || (invoice.isVas ? "VAS" : "NORMAL");
+        const label = type === "VAS" ? "VAS" : type === "MIXED" ? "Mixed" : "Goods";
+        const variant =
+          type === "VAS" ? "secondary" : type === "MIXED" ? "outline" : "default";
+        return <Badge variant={variant}>{label}</Badge>;
+      },
+    },
+    {
       id: "company",
       header: "Company",
-      cell: ({ row }) => (row.original.isVas ? 'MO SPACE' : 'MO DESIGNS'),
+      cell: ({ row }) => (row.original.invoiceType === 'VAS' || row.original.isVas ? 'MO SPACE' : 'MO DESIGNS'),
     },
     {
       accessorKey: "createdAt",
@@ -149,9 +149,9 @@ export function InvoiceLogTable() {
       }
     },
     {
-        accessorKey: "customer.name",
+        accessorKey: "customerSnapshot.name",
         header: "Customer",
-        cell: ({row}) => row.original.customer.name
+        cell: ({row}) => row.original.customerSnapshot?.name || row.original.customer?.name || "-"
     },
     {
       accessorKey: "orderId",
@@ -165,7 +165,10 @@ export function InvoiceLogTable() {
     {
         accessorKey: "totals.grandTotal",
         header: "Amount",
-        cell: ({ row }) => `₹${row.original.totals.grandTotal.toFixed(2)}`,
+        cell: ({ row }) => {
+          const amount = row.original.totals?.grandTotal ?? row.original.overallSummary?.grandTotal ?? 0;
+          return `₹${amount.toFixed(2)}`;
+        },
     },
     {
       accessorKey: "tallyVoucherNo",
@@ -315,3 +318,4 @@ export function InvoiceLogTable() {
     </>
   )
 }
+

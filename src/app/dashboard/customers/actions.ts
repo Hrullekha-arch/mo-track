@@ -3,13 +3,87 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Customer, Deal, User, Quotation, O2DProcess } from '@/lib/types';
+import { Customer, Deal, User, Quotation, O2DProcess, CustomerAddress, CustomerStats, CustomerRecent } from '@/lib/types';
 import { query, where } from 'firebase/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 import { revalidatePath } from 'next/cache';
+
+const normalizeNameForId = (value: string) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "");
+
+const normalizePhoneForId = (value: string) => String(value || "").replace(/\D/g, "");
+
+const buildCustomerDocId = (name: string, phone: string) => {
+  const normalizedName = normalizeNameForId(name);
+  const normalizedPhone = normalizePhoneForId(phone);
+  if (!normalizedName || !normalizedPhone) return "";
+  return `${normalizedName}_${normalizedPhone}`;
+};
+
+const stripUndefined = <T extends Record<string, any>>(value: T): T =>
+  Object.fromEntries(
+    Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined)
+  ) as T;
+
+const stripUndefinedDeep = (value: any): any => {
+  if (Array.isArray(value)) {
+    return value.map(stripUndefinedDeep);
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value)
+      .filter(([, fieldValue]) => fieldValue !== undefined)
+      .map(([key, fieldValue]) => [key, stripUndefinedDeep(fieldValue)]);
+    return Object.fromEntries(entries);
+  }
+  return value;
+};
+
+const buildAddress = (
+  source?: Partial<CustomerAddress> & { addressLine1?: string; addressLine2?: string; address?: string; landmark?: string; pinCode?: string; pincode?: string },
+  fallback?: Partial<CustomerAddress> & { addressLine1?: string; addressLine2?: string; address?: string; landmark?: string; pinCode?: string; pincode?: string }
+): CustomerAddress | undefined => {
+  const data = (source && typeof source === "object" ? source : fallback) || {};
+  const address = stripUndefined({
+    line1: String(data.line1 || data.addressLine1 || data.address || "").trim() || undefined,
+    line2: String(data.line2 || data.addressLine2 || data.landmark || "").trim() || undefined,
+    city: String(data.city || "").trim() || undefined,
+    state: String(data.state || "").trim() || undefined,
+    pincode: String(data.pincode || data.pinCode || "").trim() || undefined,
+  });
+  return Object.keys(address).length > 0 ? address : undefined;
+};
+
+const defaultStats = (): CustomerStats => ({
+  totalVisits: 0,
+  totalQuotations: 0,
+  approvedQuotations: 0,
+  totalOrders: 0,
+  completedOrders: 0,
+  totalInvoicedAmount: 0,
+  totalPaidAmount: 0,
+  totalPendingAmount: 0,
+  lastVisitDate: null,
+  lastOrderDate: null,
+  lastInvoiceDate: null,
+});
+
+const defaultRecent = (): CustomerRecent => ({
+  visits: [],
+  quotations: [],
+  orders: [],
+});
+
+const buildDealCode = (dealId: string) => {
+  const year = new Date().getFullYear();
+  return `DEAL-${year}-${dealId}`;
+};
 
 export async function searchCustomersAction(filters: {
   customerName?: string;
-  mobileNo?: string;
+  phone?: string;
   salesSupport?: string;
   quotationNo?: string;
   orderNo?: string;
@@ -57,14 +131,16 @@ export async function searchCustomersAction(filters: {
     let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = customersRef;
 
     const querySnapshot = await q.orderBy('createdAt', 'desc').get();
-    const allCustomers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Customer);
+    const allCustomers = querySnapshot.docs.map(doc => ({ id: doc.id, customerId: doc.id, ...doc.data() }) as Customer);
 
     // Apply filters in memory
     const filteredCustomers = allCustomers.filter(customer => {
         const nameMatch = !filters.customerName || customer.name.toLowerCase().includes(filters.customerName.toLowerCase());
-        const mobileMatch = !filters.mobileNo || customer.mobileNo.includes(filters.mobileNo);
-        const salesSupportMatch = !filters.salesSupport || filters.salesSupport === 'all' || customer.salesSupport === filters.salesSupport;
-        return nameMatch && mobileMatch && salesSupportMatch;
+        const phoneValue = customer.phone || customer.mobileNo || "";
+        const phoneMatch = !filters.phone || phoneValue.includes(filters.phone);
+        const assignedName = customer.assignedSalesPerson?.name || customer.salesSupport || "";
+        const salesSupportMatch = !filters.salesSupport || filters.salesSupport === 'all' || assignedName === filters.salesSupport;
+        return nameMatch && phoneMatch && salesSupportMatch;
     });
 
     return JSON.parse(JSON.stringify(filteredCustomers));
@@ -80,7 +156,7 @@ export async function getCustomerById(id: string): Promise<Customer | null> {
         const docSnap = await docRef.get();
 
         if (docSnap.exists) {
-            const customerData = { id: docSnap.id, ...docSnap.data() };
+            const customerData = { id: docSnap.id, customerId: docSnap.id, ...docSnap.data() };
             // Ensure data is serializable for the client
             return JSON.parse(JSON.stringify(customerData)) as Customer;
         } else {
@@ -150,10 +226,20 @@ export async function getSalesmen(): Promise<User[]> {
 }
 
 
-interface AddCustomerInput extends Omit<Customer, 'id' | 'createdAt'> {
-  savedAddresses?: Array<{ address: string; landmark?: string }>;
-  addressPinCode?: string;
-  landmark?: string;
+interface AddCustomerInput {
+  name: string;
+  phone: string;
+  email?: string;
+  gstin?: string;
+  isGstRegistered?: boolean;
+  billingAddress?: CustomerAddress;
+  shippingAddress?: CustomerAddress;
+  customerType?: string;
+  tags?: string[];
+  assignedSalesPerson?: { id?: string; name?: string };
+  status?: string;
+  customerCode?: string;
+  createdBy?: string;
 }
 
 export async function addCustomerAction(data: AddCustomerInput): Promise<{ success: boolean; message: string; customer?: Customer }> {
@@ -161,23 +247,54 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
     const customersRef = adminDb.collection("customers");
 
     // Check for duplicate mobile number
-    const mobileQuery = customersRef.where('mobileNo', '==', data.mobileNo);
-    const mobileSnapshot = await mobileQuery.get();
-    if (!mobileSnapshot.empty) {
-        return { success: false, message: "A customer with this mobile number already exists." };
+    const phoneValue = String(data.phone || "").trim();
+    if (!phoneValue) {
+      return { success: false, message: "Phone number is required." };
+    }
+    const phoneQuery = customersRef.where('phone', '==', phoneValue);
+    const phoneSnapshot = await phoneQuery.get();
+    if (!phoneSnapshot.empty) {
+        return { success: false, message: "A customer with this phone number already exists." };
     }
 
-    const newContactRef = customersRef.doc();
+    const docIdBase = buildCustomerDocId(data.name, phoneValue);
+    if (!docIdBase) {
+      return { success: false, message: "Invalid name or phone number for customer ID." };
+    }
 
-    const newCustomerData: Omit<Customer, 'id'> = {
+    let docId = docIdBase;
+    let suffix = 1;
+    while ((await customersRef.doc(docId).get()).exists) {
+      docId = `${docIdBase}__${suffix}`;
+      suffix += 1;
+    }
+
+    const now = new Date().toISOString();
+    const billingAddress = buildAddress(data.billingAddress);
+    const shippingAddress = buildAddress(data.shippingAddress, data.billingAddress);
+
+    const newCustomerData: Omit<Customer, 'id'> = stripUndefined({
+      customerId: docId,
+      customerCode: data.customerCode || docId,
       name: data.name,
-      mobileNo: data.mobileNo,
+      phone: phoneValue,
       email: data.email,
-      salesSupport: data.salesSupport,
+      gstin: data.gstin,
+      isGstRegistered: typeof data.isGstRegistered === 'boolean' ? data.isGstRegistered : Boolean(data.gstin),
+      billingAddress,
+      shippingAddress,
+      customerType: data.customerType || "INDIVIDUAL",
+      tags: Array.isArray(data.tags) ? data.tags : [],
+      assignedSalesPerson: data.assignedSalesPerson,
+      stats: defaultStats(),
+      recent: defaultRecent(),
+      status: data.status || "ACTIVE",
+      createdAt: now,
+      lastUpdatedAt: now,
       createdBy: data.createdBy,
-      createdAt: new Date().toISOString(),
-    };
+    });
 
+    const newContactRef = customersRef.doc(docId);
     await newContactRef.set(newCustomerData);
     
     const customer = { id: newContactRef.id, ...newCustomerData };
@@ -191,9 +308,23 @@ export async function addCustomerAction(data: AddCustomerInput): Promise<{ succe
 
 type UpdateCustomerPayload = {
   name: string;
-  mobileNo: string;
+  phone: string;
   email?: string;
-  address?: string;
+  billingAddress?: CustomerAddress;
+  shippingAddress?: CustomerAddress;
+  gstin?: string;
+  isGstRegistered?: boolean;
+  customerType?: string;
+  tags?: string[];
+  assignedSalesPerson?: { id?: string; name?: string };
+  status?: string;
+  panNo?: string;
+  referenceName?: string;
+  sourceOfCustomer?: string;
+  pinCode?: string;
+  city?: string;
+  state?: string;
+  salesSupport?: string;
 };
 
 export async function updateCustomerAction(
@@ -204,14 +335,27 @@ export async function updateCustomerAction(
 
   const clean: any = {
     name: (payload.name || "").trim(),
-    mobileNo: (payload.mobileNo || "").trim(),
-    addressPinCode: (payload.address || "").trim(),
+    phone: (payload.phone || "").trim(),
+    billingAddress: buildAddress(payload.billingAddress),
+    shippingAddress: buildAddress(payload.shippingAddress, payload.billingAddress),
+    gstin: payload.gstin ? payload.gstin.trim() : undefined,
+    isGstRegistered: typeof payload.isGstRegistered === "boolean" ? payload.isGstRegistered : undefined,
+    customerType: payload.customerType,
+    tags: payload.tags,
+    assignedSalesPerson: payload.assignedSalesPerson,
+    status: payload.status,
+    panNo: payload.panNo ? payload.panNo.trim() : undefined,
+    referenceName: payload.referenceName ? payload.referenceName.trim() : undefined,
+    sourceOfCustomer: payload.sourceOfCustomer ? payload.sourceOfCustomer.trim() : undefined,
+    pinCode: payload.pinCode ? payload.pinCode.trim() : undefined,
+    city: payload.city ? payload.city.trim() : undefined,
+    state: payload.state ? payload.state.trim() : undefined,
+    salesSupport: payload.salesSupport ? payload.salesSupport.trim() : undefined,
   };
 
   const email = (payload.email || "").trim();
   if (email) clean.email = email;
-  else clean.email = adminDb.fieldValue?.delete?.() ?? undefined; 
-  // If your wrapper doesn't expose fieldValue, use admin.firestore.FieldValue.delete() below.
+  else clean.email = FieldValue.delete();
 
   const ref = adminDb.collection("customers").doc(customerId);
   const snap = await ref.get();
@@ -221,7 +365,7 @@ export async function updateCustomerAction(
   // ✅ if you want to enforce unique mobile
   const dupSnap = await adminDb
     .collection("customers")
-    .where("mobileNo", "==", clean.mobileNo)
+    .where("phone", "==", clean.phone)
     .limit(1)
     .get();
 
@@ -231,14 +375,14 @@ export async function updateCustomerAction(
   // ✅ update
   await ref.set(
     {
-      ...clean,
-      updatedAt: new Date().toISOString(),
+      ...stripUndefined(clean),
+      lastUpdatedAt: new Date().toISOString(),
     },
     { merge: true }
   );
 
   const updatedSnap = await ref.get();
-  const updated = { id: updatedSnap.id, ...(updatedSnap.data() as any) } as Customer;
+  const updated = { id: updatedSnap.id, customerId: updatedSnap.id, ...(updatedSnap.data() as any) } as Customer;
 
   // ✅ optional cache revalidate
   revalidatePath(`/dashboard/customers`);
@@ -247,7 +391,25 @@ export async function updateCustomerAction(
   return JSON.parse(JSON.stringify(updated));
 }
 
-type AddDealInput = Omit<Deal, 'id' | 'createdAt' | 'dealId'> & { customerId: string };
+type AddDealInput = {
+  customerId: string;
+  title?: string;
+  description?: string;
+  dealType?: string;
+  dealSource?: string;
+  expectedValue?: number;
+  assignedSalesPerson?: { id?: string; name?: string };
+  handleByCmr?: { id?: string; name?: string };
+  status?: string;
+  lostReason?: string;
+  createdBy?: string;
+
+  // legacy support
+  dealName?: string;
+  dealAmount?: number;
+  representativeId?: string;
+  advanceForMeasurement?: 'Yes' | 'No' | 'Old';
+};
 
 export async function addDealAction(data: AddDealInput): Promise<{ success: boolean; message: string; deal?: Deal }> {
   try {
@@ -261,47 +423,95 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
     let isUnique = false;
     do {
       dealId = Math.floor(1000 + Math.random() * 9000).toString();
-      const existingDealQuery = dealsRef.where('dealId', '==', dealId);
-      const snapshot = await existingDealQuery.get();
-      if (snapshot.empty) {
+      const existingDoc = await dealsRef.doc(dealId).get();
+      if (!existingDoc.exists) {
         isUnique = true;
       }
     } while (!isUnique);
 
-    const newDealRef = dealsRef.doc();
+    const newDealRef = dealsRef.doc(dealId);
 
-    const newDeal: Deal = {
-        ...dealData,
-        id: newDealRef.id,
-        dealId: dealId,
-        createdAt: new Date().toISOString(),
-        isAcknowledged: false, // O2D process starts now
-    };
-    
     // Fetch customer and salesman details for the O2D doc
     const customerDoc = await customerRef.get();
     if (!customerDoc.exists) throw new Error("Customer not found");
     const customerData = customerDoc.data() as Customer;
-    
-    const salesmanDoc = await adminDb.collection('users').doc(dealData.representativeId).get();
-    const salesmanName = salesmanDoc.exists ? salesmanDoc.data()?.name : 'N/A';
+
+    const title = dealData.title || dealData.dealName || "Untitled Deal";
+    const description = dealData.description || "";
+    const expectedValue = typeof dealData.expectedValue === "number"
+      ? dealData.expectedValue
+      : Number(dealData.dealAmount) || 0;
+
+    let assignedSalesPerson = dealData.assignedSalesPerson;
+    let salesmanName = assignedSalesPerson?.name || "N/A";
+    let salesmanId = assignedSalesPerson?.id;
+
+    if (!assignedSalesPerson && dealData.representativeId) {
+      const salesmanDoc = await adminDb.collection('users').doc(dealData.representativeId).get();
+      salesmanName = salesmanDoc.exists ? salesmanDoc.data()?.name : 'N/A';
+      salesmanId = dealData.representativeId;
+      assignedSalesPerson = stripUndefined({ id: salesmanId, name: salesmanName });
+    }
+
+    const now = new Date().toISOString();
+
+    const newDeal: Deal = {
+        id: newDealRef.id,
+        dealId: dealId,
+        dealCode: buildDealCode(dealId),
+        customer: {
+          id: customerId,
+          name: customerData.name,
+          phone: customerData.phone || customerData.mobileNo || "",
+          customerType: customerData.customerType,
+        },
+        title,
+        description,
+        dealType: dealData.dealType || "NEW",
+        dealSource: dealData.dealSource || "REFERENCE",
+        assignedSalesPerson,
+        handleByCmr: dealData.handleByCmr,
+        expectedValue,
+        actualQuotationValue: 0,
+        actualOrderValue: 0,
+        status: dealData.status || "OPEN",
+        lostReason: dealData.lostReason,
+        dates: {
+          createdAt: now,
+        },
+        recent: {
+          visits: [],
+          quotations: [],
+          orders: [],
+        },
+        lastUpdatedAt: now,
+
+        // legacy compatibility
+        dealName: title,
+        dealAmount: expectedValue,
+        representativeId: salesmanId,
+        createdAt: now,
+        customerId: customerId,
+        advanceForMeasurement: dealData.advanceForMeasurement,
+        isAcknowledged: false,
+    };
 
     // Create the O2D document
     const newO2dProcess: Omit<O2DProcess, 'id'> = {
         dealId: dealId,
-        dealName: dealData.dealName,
+        dealName: title,
         customerId: customerId,
         customerName: customerData.name,
         salesPerson: salesmanName,
         milestones: [], // Starts empty
-        createdAt: newDeal.createdAt,
+        createdAt: now,
         isAcknowledged: false,
     };
 
     // Use a batch to write both documents atomically
     const batch = adminDb.batch();
-    batch.set(newDealRef, newDeal);
-    batch.set(o2dRef.doc(newDealRef.id), newO2dProcess);
+    batch.set(newDealRef, stripUndefinedDeep(newDeal));
+    batch.set(o2dRef.doc(dealId), newO2dProcess);
     
     await batch.commit();
 

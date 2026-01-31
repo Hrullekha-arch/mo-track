@@ -175,8 +175,8 @@ const TodayVisits = () => {
                  return {
                      ...visit,
                      customerName: customer?.name || "Unknown",
-                     customerPhone: customer?.mobileNo || "N/A",
-                     dealName: deal?.dealName || "N/A"
+                     customerPhone: customer?.phone || customer?.mobileNo || "N/A",
+                     dealName: deal?.title || deal?.dealName || "N/A"
                  }
             });
 

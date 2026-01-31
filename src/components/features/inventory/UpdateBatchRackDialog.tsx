@@ -7,12 +7,12 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormLabel } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Stock } from "@/lib/types";
 import { searchStockByBcn, updateStockBatchAction } from "@/app/dashboard/inventory/actions";
-import { Loader2, PlusCircle, Trash2 } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -60,7 +60,7 @@ export function UpdateBatchRackDialog({ isOpen, onClose }: UpdateBatchRackDialog
       const results = await searchStockByBcn(query);
       const options = results.map(stock => ({
         value: stock.id,
-        label: `${stock.bcn} - ${stock.itemName}`,
+        label: `${stock.bcn} - ${stock.name || stock.itemName || "Unnamed"}`,
         stockItem: stock
       }));
       setBcnOptions(options as any);
@@ -81,7 +81,7 @@ export function UpdateBatchRackDialog({ isOpen, onClose }: UpdateBatchRackDialog
     append({
       id: stockItem.id,
       bcn: stockItem.bcn || '',
-      itemName: stockItem.itemName,
+      itemName: stockItem.name || stockItem.itemName || "",
       rack: stockItem.rack || "", // Default to existing or empty
     });
   };

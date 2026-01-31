@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useMemo, useCallback, ReactNode, use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Customer, Deal, User, Quotation, DealOrder, DealVisit, DealMeasurement, Cpd, Selection, Order, MeasurementEntry, DealProduct, VasDetail, Receipt } from "@/lib/types";
+import { Customer, Deal, User, Quotation, DealOrder, DealVisit, DealMeasurement, Cpd, Selection, Order, MeasurementEntry, DealProduct, DealProductsDoc, VasDetail, Receipt } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getSalesmen } from "../../actions";
-import { getDealById, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction, updateDealProducts, createSelectionAction, getReceiptsForDeal, getMeasurementById, updateQuotationStatusAction } from "./actions";
+import { getDealById, getDealProducts, getQuotationsForDeal, getOrdersForDeal, getVisitsForDeal, getMeasurementsForDeal, getCpdsForDeal, getSelectionsForDeal, updateSelectionStatusAction, updateDealProducts, createSelectionAction, getReceiptsForDeal, getMeasurementById, updateQuotationStatusAction } from "./actions";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
@@ -39,6 +39,82 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { SelectItem } from "@radix-ui/react-select";
+
+const toText = (value: unknown) => String(value ?? "").trim();
+
+const normalizeType = (value?: string) => {
+  const text = toText(value);
+  return text ? text.toUpperCase() : "";
+};
+
+const inferProductSource = (typeHint?: string) => {
+  const text = toText(typeHint).toLowerCase();
+  if (text.includes("wall")) return "wallpaper";
+  if (text.includes("floor")) return "flooring";
+  if (text.includes("hardware") || text.includes("accessory") || text.includes("channel")) return "Hardware";
+  return "fabric";
+};
+
+const inferProductType = (typeHint?: string, isVas?: boolean) => {
+  if (isVas) return "VAS";
+  const normalized = normalizeType(typeHint);
+  if (normalized.includes("HARDWARE") || normalized.includes("ACCESSORY") || normalized.includes("CHANNEL")) {
+    return "Hardware";
+  }
+  if (!normalized) return "fabric";
+  return normalized.toLowerCase();
+};
+
+const mapDealProductsDocToUi = (doc?: DealProductsDoc | null): DealProduct[] => {
+  if (!doc?.sections) return [];
+  const normalItems = doc.sections.NORMAL?.items || [];
+  const vasItems = doc.sections.VAS?.items || [];
+
+  const mapItem = (item: any, index: number, isVas: boolean) => {
+    const meta = item?.meta && typeof item.meta === "object" ? item.meta : {};
+    const type = normalizeType(item?.type);
+    const productType = inferProductType(type, isVas);
+    const productSource = productType === "Hardware" ? "Hardware" : inferProductSource(type || item?.category || item?.group);
+    const bcn = toText(item?.bcn);
+    const description = toText(item?.description);
+    const category = toText(item?.category);
+    const group = toText(item?.group);
+    const itemName = toText(item?.itemName);
+    const rate = typeof item?.rate === "number" ? item.rate : Number(item?.rate);
+    const qty = item?.qty ?? "";
+    const unit = toText(item?.unit);
+
+    const labelBase = bcn || description || itemName || `item-${index}`;
+
+    return {
+      ...(meta as any),
+      id: `${isVas ? "vas" : "normal"}-${labelBase}-${index}`,
+      collectionBrand: isVas ? (description || category || "VAS") : (bcn || description || itemName || "N/A"),
+      salesDescription: description || category || group,
+      quantity: qty === "" || qty === null || qty === undefined ? "" : String(qty),
+      rate: Number.isFinite(rate) ? rate : undefined,
+      mrp: Number.isFinite(rate) ? String(rate) : undefined,
+      room: toText(item?.roomName),
+      productType,
+      productSource,
+      productCategory: category || group || productType,
+      subCategory: description || category || group,
+      VasType: isVas ? (group || category || "") : undefined,
+      itemName: itemName || undefined,
+      bcn: bcn || undefined,
+      unit: unit || undefined,
+      gstPercent: item?.gst ?? undefined,
+      hsnOrSac: item?.hsn || undefined,
+      category: category || undefined,
+      group: group || undefined,
+    } as DealProduct;
+  };
+
+  return [
+    ...normalItems.map((item, index) => mapItem(item, index, false)),
+    ...vasItems.map((item, index) => mapItem(item, index, true)),
+  ];
+};
 
 function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onCloneQuotation }: { customerId: string, dealId: string, deal: Deal, salesmen: User[], cpds: Cpd[], onCloneQuotation: (quotation: Quotation) => void }) {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
@@ -960,13 +1036,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const defaultTab = searchParams.get('tab') || 'visits';
   const [activeTab, setActiveTab] = useState(defaultTab);
 
-  // ✅ SINGLE SOURCE OF TRUTH for products (UI)
-    const [products, setProducts] = useState<DealProduct[]>([]);
-
-    // whenever deal changes (fresh DB fetch), sync products
-    useEffect(() => {
-      setProducts((deal?.products as DealProduct[]) || []);
-    }, [deal?.products]);
+  // Single source of truth for products in UI
+  const [products, setProducts] = useState<DealProduct[]>([]);
 
     const getProductKey = (p: any) => p.id || p.collectionBrand || p.label || p.bcn ||p.rrpWithGstRs || p.type || `${products.indexOf(p)}`;
 
@@ -995,7 +1066,10 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       setProducts(updatedProducts);
 
       setActivityLoading(true);
-      const result = await updateDealProducts(customerId, dealId, updatedProducts);
+      const result = await updateDealProducts(customerId, dealId, updatedProducts, {
+        id: user?.id,
+        name: user?.name,
+      });
 
       if (result.success) {
         toast({ title: "Activity Updated", description: "Product list has been saved." });
@@ -1007,7 +1081,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       setActivityLoading(false);
     };
 
-    // ✅ Update Activity should save CURRENT UI products, not deal.products
+    // Update Activity should save current UI products to dealProducts doc
     const handleUpdateActivity = async () => {
       if (!deal) return;
       await handleProductsUpdated(products);
@@ -1156,7 +1230,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [customerData, dealData, salesmenData, visitsData, measurementsData, cpdsData, quotationsData, ordersData, selectionsData, receiptsData] = await Promise.all([
+      const [customerData, dealData, salesmenData, visitsData, measurementsData, cpdsData, quotationsData, ordersData, selectionsData, receiptsData, dealProductsData] = await Promise.all([
         getCustomerById(customerId),
         getDealById(customerId, dealId),
         getSalesmen(),
@@ -1166,7 +1240,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
         getQuotationsForDeal(customerId, dealId),
         getOrdersForDeal(customerId, dealId),
         getSelectionsForDeal(customerId, dealId),
-        getReceiptsForDeal(customerId, dealId)
+        getReceiptsForDeal(customerId, dealId),
+        getDealProducts(dealId)
       ]);
 
       if (!customerData) throw new Error("Customer not found");
@@ -1182,6 +1257,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
       setOrders(ordersData);
       setSelections(selectionsData);
       setReceipts(receiptsData);
+      setProducts(mapDealProductsDocToUi(dealProductsData));
     } catch (error) {
       console.error("Failed to fetch CRM activity data:", error);
       toast({
@@ -1210,8 +1286,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
         ? customer.savedAddresses.filter((addr) => addr?.address)
         : [];
       if (list.length > 0) return list;
-      if (customer?.addressPinCode) {
-        return [{ address: customer.addressPinCode, landmark: customer.landmark }];
+      if (customer?.billingAddress?.line1 || customer?.addressPinCode) {
+        return [{ address: customer?.billingAddress?.line1 || customer.addressPinCode, landmark: customer.landmark }];
       }
       return [];
     }, [customer]);
@@ -1246,7 +1322,8 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
     );
   }
 
-  const representative = salesmen.find(s => s.id === deal.representativeId);
+  const representativeId = deal.assignedSalesPerson?.id || deal.representativeId;
+  const representative = salesmen.find(s => s.id === representativeId);
 
   const tabItems = [
     { value: 'visits', label: 'Visits', icon: Calendar },
@@ -1342,7 +1419,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                   <div className="space-y-1">
                     <div className="flex items-center gap-3 flex-wrap">
-                      <h3 className="text-2xl font-bold">{deal.dealName}</h3>
+                      <h3 className="text-2xl font-bold">{deal.title || deal.dealName}</h3>
                       <Badge className="h-6">
                        {deal.status || 'Deal Created'}
                       </Badge>
@@ -1352,7 +1429,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                   <div className="text-left lg:text-right">
                     <div className="text-sm text-muted-foreground mb-1">Deal Amount</div>
                     <div className="text-3xl font-bold text-primary">
-                      ₹{deal.dealAmount.toFixed(2)}
+                      ₹{((typeof deal.expectedValue === "number" ? deal.expectedValue : deal.dealAmount) || 0).toFixed(2)}
                     </div>
                   </div>
                 </div>
@@ -1419,7 +1496,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                       <div className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
                         <span className="flex items-center gap-1">
                           <Phone className="h-3 w-3" />
-                          {customer.mobileNo}
+                          {customer.phone || customer.mobileNo || "—"}
                         </span>
                       </div>
                     </div>
@@ -1453,18 +1530,18 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="text-xs text-muted-foreground mb-1">Deal Name</div>
-                  <div className="font-semibold text-sm">{deal.dealName}</div>
+                  <div className="font-semibold text-sm">{deal.title || deal.dealName}</div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground mb-1">Amount</div>
-                  <div className="font-semibold text-sm">₹{deal.dealAmount.toFixed(2)}</div>
+                  <div className="font-semibold text-sm">₹{((typeof deal.expectedValue === "number" ? deal.expectedValue : deal.dealAmount) || 0).toFixed(2)}</div>
                 </div>
               </div>
               <Separator />
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Customer Address:</span>
-                  <span className="font-medium flex flex-wrap gap-1 w-1/2 break-words">{customer.addressPinCode || '-'}</span>
+                  <span className="font-medium flex flex-wrap gap-1 w-1/2 break-words">{customer.billingAddress?.line1 || customer.addressPinCode || '-'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Representative:</span>
@@ -1476,7 +1553,7 @@ export default function CrmActivityTrackerPage({ params: paramsPromise }: { para
                 </div>
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Mobile:</span>
-                  <span>{customer.mobileNo}</span>
+                  <span>{customer.phone || customer.mobileNo || "—"}</span>
                 </div>
               </div>
             </CardContent>

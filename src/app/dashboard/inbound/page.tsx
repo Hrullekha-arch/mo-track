@@ -7,7 +7,7 @@ import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from '@/components/ui/skeleton';
-import { PurchaseRequestTable } from '@/components/features/purchase/PurchaseRequestTable';
+import { InboundTable } from '@/components/features/purchase/InboundTable';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function InboundPage() {
@@ -65,10 +65,10 @@ export default function InboundPage() {
                     <TabsTrigger value="all">All Inbound</TabsTrigger>
                 </TabsList>
                 <TabsContent value="active" className="mt-4">
-                    <PurchaseRequestTable tableData={activeRequests} view="all" />
+                    <InboundTable tableData={activeRequests} />
                 </TabsContent>
                 <TabsContent value="all" className="mt-4">
-                    <PurchaseRequestTable tableData={purchaseRequests} view="all" />
+                    <InboundTable tableData={purchaseRequests} />
                 </TabsContent>
             </Tabs>
         </div>

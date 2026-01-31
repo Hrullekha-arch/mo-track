@@ -17,6 +17,7 @@ import { toast } from "@/hooks/use-toast";
 import { Label } from "@/components/ui/label";
 import { FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { roomOptions } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 
 
 export function VasForm({ onSaveVas, form }) {
@@ -60,6 +61,11 @@ export function VasForm({ onSaveVas, form }) {
     }
   };
 
+  const detailSteps = new Set(["stitchingitem"]);
+  const stepStage = detailSteps.has(step) ? 3 : step === "stitchingsubitem" ? 2 : 1;
+  const stepLabels = ["Category", "Type", "Details"];
+  const stepTrail = [dialogTitle, selectedItem, vasItem].filter(Boolean);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -79,6 +85,7 @@ export function VasForm({ onSaveVas, form }) {
       subCategory: vasItem,
       rate: rate || "",
       quantity: quantity || "",
+      unit: "PCS",
       image,
       timestamp: Date.now(),
     };
@@ -108,11 +115,54 @@ export function VasForm({ onSaveVas, form }) {
         </div>
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) {
+            setStep("main");
+            setSelectedItem(null);
+            setDialogTitle("");
+            setUploadImageAllowed(false);
+            resetItemFields();
+          }
+        }}
+      >
         <DialogContent className="max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{dialogTitle}</DialogTitle>
           </DialogHeader>
+          {dialogTitle ? (
+            <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Step {stepStage} of 3</span>
+                <span>{dialogTitle}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {stepLabels.map((label, index) => {
+                  const stageIndex = index + 1;
+                  return (
+                    <span
+                      key={label}
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-xs font-medium",
+                        stepStage >= stageIndex
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {stageIndex}. {label}
+                    </span>
+                  );
+                })}
+              </div>
+              {stepTrail.length > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Path: {stepTrail.join(" / ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {step === "stitching" && (
             <div className="grid gap-3 py-4">
@@ -229,4 +279,3 @@ export function VasForm({ onSaveVas, form }) {
     </>
   );
 }
-

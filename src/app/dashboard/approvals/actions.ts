@@ -38,12 +38,22 @@ export async function approveOrderAndCreatePurchaseRequest(
             approvedAt: new Date().toISOString(),
         });
 
+        const derivedFabricDetails =
+            (orderData.fabricDetails && orderData.fabricDetails.length > 0)
+                ? orderData.fabricDetails
+                : (orderData.sections?.NORMAL?.items || []).map(item => ({
+                    fabricName: item.bcn || item.description || "N/A",
+                    quantity: String(item.qty ?? 0),
+                    rate: Number(item.exclusiveRate ?? item.rate) || 0,
+                    discountPercent: 0,
+                }));
+
         // 2️⃣ Create items in 'approvedStock' collection
         const approvedStockRef = adminDb.collection('approvedStock');
         const createdAt = new Date().toISOString();
 
-        if (orderData.fabricDetails && orderData.fabricDetails.length > 0) {
-            for (const item of orderData.fabricDetails) {
+        if (derivedFabricDetails.length > 0) {
+            for (const item of derivedFabricDetails) {
                 const newDocRef = approvedStockRef.doc(); // Auto-generate ID
                 const stockItem = {
                     orderId: orderId,

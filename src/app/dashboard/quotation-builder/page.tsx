@@ -32,7 +32,7 @@ export default function QuotationBuilderPage() {
     
     const [searchFilters, setSearchFilters] = useState({
         customerName: "",
-        mobileNo: "",
+        phone: "",
     });
 
     const handleSearch = async () => {
@@ -64,7 +64,7 @@ export default function QuotationBuilderPage() {
         setLoading(true);
         try {
             const dealData = {
-                customerId: customer.id,
+                customerId: customer.customerId || customer.id,
                 dealName: "Instant Quotation",
                 dealAmount: 1,
                 representativeId: user.id,
@@ -77,7 +77,7 @@ export default function QuotationBuilderPage() {
             if (result.success && result.deal) {
                 toast({ title: "Deal Created", description: "Redirecting to quotation builder..." });
                 // Redirect to the new, dedicated quotation page
-                router.push(`/dashboard/customers/${customer.id}/${result.deal.id}/quotation`);
+                router.push(`/dashboard/customers/${customer.customerId || customer.id}/${result.deal.id}/quotation`);
             } else {
                 throw new Error(result.message || "Failed to create a new deal.");
             }
@@ -110,8 +110,8 @@ export default function QuotationBuilderPage() {
                                 <Input id="customerName" value={searchFilters.customerName} onChange={e => setSearchFilters(f => ({...f, customerName: e.target.value}))}/>
                             </div>
                              <div className="flex-grow space-y-2">
-                                <Label htmlFor="mobileNo">Mobile No</Label>
-                                <Input id="mobileNo" value={searchFilters.mobileNo} onChange={e => setSearchFilters(f => ({...f, mobileNo: e.target.value}))}/>
+                                <Label htmlFor="phone">Phone</Label>
+                                <Input id="phone" value={searchFilters.phone} onChange={e => setSearchFilters(f => ({...f, phone: e.target.value}))}/>
                             </div>
                              <div className="flex items-end gap-2">
                                 <Button onClick={handleSearch} disabled={loading} className="w-full md:w-auto">

@@ -216,7 +216,7 @@ export async function getPurchaseViewDetails(purchaseRequestId: string) {
     // 6️⃣ FETCH DEAL REPRESENTATIVE (SALESMAN)
     // ===============================
     let representative = null;
-    const representativeId = dealData?.representativeId || dealData?.salesmanId;
+    const representativeId = dealData?.assignedSalesPerson?.id || dealData?.representativeId || dealData?.salesmanId;
     
     if (representativeId) {
       try {
@@ -287,12 +287,12 @@ export async function getPurchaseViewDetails(purchaseRequestId: string) {
       customer = { 
         id: customerSnap.value.id,
         name: custData?.name || "N/A",
-        phone: custData?.mobileNo || custData?.phone || "N/A",
+        phone: custData?.phone || custData?.mobileNo || "N/A",
         email: custData?.email || null,
         city: custData?.city || "N/A",
         state: custData?.state || null,
-        address: custData?.address || custData?.addressPinCode || "N/A",
-        pincode: custData?.pinCode || custData?.addressPinCode || null,
+        address: custData?.billingAddress?.line1 || custData?.address || custData?.addressPinCode || "N/A",
+        pincode: custData?.billingAddress?.pincode || custData?.pinCode || custData?.addressPinCode || null,
         ...custData
       };
       console.log("✅ Customer loaded:", customer.name);

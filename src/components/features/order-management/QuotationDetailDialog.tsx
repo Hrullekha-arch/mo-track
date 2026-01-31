@@ -66,7 +66,7 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
     }
   };
   
-  const representativeName = salesmen.find(s => s.id === deal?.representativeId)?.name || "N/A";
+  const representativeName = salesmen.find(s => s.id === (deal?.assignedSalesPerson?.id || deal?.representativeId))?.name || deal?.assignedSalesPerson?.name || "N/A";
   const creatorName = salesmen.find(u => u.id === quotation.createdBy)?.name || "N/A";
 
   

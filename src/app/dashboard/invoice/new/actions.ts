@@ -3,9 +3,8 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType, CuttingTask, InvoiceBatch, InvoiceBatchItem } from '@/lib/types';
-import { getMilestonesForOrder } from '@/lib/constants';
-import { FieldValue } from 'firebase-admin/firestore';
+import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType, CuttingTask } from '@/lib/types';
+import { getMilestonesForOrder, MILESTONES_CONFIG, ORDER_TYPE_MILESTONES } from '@/lib/constants';
 
 export async function getQuotationsForDeal(customerId: string, dealId: string): Promise<Quotation[]> {
     try {
@@ -29,6 +28,90 @@ export async function getQuotationsForDeal(customerId: string, dealId: string): 
         return [];
     }
 }
+
+const ORDER_MILESTONE_KEY_MAP: Record<number, string> = {
+  1: "ORDER_RECEIVED",
+  2: "FABRIC_ALLOCATED",
+  3: "SENT_TO_STITCHING",
+  4: "STITCHING_DONE",
+  5: "READY_FOR_DELIVERY",
+  6: "INSTALLATION_SCHEDULED",
+  7: "OUT_FOR_DELIVERY_INSTALLATION",
+  8: "INSTALLATION_DONE",
+};
+
+const coerceNumber = (value: unknown, fallback = 0) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const stripUndefinedDeep = (value: any): any => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (Array.isArray(value)) {
+    const cleaned = value
+      .map((entry) => stripUndefinedDeep(entry))
+      .filter((entry) => entry !== undefined);
+    return cleaned;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value)
+      .map(([key, entry]) => [key, stripUndefinedDeep(entry)])
+      .filter(([, entry]) => entry !== undefined);
+    return Object.fromEntries(entries);
+  }
+  return value;
+};
+
+const toIsoString = (value?: string | Date | null) => {
+  if (!value) return undefined;
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+};
+
+const resolveOrderItemType = (item: any) => {
+  const raw = String(item?.type || item?.productType || item?.bcnType || "").trim().toUpperCase();
+  if (raw.includes("HARDWARE")) return "HARDWARE";
+  if (raw.includes("CHANNEL")) return "CHANNEL";
+  if (raw.includes("ACCESSORY")) return "ACCESSORY";
+  if (raw.includes("VAS")) return "VAS";
+  return "FABRIC";
+};
+
+const resolveOrderItemUnit = (itemType: string, item: any) => {
+  const unit = String(item?.unit || "").trim().toUpperCase();
+  if (unit) return unit;
+  if (itemType === "FABRIC") return "MTR";
+  return "PCS";
+};
+
+const buildWorkflowMilestones = (
+  orderType: OrderType,
+  actor: { id?: string; name?: string }
+) => {
+  const ids = ORDER_TYPE_MILESTONES[orderType] || ORDER_TYPE_MILESTONES.delivery;
+  const now = new Date().toISOString();
+  return ids.map((id, index) => ({
+    key: ORDER_MILESTONE_KEY_MAP[id] || `MILESTONE_${id}`,
+    label: MILESTONES_CONFIG[id]?.name || `Step ${id}`,
+    status: index === 0 ? "DONE" : "PENDING",
+    at: index === 0 ? now : undefined,
+    by: index === 0 ? { id: actor.id, name: actor.name } : undefined,
+  }));
+};
+
+const summarizeOrderItems = (items: Array<{ taxableAmount?: number; gstAmount?: number; totalAmount?: number }>) => {
+  return items.reduce(
+    (acc, item) => {
+      acc.subTotal += coerceNumber(item.taxableAmount);
+      acc.gstTotal += coerceNumber(item.gstAmount);
+      acc.grandTotal += coerceNumber(item.totalAmount);
+      return acc;
+    },
+    { subTotal: 0, gstTotal: 0, grandTotal: 0 }
+  );
+};
 
 
 export async function createDealOrderAction(
@@ -66,8 +149,9 @@ export async function createDealOrderAction(
     const dealData = dealSnap.data() as Deal;
 
     let salesmanName = 'N/A';
-    if (dealData.representativeId) {
-        const salesmanRef = adminDb.collection('users').doc(dealData.representativeId);
+    const representativeId = dealData.assignedSalesPerson?.id || dealData.representativeId;
+    if (representativeId) {
+        const salesmanRef = adminDb.collection('users').doc(representativeId);
         const salesmanSnap = await salesmanRef.get();
         if (salesmanSnap.exists) {
             salesmanName = salesmanSnap.data()?.name || 'N/A';
@@ -75,88 +159,206 @@ export async function createDealOrderAction(
     }
 
     const batch = adminDb.batch();
-    
+
     const dealOrdersRef = dealRef.collection('orders');
     const newDealOrderRef = dealOrdersRef.doc();
 
     const orderId = `MOTRACK-${quotation.quotationNo}`;
     const newOrderRef = adminDb.collection('orders').doc(orderId);
 
-    const isVasOnly = (!quotation.items || quotation.items.length === 0) && (quotation.vasDetails && quotation.vasDetails.length > 0);
+    const now = new Date().toISOString();
 
-    const allFabricDetails: FabricDetail[] = (quotation.items || []).map(item => ({
-      fabricName: item.collectionBrand,
-      quantity: String(item.quantity),
-      status: 'pending for po', 
-      rate: item.rate || 0,
-      discountPercent: item.discountPercent || 0,
-    }));
-    
-    const initialMilestones = getMilestonesForOrder(orderType);
-    const firstMilestone = initialMilestones.find(m => m.id === 1);
-    if (firstMilestone) {
-        firstMilestone.completed = true;
-        firstMilestone.completedAt = new Date().toISOString();
-        firstMilestone.completedBy = creator.name;
-    }
+    const rawNormalItems = Array.isArray((quotation as any).sections?.NORMAL?.items)
+      ? (quotation as any).sections.NORMAL.items
+      : (quotation.items || []);
+    const rawVasItems = Array.isArray((quotation as any).sections?.VAS?.items)
+      ? (quotation as any).sections.VAS.items
+      : (quotation.vasDetails || []);
 
-    const newOrder: Order = {
-      id: orderId,
-      crmOrderNo: quotation.quotationNo,
-      customerName: quotation.customerName,
-      customerPhone: customerData.mobileNo || '',
-      customerAddress: customerData.addressPinCode || `${customerData.city}, ${customerData.state}`,
-      salesPerson: salesmanName,
-      orderType: orderType,
-      milestones: initialMilestones,
-      createdAt: new Date().toISOString(),
-      isAcknowledged: true,
-      status: isVasOnly ? 'Approved' : 'Pending Approval',
-      customerId: customerId,
-      dealId: dealData.dealId,
-      dealOrderDocId: newDealOrderRef.id,
-      storeName: quotation.store,
-      fabricDetails: allFabricDetails,
-      totalAmount: quotation.totalAmount,
-      vasDetails: quotation.vasDetails || [],
-      createdBy: {
-        id: creator.id,
-        name: creator.name
-      },
-      representativeId: dealData.representativeId,
+    const normalItems = rawNormalItems.map((item: any) => {
+      const itemType = resolveOrderItemType(item);
+      const qty = coerceNumber(item.qty ?? item.quantity);
+      const exclusiveRate = coerceNumber(item.exclusiveRate ?? item.rate);
+      const gst = coerceNumber(item.gst ?? item.gstPercent);
+      const taxableAmount = coerceNumber(item.taxableAmount ?? item.taxableAmt, exclusiveRate * qty);
+      const gstAmount = coerceNumber(item.gstAmount, taxableAmount * (gst / 100));
+      const totalAmount = coerceNumber(item.totalAmount, taxableAmount + gstAmount);
+
+      return {
+        roomName: item.roomName ?? item.room ?? undefined,
+        type: itemType,
+        category: item.category || item.subCategory || undefined,
+        itemId: item.itemId || undefined,
+        bcn: item.bcn ?? item.collectionBrand ?? undefined,
+        description: item.description || item.salesDescription || item.collectionBrand || undefined,
+        unit: resolveOrderItemUnit(itemType, item),
+        rate: exclusiveRate,
+        exclusiveRate,
+        qty,
+        gst,
+        hsn: (item.hsn ?? item.hsnCode) || undefined,
+        group: item.group || undefined,
+        taxableAmount,
+        gstAmount,
+        totalAmount,
+        allocation: {
+          status: "PENDING",
+          lengths: [],
+          lots: [],
+        },
+      };
+    });
+
+    const vasItems = rawVasItems.map((vas: any) => {
+      const qty = coerceNumber(vas.qty ?? vas.quantity);
+      const rate = coerceNumber(vas.rate);
+      const gst = coerceNumber(vas.gst ?? vas.gstPercent);
+      const taxableAmount = coerceNumber(vas.taxableAmount ?? vas.taxableAmt, qty * rate);
+      const gstAmount = coerceNumber(vas.gstAmount, taxableAmount * (gst / 100));
+      const totalAmount = coerceNumber(vas.totalAmount, taxableAmount + gstAmount);
+
+      return {
+        roomName: vas.roomName ?? vas.room ?? undefined,
+        type: "VAS",
+        description: vas.description ?? vas.vasName ?? undefined,
+        unit: resolveOrderItemUnit("VAS", vas),
+        rate,
+        qty,
+        gst,
+        hsn: (vas.hsn ?? vas.hsnCode) || undefined,
+        group: vas.group || undefined,
+        taxableAmount,
+        gstAmount,
+        totalAmount,
+      };
+    });
+
+    const normalSummary = summarizeOrderItems(normalItems);
+    const vasSummary = summarizeOrderItems(vasItems);
+
+    const sections = {
+      NORMAL: { items: normalItems, summary: normalSummary },
+      VAS: { items: vasItems, summary: vasSummary },
     };
 
-    batch.set(newOrderRef, newOrder);
-    
-    // If it's a VAS-only order, create the invoice batch immediately.
-    if (isVasOnly) {
-        const vasInvoiceItems: InvoiceBatchItem[] = (quotation.vasDetails || []).map(vas => ({
-            itemName: vas.vasName,
-            bcn: `VAS-${vas.vasName}`,
-            quantityAllocated: Number(vas.quantity) || 0,
-            rate: Number(vas.rate) || 0,
-            discountPercent: 0,
+    const overallSummary = {
+      goodsTotal: normalSummary.grandTotal,
+      vasTotal: vasSummary.grandTotal,
+      grandTotal: normalSummary.grandTotal + vasSummary.grandTotal,
+    };
+
+    const workflowMilestones = buildWorkflowMilestones(orderType, creator);
+
+    const isVasOnly = normalItems.length === 0 && vasItems.length > 0;
+
+    const legacyVasDetails = (quotation.vasDetails && quotation.vasDetails.length > 0)
+      ? quotation.vasDetails
+      : rawVasItems.map((vas: any) => ({
+          vasName: vas.vasName ?? vas.description ?? "VAS",
+          rate: String(vas.rate ?? 0),
+          quantity: String(vas.qty ?? vas.quantity ?? 0),
+          room: vas.roomName ?? vas.room ?? undefined,
+          gstPercent: coerceNumber(vas.gst ?? vas.gstPercent),
+          hsnCode: vas.hsn ?? vas.hsnCode,
         }));
-        
-        const vasBatchRef = adminDb.collection("invoiceBatches").doc();
-        const newVasInvoiceBatch: Omit<InvoiceBatch, 'id'> = {
-            orderId: newOrder.id,
-            customerName: newOrder.customerName,
-            customerPhone: newOrder.customerPhone,
-            customerAddress: newOrder.customerAddress,
-            salesPerson: newOrder.salesPerson,
-            createdAt: new Date().toISOString(),
-            status: 'pendingInvoice',
-            items: vasInvoiceItems,
-            isVas: true,
-        };
-        batch.set(vasBatchRef, newVasInvoiceBatch);
-    }
+
+    const billingAddress = customerData.billingAddress || {
+      line1: customerData.addressPinCode || undefined,
+      city: customerData.city || undefined,
+      state: customerData.state || undefined,
+      pincode: customerData.pinCode || customerData.addressPinCode || undefined,
+    };
+
+    const newOrder: Order = stripUndefinedDeep({
+      id: orderId,
+      orderId,
+      orderNo: orderId,
+      quotationId: quotation.id,
+      quotationNo: quotation.quotationNo,
+      customerId: customerId,
+      dealId: dealData.dealId || dealId,
+      customerSnapshot: {
+        name: customerData.name || quotation.customerName,
+        phone: customerData.phone || customerData.mobileNo || '',
+        gstin: customerData.gstin,
+        billingAddress,
+        shippingAddress: customerData.shippingAddress,
+      },
+      dealSnapshot: {
+        dealCode: dealData.dealCode,
+        title: dealData.title || dealData.dealName,
+      },
+      quotationSnapshotMeta: {
+        createdAt: toIsoString(quotation.createdAt),
+        validTill: toIsoString(quotation.validTillDate),
+        statusAtConversion: quotation.status,
+      },
+      sections,
+      overallSummary,
+      workflow: {
+        status: "CREATED",
+        milestones: workflowMilestones,
+      },
+      invoicing: {
+        status: "NOT_INVOICED",
+        invoices: [],
+        canCreateGoodsInvoice: normalItems.length > 0,
+        canCreateVasInvoice: vasItems.length > 0,
+      },
+      updates: [
+        {
+          updatedAt: now,
+          updatedBy: { id: creator.id, name: creator.name },
+          action: "ORDER_CREATED",
+          message: `Order created from quotation ${quotation.quotationNo}.`,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+      createdBy: {
+        id: creator.id,
+        name: creator.name,
+      },
+
+      // Legacy fields (kept to avoid breaking existing dashboards)
+      crmOrderNo: quotation.quotationNo,
+      customerName: quotation.customerName,
+      customerPhone: customerData.phone || customerData.mobileNo || '',
+      customerAddress: customerData.billingAddress?.line1 || customerData.addressPinCode || `${customerData.city || ""}${customerData.state ? `, ${customerData.state}` : ""}`,
+      salesPerson: salesmanName,
+      orderType: orderType,
+      milestones: (() => {
+        const legacy = getMilestonesForOrder(orderType);
+        const firstMilestone = legacy.find(m => m.id === 1);
+        if (firstMilestone) {
+          firstMilestone.completed = true;
+          firstMilestone.completedAt = now;
+          firstMilestone.completedBy = creator.name;
+        }
+        return legacy;
+      })(),
+      isAcknowledged: true,
+      status: isVasOnly ? 'Approved' : 'Pending Approval',
+      dealOrderDocId: newDealOrderRef.id,
+      storeName: quotation.store,
+      fabricDetails: rawNormalItems.map((item: any) => ({
+        fabricName: item.bcn ?? item.collectionBrand ?? item.description ?? "N/A",
+        quantity: String(item.qty ?? item.quantity ?? 0),
+        status: 'pending for po',
+        rate: coerceNumber(item.exclusiveRate ?? item.rate),
+        discountPercent: coerceNumber(item.discountPercent),
+      })),
+      totalAmount: overallSummary.grandTotal || quotation.totalAmount,
+      vasDetails: legacyVasDetails,
+      representativeId: representativeId,
+    }) as Order;
+
+    batch.set(newOrderRef, newOrder);
     
     const newDealOrder: DealOrder = {
       orderNo: newOrder.id,
       id: newDealOrderRef.id,
-      orderDate: new Date().toISOString(),
+      orderDate: now,
       createdBy: creator.name,
       remark: quotation.billingName || '',
       items: quotation.items,
@@ -174,7 +376,7 @@ export async function createDealOrderAction(
 
     return {
       success: true,
-      message: isVasOnly ? 'VAS Order created and sent directly for invoicing.' : 'Order created and sent for approval.',
+      message: isVasOnly ? 'VAS Order created. Generate invoice from the invoice screen when ready.' : 'Order created and sent for approval.',
       order: JSON.parse(JSON.stringify(newOrder)),
     };
   } catch (error: any) {

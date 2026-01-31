@@ -37,7 +37,7 @@ export function PrintableSelection({ selection, deal, products }: PrintableSelec
                 <p className="text-sm text-gray-500">
                     Created by {selection.createdBy} on {format(new Date(selection.createdAt), "PPP")}
                 </p>
-                {deal && <p className="text-sm text-gray-500">Deal: {deal.dealName}</p>}
+                {deal && <p className="text-sm text-gray-500">Deal: {deal.title || deal.dealName}</p>}
             </header>
 
             <div className="space-y-4">

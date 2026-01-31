@@ -2,9 +2,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, where, orderBy, getDocs, doc, collectionGroup, limit } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, getDocs, collectionGroup, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Order, Quotation, Invoice, User, InvoiceBatch } from "@/lib/types";
+import { Order, Quotation, Invoice, User } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { PrintableQuotationProfessional } from "@/components/features/order-management/PrintableQuotationProfessional";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
 import { PrintableOrder } from "../order-management/PrintableOrder";
+import { buildPrintablePayloadFromInvoice } from "@/lib/invoice-utils";
 
 interface SummaryCardProps {
     title: string;
@@ -79,7 +80,6 @@ export function AccountsDashboard() {
             quotations: query(collectionGroup(db, 'quotations')),
             orders: query(collection(db, 'orders')),
             invoices: query(collection(db, 'invoices'), orderBy('createdAt', 'desc'), limit(10)),
-            invoiceBatches: query(collection(db, 'invoiceBatches'), where('status', '==', 'pendingInvoice')),
         };
         
         const processData = () => {
@@ -87,8 +87,7 @@ export function AccountsDashboard() {
                 getDocs(queries.quotations),
                 getDocs(queries.orders),
                 getDocs(queries.invoices),
-                getDocs(queries.invoiceBatches),
-            ]).then(([quotationsSnapshot, ordersSnapshot, invoicesSnapshot, invoiceBatchesSnapshot]) => {
+            ]).then(([quotationsSnapshot, ordersSnapshot, invoicesSnapshot]) => {
                 const quotationsData = quotationsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Quotation & {id: string}));
                 const ordersData = ordersSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
                 const invoicesData = invoicesSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Invoice));
@@ -97,7 +96,7 @@ export function AccountsDashboard() {
                     pendingQuotations: quotationsData.filter(q => q.status === 'Pending Approval').length,
                     pendingOrders: ordersData.filter(o => o.status === 'Pending Approval').length,
                     pendingPayments: ordersData.filter(o => o.balanceFollowUp && !o.paymentConfirmed).length,
-                    pendingInvoice: invoiceBatchesSnapshot.size,
+                    pendingInvoice: ordersData.filter(o => o.invoicing?.status && o.invoicing.status !== 'INVOICED').length,
                 });
                 
                 const approvedQuotes: RecentActivityItem[] = quotationsData
@@ -115,8 +114,14 @@ export function AccountsDashboard() {
                     }));
 
                 const recentInvoices: RecentActivityItem[] = invoicesData.map(inv => ({
-                    id: inv.id, type: 'Invoice', identifier: inv.invoiceNo, customerName: inv.customer.name,
-                    amount: inv.totals.grandTotal, activityDate: inv.createdAt, data: inv, dealId: (inv as any).dealId
+                    id: inv.id,
+                    type: 'Invoice',
+                    identifier: inv.invoiceNo,
+                    customerName: inv.customerSnapshot?.name || inv.customer?.name || '-',
+                    amount: inv.totals?.grandTotal ?? inv.overallSummary?.grandTotal ?? 0,
+                    activityDate: inv.createdAt,
+                    data: inv,
+                    dealId: (inv as any).dealId
                 }));
 
                 setRecentActivity(
@@ -160,21 +165,6 @@ export function AccountsDashboard() {
         }
     };
 
-    const getPrintableInvoiceBatch = (invoice: Invoice): InvoiceBatch => {
-        return {
-            id: invoice.id,
-            orderId: invoice.orderId,
-            customerName: invoice.customer.name,
-            customerPhone: invoice.customer.phone,
-            createdAt: invoice.createdAt,
-            status: 'invoiced', // Assuming it's invoiced for preview
-            items: invoice.items,
-            tallyVoucherNo: invoice.tallyVoucherNo,
-            invoiceId: invoice.id,
-            isVas: invoice.isVas
-        };
-    }
-    
     const renderActivityTitle = (item: RecentActivityItem) => {
         let title = `${item.type} #${item.identifier}`;
         if (item.type === 'Order' && item.dealId) {
@@ -255,9 +245,7 @@ export function AccountsDashboard() {
                         />
                     ) : selectedItem?.type === 'Invoice' ? (
                         <PrintableInvoice
-                            batches={[getPrintableInvoiceBatch(selectedItem.data as Invoice)]}
-                            orders={[selectedItem.data as Order]}
-                            preGeneratedInvoiceNo={(selectedItem.data as Invoice).invoiceNo}
+                            payload={buildPrintablePayloadFromInvoice(selectedItem.data as Invoice)}
                         />
                     ) : selectedItem?.type === 'Order' ? (
                          <PrintableOrder order={selectedItem.data as Order} />

@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { AssignInstallerDialog, SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX, Loader2 } from "lucide-react";
+import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX, Loader2, CloudDownloadIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -37,13 +37,20 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { unassignVisitAction, updateVisitDetailsAction } from "./actions";
+import { deleteVisitAction, unassignVisitAction, updateVisitDetailsAction } from "./actions";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
+import { useRouter } from "next/navigation";
+import { getDealById, getMeasurementById } from "../customers/[customerId]/[dealId]/actions";
+import { getCustomerById } from "../customers/actions";
+import { Separator } from "@/components/ui/separator";
 
 
     interface EnrichedDealVisit extends DealVisit {
@@ -87,22 +94,44 @@ import { Textarea } from "@/components/ui/textarea";
     };
 
 
+
+
 const renderVisitStatus = (visit: EnrichedDealVisit) => {
-    if (visit.status === 'completed') {
-        return <Badge className="mt-1 bg-green-500">Completed</Badge>;
-    }
-    if (visit.visitStatus === 'Working') {
-        return <Badge className="mt-1 bg-blue-500 animate-pulse">Working</Badge>;
-    }
-    if (visit.status === 'approved') {
-        return <Badge className="mt-1" variant="secondary">Approved</Badge>;
-    }
-    if (visit.status === 'CWC') {
-        return <Badge className="mt-1 bg-amber-700 text-gray-800" variant="secondary">Customer will Call</Badge>;
-    }
-    return <Badge className="mt-1" variant="outline">{visit.status || 'Pending'}</Badge>;
-    
+  if (visit.status === "completed") {
+    return <Badge className="mt-1 bg-green-500">Completed</Badge>;
+  }
+
+  if (visit.visitStatus === "Working") {
+    return (
+      <Badge className="mt-1 bg-blue-500 animate-pulse">
+        Working
+      </Badge>
+    );
+  }
+
+  if (visit.status === "approved") {
+    return (
+      <Badge className="mt-1" variant="secondary">
+        Approved
+      </Badge>
+    );
+  }
+
+  if (visit.status === "CWC") {
+    return (
+      <Badge className="mt-1 bg-amber-700 text-gray-800">
+        Customer will Call
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge className="mt-1" variant="outline">
+      {visit.status || "Pending"}
+    </Badge>
+  );
 };
+
 
 const renderLiveStatus = (status?: string) => {
     const normalized = (status || "IDLE").toUpperCase();
@@ -324,6 +353,9 @@ const InstallerCard = ({
           });
         });
       };    
+
+
+      
 
 
 
@@ -603,7 +635,7 @@ const InstallerCard = ({
 }
 
 
-function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDetails, onTransfer, onUnassign, onEdit }: { 
+function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDetails, onTransfer, onUnassign, onEdit, onDelete, installers }: { 
     visits: EnrichedDealVisit[], 
     assigneeNameById: Record<string, string>, 
     onAssign: (visit: EnrichedDealVisit) => void, 
@@ -611,13 +643,33 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
     onViewDetails: (visit: EnrichedDealVisit) => void, 
     onTransfer: (v: EnrichedDealVisit) => void,
     onUnassign: (v: EnrichedDealVisit) => void,
-    onEdit: (v: EnrichedDealVisit) => void
+    onEdit: (v: EnrichedDealVisit) => void,
+    onDelete: (v: EnrichedDealVisit) => void,
+    installers: User[]
+
 }) {
     const [dateFrom, setDateFrom] = React.useState<string>("");
     const [dateTo, setDateTo] = React.useState<string>("");
     const [typeFilter, setTypeFilter] = React.useState<string>("all");
     const [statusFilter, setStatusFilter] = React.useState<string>("all");
     const [query, setQuery] = React.useState<string>("");
+    const [installerFilter, setInstallerFilter] = React.useState<string>("all");
+    const [previewPdf, setPreviewPdf] = React.useState<{
+    url: string;
+    fileName: string;
+    dealId?: string;
+    } | null>(null);
+
+
+
+// build installer options from assigneeNameById (or from your installers list)
+    const installerOptions = React.useMemo(() => {
+    return (installers || [])
+        .map((u) => ({ id: u.id, name: u.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }, [installers]);
+
+
 
     const typeOptions = React.useMemo(() => {
         const set = new Set<string>();
@@ -636,45 +688,112 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
     }, [visits]);
 
     const filteredVisits = React.useMemo(() => {
-        const queryText = query.trim().toLowerCase();
-        const fromDate = dateFrom ? new Date(dateFrom) : null;
-        const toDate = dateTo ? new Date(dateTo) : null;
-        if (toDate) {
-            toDate.setHours(23, 59, 59, 999);
-        }
+  const queryText = query.trim().toLowerCase();
 
-        return visits.filter(visit => {
-            if (fromDate || toDate) {
-                if (!visit.dueDate) return false;
-                const due = new Date(visit.dueDate);
-                if (Number.isNaN(due.getTime())) return false;
-                if (fromDate && due < fromDate) return false;
-                if (toDate && due > toDate) return false;
-            }
+  // ✅ Default: today range if user didn't select any dates
+  const hasDateFilter = Boolean(dateFrom) || Boolean(dateTo);
 
-            if (typeFilter !== "all" && visit.typeOfVisit !== typeFilter) return false;
-            if (statusFilter !== "all" && (visit.status || "requested") !== statusFilter) return false;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
 
-            if (queryText) {
-                const haystack = [
-                    visit.customerName,
-                    visit.customerAddress,
-                    visit.dealId,
-                    visit.dealName,
-                    visit.typeOfVisit,
-                    visit.createdBy,
-                ]
-                    .filter(Boolean)
-                    .join(" ")
-                    .toLowerCase();
-                if (!haystack.includes(queryText)) return false;
-            }
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
 
-            return true;
-        });
-    }, [visits, dateFrom, dateTo, typeFilter, statusFilter, query]);
+  const fromDate = dateFrom
+    ? new Date(dateFrom)
+    : hasDateFilter
+      ? null
+      : startOfToday;
+
+  const toDate = dateTo
+    ? new Date(dateTo)
+    : hasDateFilter
+      ? null
+      : endOfToday;
+
+  if (toDate) toDate.setHours(23, 59, 59, 999);
+
+  return visits.filter((visit) => {
+    // ✅ Date filter applies either user-selected OR default today
+    if (fromDate || toDate) {
+      if (!visit.dueDate) return false;
+      const due = new Date(visit.dueDate);
+      if (Number.isNaN(due.getTime())) return false;
+
+      if (fromDate && due < fromDate) return false;
+      if (toDate && due > toDate) return false;
+    }
+
+    if (typeFilter !== "all" && visit.typeOfVisit !== typeFilter) return false;
+    if (statusFilter !== "all" && (visit.status || "requested") !== statusFilter) return false;
+    if (installerFilter !== "all") {
+    if (installerFilter === "unassigned") {
+        if (visit.assignedTo) return false;
+    } else {
+        if (visit.assignedTo !== installerFilter) return false;
+    }
+    }
+
+
+
+    if (queryText) {
+      const haystack = [
+        visit.customerName,
+        visit.customerAddress,
+        visit.dealId,
+        visit.dealName,
+        visit.typeOfVisit,
+        visit.createdBy,
+        visit.assignedTo ? assigneeNameById[visit.assignedTo] : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      if (!haystack.includes(queryText)) return false;
+    }
+
+    return true;
+  });
+}, [visits, dateFrom, dateTo, typeFilter, statusFilter, installerFilter, query]);
+
+    async function downloadPdf(url: string, fileName: string) {
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to download file");
+
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(blobUrl);
+    return;
+  } catch (err) {
+    const directUrl = url.includes("alt=media") ? url : `${url}${url.includes("?") ? "&" : "?"}alt=media`;
+    const a = document.createElement("a");
+    a.href = directUrl;
+    a.download = fileName;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+}
+
+const previewUrl =
+  previewPdf?.url
+    ? `${previewPdf.url}#toolbar=0&navpanes=0&scrollbar=0`
+    : "";
 
     return (
+        <>
         <Card>
             <CardHeader>
                 <CardTitle>All Visits List</CardTitle>
@@ -721,6 +840,19 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                             </option>
                         ))}
                     </select>
+                    <select
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                        value={installerFilter}
+                        onChange={(e) => setInstallerFilter(e.target.value)}
+                    >
+                        <option value="all">All Installers</option>
+                        <option value="unassigned">Unassigned</option>
+                        {installerOptions.map((p) => (
+                        <option key={p.id} value={p.id}>
+                            {p.name}
+                        </option>
+                        ))}
+                    </select>
                 </div>
                 <Table>
                     <TableHeader>
@@ -740,12 +872,17 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                             <TableRow key={visit.id} className={cn(visit.visitStatus === 'Working' && 'ring-2 ring-blue-500 ring-offset-2')}>
                                 <TableCell className="font-medium">{visit.customerName}</TableCell>
                                 <TableCell className="max-w-[220px] whitespace-normal break-words">
-                                {visit.customer?.addressPinCode || "—"}
+                                {visit.customerSnapshot?.address || "—"}
                                 </TableCell>
                                 <TableCell>
+                                    <div className="flex flex-col gap-1 items-center">
                                     <Link href={`/dashboard/customers/${visit.customerId}/${visit.dealDocId}`} className="text-primary hover:underline">
                                         {visit.dealId}
                                     </Link>
+                                    <Badge variant="outline" className="ml-2">
+                                        {visit.assignedSalesPerson?.name || "-"}
+                                    </Badge>
+                                    </div>
                                 </TableCell>
                                 <TableCell className="flex flex-col gap-2">
                                     <Badge variant="outline" className="capitalize">{visit.typeOfVisit}</Badge>
@@ -759,7 +896,34 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                                 <TableCell>
                                     {visit.assignedTo ? (assigneeNameById[visit.assignedTo] || 'Unknown') : 'Unassigned'}
                                 </TableCell>
-                                <TableCell>{renderVisitStatus(visit)}</TableCell>
+                                <TableCell className="flex flex-col items-center gap-2">
+                                    {renderVisitStatus(visit)}
+
+                                    {visit.status === "completed" &&
+                                      visit.typeOfVisit === "measurement" &&
+                                        visit.measurementPdfUrl && (
+                                            <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setPreviewPdf({
+                                                url: visit.measurementPdfUrl,
+                                                fileName: `${visit.dealId || "deal"}-measurement.pdf`,
+                                                dealId: visit.dealId,
+                                                });
+                                            }}
+                                            className="flex flex-col items-center gap-1"
+                                            >
+                                            <CloudDownloadIcon className="w-5 h-5 text-green-500" />
+                                            <Badge className="bg-green-500/10 text-green-500 border-green-500/20">
+                                                Measurement
+                                            </Badge>
+                                            </button>
+                                        )}
+
+                                    </TableCell>
+
+
                                 <TableCell className="text-right">
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
@@ -781,6 +945,29 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                                                 <Edit className="mr-2 h-4 w-4" />
                                                 Edit Visit
                                             </DropdownMenuItem>
+                                            <DropdownMenuSeparator />
+                                            <AlertDialog>
+                                                <AlertDialogTrigger asChild>
+                                                    <DropdownMenuItem className="text-destructive focus:text-destructive">
+                                                        <Trash2 className="mr-2 h-4 w-4" />
+                                                        Delete Visit
+                                                    </DropdownMenuItem>
+                                                </AlertDialogTrigger>
+                                                <AlertDialogContent>
+                                                    <AlertDialogHeader>
+                                                        <AlertDialogTitle>Delete this visit permanently?</AlertDialogTitle>
+                                                        <AlertDialogDescription>
+                                                            This will remove the visit from the database and cannot be undone.
+                                                        </AlertDialogDescription>
+                                                    </AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                        <AlertDialogAction onClick={() => onDelete(visit)}>
+                                                            Delete
+                                                        </AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                </AlertDialogContent>
+                                            </AlertDialog>
                                             {visit.assignedTo && (
                                                 <>
                                                     <DropdownMenuSeparator />
@@ -799,6 +986,54 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
                 </Table>
             </CardContent>
         </Card>
+        {/* //============================measurement Dialog Header */}
+        <Dialog open={!!previewPdf} onOpenChange={() => setPreviewPdf(null)}>
+            <DialogContent className="max-w-6xl h-[95vh]">
+                <DialogHeader>
+                <DialogTitle>Measurement PDF</DialogTitle>
+                <DialogDescription>
+                    Preview & download
+                </DialogDescription>
+                </DialogHeader>
+                {previewPdf && (
+                <div className="">
+                    {/* ✅ Preview (inline open is OK here) */}
+                    <div className="flex-1 overflow-auto rounded-md border bg-muted/10 p-3">
+                      {previewUrl ? (
+                        <iframe
+                          title="Measurement PDF Preview"
+                          src={previewUrl}
+                          className="h-[75vh] w-full rounded-md"
+                        />
+                      ) : (
+                        <p className="text-center text-sm text-muted-foreground">PDF not available.</p>
+                      )}
+                    </div>
+                    {/* ✅ Actions */}
+                    <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setPreviewPdf(null)}>
+                        Close
+                    </Button>
+
+                    <Button
+                        onClick={async () => {
+                        try {
+                            await downloadPdf(previewPdf.url, previewPdf.fileName);
+                        } catch (err: any) {
+                            console.error(err);
+                            // optional toast here
+                        }
+                        }}
+                    >
+                        <CloudDownloadIcon className="mr-2 h-4 w-4" />
+                        Download ({previewPdf.fileName})
+                    </Button>
+                    </div>
+                </div>
+                )}
+            </DialogContent>
+            </Dialog>
+        </>
     );
 }
 
@@ -1302,6 +1537,20 @@ export default function AllVisitsPage() {
         setEditingVisit(visit);
     };
 
+    const handleDelete = async (visit: EnrichedDealVisit) => {
+        if (!visit) return;
+        try {
+            const result = await deleteVisitAction(visit.id, visit.customerId, visit.dealDocId);
+            if (result.success) {
+                toast({ title: "Visit Deleted", description: result.message });
+            } else {
+                toast({ variant: "destructive", title: "Error", description: result.message });
+            }
+        } catch (e: any) {
+            toast({ variant: "destructive", title: "Server Error", description: e.message });
+        }
+    };
+
 if (loading) {
         return <div className="p-8"><Skeleton className="h-64 w-full" /></div>;
     }
@@ -1412,6 +1661,7 @@ if (loading) {
                     <div>
                         <AllVisitsTable
                             visits={allVisits}
+                            installers={installers}
                             assigneeNameById={assigneeNameById}
                             onAssign={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
                             onShare={handleShareClick}
@@ -1419,28 +1669,43 @@ if (loading) {
                             onTransfer={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
                             onUnassign={handleUnassign}
                             onEdit={handleEdit}
+                            onDelete={handleDelete}
                         />
                     </div>
                 </TabsContent>
             </Tabs>
             
             <Dialog open={!!detailsVisit} onOpenChange={() => setDetailsVisit(null)} >
-                <DialogContent>
+                <DialogContent className="max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>Visit Details</DialogTitle>
                     </DialogHeader>
                     
                     {detailsVisit && (
-                        <div className="py-4 space-y-4">
-                            <p><strong>Customer Name:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.customer?.name}</Badge></p>
-                            <p><strong>Customer Mobile No:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.customer?.mobileNo}</Badge></p>
-                            <p><strong>Customer Address:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.customer?.addressPinCode}</Badge></p>
-                            <p><strong>Type:</strong> <Badge variant="outline" className="capitalize">{detailsVisit.typeOfVisit}</Badge></p>
-                            {detailsVisit.typeOfVisit === 'measurement' ? (
+                        <>
+                        <Card className="p-4">
+                            <div className="m-1 flex justify-between items-center">
+                            <Badge variant={"secondary"} className="bg-blue-300">{detailsVisit.typeOfVisit}</Badge>
+                            <span>{renderVisitStatus(detailsVisit)}</span>
+                            </div>
+                            <div className="m-1 flex justify-between items-center">
+                                <p >Customer Name: <span className="font-semibold">{detailsVisit.customer?.name}</span></p>
+                                <p >Assigned To: <span className="font-semibold">{detailsVisit.assignedTo ? (assigneeNameById[detailsVisit.assignedTo] || 'Unknown') : 'Unassigned'}</span></p>
+                            </div>
+                            <div className="m-1 flex justify-between items-center">
+                                <p >Customer Phone: <span className="font-semibold">{detailsVisit.customer?.phone}</span></p>
+                            </div>
+                            <div className="m-1 flex justify-between items-center">
+                                <p >Customer Address: <span className="font-semibold">{detailsVisit.location?.address}</span></p>
+                            </div>
+                            <Separator className="my-2" />
+                            <span>Visit Details</span>
+                            <div>
+                                {detailsVisit.typeOfVisit === 'measurement' ? (
                                 <div className="space-y-2">
                                     <h4 className="font-semibold">Measurement Details:</h4>
-                                    <p>Measurements: {detailsVisit.measurements?.join(', ') || 'N/A'}</p>
-                                    {detailsVisit.blinds && <p>Blinds: {detailsVisit.blinds.join(', ')}</p>}
+                                    <p>{detailsVisit.measurements?.map(m => `‣ ${m?.name || m}`).join(', ') || 'N/A'}</p>
+                                    {detailsVisit.blinds && detailsVisit.blinds.length > 0 && <p>Blinds: {detailsVisit.blinds.join(', ')}</p>}
                                 </div>
                             ) : (
                                  <div className="space-y-2">
@@ -1448,16 +1713,11 @@ if (loading) {
                                      <p>Items: {detailsVisit.deliveryInstallations?.map(d => `${d?.id} (x${d?.noOfPcs || 1})`).join(', ') || 'N/A'}</p>
                                 </div>
                             )}
-                            <p><strong>Scheduled Date:</strong> {detailsVisit.dueDate ? format(new Date(detailsVisit.dueDate), 'PPP') : 'Not Set'}</p>
-                            <p><strong>Scheduled Slot:</strong> {detailsVisit.slotLabel || 'N/A'}</p>
-                            <p><strong>Assigned To:</strong> {detailsVisit.assignedTo ? (assigneeNameById[detailsVisit.assignedTo] || 'Unknown') : 'Unassigned'}</p>
-                            <p><strong>Status:</strong> {renderVisitStatus(detailsVisit)}</p>
-                            <p><strong>Created By:</strong> {detailsVisit.createdBy}</p>
-                            <p><strong>Created At:</strong> {detailsVisit.createdAt ? format(new Date(detailsVisit.createdAt), 'PPP p') : 'N/A'}</p>
-                            {detailsVisit.visitStartTime && <p><strong>Visit Start Time:</strong> {format(new Date(detailsVisit.visitStartTime), 'PPP p')}</p>}
-                            {detailsVisit.visitEndTime && <p><strong>Visit End Time:</strong> {format(new Date(detailsVisit.visitEndTime), 'PPP p')}</p>}
+                            </div>
+                            <Separator className="my-2" />
                             {detailsVisit.remark && <p><strong>Remark:</strong> {detailsVisit.remark}</p>}
-                        </div>
+                        </Card>
+                        </>
                     )}
                 </DialogContent>
             </Dialog>
@@ -1499,6 +1759,8 @@ if (loading) {
                 </DialogContent>
             </Dialog>
 
+
+
             <EditVisitDialog 
                 visit={editingVisit} 
                 isOpen={!!editingVisit} 
@@ -1509,3 +1771,4 @@ if (loading) {
         </div>
     );
 }
+

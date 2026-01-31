@@ -60,7 +60,7 @@ export async function getStockById(id: string): Promise<Stock | null> {
 }
 
 export async function getStockFieldOptions(
-  field: "supplierCompanyName" | "type" | "unit",
+  field: "supplierCompanyName" | "type" | "unit" | "category" | "categoryGroup",
   query: string = ""
 ): Promise<string[]> {
   try {
@@ -88,11 +88,18 @@ export async function getStockFieldOptions(
 
 export async function createStockItemAction(payload: {
   bcn: string;
-  itemName: string;
+  itemName?: string;
+  name?: string;
   closingstock?: number;
+  totalQty?: number;
+  availableQty?: number;
+  reservedQty?: number;
+  damagedQty?: number;
+  cutQty?: number;
   maxlevel?: number;
   category?: string;
   categoryGroup?: string;
+  isService?: boolean;
   unit?: string;
   type?: string;
   width?: number;
@@ -109,12 +116,14 @@ export async function createStockItemAction(payload: {
   costPriceRs?: number;
   costMultiplierRs?: number;
   rrpWithGstRs?: number;
+  hsnOrSac?: string;
+  gstPercent?: number;
   rack?: string;
   productId?: string;
 }): Promise<{ success: boolean; message: string; stock?: Stock }> {
   try {
     const rawBcn = String(payload?.bcn ?? "").trim();
-    const itemName = String(payload?.itemName ?? "").trim();
+    const itemName = String(payload?.name ?? payload?.itemName ?? "").trim();
 
     if (!rawBcn) {
       return { success: false, message: "BCN is required." };
@@ -176,6 +185,7 @@ export async function createStockItemAction(payload: {
     const costPriceRs = toNumber(payload.costPriceRs);
     const costMultiplierRs = toNumber(payload.costMultiplierRs);
     const rrpWithGstRs = toNumber(payload.rrpWithGstRs);
+    const gstPercent = toNumber(payload.gstPercent);
 
     if (closingstock < 0) {
       return { success: false, message: "Opening stock cannot be negative." };
@@ -199,25 +209,48 @@ export async function createStockItemAction(payload: {
     const now = new Date().toISOString();
     const bcnDigits = extractBcnDigits(rawBcn);
 
+    const resolvedUnit = (cleanString(payload.unit) || "MTR").toUpperCase();
+    const resolvedCategory = (cleanString(payload.category) || "FABRIC").toUpperCase();
+    const isService = payload.isService ?? resolvedCategory === "VAS";
+    const totalQty = toNumber(payload.totalQty) ?? closingstock;
+    const availableQty = toNumber(payload.availableQty) ?? closingstock;
+    const reservedQty = toNumber(payload.reservedQty) ?? 0;
+    const damagedQty = toNumber(payload.damagedQty) ?? 0;
+    const cutQty = toNumber(payload.cutQty) ?? 0;
+
     const stockDoc: Record<string, any> = {
+      itemId: docId,
+      productId: cleanString(payload.productId),
       bcn: rawBcn,
       bcnDigits,
+      name: itemName,
       itemName,
-      unit: cleanString(payload.unit) || "Mtr",
-      type: (cleanString(payload.type) || "fabric").toLowerCase(),
-      closingstock,
-      quantity: closingstock,
-      availableQty: closingstock,
-      reservedQty: 0,
-      cutQty: 0,
+      category: resolvedCategory,
+      categoryGroup: cleanString(payload.categoryGroup),
+      isService,
+      unit: resolvedUnit,
+      type: cleanString(payload.type) || "fabric",
+      totalQty,
+      availableQty,
+      reservedQty,
+      damagedQty,
+      cutQty,
+      closingstock: totalQty,
+      quantity: totalQty,
       supplierCompanyName,
       supplierCollectionName,
       supplierCollectionCode,
       costPriceRs,
       costMultiplierRs,
       rrpWithGstRs,
+      hsnOrSac: cleanString(payload.hsnOrSac),
+      hsnCode: cleanString(payload.hsnOrSac),
+      gstPercent,
+      isActive: true,
       lastUpdatedAt: now,
       updatedAt: now,
+      createdAt: now,
+      nextLengthNo: totalQty > 0 ? 2 : 1,
     };
 
     const assignIfDefined = (key: string, value: any) => {
@@ -227,7 +260,7 @@ export async function createStockItemAction(payload: {
     };
 
     assignIfDefined("maxlevel", maxlevel);
-    assignIfDefined("category", cleanString(payload.category));
+    assignIfDefined("category", resolvedCategory);
     assignIfDefined("categoryGroup", cleanString(payload.categoryGroup));
     assignIfDefined("width", width);
     assignIfDefined("moCollection", cleanString(payload.moCollection));
@@ -243,10 +276,15 @@ export async function createStockItemAction(payload: {
     assignIfDefined("costPriceRs", costPriceRs);
     assignIfDefined("costMultiplierRs", costMultiplierRs);
     assignIfDefined("rrpWithGstRs", rrpWithGstRs);
+    assignIfDefined("hsnOrSac", cleanString(payload.hsnOrSac));
+    assignIfDefined("hsnCode", cleanString(payload.hsnOrSac));
+    assignIfDefined("gstPercent", gstPercent);
     assignIfDefined("rack", cleanString(payload.rack));
     assignIfDefined("productId", cleanString(payload.productId));
 
-    const lengthRef = closingstock > 0 ? stockRef.collection("lengths").doc() : null;
+    const lengthNo = totalQty > 0 ? 1 : null;
+    const lengthId = lengthNo ? `${docId}_${lengthNo}` : null;
+    const lengthRef = lengthId ? stockRef.collection("lengths").doc(lengthId) : null;
 
     await adminDb.runTransaction(async (tx) => {
       const snap = await tx.get(stockRef);
@@ -256,15 +294,31 @@ export async function createStockItemAction(payload: {
 
       tx.set(stockRef, stockDoc, { merge: true });
 
-      if (lengthRef) {
+      if (lengthRef && lengthNo) {
         const lengthDoc = {
-          ...stockDoc,
           id: lengthRef.id,
-          quantity: closingstock,
-          availableQty: closingstock,
-          reservedQty: 0,
-          cutQty: 0,
+          lengthId: lengthRef.id,
+          lengthNo,
+          batchNo: "",
+          warehouseId: "",
+          originalLength: totalQty,
+          availableLength: availableQty,
+          unit: resolvedUnit,
+          rack: cleanString(payload.rack),
+          status: "AVAILABLE",
+          reservation: null,
+          cutHistory: [],
+          receivedAt: now,
           lastUpdatedAt: now,
+          // legacy mirrors for compatibility
+          bcn: rawBcn,
+          bcnDigits,
+          itemName,
+          quantity: totalQty,
+          availableQty,
+          reservedQty,
+          cutQty,
+          poNumber: "",
         };
         tx.set(lengthRef, lengthDoc);
       }
@@ -381,6 +435,8 @@ export async function importStockData(
         if (!bcn) return null;
 
         const closingStock = n(row, COL.closingStock, 0);
+        const resolvedCategory = (s(row, COL.category) || "FABRIC").toUpperCase();
+        const resolvedUnit = (s(row, COL.unit) || "MTR").toUpperCase();
 
         const stockItem = {
           // keep sheet id if present (stable), else will be auto id later
@@ -388,12 +444,13 @@ export async function importStockData(
           productId: s(row, COL.id),
 
           bcn,
+          name: s(row, COL.itemName),
           itemName: s(row, COL.itemName),
 
           categoryGroup: s(row, COL.categoryGroup),
-          category: s(row, COL.category),
+          category: resolvedCategory,
 
-          unit: s(row, COL.unit) || "Mtr",
+          unit: resolvedUnit,
           type: (s(row, COL.type) || "fabric").toLowerCase(),
 
           width: n(row, COL.width, 0),
@@ -403,10 +460,11 @@ export async function importStockData(
 
           maxlevel: n(row, COL.maxlevel, 0),
 
-          quantity: closingStock,
+          totalQty: closingStock,
           availableQty: closingStock,
           reservedQty: 0,
           cutQty: 0,
+          damagedQty: 0,
 
           supplierCompanyName: s(row, COL.supplierCompanyName),
           supplierCollectionName: s(row, COL.supplierCollectionName),
@@ -438,55 +496,117 @@ export async function importStockData(
     let batch = adminDb.batch();
     let batchRowCount = 0;
     let totalImported = 0;
+    const masterTotals = new Map<string, { totalQty: number; availableQty: number; reservedQty: number; cutQty: number; damagedQty: number }>();
+    const lengthCountByBcn = new Map<string, number>();
+    const writtenMasters = new Set<string>();
+    const lengthNoByBcn = new Map<string, number>();
+
+    allItems.forEach((item) => {
+      const current = masterTotals.get(item.bcn) || {
+        totalQty: 0,
+        availableQty: 0,
+        reservedQty: 0,
+        cutQty: 0,
+        damagedQty: 0,
+      };
+      masterTotals.set(item.bcn, {
+        totalQty: current.totalQty + (Number(item.totalQty) || 0),
+        availableQty: current.availableQty + (Number(item.availableQty) || 0),
+        reservedQty: current.reservedQty + (Number(item.reservedQty) || 0),
+        cutQty: current.cutQty + (Number(item.cutQty) || 0),
+        damagedQty: current.damagedQty + (Number(item.damagedQty) || 0),
+      });
+      lengthCountByBcn.set(item.bcn, (lengthCountByBcn.get(item.bcn) || 0) + 1);
+    });
 
     for (const item of allItems) {
     const bcnDocRef = adminDb.collection("stocks").doc(item.bcn);
     const bcnDigits = extractBcnDigits(item.bcn);
+    const totals = masterTotals.get(item.bcn) || {
+      totalQty: Number(item.totalQty) || 0,
+      availableQty: Number(item.availableQty) || 0,
+      reservedQty: Number(item.reservedQty) || 0,
+      cutQty: Number(item.cutQty) || 0,
+      damagedQty: Number(item.damagedQty) || 0,
+    };
 
     // Parent doc
-    batch.set(
-        bcnDocRef,
-        {
-        bcn: item.bcn,
-        bcnDigits,
-        closingstock: item.quantity,
-        itemName: item.itemName,
-        categoryGroup: item.categoryGroup,
-        category: item.category,
-        unit: item.unit,
-        type: item.type,
-        width: item.width,
-        moCollection: item.moCollection,
-        moCollectionCode: item.moCollectionCode,
-        supplierCompanyName: item.supplierCompanyName,
-        supplierCollectionName: item.supplierCollectionName,
-        supplierCollectionCode: item.supplierCollectionCode,
-        composition: item.composition,
-        martindale: item.martindale,
-        weightGsm: item.weightGsm,
-        horizontalRepeatCms: item.horizontalRepeatCms,
-        verticalRepeatCms: item.verticalRepeatCms,
-        productId: item.productId,
-        costPriceRs: item.costPriceRs,
-        costMultiplierRs: item.costMultiplierRs,
-        rrpWithGstRs: item.rrpWithGstRs,
-        maxlevel: item.maxlevel,
-        updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-    );
+    if (!writtenMasters.has(item.bcn)) {
+      const now = new Date().toISOString();
+      batch.set(
+          bcnDocRef,
+          {
+          itemId: item.bcn,
+          productId: item.productId || undefined,
+          bcn: item.bcn,
+          bcnDigits,
+          name: item.name || item.itemName,
+          itemName: item.itemName,
+          categoryGroup: item.categoryGroup,
+          category: item.category,
+          isService: item.category === "VAS",
+          unit: item.unit,
+          type: item.type,
+          width: item.width,
+          moCollection: item.moCollection,
+          moCollectionCode: item.moCollectionCode,
+          supplierCompanyName: item.supplierCompanyName,
+          supplierCollectionName: item.supplierCollectionName,
+          supplierCollectionCode: item.supplierCollectionCode,
+          composition: item.composition,
+          martindale: item.martindale,
+          weightGsm: item.weightGsm,
+          horizontalRepeatCms: item.horizontalRepeatCms,
+          verticalRepeatCms: item.verticalRepeatCms,
+          costPriceRs: item.costPriceRs,
+          costMultiplierRs: item.costMultiplierRs,
+          rrpWithGstRs: item.rrpWithGstRs,
+          maxlevel: item.maxlevel,
+          totalQty: totals.totalQty,
+          availableQty: totals.availableQty,
+          reservedQty: totals.reservedQty,
+          damagedQty: totals.damagedQty,
+          cutQty: totals.cutQty,
+          closingstock: totals.totalQty,
+          quantity: totals.totalQty,
+          isActive: true,
+          createdAt: now,
+          updatedAt: now,
+          lastUpdatedAt: now,
+          nextLengthNo: totals.totalQty > 0 ? (lengthCountByBcn.get(item.bcn) || 0) + 1 : 1,
+          },
+          { merge: true }
+      );
+      writtenMasters.add(item.bcn);
+    }
 
     // Length sub-doc
     const lengthsCol = bcnDocRef.collection("lengths");
-    const lengthDocRef = item._sheetId
-        ? lengthsCol.doc(item._sheetId)
-        : lengthsCol.doc();
+    const currentLengthNo = (lengthNoByBcn.get(item.bcn) || 0) + 1;
+    lengthNoByBcn.set(item.bcn, currentLengthNo);
+    const lengthId = `${item.bcn}_${currentLengthNo}`;
+    const lengthDocRef = lengthsCol.doc(lengthId);
 
     const { _sheetId, ...payload } = item;
 
     batch.set(lengthDocRef, {
-        ...payload,
         id: lengthDocRef.id,
+        lengthId: lengthDocRef.id,
+        lengthNo: currentLengthNo,
+        batchNo: "",
+        warehouseId: "",
+        originalLength: payload.totalQty,
+        availableLength: payload.availableQty,
+        unit: payload.unit,
+        rack: "",
+        status: "AVAILABLE",
+        reservation: null,
+        cutHistory: [],
+        receivedAt: new Date().toISOString(),
+        lastUpdatedAt: new Date().toISOString(),
+        // legacy mirrors
+        ...payload,
+        quantity: payload.totalQty,
     });
 
     batchRowCount++;
@@ -560,11 +680,13 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
             scanSnap.docs.forEach(doc => {
                 const data = doc.data();
                 const bcnValue = String(data.bcn || doc.id || "");
+                const nameValue = String(data.name || data.itemName || "");
                 const bcnNormalized = normalizeBcn(bcnValue);
                 const bcnDigits = extractBcnDigits(bcnValue);
                 const matchesNormalized = normalizedQuery && bcnNormalized.includes(normalizedQuery);
                 const matchesDigits = digitQuery && bcnDigits.includes(digitQuery);
-                if (matchesNormalized || matchesDigits) {
+                const matchesName = normalizedQuery && normalizeBcn(nameValue).includes(normalizedQuery);
+                if (matchesNormalized || matchesDigits || matchesName) {
                     resultsMap.set(doc.id, { id: doc.id, ...data } as Stock);
                 }
             });
@@ -659,55 +781,77 @@ export async function updateStockQuantityAction(
     const bcnDigits = extractBcnDigits(transaction.bcn || stockId);
     
     try {
-      // Let Firestore generate a unique ID for each new length document
-      const newLengthRef = stockRef.collection('lengths').doc();
-
       await adminDb.runTransaction(async (tx) => {
           const stockDoc = await tx.get(stockRef); // READ FIRST
           const stockData = stockDoc.exists ? (stockDoc.data() as Stock) : null;
-          const resolvedUnit = (transaction.unit || stockData?.unit || "Mtr").trim() || "Mtr";
+          const resolvedUnit = (transaction.unit || stockData?.unit || "MTR").trim().toUpperCase() || "MTR";
+          const nextLengthNo = Number(stockData?.nextLengthNo ?? 1);
+          const lengthNo = Number.isFinite(nextLengthNo) && nextLengthNo > 0 ? nextLengthNo : 1;
+          const lengthId = `${stockId}_${lengthNo}`;
+          const newLengthRef = stockRef.collection('lengths').doc(lengthId);
           
           const newLengthData: Partial<Stock> & { bcnDigits?: string } = {
-              bcn: transaction.bcn,
+              id: newLengthRef.id,
+              lengthId: newLengthRef.id,
+              lengthNo,
+              batchNo: transaction.batchNo || transaction.poNumber || "",
+              warehouseId: transaction.warehouseId || "",
+              originalLength: transaction.quantityChange,
+              availableLength: transaction.quantityChange,
+              unit: resolvedUnit,
+              rack: transaction.rack || stockData?.rack || "",
+              status: "AVAILABLE",
+              reservation: null,
+              cutHistory: [],
+              receivedAt: transaction.createdAt,
+              lastUpdatedAt: transaction.createdAt,
+              bcn: transaction.bcn || stockId,
               bcnDigits,
-              itemName: transaction.bcn,
+              itemName: stockData?.itemName || transaction.bcn || stockId,
               quantity: transaction.quantityChange,
               availableQty: transaction.quantityChange,
               reservedQty: 0,
               cutQty: 0,
-              unit: resolvedUnit,
-              lastUpdatedAt: transaction.createdAt,
               poNumber: transaction.poNumber,
               salesman: transaction.salesman,
           };
 
           tx.set(
             newLengthRef,
-            stripUndefined({ ...newLengthData, id: newLengthRef.id })
+            stripUndefined({ ...newLengthData })
           ); // WRITE
 
           if (!stockDoc.exists) {
               tx.set(stockRef, { // WRITE
+                  itemId: stockId,
                   bcn: stockId,
                   bcnDigits,
-                  itemName: transaction.bcn,
-                  quantity: transaction.quantityChange,
+                  name: transaction.bcn || stockId,
+                  itemName: transaction.bcn || stockId,
+                  unit: resolvedUnit,
+                  totalQty: transaction.quantityChange,
                   availableQty: transaction.quantityChange,
                   reservedQty: 0,
+                  damagedQty: 0,
                   cutQty: 0,
-                  tax: 0,
-                  rack: "",
-                  vendorName: "",
-                  hsnCode: "",
-                  category: "",
-                  serialNo: "",
-                  mrp: 0
+                  closingstock: transaction.quantityChange,
+                  quantity: transaction.quantityChange,
+                  isActive: true,
+                  updatedAt: transaction.createdAt,
+                  lastUpdatedAt: transaction.createdAt,
+                  createdAt: transaction.createdAt,
+                  nextLengthNo: lengthNo + 1,
               }, { merge: true });
           } else {
               tx.update(stockRef, { // WRITE
                   bcnDigits,
-                  quantity: FieldValue.increment(transaction.quantityChange),
+                  totalQty: FieldValue.increment(transaction.quantityChange),
                   availableQty: FieldValue.increment(transaction.quantityChange),
+                  quantity: FieldValue.increment(transaction.quantityChange),
+                  closingstock: FieldValue.increment(transaction.quantityChange),
+                  nextLengthNo: lengthNo + 1,
+                  updatedAt: transaction.createdAt,
+                  lastUpdatedAt: transaction.createdAt,
               });
           }
       });
@@ -751,7 +895,7 @@ export async function revertStockAdditionAction(
     const lengthDoc = lengthsQuery.docs[0];
     const lengthData = lengthDoc.data() as Stock;
     const lengthId = lengthDoc.id;
-    const quantityToRevert = lengthData.quantity;
+    const quantityToRevert = Number(lengthData.originalLength ?? lengthData.quantity ?? 0);
 
     await adminDb.runTransaction(async (transaction) => {
         // 1. Delete the length document
@@ -759,8 +903,12 @@ export async function revertStockAdditionAction(
 
         // 2. Decrement the main stock document quantities
         transaction.update(stockRef, {
+            totalQty: FieldValue.increment(-quantityToRevert),
+            availableQty: FieldValue.increment(-quantityToRevert),
             quantity: FieldValue.increment(-quantityToRevert),
-            availableQty: FieldValue.increment(-quantityToRevert)
+            closingstock: FieldValue.increment(-quantityToRevert),
+            updatedAt: new Date().toISOString(),
+            lastUpdatedAt: new Date().toISOString(),
         });
         
         // (Optional) Log the reversion
@@ -838,8 +986,8 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
                 id: doc.id,
                 bcn: bcn,
                 type: 'addition',
-                quantityChange: Number(data.quantity) || 0,
-                createdAt: data.lastUpdatedAt || new Date().toISOString(),
+                quantityChange: Number(data.originalLength ?? data.quantity) || 0,
+                createdAt: data.receivedAt || data.lastUpdatedAt || new Date().toISOString(),
                 salesman: data.salesman || 'N/A',
                 createdBy: "Inbound Process", // Or fetch from the original PR
                 cutHistory: cutHistory,
@@ -866,8 +1014,9 @@ export async function getAvailableStockLengths(bcn: string): Promise<{ success: 
         const availableLengths: { length: number; transactionId: string; }[] = [];
         lengthsSnapshot.docs.forEach(doc => {
             const data = doc.data();
-            if (data.availableQty > 0) {
-                 availableLengths.push({ length: data.availableQty, transactionId: doc.id });
+            const available = Number(data.availableLength ?? data.availableQty ?? 0);
+            if (available > 0) {
+                 availableLengths.push({ length: available, transactionId: doc.id });
             }
         });
 
@@ -951,7 +1100,13 @@ export async function updateStockBatchAction(
     for (const item of itemsToUpdate) {
         const docRef = adminDb.collection('stocks').doc(item.id);
         const { id, ...updateData } = item;
-        batch.update(docRef, updateData);
+        const cleaned = Object.fromEntries(
+            Object.entries(updateData).filter(([, value]) => value !== undefined)
+        );
+        if (Object.keys(cleaned).length === 0) {
+            continue;
+        }
+        batch.update(docRef, cleaned);
         opCount++;
 
         if (opCount >= 499) {
@@ -984,7 +1139,11 @@ export async function getStockDetails(bcn: string) {
         // Correctly get available lengths from the lengths subcollection
         const lengthsSnapshot = await stockRef.collection('lengths').get();
         const availableLengths = lengthsSnapshot.docs
-            .map(doc => ({ length: doc.data().availableQty, transactionId: doc.id }))
+            .map(doc => {
+                const data = doc.data() || {};
+                const available = Number(data.availableLength ?? data.availableQty ?? 0);
+                return { length: available, transactionId: doc.id };
+            })
             .filter(l => l.length > 0)
             .sort((a,b) => a.length - b.length);
         

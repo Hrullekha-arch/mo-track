@@ -91,14 +91,14 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
         }
     }, [isOpen, stock.id, toast, form]);
 
-    const handleCheckboxChange = (checked: boolean, lengthId: string, availableQty: number) => {
+    const handleCheckboxChange = (checked: boolean, lengthId: string, availableLength: number) => {
         const existingIndex = fields.findIndex(f => f.lengthId === lengthId);
 
         if (checked) {
             if (existingIndex === -1) {
                 const currentTotal = form.getValues('allocations').reduce((sum, alloc) => sum + (Number(alloc.quantity) || 0), 0);
                 const remainingNeeded = requiredQty - currentTotal;
-                const quantityToAllocate = Math.max(0, Math.min(availableQty, remainingNeeded));
+                const quantityToAllocate = Math.max(0, Math.min(availableLength, remainingNeeded));
                 
                 append({ lengthId, quantity: quantityToAllocate });
             }
@@ -120,12 +120,14 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
         setIsSubmitting(true);
         try {
             const itemRate = Number((item as any).rate);
-            const allocationRate = Number.isFinite(itemRate) ? itemRate : (stock.mrp || 0);
+            const allocationRate = Number.isFinite(itemRate)
+                ? itemRate
+                : (stock.rrpWithGstRs ?? stock.mrp ?? 0);
             const result = await allocateStockToAction({
                 orderId,
                 bcn: stock.bcn,
                 allocations: data.allocations,
-                itemName: stock.itemName,
+                itemName: stock.name || stock.itemName || stock.bcn,
                 rate: allocationRate,
                 userId: user.id,
                 userName: user.name,
@@ -284,7 +286,39 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 invoicePromise
             ]);
 
-            setStockInfo(stock);
+            const sumAvailableFromLengths = lengthsSnapshot.docs.reduce((sum, docSnap) => {
+                const data = docSnap.data() as any;
+                const available = Number(data?.availableLength ?? data?.availableQty ?? 0);
+                return sum + (Number.isFinite(available) ? available : 0);
+            }, 0);
+            const sumReservedFromLengths = lengthsSnapshot.docs.reduce((sum, docSnap) => {
+                const data = docSnap.data() as any;
+                const reserved = Number(data?.reservedQty);
+                if (Number.isFinite(reserved)) {
+                    return sum + reserved;
+                }
+                const original = Number(data?.originalLength ?? data?.quantity ?? 0);
+                const available = Number(data?.availableLength ?? data?.availableQty ?? 0);
+                const derived = original - available;
+                return sum + (derived > 0 ? derived : 0);
+            }, 0);
+
+            const stockAvailable = Number(stock?.availableQty);
+            const stockReserved = Number(stock?.reservedQty);
+
+            const resolvedStock = stock
+                ? {
+                    ...stock,
+                    availableQty: Number.isFinite(stockAvailable) && stockAvailable >= 0
+                        ? stockAvailable
+                        : sumAvailableFromLengths,
+                    reservedQty: Number.isFinite(stockReserved) && stockReserved >= 0
+                        ? stockReserved
+                        : sumReservedFromLengths,
+                }
+                : stock;
+
+            setStockInfo(resolvedStock);
             
             let totalReservedForOrder = 0;
             for (const lengthDoc of lengthsSnapshot.docs) {
@@ -303,11 +337,15 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 return invoice.items.some(invItem => invItem.bcn === bcn);
             });
 
+            const availableQty = Number.isFinite(Number(resolvedStock?.availableQty))
+                ? Number(resolvedStock?.availableQty)
+                : 0;
+
             if (matchedInvoice) {
                  setStatus({ text: `Invoice Generated: ${matchedInvoice.data().tallyVoucherNo || ''}`, variant: 'default', tallyBillNo: matchedInvoice.data().tallyVoucherNo });
             } else if (totalReservedForOrder >= requiredQty) {
                 setStatus({ text: 'Pending for Invoice', variant: 'outline' });
-            } else if ((stock?.availableQty || 0) >= (requiredQty - totalReservedForOrder)) {
+            } else if (availableQty >= (requiredQty - totalReservedForOrder)) {
                 setStatus({ text: 'In Stock', variant: 'default' });
             } else {
                 let poFound = false;
@@ -338,7 +376,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             <TableCell>{index + 1}</TableCell>
             <TableCell>
                 <p className="font-mono">{stockInfo?.bcn || name}</p>
-                <p className="text-xs text-muted-foreground">{stockInfo?.itemName}</p>
+                <p className="text-xs text-muted-foreground">{stockInfo?.name || stockInfo?.itemName}</p>
             </TableCell>
             <TableCell>{stockInfo?.serialNo || 'N/A'}</TableCell>
             <TableCell>{(item as any).quantity} {unit}</TableCell>

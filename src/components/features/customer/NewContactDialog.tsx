@@ -14,13 +14,13 @@ import { Loader2, Info, PlusCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { Customer } from "@/lib/types";
-import { addCustomerAction } from "@/app/dashboard/customers/actions";
+import { addCustomerAction, updateCustomerAction } from "@/app/dashboard/customers/actions";
 import { useDebounce } from "use-debounce";
 
 
 const contactSchema = z.object({
   name: z.string().min(1, "Name is required."),
-  mobileNo: z.string().min(10, "Mobile number must be at least 10 digits.").max(15),
+  phone: z.string().min(10, "Phone number must be at least 10 digits.").max(15),
   email: z.string().email("Invalid email address.").optional().or(z.literal('')),
   salesSupport: z.string().optional(),
   addressLine1: z.string().optional(),
@@ -36,10 +36,12 @@ const contactSchema = z.object({
 
 type ContactFormValues = z.infer<typeof contactSchema>;
 
-interface NewContactDialogProps {
+interface CustomerDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (newCustomer: Customer) => void;
+  onSuccess: (customer: Customer) => void;
+  mode?: "create" | "edit";
+  customer?: Customer | null;
 }
 
 const CustomFormLabel = ({ children, tooltip }: { children: React.ReactNode, tooltip?: string }) => (
@@ -49,7 +51,7 @@ const CustomFormLabel = ({ children, tooltip }: { children: React.ReactNode, too
     </FormLabel>
 )
 
-export function NewContactDialog({ isOpen, onClose, onSuccess }: NewContactDialogProps) {
+function CustomerDialog({ isOpen, onClose, onSuccess, mode = "create", customer }: CustomerDialogProps) {
   const [loading, setLoading] = useState(false);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const { toast } = useToast();
@@ -59,7 +61,7 @@ export function NewContactDialog({ isOpen, onClose, onSuccess }: NewContactDialo
     resolver: zodResolver(contactSchema),
     defaultValues: {
         name: "",
-        mobileNo: "",
+        phone: "",
         email: "",
         salesSupport: "",
         addressLine1: "",
@@ -76,6 +78,25 @@ export function NewContactDialog({ isOpen, onClose, onSuccess }: NewContactDialo
 
   const pinCodeValue = form.watch("pinCode");
   const [debouncedPinCode] = useDebounce(pinCodeValue, 800);
+
+  useEffect(() => {
+    if (mode !== "edit" || !customer) return;
+    form.reset({
+      name: customer.name || "",
+      phone: customer.phone || customer.mobileNo || "",
+      email: customer.email || "",
+      salesSupport: customer.assignedSalesPerson?.name || customer.salesSupport || "",
+      addressLine1: customer.billingAddress?.line1 || customer.addressPinCode || "",
+      addressLine2: customer.billingAddress?.line2 || customer.landmark || "",
+      city: customer.billingAddress?.city || customer.city || "",
+      state: customer.billingAddress?.state || customer.state || "",
+      gstin: customer.gstin || "",
+      panNo: customer.panNo || "",
+      referenceName: customer.referenceName || "",
+      sourceOfCustomer: customer.sourceOfCustomer || "",
+      pinCode: customer.billingAddress?.pincode || customer.pinCode || "",
+    });
+  }, [mode, customer, form]);
 
   useEffect(() => {
     const fetchLocationFromPin = async () => {
@@ -151,34 +172,67 @@ export function NewContactDialog({ isOpen, onClose, onSuccess }: NewContactDialo
     }
     setLoading(true);
     try {
-        const fullAddress = [data.addressLine1, data.addressLine2, data.city, data.state, data.pinCode].filter(Boolean).join(', ');
-        
-        const result = await addCustomerAction({
-            name: data.name,
-            mobileNo: data.mobileNo,
-            email: data.email,
-            salesSupport: data.salesSupport,
+        const payload = {
+          name: data.name,
+          phone: data.phone,
+          email: data.email,
+          gstin: data.gstin,
+          isGstRegistered: Boolean(data.gstin),
+          billingAddress: {
+            line1: data.addressLine1,
+            line2: data.addressLine2,
             city: data.city,
             state: data.state,
-            addressPinCode: fullAddress, // Store the full composed address
-            gstin: data.gstin,
-            panNo: data.panNo,
-            referenceName: data.referenceName,
-            sourceOfCustomer: data.sourceOfCustomer,
-            pinCode: data.pinCode,
-            createdBy: user.name,
-        });
+            pincode: data.pinCode,
+          },
+          shippingAddress: {
+            line1: data.addressLine1,
+            line2: data.addressLine2,
+            city: data.city,
+            state: data.state,
+            pincode: data.pinCode,
+          },
+          assignedSalesPerson: data.salesSupport
+            ? { name: data.salesSupport }
+            : undefined,
+          salesSupport: data.salesSupport,
+          panNo: data.panNo,
+          referenceName: data.referenceName,
+          sourceOfCustomer: data.sourceOfCustomer,
+          pinCode: data.pinCode,
+          city: data.city,
+          state: data.state,
+        };
 
-        if (result.success && result.customer) {
-            toast({ title: "Contact Created", description: `${data.name} has been added to your contacts.` });
+        if (mode === "edit" && customer) {
+          const updated = await updateCustomerAction(customer.customerId || customer.id, {
+            ...payload,
+          });
+          toast({
+            title: "Customer Updated",
+            description: `${data.name} has been updated.`,
+          });
+          form.reset();
+          onSuccess(updated as Customer);
+        } else {
+          const result = await addCustomerAction({
+            ...payload,
+            createdBy: user.name,
+          });
+          if (result.success && result.customer) {
+            toast({
+              title: "Contact Created",
+              description: `${data.name} has been added to your contacts.`,
+            });
             form.reset();
             onSuccess(result.customer);
-        } else {
+          } else {
             toast({ variant: "destructive", title: "Error", description: result.message });
+          }
         }
     } catch (error) {
         console.error("Error creating contact:", error);
-        toast({ variant: "destructive", title: "Error", description: "Could not save the new contact." });
+        toast({ variant: "destructive", title: "Error", description: `Could not save the ${mode === "edit" ? "customer" : "new contact"}.` });
     } finally {
         setLoading(false);
     }
@@ -188,7 +242,7 @@ export function NewContactDialog({ isOpen, onClose, onSuccess }: NewContactDialo
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-5xl">
         <DialogHeader>
-          <DialogTitle>Add New Contact</DialogTitle>
+          <DialogTitle>{mode === "edit" ? "Edit Customer" : "Add New Contact"}</DialogTitle>
         </DialogHeader>
             <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 py-4">
@@ -200,9 +254,9 @@ export function NewContactDialog({ isOpen, onClose, onSuccess }: NewContactDialo
                             <FormMessage />
                         </FormItem>
                     )} />
-                     <FormField control={form.control} name="mobileNo" render={({ field }) => (
+                     <FormField control={form.control} name="phone" render={({ field }) => (
                         <FormItem>
-                            <CustomFormLabel tooltip="Customer's primary contact number">Mobile No*</CustomFormLabel>
+                            <CustomFormLabel tooltip="Customer's primary contact number">Phone*</CustomFormLabel>
                             <FormControl><Input {...field} /></FormControl>
                             <FormMessage />
                         </FormItem>
@@ -302,5 +356,21 @@ export function NewContactDialog({ isOpen, onClose, onSuccess }: NewContactDialo
             </Form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export function NewContactDialog({ isOpen, onClose, onSuccess }: { isOpen: boolean; onClose: () => void; onSuccess: (newCustomer: Customer) => void; }) {
+  return <CustomerDialog isOpen={isOpen} onClose={onClose} onSuccess={onSuccess} mode="create" />;
+}
+
+export function EditCustomerDialog({ isOpen, onClose, onSuccess, customer }: { isOpen: boolean; onClose: () => void; onSuccess: (customer: Customer) => void; customer: Customer | null; }) {
+  return (
+    <CustomerDialog
+      isOpen={isOpen}
+      onClose={onClose}
+      onSuccess={onSuccess}
+      mode="edit"
+      customer={customer}
+    />
   );
 }

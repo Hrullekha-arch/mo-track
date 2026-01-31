@@ -198,8 +198,8 @@ export function VisitForm({
       ? customer.savedAddresses.filter((addr) => addr?.address)
       : [];
     if (list.length > 0) return list;
-    if (customer?.addressPinCode) {
-      return [{ address: customer.addressPinCode, landmark: customer.landmark }];
+    if (customer?.billingAddress?.line1 || customer?.addressPinCode) {
+      return [{ address: customer?.billingAddress?.line1 || customer.addressPinCode, landmark: customer.landmark }];
     }
     return [];
   }, [customer]);
@@ -216,7 +216,7 @@ export function VisitForm({
     setAddressMode(hasSaved ? "saved" : "new");
     setSelectedAddressIndex("0");
     setAddressDraft({
-      address: customer?.addressPinCode || "",
+      address: customer?.billingAddress?.line1 || customer?.addressPinCode || "",
       landmark: customer?.landmark || "",
     });
   }, [createOpen, savedAddresses, customer]);

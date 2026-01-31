@@ -11,7 +11,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Customer, Deal, DealProduct, Quotation, VasDetail, Cpd, QuotationItem, InvoiceBatch, Stock } from "@/lib/types";
-import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, Edit, Check, ArrowLeft } from "lucide-react";
+import { Loader2, PlusCircle, Trash2, CalendarIcon, Info, Calculator, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -61,6 +61,8 @@ export const itemDetailSchema = z.object({
   ),
   discount: z.number().optional(),
   taxableAmt: z.number().optional(),
+  gstAmount: z.number().optional(),
+  totalAmount: z.number().optional(),
   bcnType: z.enum(["fabric", "foam", "tassel", "hardware"]).optional(),
   gstPercent: z.preprocess(
     (val) => {
@@ -69,6 +71,7 @@ export const itemDetailSchema = z.object({
     },
     z.number().min(0).max(100).optional()
   ),
+  gstMode: z.enum(["EXCL", "INCL"]),
   cgst: z.number().optional(),
   sgst: z.number().optional(),
   igst: z.number().optional(),
@@ -189,6 +192,7 @@ const defaultAddItemState = {
   room: "",
   noOfPcs: "1",
   remark: "",
+  gstMode: "INCL",
 };
 
 function parseDateValue(value?: string | Date | null): Date | undefined {
@@ -236,22 +240,36 @@ const calculatedItems = useMemo(() => {
     return values.items.map(item => {
         const quantity = Number(item.quantity) || 0;
         const rate = Number(item.rate) || 0;
-        const subtotal = quantity * rate; // GST-inclusive
+        const subtotal = quantity * rate;
         const discountPercent = Number(item.discountPercent) || 0;
         const discount = subtotal * (discountPercent / 100);
-        const amountAfterDiscount = subtotal - discount; // Still GST-inclusive
+        const amountAfterDiscount = subtotal - discount;
         
         const gstFromItem = Number((item as any).gstPercent);
         const resolvedGst =
           Number.isFinite(gstFromItem) && gstFromItem > 0
             ? gstFromItem
             : gstPercentForBcnType((item as any).bcnType);
+
+        const gstMode = (item as any).gstMode === "EXCL" ? "EXCL" : "INCL";
+        const resolvedRate = Number(item.rate) || 0;
+        const exclusiveRate =
+          gstMode === "EXCL" || resolvedGst === 0
+            ? resolvedRate
+            : resolvedRate / (1 + resolvedGst / 100);
         
-        // Calculate taxable amount (GST-exclusive base)
-        const taxableAmt = amountAfterDiscount / (1 + resolvedGst / 100);
-        
-        // Calculate GST components
-        const totalGst = amountAfterDiscount - taxableAmt;
+        let taxableAmt = 0;
+        let totalGst = 0;
+        let totalAmount = 0;
+        if (gstMode === "EXCL") {
+          taxableAmt = amountAfterDiscount;
+          totalGst = taxableAmt * (resolvedGst / 100);
+          totalAmount = taxableAmt + totalGst;
+        } else {
+          taxableAmt = amountAfterDiscount / (1 + resolvedGst / 100);
+          totalGst = amountAfterDiscount - taxableAmt;
+          totalAmount = amountAfterDiscount;
+        }
         const cgst = totalGst / 2;
         const sgst = totalGst / 2;
         const igst = 0;
@@ -259,12 +277,16 @@ const calculatedItems = useMemo(() => {
         return { 
             ...item, 
             gstPercent: resolvedGst, 
+            gstMode,
+            exclusiveRate,
             quantity, 
             rate, 
             discountPercent, 
             subtotal, 
             discount, 
             taxableAmt, 
+            gstAmount: totalGst,
+            totalAmount,
             cgst, 
             sgst, 
             igst 
@@ -296,8 +318,10 @@ const calculatedItems = useMemo(() => {
         acc.cgst += item.cgst;
         acc.sgst += item.sgst;
         acc.igst += item.igst;
+        acc.gstAmount += item.gstAmount || 0;
+        acc.totalAmount += item.totalAmount || 0;
         return acc;
-    }, { quantity: 0, subtotal: 0, discount: 0, taxableAmt: 0, cgst: 0, sgst: 0, igst: 0 });
+    }, { quantity: 0, subtotal: 0, discount: 0, taxableAmt: 0, cgst: 0, sgst: 0, igst: 0, gstAmount: 0, totalAmount: 0 });
 
     const vasTotals = vasWithCalculations.reduce((acc, vas) => {
         acc.quantity += Number(vas.quantity);
@@ -309,8 +333,8 @@ const calculatedItems = useMemo(() => {
     }, { quantity: 0, taxableAmt: 0, cgst: 0, sgst: 0, igst: 0 });
 
     // Total quotation amount is sum of subtotals after discount (which are GST-inclusive)
-    const quotationAmount = 
-        (itemTotals.subtotal - itemTotals.discount) + 
+    const quotationAmount =
+        itemTotals.totalAmount +
         (vasTotals.taxableAmt + vasTotals.cgst + vasTotals.sgst + vasTotals.igst);
 
     return { itemTotals, vasTotals, quotationAmount };
@@ -550,11 +574,24 @@ const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove 
             ? gstFromItem
             : gstPercentForBcnType((item as any).bcnType);
         
-        // Calculate taxable amount (GST-exclusive base)
-        const taxableAmt = amountAfterDiscount / (1 + resolvedGst / 100);
-        
-        // Calculate GST components
-        const totalGst = amountAfterDiscount - taxableAmt;
+        const gstMode = (item as any).gstMode === "EXCL" ? "EXCL" : "INCL";
+        const resolvedRate = Number(item.rate) || 0;
+        const exclusiveRate =
+          gstMode === "EXCL" || resolvedGst === 0
+            ? resolvedRate
+            : resolvedRate / (1 + resolvedGst / 100);
+        let taxableAmt = 0;
+        let totalGst = 0;
+        let totalAmount = 0;
+        if (gstMode === "EXCL") {
+          taxableAmt = amountAfterDiscount;
+          totalGst = taxableAmt * (resolvedGst / 100);
+          totalAmount = taxableAmt + totalGst;
+        } else {
+          taxableAmt = amountAfterDiscount / (1 + resolvedGst / 100);
+          totalGst = amountAfterDiscount - taxableAmt;
+          totalAmount = amountAfterDiscount;
+        }
         const cgst = totalGst / 2;
         const sgst = totalGst / 2;
         const igst = 0;
@@ -562,7 +599,10 @@ const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove 
         const updates = [
           { path: `items.${index}.subtotal`, value: subtotal },
           { path: `items.${index}.discount`, value: discount },
+          { path: `items.${index}.exclusiveRate`, value: exclusiveRate },
           { path: `items.${index}.taxableAmt`, value: taxableAmt },
+          { path: `items.${index}.gstAmount`, value: totalGst },
+          { path: `items.${index}.totalAmount`, value: totalAmount },
           { path: `items.${index}.cgst`, value: cgst },
           { path: `items.${index}.sgst`, value: sgst },
           { path: `items.${index}.igst`, value: igst },
@@ -590,10 +630,10 @@ const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove 
                           <TableHead>Quantity</TableHead>
                           <TableHead className="w-32">Rate</TableHead>
                           <TableHead>Discount %</TableHead>
+                          <TableHead>GST Mode</TableHead>
+                          <TableHead className="w-24">GST %</TableHead>
                           <TableHead>Amount</TableHead>
                           <TableHead>Room</TableHead>
-                          <TableHead className="w-10">Remark</TableHead>
-                          <TableHead className="w-10">Details</TableHead>
                           <TableHead className="w-10">Delete</TableHead>
                       </TableRow>
                   </TableHeader>
@@ -682,6 +722,49 @@ const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove 
                                      )} 
                                    />
                               </TableCell>
+                              <TableCell>
+                                <FormField
+                                  control={control}
+                                  name={`items.${index}.gstMode`}
+                                  render={({ field }) => (
+                                    <div className="flex flex-col gap-2 text-xs">
+                                      <label className="flex items-center gap-2">
+                                        <Checkbox
+                                          checked={field.value === "EXCL"}
+                                          onCheckedChange={() => field.onChange("EXCL")}
+                                        />
+                                        <span>Excl GST</span>
+                                      </label>
+                                      <label className="flex items-center gap-2">
+                                        <Checkbox
+                                          checked={field.value === "INCL"}
+                                          onCheckedChange={() => field.onChange("INCL")}
+                                        />
+                                        <span>Incl GST</span>
+                                      </label>
+                                    </div>
+                                  )}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <FormField
+                                  control={control}
+                                  name={`items.${index}.gstPercent`}
+                                  render={({ field }) => (
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      value={field.value ?? ""}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        field.onChange(val === "" ? 0 : parseFloat(val));
+                                      }}
+                                      onBlur={field.onBlur}
+                                      className="w-20"
+                                    />
+                                  )}
+                                />
+                              </TableCell>
                                <TableCell>
                                   <FormField 
                                     control={control} 
@@ -709,26 +792,6 @@ const PreviouslySelectedItems = ({ control, setValue, getValues, fields, remove 
                                       />
                                     )} 
                                   />
-                              </TableCell>
-                              <TableCell>
-                                <Button 
-                                  type="button" 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  className="text-blue-500"
-                                >
-                                  <Edit className="h-4 w-4"/>
-                                </Button>
-                              </TableCell>
-                              <TableCell>
-                                <Button 
-                                  type="button" 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  className="text-blue-500"
-                                >
-                                  <PlusCircle className="h-4 w-4"/>
-                                </Button>
                               </TableCell>
                               <TableCell>
                                 <Button 
@@ -886,9 +949,12 @@ export function CreateQuotationDialog({
       discountPercent: discountPercent,
       bcnType: resolvedBcnType,
       gstPercent: gstPercent,
+      gstMode: addItem.gstMode || "INCL",
       subtotal: 0,
       discount: 0,
       taxableAmt: 0,
+      gstAmount: 0,
+      totalAmount: 0,
       cgst: 0,
       sgst: 0,
       igst: 0,
@@ -954,9 +1020,12 @@ export function CreateQuotationDialog({
             discountPercent: Number(item.discountPercent) || 0,
             bcnType: resolvedBcnType,
             gstPercent: detectedGst,
+            gstMode: (item as any).gstMode || "INCL",
             subtotal: 0,
             discount: 0,
             taxableAmt: 0,
+            gstAmount: 0,
+            totalAmount: 0,
             cgst: 0,
             sgst: 0,
             igst: 0,
@@ -985,9 +1054,9 @@ export function CreateQuotationDialog({
         const initialValidTillDate = parseDateValue(initialQuotation?.validTillDate);
         const initialCustomerName = initialQuotation?.customerName || customer.name;
         const initialBillingName = initialQuotation?.billingName || customer.name;
-        const initialDealName = initialQuotation?.dealName || deal.dealName;
+        const initialDealName = initialQuotation?.dealName || deal.title || deal.dealName;
         const initialSelectedCpdId = initialQuotation?.cpdId || selectedCpdId;
-        const initialRepresentativeId = initialQuotation?.representativeId || deal.representativeId;
+        const initialRepresentativeId = initialQuotation?.representativeId || deal.assignedSalesPerson?.id || deal.representativeId;
   
         form.reset({
           store: initialStore,
@@ -996,7 +1065,7 @@ export function CreateQuotationDialog({
           validTillDate: initialValidTillDate,
           customerName: initialCustomerName,
           billingName: initialBillingName,
-          billingAddress: customer.addressPinCode,
+          billingAddress: customer.billingAddress?.line1 || customer.addressPinCode,
           dealName: initialDealName,
           selectedCpdId: initialSelectedCpdId,
           items: itemsForForm,
@@ -1023,11 +1092,23 @@ async function handleCreateQuotation() {
     const totalAmount = values.items.reduce((sum, item) => {
         const quantity = Number(item.quantity) || 0;
         const rate = Number(item.rate) || 0;
-        const subtotal = quantity * rate; // GST-inclusive
+        const subtotal = quantity * rate;
         const discount = subtotal * ((Number(item.discountPercent) || 0) / 100);
-        const amountAfterDiscount = subtotal - discount; // Still GST-inclusive
-        
-        return sum + amountAfterDiscount;
+        const amountAfterDiscount = subtotal - discount;
+
+        const gstFromItem = Number((item as any).gstPercent);
+        const resolvedGst =
+          Number.isFinite(gstFromItem) && gstFromItem > 0
+            ? gstFromItem
+            : gstPercentForBcnType((item as any).bcnType);
+        const gstMode = (item as any).gstMode === "EXCL" ? "EXCL" : "INCL";
+
+        const lineTotal =
+          gstMode === "EXCL"
+            ? amountAfterDiscount + (amountAfterDiscount * (resolvedGst / 100))
+            : amountAfterDiscount;
+
+        return sum + lineTotal;
     }, 0);
 
     const vasTotal = (values.vasDetails || []).reduce((sum, vas) => {
@@ -1213,7 +1294,7 @@ async function handleCreateQuotation() {
                         <FormItem>
                           <FormLabel>Deal Name*</FormLabel>
                           <Combobox 
-                            options={[{value: deal.dealName, label: deal.dealName}]} 
+                            options={[{value: deal.title || deal.dealName, label: deal.title || deal.dealName}]} 
                             value={field.value} 
                             onSelect={field.onChange} 
                             placeholder="--SELECT--" 

@@ -11,6 +11,7 @@ import { toast } from "sonner";
 export function MeasurementPreviewDialog({
   open,
   onClose,
+  onOpenChange,
   data,
   onSave,
   saving,
@@ -19,6 +20,16 @@ export function MeasurementPreviewDialog({
   const { user } = useAuth();
   const [pdfLoading, setPdfLoading] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
+
+  const handleClose = () => {
+    if (onClose) {
+      onClose();
+      return;
+    }
+    if (onOpenChange) {
+      onOpenChange(false);
+    }
+  };
 
   // Check if data exists
   if (!data) {
@@ -160,7 +171,7 @@ const handleDownloadPdf = async () => {
 
     // Generate filename with timestamp
     const timestamp = new Date().toISOString().split("T")[0];
-    const fileName = `Measurement_${deal?.dealId || "Unknown"}_${timestamp}.pdf`;
+    const fileName = `Measurement_${data?.dealId || "Unknown"}_${timestamp}.pdf`;
 
     // Download PDF
     pdf.save(fileName);
@@ -194,7 +205,7 @@ const handleDownloadPdf = async () => {
       open={open}
       onOpenChange={(isOpen) => {
         if (!saving && !isOpen) {
-          onClose();  // ✅ CORRECT - Call without parameters when closing
+          handleClose();
         }
       }}
     >
@@ -796,7 +807,7 @@ const handleDownloadPdf = async () => {
         <div className="flex gap-4 pt-6 px-4 sm:px-8 pb-4 border-t bg-white sticky bottom-0 z-10">
           <Button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             variant="outline"
             className="flex-1"
             disabled={saving}
@@ -804,7 +815,7 @@ const handleDownloadPdf = async () => {
             Cancel
           </Button>
 
-          {/* <Button
+          <Button
             type="button"
             onClick={handleDownloadPdf}
             disabled={pdfLoading || saving}
@@ -819,7 +830,7 @@ const handleDownloadPdf = async () => {
             ) : (
               "📄 Download PDF"
             )}
-          </Button> */}
+          </Button>
 
           <Button
             type="button"

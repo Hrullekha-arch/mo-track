@@ -38,7 +38,7 @@ export function StockDetails() {
       const results = await searchStockByBcn(query);
       const options = results.map(stock => ({
         value: stock.id,
-        label: `${stock.bcn} - ${stock.itemName}`,
+        label: `${stock.bcn} - ${stock.name || stock.itemName || "Unnamed"}`,
         stockItem: stock
       }));
       setBcnOptions(options as any);

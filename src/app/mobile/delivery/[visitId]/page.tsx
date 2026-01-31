@@ -306,7 +306,8 @@ export default function DeliveryVisitPage() {
                     completedAt: new Date().toISOString(),
                     completedBy: user.name,
                     remarks: remarks || '',
-                    deliveryChecklist: deliveryItems
+                    deliveryChecklist: deliveryItems,
+                    updatedAt: new Date().toISOString(),
                 });
 
                 // Optionally update order and O2D status as before
@@ -431,13 +432,13 @@ export default function DeliveryVisitPage() {
                     <CardContent className="space-y-2 text-sm">
                         <div className="flex items-center gap-2">
                             <Phone className="h-4 w-4 text-muted-foreground" />
-                            <a href={`tel:${customer.mobileNo}`} className="text-blue-600 hover:underline">
-                                {customer.mobileNo}
+                            <a href={`tel:${customer.phone || customer.mobileNo || ""}`} className="text-blue-600 hover:underline">
+                                {customer.phone || customer.mobileNo || "N/A"}
                             </a>
                         </div>
                         <div className="flex items-center gap-2">
                             <MapPin className="h-4 w-4 text-muted-foreground" />
-                            <span>{customer.addressPinCode}</span>
+                            <span>{customer.billingAddress?.line1 || customer.addressPinCode || "—"}</span>
                         </div>
                     </CardContent>
                 </Card>

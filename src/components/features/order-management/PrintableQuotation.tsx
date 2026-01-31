@@ -39,14 +39,18 @@ export function PrintableQuotation({ values }: PrintableQuotationProps) {
     const validDate = parseDate(values.date);
 
     const calculation = values.items.reduce((acc, item) => {
-        const itemAmount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
+        const rate = Number((item as any).exclusiveRate ?? item.rate) || 0;
+        const itemAmount = (Number(item.quantity) || 0) * rate;
         const discountAmount = itemAmount * ((Number(item.discountPercent) || 0) / 100);
         const subtotal = itemAmount - discountAmount;
         acc.total += subtotal;
         return acc;
     }, { total: 0 });
 
-    const vasTotal = (values.vasDetails || []).reduce((sum, vas) => sum + ((Number(vas.rate) || 0) * (Number(vas.quantity) || 0)), 0);
+    const vasTotal = (values.vasDetails || []).reduce((sum, vas) => {
+        const rate = Number((vas as any).exclusiveRate ?? vas.rate) || 0;
+        return sum + (rate * (Number(vas.quantity) || 0));
+    }, 0);
     const grandTotal = calculation.total + vasTotal;
 
     return (
@@ -77,25 +81,27 @@ export function PrintableQuotation({ values }: PrintableQuotationProps) {
                         </TableHeader>
                         <TableBody>
                             {values.items.map((item, index) => {
-                                const amount = (item.rate || 0) * (item.quantity || 0);
+                                const rate = Number((item as any).exclusiveRate ?? item.rate) || 0;
+                                const amount = rate * (item.quantity || 0);
                                 return (
                                     <TableRow key={item.id || index}>
                                         <TableCell>{index + 1}</TableCell>
                                         <TableCell>{item.salesDescription}</TableCell>
                                         <TableCell className="text-right">{item.quantity}</TableCell>
-                                        <TableCell className="text-right">{formatToINR(item.rate || 0)}</TableCell>
+                                        <TableCell className="text-right">{formatToINR(rate)}</TableCell>
                                         <TableCell className="text-right">{formatToINR(amount)}</TableCell>
                                     </TableRow>
                                 );
                             })}
                             {(values.vasDetails || []).map((vas, index) => {
-                                const amount = (Number(vas.rate) || 0) * (Number(vas.quantity) || 0);
+                                const rate = Number((vas as any).exclusiveRate ?? vas.rate) || 0;
+                                const amount = rate * (Number(vas.quantity) || 0);
                                 return (
                                     <TableRow key={`vas-${index}`}>
                                         <TableCell>{values.items.length + index + 1}</TableCell>
                                         <TableCell>{vas.vasName}</TableCell>
                                         <TableCell className="text-right">{vas.quantity}</TableCell>
-                                        <TableCell className="text-right">{formatToINR(Number(vas.rate) || 0)}</TableCell>
+                                        <TableCell className="text-right">{formatToINR(rate)}</TableCell>
                                         <TableCell className="text-right">{formatToINR(amount)}</TableCell>
                                     </TableRow>
                                 );

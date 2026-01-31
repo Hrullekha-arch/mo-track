@@ -684,15 +684,16 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
                 </span>
               </div>
               <div>
-                <span className="text-muted-foreground">City:</span>{" "}
-                <span className="font-medium">
-                  {detailsData.customer?.city || "N/A"}
-                </span>
+                  <span className="text-muted-foreground">City:</span>{" "}
+                  <span className="font-medium">
+                  {detailsData.customer?.billingAddress?.city || detailsData.customer?.city || "N/A"}
+                  </span>
               </div>
               <div>
                 <span className="text-muted-foreground">Address:</span>{" "}
                 <span className="font-medium">
-                  {detailsData.customer?.address || 
+                  {detailsData.customer?.billingAddress?.line1 || 
+                   detailsData.customer?.address || 
                    detailsData.customer?.addressPinCode || 
                    "N/A"}
                 </span>

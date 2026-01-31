@@ -126,7 +126,7 @@ export default function ConfirmVisitPage() {
                 const visitDoc = { id: visitData.id, ...visitData.data() } as DealVisit;
                 setVisit(visitDoc);
                 setCustomer(customerData);
-                setAddress(visitDoc.customerAddress || customerData.addressPinCode || '');
+                setAddress(visitDoc.customerAddress || customerData.billingAddress?.line1 || customerData.addressPinCode || '');
                 setLandmark(visitDoc.customerLandmark || customerData.landmark || '');
                 if (visitDoc.status === 'approved' && visitDoc.dueDate) {
                     setView('confirmed');
@@ -163,6 +163,7 @@ export default function ConfirmVisitPage() {
             const [hours, minutes] = selectedTime.split(':').map(Number);
             const combinedDateTime = new Date(selectedDate);
             combinedDateTime.setHours(hours, minutes, 0, 0);
+            const slotDate = combinedDateTime.toISOString().split("T")[0];
             
             const batch = writeBatch(db);
 
@@ -172,8 +173,11 @@ export default function ConfirmVisitPage() {
             batch.update(visitRef, {
                 status: 'approved',
                 dueDate: combinedDateTime.toISOString(),
+                "assignment.slot.date": slotDate,
+                "assignment.slot.timeFrom": selectedTime,
                 customerAddress: nextAddress,
-                customerLandmark: nextLandmark
+                customerLandmark: nextLandmark,
+                updatedAt: new Date().toISOString(),
             });
             
             const normalize = (value?: string) =>
@@ -187,8 +191,15 @@ export default function ConfirmVisitPage() {
                 : false;
 
             const customerUpdates: Record<string, any> = {
-                addressPinCode: nextAddress,
-                landmark: nextLandmark
+                billingAddress: {
+                    line1: nextAddress,
+                    line2: nextLandmark || undefined,
+                },
+                shippingAddress: {
+                    line1: nextAddress,
+                    line2: nextLandmark || undefined,
+                },
+                lastUpdatedAt: new Date().toISOString(),
             };
 
             if (!alreadySaved) {

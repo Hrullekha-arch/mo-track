@@ -178,7 +178,7 @@ export function CpdForm({ customer, salesmen, dealId, onCpdAdded }: { customer: 
         resolver: zodResolver(cpdSchema),
         defaultValues: {
             customerName: customer.name,
-            telNo: customer.mobileNo,
+            telNo: customer.phone || customer.mobileNo,
             date: format(new Date(), "yyyy-MM-dd"),
             rooms: [{ room: "", items: [{ itemName: '', type: '', qty: '', rate: '0', dis: '0', amount: '0', hasDimension: false, dimensions: [] }] }],
         }

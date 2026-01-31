@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StockTable } from "@/components/features/inventory/StockTable";
 import { getStockData } from "./actions";
 import { Stock } from "@/lib/types";
-import { StockManagement } from "@/components/features/inventory/StockManagement";
+import { StockManagementV2 } from "@/components/features/inventory/StockManagementV2";
 import { StockHistoryTable } from "@/components/features/inventory/StockHistoryTable";
 import { StockDetails } from "@/components/features/inventory/StockDetails";
 import { Button } from "@/components/ui/button";
@@ -51,7 +51,7 @@ export default async function InventoryPage() {
                 </TabsContent>
                 <TabsContent value="stock-management">
                      <Suspense fallback={<InventorySkeleton />}>
-                        <StockManagement />
+                        <StockManagementV2 />
                     </Suspense>
                 </TabsContent>
                 <TabsContent value="stock-details">

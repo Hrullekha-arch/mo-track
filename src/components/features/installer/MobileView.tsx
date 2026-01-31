@@ -440,7 +440,7 @@ export function MobileView() {
             customerName: visit.customer?.name || "",
             dealId: visit.deal?.dealId || visit.dealId || "",
             dealDocId: visit.dealDocId,
-            dealName: visit.deal?.dealName || "",
+            dealName: visit.deal?.title || visit.deal?.dealName || "",
             assignedAt,
             assignedTo: installerId,
             status: "booked",
@@ -487,6 +487,16 @@ export function MobileView() {
         slotStart: firstSlot.start,
         slotEnd: lastSlot.end,
         assignedAt,
+        assignment: {
+          assignedTo: { id: installerId },
+          assignedAt,
+          slot: {
+            date: slotDate,
+            timeFrom: firstSlot.start,
+            timeTo: lastSlot.end,
+          },
+        },
+        updatedAt: assignedAt,
       });
     });
   };
@@ -747,19 +757,16 @@ const InstallerVisitCard = ({
     };
 
     const buttonContent = getButtonContent();
-    const phone = (visit.customer?.mobileNo || "").trim();
-    const address = (visit.customer?.addressPinCode || visit.customer?.city || "").trim();
-
+    const phone = (visit.customer?.phone || visit.customer?.mobileNo || "").trim();
+    const address = (visit.customer?.billingAddress?.line1 || visit.customer?.addressPinCode || visit.customer?.city || "").trim();
+    console.log('Rendering InstallerVisitCard for visit:', visit);
     return (
         <Card>
             <CardHeader>
-                <CardTitle className="capitalize">{visit.customer?.name || "Unknown Customer"}</CardTitle>
-                <CardDescription>
-                    {visit.typeOfVisit} visit for Deal #{visit.deal?.dealId || 'N/A'}
-                </CardDescription>
+                <CardTitle className="capitalize flex justify-between">{visit.customer?.name || "Unknown Customer"} <Badge variant="secondary">Deal ID: {visit.deal?.dealId || 'N/A'}</Badge> <Badge>{visit.typeOfVisit}</Badge></CardTitle>
             </CardHeader>
             <CardContent className="text-sm space-y-3">
-                 <p className="flex items-center gap-2 font-semibold"><CalendarCheck className="h-4 w-4 text-muted-foreground" /> <span>{format(new Date(visit.dueDate), 'PPP p')}</span></p>
+                 <p className="flex items-center gap-2 font-semibold"><CalendarCheck className="h-4 w-4 text-muted-foreground" /> <span className="text-teal-800">{format(new Date(visit.slotDate),"dd MMM yyyy")} - {visit.slotLabel}</span></p>
                  <p className="flex items-center gap-2">
                     <Phone color="blue" className="h-4 w-4 text-muted-foreground " />
                 {phone ? (
@@ -791,7 +798,16 @@ const InstallerVisitCard = ({
                     <span>N/A</span>
                 )}
                 </p>
-                 <p className="flex items-center gap-2"><Dock className="h-4 w-4 text-muted-foreground" /> {visit.remark || 'N/A'}</p>
+                 <p className="flex items-center gap-2"><Dock className="h-4 w-4 text-muted-foreground" /> 
+                 {visit.remark}
+                 {visit.measurements}
+                 {visit.deliveryInstallations}
+                 {visit.subDeliveryInstallations}
+                 {visit.otherDelivery}
+                 {visit.fittingInstallations}
+                 {visit.subFittingInstallations}
+
+                 </p>
                  <div className="flex justify-between items-center gap-2">
                     <Badge variant={"outline"} className="flex items-center gap-2"><UserCircle className="h-4 w-4 text-muted-foreground" />CRM: {visit.createdBy || 'N/A'}</Badge>
                     <Badge variant={"outline"} className="flex items-center gap-2"><UserIcon className="h-4 w-4 text-muted-foreground" />SM: {repNameMap[visit.representative] || <Skeleton className="h-6 w-28 rounded-full" />}</Badge>
@@ -898,7 +914,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
 
                     if (!visitSnapshot.empty) {
                         const visitRef = visitSnapshot.docs[0].ref;
-                        batch.update(visitRef, { status: 'completed' });
+                        batch.update(visitRef, { status: 'completed', updatedAt: new Date().toISOString() });
                     }
 
                     const o2dQuery = query(collection(db, 'o2d'), where('dealId', '==', order.dealId));

@@ -72,9 +72,9 @@ export function QuotationForm({ deal, customer, cpds, onSuccess }: QuotationForm
             vasDetails: [],
             customerName: customer.name,
             billingName: customer.name,
-            billingAddress: customer.addressPinCode,
-            dealName: deal.dealName,
-            representativeId: deal.representativeId,
+            billingAddress: customer.billingAddress?.line1 || customer.addressPinCode,
+            dealName: deal.title || deal.dealName,
+            representativeId: deal.assignedSalesPerson?.id || deal.representativeId,
         },
     });
 
@@ -148,4 +148,3 @@ export function QuotationForm({ deal, customer, cpds, onSuccess }: QuotationForm
         </FormProvider>
     );
 }
-

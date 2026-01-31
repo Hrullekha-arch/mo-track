@@ -89,7 +89,7 @@ function ApproveQuotationTab() {
                         customerId,
                         dealId, // Correctly assign dealId
                         customerName: customerSnap.exists() ? customerSnap.data().name : 'Unknown Customer',
-                        dealName: dealSnap.exists() ? dealSnap.data().dealName : 'Unknown Deal',
+                        dealName: dealSnap.exists() ? (dealSnap.data().title || dealSnap.data().dealName) : 'Unknown Deal',
                     });
                 } catch (error) {
                      console.error(`Failed to enrich quotation ${docSnap.id}:`, error);
@@ -300,7 +300,12 @@ function ApproveOrdersTab() {
                     </TableHeader>
                     <TableBody>
                         {orders.length > 0 ? orders.map(order => {
-                            const items = order.fabricDetails || [];
+                            const items = (order.fabricDetails && order.fabricDetails.length > 0)
+                                ? order.fabricDetails
+                                : (order.sections?.NORMAL?.items || []).map(item => ({
+                                    fabricName: item.bcn || item.description || "N/A",
+                                    quantity: String(item.qty ?? 0),
+                                }));
                             return (
                                 <TableRow key={order.id}>
                                     <TableCell className="font-medium">{order.crmOrderNo}</TableCell>

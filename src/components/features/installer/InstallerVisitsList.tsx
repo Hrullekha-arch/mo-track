@@ -200,8 +200,8 @@ export function InstallerVisitsList({ installerId }: { installerId: string }) {
                         </CardHeader>
                         <CardContent className="text-sm space-y-3">
                             <p className="flex items-center gap-2 font-semibold"><Calendar className="h-4 w-4 text-muted-foreground" /> <span>{format(new Date(visit.dueDate), 'PPP p')}</span></p>
-                             <p className="flex items-center gap-2"><Phone className="h-4 w-4 text-muted-foreground" /> {visit.customer?.mobileNo || 'N/A'}</p>
-                             <p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-muted-foreground" /> {visit.customer?.addressPinCode || visit.customer?.city || 'N/A'}</p>
+                             <p className="flex items-center gap-2"><Phone className="h-4 w-4 text-muted-foreground" /> {visit.customer?.phone || visit.customer?.mobileNo || 'N/A'}</p>
+                             <p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-muted-foreground" /> {visit.customer?.billingAddress?.line1 || visit.customer?.addressPinCode || visit.customer?.city || 'N/A'}</p>
                         </CardContent>
                          {visit.typeOfVisit === 'measurement' && (
                             <CardFooter>

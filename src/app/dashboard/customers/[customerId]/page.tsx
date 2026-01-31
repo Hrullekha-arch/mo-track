@@ -1,42 +1,18 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
-import { useForm, FormProvider } from "react-hook-form";
-import { z } from "zod";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { Customer, Deal, User, Quotation } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, PlusCircle, Settings, Edit, Trash2, Loader2, Contact2 } from "lucide-react";
+import { ArrowLeft, PlusCircle, Settings, Edit, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { NewDealDialog } from "@/components/features/customer/NewDealDialog";
+import { EditCustomerDialog } from "@/components/features/customer/NewContactDialog";
 import { useToast } from "@/hooks/use-toast";
 import { getCustomerById, getDealsForCustomer, getSalesmen, getQuotationsForDeal as getQuotationsForDealAction } from '../actions';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { updateCustomerAction } from "./actions";
-import { add } from "date-fns";
-
-
-const editCustomerSchema = z.object({
-  name: z.string().min(2, "Name is required"),
-  mobileNo: z.string().min(10, "Mobile is required"),
-  email: z.string().email("Invalid email").optional().or(z.literal("")),
-  address: z.string().optional().or(z.literal("")),
-});
-
-type EditCustomerValues = z.infer<typeof editCustomerSchema>;
 
 
 
@@ -51,17 +27,6 @@ export default function CustomerDetailPage({ params: paramsPromise }: { params: 
     const [isNewDealOpen, setIsNewDealOpen] = useState(false);
     const { toast } = useToast();
     const [editOpen, setEditOpen] = useState(false);
-const [savingCustomer, setSavingCustomer] = useState(false);
-
-const editForm = useForm<EditCustomerValues>({
-  resolver: zodResolver(editCustomerSchema),
-  defaultValues: {
-    name: "",
-    mobileNo: "",
-    email: "",
-    address: "",
-  },
-});
 
 
     useEffect(() => {
@@ -80,13 +45,6 @@ const editForm = useForm<EditCustomerValues>({
 
                 if (customerData) {
                     setCustomer(customerData);
-                    editForm.reset({
-                    name: customerData.name || "",
-                    mobileNo: customerData.mobileNo || "",
-                    email: customerData.email || "",
-                    address: customerData.addressPinCode || "",
-                    });
-
                     setDeals(dealsData);
                     setSalesmen(salesmenData);
                     // Also fetch all quotations for all deals of this customer
@@ -129,36 +87,6 @@ const editForm = useForm<EditCustomerValues>({
         }
     }, [customerId, toast]);
 
-    const handleUpdateCustomer = async (values: EditCustomerValues) => {
-    if (!customer) return;
-
-    setSavingCustomer(true);
-    try {
-        const updated = await updateCustomerAction(customer.id, {
-        name: values.name.trim(),
-        mobileNo: values.mobileNo.trim(),
-        email: (values.email || "").trim() || undefined,
-        address: (values.address || "").trim() || undefined,
-        });
-
-        // ✅ update local UI state
-        setCustomer(updated);
-
-        toast({ title: "Customer updated", description: "Details saved successfully." });
-        setEditOpen(false);
-    } catch (err: any) {
-        console.error(err);
-        toast({
-        variant: "destructive",
-        title: "Update failed",
-        description: err?.message || "Could not update customer.",
-        });
-    } finally {
-        setSavingCustomer(false);
-    }
-    };
-
-
     const handleNewDealSuccess = (newDeal: Deal) => {
         setDeals(prevDeals => [newDeal, ...prevDeals]);
         toast({ title: "Deal Created!", description: "The new deal has been successfully added."});
@@ -193,6 +121,7 @@ const editForm = useForm<EditCustomerValues>({
     }
 
     const getSalesmanName = (id?: string) => salesmen.find(s => s.id === id)?.name || "N/A";
+    const getDealTitle = (deal: Deal) => deal.title || deal.dealName || "Untitled Deal";
     
     const calculateTotalApprovedQuotationAmount = (dealId: string) => {
         return quotations
@@ -210,20 +139,12 @@ const editForm = useForm<EditCustomerValues>({
                         <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => {
-                                editForm.reset({
-                                name: customer.name || "",
-                                mobileNo: customer.mobileNo || "",
-                                email: customer.email || "",
-                                address: customer.addressPinCode || "",
-                                });
-                                setEditOpen(true);
-                            }}
+                            onClick={() => setEditOpen(true)}
                             >
                             <Settings className="h-5 w-5 text-blue-500" />
                         </Button>
                     </div>
-                    <p className="text-sm text-muted-foreground">Mobile: {customer.mobileNo} {customer.email && `| Email: ${customer.email}`}</p>
+                    <p className="text-sm text-muted-foreground">Phone: {customer.phone || customer.mobileNo || "—"} {customer.email && `| Email: ${customer.email}`}</p>
                 </div>
                  <Button variant="outline" asChild>
                     <Link href="/dashboard/customers">
@@ -250,7 +171,7 @@ const editForm = useForm<EditCustomerValues>({
                                     <Card className="h-full hover:shadow-lg transition-shadow">
                                         <CardHeader>
                                             <CardTitle className="flex justify-between items-start">
-                                                <span>{deal.dealName}</span>
+                                                <span>{getDealTitle(deal)}</span>
                                                 <div className="flex items-center gap-1">
                                                     <Button variant="ghost" size="icon" className="h-7 w-7"><Edit className="h-4 w-4"/></Button>
                                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"><Trash2 className="h-4 w-4"/></Button>
@@ -261,7 +182,7 @@ const editForm = useForm<EditCustomerValues>({
                                                     ID: {deal.dealId}
                                                 </Badge>
                                                  <Badge variant="outline" className="ml-2">
-                                                    {getSalesmanName(deal.representativeId)}
+                                                    {deal.assignedSalesPerson?.name || getSalesmanName(deal.representativeId)}
                                                 </Badge>
                                             </div>
                                         </CardHeader>
@@ -296,89 +217,18 @@ const editForm = useForm<EditCustomerValues>({
             isOpen={isNewDealOpen}
             onClose={() => setIsNewDealOpen(false)}
             onSuccess={handleNewDealSuccess}
-            customerId={customer.id}
+            customerId={customer.customerId || customer.id}
             salesmen={salesmen}
         />
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-            <DialogContent className="max-w-lg">
-                <DialogHeader>
-                <DialogTitle>Edit Customer</DialogTitle>
-                <DialogDescription>Update customer details and save.</DialogDescription>
-                </DialogHeader>
-
-                <FormProvider {...editForm}>
-                <Form {...editForm}>
-                    <form className="space-y-4" onSubmit={editForm.handleSubmit(handleUpdateCustomer)}>
-                    <FormField
-                        control={editForm.control}
-                        name="name"
-                        render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Name</FormLabel>
-                            <FormControl>
-                            <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
-
-                    <FormField
-                        control={editForm.control}
-                        name="mobileNo"
-                        render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Mobile</FormLabel>
-                            <FormControl>
-                            <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
-
-                    <FormField
-                        control={editForm.control}
-                        name="email"
-                        render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Email (optional)</FormLabel>
-                            <FormControl>
-                            <Input {...field} placeholder="name@example.com" />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
-
-                    <FormField
-                        control={editForm.control}
-                        name="address"
-                        render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Address (optional)</FormLabel>
-                            <FormControl>
-                            <Input {...field} placeholder="" />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
-
-                    <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
-                        Cancel
-                        </Button>
-                        <Button type="submit" disabled={savingCustomer}>
-                        {savingCustomer && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Save
-                        </Button>
-                    </DialogFooter>
-                    </form>
-                </Form>
-                </FormProvider>
-            </DialogContent>
-            </Dialog>
+        <EditCustomerDialog
+            isOpen={editOpen}
+            onClose={() => setEditOpen(false)}
+            customer={customer}
+            onSuccess={(updated) => {
+                setCustomer(updated);
+                setEditOpen(false);
+            }}
+        />
 
         </>
     );

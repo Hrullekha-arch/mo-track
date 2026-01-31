@@ -123,7 +123,8 @@ export default function AddedProduct({
                             const hardwareLabel =
                               product.itemName && product.bcn
                                 ? String(product.subCategory || "").replace(product.bcn, product.itemName)
-                                : (product.itemName || product.subCategory);
+                                : (product.itemName || product.subCategory || product.productCategory);
+                            const hasHardwareBcn = Boolean(product.bcn);
 
                             return (
                             <TableRow key={product.id || product.collectionBrand}>
@@ -151,10 +152,25 @@ export default function AddedProduct({
 
                                 {/* Display Name */}
                                 <TableCell>
-                                {isHardware
-                                    ? <div className="flex flex-col gap-1">{product.productCategory}<Badge variant={"outline"}>{hardwareLabel}</Badge></div>
-                                    : isVAS ? <div className="flex flex-col gap-1">{product.productCategory}<Badge variant={"outline"}>{product.subCategory} -&gt; {product.VasType}</Badge></div> 
-                                    : product.collectionBrand}
+                                {isHardware ? (
+                                  hasHardwareBcn ? (
+                                    <div className="flex flex-col gap-1">
+                                      <span className="font-medium">{product.bcn}</span>
+                                      {product.itemName ? (
+                                        <span className="text-xs text-muted-foreground">{product.itemName}</span>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    <span>{hardwareLabel}</span>
+                                  )
+                                ) : isVAS ? (
+                                  <div className="flex flex-col gap-1">
+                                    {product.productCategory}
+                                    <Badge variant={"outline"}>{product.subCategory} -&gt; {product.VasType}</Badge>
+                                  </div>
+                                ) : (
+                                  product.collectionBrand
+                                )}
                                 </TableCell>
 
                                 {/* Details Column */}
@@ -190,10 +206,11 @@ export default function AddedProduct({
                                 {/* Description */}
                                 <TableCell>
                                 {isHardware ? (
-                                    <>
-                                    {product.type || hardwareLabel}
-                                    {product.bcn ? ` (BCN: ${product.bcn})` : ""}
-                                    </>
+                                  hasHardwareBcn ? (
+                                    <>{hardwareLabel || product.type}</>
+                                  ) : (
+                                    <>{product.itemName || "-"}</>
+                                  )
                                 ) : isVAS ? (
                                   <>
                                   {product.productCategory}

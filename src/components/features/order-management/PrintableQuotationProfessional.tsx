@@ -63,24 +63,33 @@ export function PrintableQuotationProfessional({ values, creatorName, salesmanNa
     };
 
     const calculatedItems = (values.items || []).map(item => {
-        const amount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
-        const discountAmount = amount * ((Number(item.discountPercent) || 0) / 100);
         const taxRate = resolveTaxRate(item);
-        const grossAfterDiscount = amount - discountAmount;
-        const taxableAmount = taxRate > 0 ? grossAfterDiscount / (1 + taxRate / 100) : grossAfterDiscount;
-        const taxAmount = grossAfterDiscount - taxableAmount;
-        const finalAmount = grossAfterDiscount;
-        return { ...item, amount, discountAmount, taxableAmount, taxAmount, finalAmount, taxRate };
+        const rawRate = Number(item.rate) || 0;
+        const gstMode = (item as any)?.gstMode === "EXCL" ? "EXCL" : "INCL";
+        const storedExclusive = Number((item as any)?.exclusiveRate);
+        const exclusiveRate =
+            Number.isFinite(storedExclusive) && storedExclusive > 0
+                ? storedExclusive
+                : gstMode === "EXCL" || taxRate === 0
+                ? rawRate
+                : rawRate / (1 + taxRate / 100);
+        const amount = (Number(item.quantity) || 0) * exclusiveRate;
+        const discountAmount = amount * ((Number(item.discountPercent) || 0) / 100);
+        const taxableAmount = amount - discountAmount;
+        const taxAmount = taxableAmount * (taxRate / 100);
+        const finalAmount = taxableAmount + taxAmount;
+        return { ...item, amount, discountAmount, taxableAmount, taxAmount, finalAmount, taxRate, exclusiveRate };
     });
 
     const calculatedVas = (values.vasDetails || []).map(vas => {
-        const amount = (Number(vas.quantity) || 0) * (Number(vas.rate) || 0);
+        const exclusiveRate = Number((vas as any).exclusiveRate ?? vas.rate) || 0;
+        const amount = (Number(vas.quantity) || 0) * exclusiveRate;
         const taxRate = resolveTaxRate(vas);
         // VAS uses exclusive GST: add tax on top of rate
         const taxableAmount = amount;
         const taxAmount = taxableAmount * (taxRate / 100);
         const finalAmount = taxableAmount + taxAmount;
-        return { ...vas, amount, taxableAmount, taxAmount, finalAmount, taxRate };
+        return { ...vas, amount, taxableAmount, taxAmount, finalAmount, taxRate, exclusiveRate };
     });
     
     const allItems = [...calculatedItems, ...calculatedVas];
@@ -171,7 +180,9 @@ export function PrintableQuotationProfessional({ values, creatorName, salesmanNa
                                         <td style={{ padding: '6px', border: '1px solid #ddd' }}>{'vasName' in item ? item.vasName : item.collectionBrand}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{Number(item.quantity).toFixed(2)}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'left' }}>MTRS</td>
-                                        <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(Number(item.rate))}</td>
+                                        <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>
+                                            {formatToINR(Number((item as any).exclusiveRate ?? item.rate))}
+                                        </td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR(item.amount)}</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{formatToINR((item as CalculatedItem).discountAmount || 0)}<br/>@{(Number((item as CalculatedItem).discountPercent) || 0).toFixed(2)}%</td>
                                         <td style={{ padding: '6px', border: '1px solid #ddd', textAlign: 'right' }}>{item.taxRate.toFixed(2)}%</td>

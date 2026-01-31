@@ -32,58 +32,60 @@ import { Badge } from "@/components/ui/badge";
 import { importStockData } from "@/app/dashboard/inventory/actions";
 
 /**
- * ✅ Updated Inventory Row Type (matches latest headers)
+ * Updated Inventory Row Type (matches latest headers)
  * If you already updated Stock type in "@/lib/types", you can remove this and use Stock.
  */
 export type InventoryItem = {
   id?: string;
   bcn: string;
+  productId?: string;
+  bcnDigits?: string;
+  name?: string;
   itemName?: string;
-
-  categoryGroup?: string;
   category?: string;
+  categoryGroup?: string;
+  isService?: boolean;
   unit?: string;
-  type?: string;
-
-  width?: number;
-
-  moCollection?: string;
-  moCollectionCode?: string;
-
-  maxlevel?: number;
-  closingStock?: number;
-
-  supplierCompanyName?: string;
-  supplierCollectionCode?: string;
-
-  composition?: string;
-  martindale?: number;
-  weightGsm?: number;
-
-  horizontalRepeatCms?: number;
-  verticalRepeatCms?: number;
-
+  verticalRepeatCms?: number | string;
+  horizontalRepeatCms?: number | string;
   costPriceRs?: number;
-  costMultiplierRs?: number;
   rrpWithGstRs?: number;
+  hsnOrSac?: string;
+  gstPercent?: number;
+  supplierCompanyName?: string;
+  supplierCollectionName?: string;
+  supplierCollectionCode?: string;
+  totalQty?: number;
+  availableQty?: number;
+  reservedQty?: number;
+  damagedQty?: number;
+  cutQty?: number;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 const money = (v: any) => {
   const n = Number(v);
-  if (!Number.isFinite(n)) return "—";
-  return `₹${n.toLocaleString("en-IN")}`;
+  if (!Number.isFinite(n)) return "-";
+  return `Rs ${n.toLocaleString("en-IN")}`;
 };
 
 const num = (v: any) => {
   const n = Number(v);
-  if (!Number.isFinite(n)) return "—";
+  if (!Number.isFinite(n)) return "-";
   return n.toLocaleString("en-IN");
 };
 
 export function StockTableClient({ initialData }: { initialData: InventoryItem[] }) {
-  const [stock, setStock] = React.useState<InventoryItem[]>(initialData);
+  const withNames = initialData.map((item) => ({
+    ...item,
+    name: item.name || item.itemName || "",
+  }));
+  const [stock, setStock] = React.useState<InventoryItem[]>(withNames);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
+  const [globalFilter, setGlobalFilter] = React.useState("");
   const [isImporting, setIsImporting] = React.useState(false);
 
   const { role } = useAuth();
@@ -93,7 +95,12 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
   const isAuthorized = role === "admin";
 
   React.useEffect(() => {
-    setStock(initialData);
+    setStock(
+      initialData.map((item) => ({
+        ...item,
+        name: item.name || item.itemName || "",
+      }))
+    );
   }, [initialData]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -150,9 +157,8 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
 
   const columns: ColumnDef<InventoryItem>[] = [
     { accessorKey: "bcn", header: "BCN" },
-
     {
-      accessorKey: "itemName",
+      accessorKey: "name",
       header: ({ column }) => (
         <Button
           variant="ghost"
@@ -163,79 +169,48 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
-      cell: ({ row }) => <div className="font-medium">{row.getValue("itemName") || "—"}</div>,
+      cell: ({ row }) => <div className="font-medium">{row.getValue("name") || "-"}</div>,
     },
-
-    {
-      accessorKey: "categoryGroup",
-      header: "Category Group",
-      cell: ({ row }) => {
-        const v = row.getValue("categoryGroup") as string;
-        return v ? <Badge variant="outline" className="capitalize">{v}</Badge> : "—";
-      },
-    },
-
     {
       accessorKey: "category",
       header: "Category",
       cell: ({ row }) => {
         const v = row.getValue("category") as string;
-        return v ? <Badge variant="secondary" className="capitalize">{v}</Badge> : "—";
+        return v ? <Badge variant="secondary" className="uppercase">{v}</Badge> : "-";
       },
     },
-
-    { accessorKey: "unit", header: "Unit", cell: ({ row }) => row.getValue("unit") || "—" },
-    { accessorKey: "type", header: "Type", cell: ({ row }) => row.getValue("type") || "—" },
-
     {
-      accessorKey: "width",
-      header: "Width",
-      cell: ({ row }) => num(row.getValue("width")),
-    },
-
-    { accessorKey: "moCollection", header: "MO Collection", cell: ({ row }) => row.getValue("moCollection") || "—" },
-    { accessorKey: "moCollectionCode", header: "MO Collection Code", cell: ({ row }) => row.getValue("moCollectionCode") || "—" },
-
-    {
-      accessorKey: "maxlevel",
-      header: "Max Level",
-      cell: ({ row }) => num(row.getValue("maxlevel")),
-    },
-
-    {
-      accessorKey: "closingStock",
-      header: "Closing Stock",
+      accessorKey: "categoryGroup",
+      header: "Category Group",
       cell: ({ row }) => {
-        const cs = Number(row.getValue("closingStock"));
-        const mx = Number(row.original?.maxlevel ?? 0);
-
-        const isLow = Number.isFinite(cs) && Number.isFinite(mx) && mx > 0 && cs <= mx;
-
-        return (
-          <div className="flex items-center gap-2">
-            <span className={isLow ? "font-semibold text-red-600" : "font-medium"}>
-              {Number.isFinite(cs) ? cs : "—"}
-            </span>
-            {isLow ? <Badge variant="destructive">Low</Badge> : null}
-          </div>
-        );
+        const v = row.getValue("categoryGroup") as string;
+        return v ? <Badge variant="outline" className="uppercase">{v}</Badge> : "-";
       },
     },
-
-    { accessorKey: "supplierCompanyName", header: "Supplier", cell: ({ row }) => row.getValue("supplierCompanyName") || "—" },
-    { accessorKey: "supplierCollectionCode", header: "Supplier Collection Code", cell: ({ row }) => row.getValue("supplierCollectionCode") || "—" },
-
-    { accessorKey: "composition", header: "Composition", cell: ({ row }) => row.getValue("composition") || "—" },
-
-    { accessorKey: "martindale", header: "Martindale", cell: ({ row }) => num(row.getValue("martindale")) },
-    { accessorKey: "weightGsm", header: "Weight (GSM)", cell: ({ row }) => num(row.getValue("weightGsm")) },
-
+    { accessorKey: "unit", header: "Unit", cell: ({ row }) => row.getValue("unit") || "-" },
+    { accessorKey: "totalQty", header: "Total Qty", cell: ({ row }) => num(row.getValue("totalQty")) },
+    { accessorKey: "availableQty", header: "Available", cell: ({ row }) => num(row.getValue("availableQty")) },
+    { accessorKey: "reservedQty", header: "Reserved", cell: ({ row }) => num(row.getValue("reservedQty")) },
+    { accessorKey: "damagedQty", header: "Damaged", cell: ({ row }) => num(row.getValue("damagedQty")) },
+    { accessorKey: "cutQty", header: "Cut", cell: ({ row }) => num(row.getValue("cutQty")) },
+    { accessorKey: "supplierCompanyName", header: "Supplier", cell: ({ row }) => row.getValue("supplierCompanyName") || "-" },
+    { accessorKey: "supplierCollectionName", header: "Collection", cell: ({ row }) => row.getValue("supplierCollectionName") || "-" },
+    { accessorKey: "supplierCollectionCode", header: "Collection Code", cell: ({ row }) => row.getValue("supplierCollectionCode") || "-" },
     { accessorKey: "horizontalRepeatCms", header: "H Repeat (cms)", cell: ({ row }) => num(row.getValue("horizontalRepeatCms")) },
     { accessorKey: "verticalRepeatCms", header: "V Repeat (cms)", cell: ({ row }) => num(row.getValue("verticalRepeatCms")) },
-
     { accessorKey: "costPriceRs", header: "Cost Price (Rs)", cell: ({ row }) => money(row.getValue("costPriceRs")) },
-    { accessorKey: "costMultiplierRs", header: "Cost Multiplier (Rs)", cell: ({ row }) => num(row.getValue("costMultiplierRs")) },
-    { accessorKey: "rrpWithGstRs", header: "RRP with GST (Rs)", cell: ({ row }) => money(row.getValue("rrpWithGstRs")) },
+    { accessorKey: "rrpWithGstRs", header: "RRP w/ GST (Rs)", cell: ({ row }) => money(row.getValue("rrpWithGstRs")) },
+    { accessorKey: "gstPercent", header: "GST %", cell: ({ row }) => num(row.getValue("gstPercent")) },
+    { accessorKey: "hsnOrSac", header: "HSN/SAC", cell: ({ row }) => row.getValue("hsnOrSac") || "-" },
+    { accessorKey: "productId", header: "Product ID", cell: ({ row }) => row.getValue("productId") || "-" },
+    {
+      accessorKey: "isActive",
+      header: "Active",
+      cell: ({ row }) => {
+        const active = row.getValue("isActive");
+        return <Badge variant={active ? "default" : "secondary"}>{active ? "Active" : "Inactive"}</Badge>;
+      },
+    },
   ];
 
   const table = useReactTable({
@@ -243,11 +218,12 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
     columns,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    state: { sorting, columnFilters },
+    state: { sorting, columnFilters, globalFilter },
   });
 
   const handleExport = () => {
@@ -261,26 +237,26 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
     const mapped = dataToExport.map((r) => ({
       id: r.id ?? "",
       bcn: r.bcn ?? "",
-      itemName: r.itemName ?? "",
+      name: r.name ?? "",
+      productId: r.productId ?? "",
       "Category group": r.categoryGroup ?? "",
       category: r.category ?? "",
       Unit: r.unit ?? "",
-      type: r.type ?? "",
-      Width: r.width ?? "",
-      "mo Collection": r.moCollection ?? "",
-      "mo Collection Code": r.moCollectionCode ?? "",
-      maxlevel: r.maxlevel ?? "",
-      "closing stock": r.closingStock ?? "",
+      totalQty: r.totalQty ?? "",
+      availableQty: r.availableQty ?? "",
+      reservedQty: r.reservedQty ?? "",
+      damagedQty: r.damagedQty ?? "",
+      cutQty: r.cutQty ?? "",
       "supplier company name": r.supplierCompanyName ?? "",
+      "supplier collection name": r.supplierCollectionName ?? "",
       "supplier collection code": r.supplierCollectionCode ?? "",
-      composition: r.composition ?? "",
-      martindale: r.martindale ?? "",
-      "weigth(gsm)": r.weightGsm ?? "",
       "Horizontal Repeat (cms)": r.horizontalRepeatCms ?? "",
       "Vertical Repeat (cms)": r.verticalRepeatCms ?? "",
       "Cost Price (Rs)": r.costPriceRs ?? "",
-      "Cost Multiplier (Rs)": r.costMultiplierRs ?? "",
       "RRP with GST (Rs)": r.rrpWithGstRs ?? "",
+      "GST %": r.gstPercent ?? "",
+      "HSN/SAC": r.hsnOrSac ?? "",
+      isActive: r.isActive ?? "",
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(mapped);
@@ -296,9 +272,9 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
       <CardContent className="p-4">
         <div className="flex items-center py-4 gap-4">
           <Input
-            placeholder="Filter by item name..."
-            value={(table.getColumn("itemName")?.getFilterValue() as string) ?? ""}
-            onChange={(event) => table.getColumn("itemName")?.setFilterValue(event.target.value)}
+            placeholder="Search by BCN or item name..."
+            value={globalFilter}
+            onChange={(event) => setGlobalFilter(event.target.value)}
             className="max-w-sm"
           />
 

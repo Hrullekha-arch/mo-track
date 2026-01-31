@@ -8,6 +8,7 @@ interface QuotationItem {
   salesDescription: string;
   quantity: number;
   rate: number;
+  exclusiveRate?: number;
   discountPercent: number;
   gstPercent: number;
   cgst: number;
@@ -15,6 +16,8 @@ interface QuotationItem {
   igst: number;
   subtotal: number;
   taxableAmt: number;
+  gstAmount?: number;
+  totalAmount?: number;
   hsnCode?: string;
 }
 
@@ -88,20 +91,32 @@ export async function buildAndFetchInvoicePayload(
     });
 
     // -------------------- FABRIC ITEMS --------------------
-    const fabricItems = (quotation.items || []).map((item, idx) => {
+    const rawNormalItems = Array.isArray(quotation.items) && quotation.items.length > 0
+      ? quotation.items
+      : ((quotation as any).sections?.NORMAL?.items || []);
+
+    const fabricItems = (rawNormalItems || []).map((item: any, idx: number) => {
+      const quantity = Number(item.quantity ?? item.qty) || 0;
+      const rate = Number(item.exclusiveRate ?? item.rate) || 0;
+      const taxableAmount = Number(item.taxableAmt ?? item.taxableAmount) || rate * quantity;
+      const cgst = Number(item.cgst) || 0;
+      const sgst = Number(item.sgst) || 0;
+      const igst = Number(item.igst) || 0;
+      const total = Number(item.totalAmount) || taxableAmount + cgst + sgst + igst;
+
       const mapped = {
-        name: item.salesDescription || item.collectionBrand,
-        bcn: item.collectionBrand,
-        hsn: item.hsnCode || "54076190",
-        quantity: Number(item.quantity) || 0,
+        name: item.salesDescription || item.description || item.collectionBrand || item.bcn,
+        bcn: item.collectionBrand || item.bcn || item.description,
+        hsn: item.hsnCode || item.hsn || "54076190",
+        quantity,
         uom: "Mtr" as const,
-        rate: Number(item.rate) || 0,
+        rate,
         discountPercent: Number(item.discountPercent) || 0,
-        taxableAmount: Number(item.taxableAmt) || 0,
-        cgst: Number(item.cgst) || 0,
-        sgst: Number(item.sgst) || 0,
-        igst: Number(item.igst) || 0,
-        total: Number(item.subtotal) || 0,
+        taxableAmount,
+        cgst,
+        sgst,
+        igst,
+        total,
       };
 
       console.log(`${LOG_PREFIX} 🧵 Fabric item mapped [${idx}]`, mapped);
@@ -109,10 +124,14 @@ export async function buildAndFetchInvoicePayload(
     });
 
     // -------------------- VAS ITEMS --------------------
-    const vasItems = (quotation.vasDetails || []).map((vas, idx) => {
-      const quantity = Number(vas.quantity) || 0;
+    const rawVasItems = Array.isArray(quotation.vasDetails) && quotation.vasDetails.length > 0
+      ? quotation.vasDetails
+      : ((quotation as any).sections?.VAS?.items || []);
+
+    const vasItems = (rawVasItems || []).map((vas: any, idx: number) => {
+      const quantity = Number(vas.quantity ?? vas.qty) || 0;
       const rate = Number(vas.rate) || 0;
-      const gstPercent = Number(vas.gstPercent) || 18;
+      const gstPercent = Number(vas.gstPercent ?? vas.gst) || 18;
 
       const amount = quantity * rate;
       const taxableAmount = amount;
@@ -122,9 +141,9 @@ export async function buildAndFetchInvoicePayload(
       const total = taxableAmount + totalGst;
 
       const mapped = {
-        name: vas.vasName,
-        bcn: `VAS-${vas.vasName}`,
-        hsn: vas.hsnCode || "998819",
+        name: vas.vasName || vas.description,
+        bcn: `VAS-${vas.vasName || vas.description || "SERVICE"}`,
+        hsn: vas.hsnCode || vas.hsn || "998819",
         quantity,
         uom: "Pcs" as const,
         rate,

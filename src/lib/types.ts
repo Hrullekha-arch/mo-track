@@ -135,8 +135,143 @@ export interface VasDetail {
     igst?: number;
 }
 
+export type OrderWorkflowStatus =
+  | "CREATED"
+  | "ALLOCATING"
+  | "ALLOCATED"
+  | "IN_PRODUCTION"
+  | "READY"
+  | "DISPATCHED"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export type OrderWorkflowMilestoneStatus = "PENDING" | "DONE" | "SKIPPED";
+
+export interface OrderWorkflowMilestone {
+  key: string;
+  label: string;
+  status: OrderWorkflowMilestoneStatus;
+  at?: string;
+  by?: { id?: string; name?: string };
+  note?: string;
+}
+
+export interface OrderWorkflow {
+  status: OrderWorkflowStatus;
+  milestones: OrderWorkflowMilestone[];
+}
+
+export interface OrderAllocationLength {
+  stockItemId?: string;
+  lengthId?: string;
+  warehouseId?: string;
+  rack?: string;
+  allocatedQty?: number;
+  unit?: string;
+  reservedAt?: string;
+  reservedBy?: { id?: string; name?: string };
+}
+
+export interface OrderAllocationLot {
+  warehouseId?: string;
+  allocatedQty?: number;
+  unit?: string;
+  reservedAt?: string;
+  reservedBy?: { id?: string; name?: string };
+}
+
+export interface OrderAllocation {
+  status?: "PENDING" | "PARTIAL" | "ALLOCATED" | "FAILED";
+  lengths?: OrderAllocationLength[];
+  lots?: OrderAllocationLot[];
+  note?: string;
+}
+
+export interface OrderItem {
+  roomName?: string;
+  type?: string;
+  category?: string;
+  itemId?: string;
+  bcn?: string;
+  description?: string;
+  unit?: string;
+  rate?: number;
+  exclusiveRate?: number;
+  qty?: number;
+  gst?: number;
+  hsn?: string;
+  group?: string;
+  taxableAmount?: number;
+  gstAmount?: number;
+  totalAmount?: number;
+  allocation?: OrderAllocation;
+}
+
+export interface OrderSectionSummary {
+  subTotal?: number;
+  gstTotal?: number;
+  grandTotal?: number;
+}
+
+export interface OrderSection {
+  items: OrderItem[];
+  summary?: OrderSectionSummary;
+}
+
+export interface OrderInvoicing {
+  status?: "NOT_INVOICED" | "PARTIALLY_INVOICED" | "INVOICED";
+  invoices?: Array<{
+    invoiceId?: string;
+    invoiceNo?: string;
+    invoiceType?: "GOODS" | "VAS";
+    createdAt?: string;
+    amount?: number;
+  }>;
+  canCreateGoodsInvoice?: boolean;
+  canCreateVasInvoice?: boolean;
+}
+
+export interface OrderUpdate {
+  updatedAt: string;
+  updatedBy?: { id?: string; name?: string };
+  action?: string;
+  message?: string;
+}
+
 export interface Order {
   id: string; // This can also be the tracking code
+  orderId?: string;
+  orderNo?: string;
+  quotationId?: string;
+  quotationNo?: string;
+  customerSnapshot?: {
+    name?: string;
+    phone?: string;
+    gstin?: string;
+    billingAddress?: CustomerAddress;
+    shippingAddress?: CustomerAddress;
+  };
+  dealSnapshot?: {
+    dealCode?: string;
+    title?: string;
+  };
+  quotationSnapshotMeta?: {
+    createdAt?: string;
+    validTill?: string;
+    statusAtConversion?: string;
+  };
+  sections?: {
+    NORMAL?: OrderSection;
+    VAS?: OrderSection;
+  };
+  overallSummary?: {
+    goodsTotal?: number;
+    vasTotal?: number;
+    grandTotal?: number;
+  };
+  workflow?: OrderWorkflow;
+  invoicing?: OrderInvoicing;
+  updates?: OrderUpdate[];
   crmOrderNo: string;
   customerName: string;
   customerPhone: string;
@@ -241,6 +376,7 @@ export interface PurchaseRequest {
 export interface InboundItem {
     itemName: string;
     quantity: string;
+    receivedQty?: string;
     unit: 'Mtr' | 'Pcs';
     poNumber?: string;
     inboundMilestones: InboundMilestone[];
@@ -287,26 +423,87 @@ export interface PurchaseStep {
 }
 
 export interface Stock {
-  id: string; // Document ID of the length, e.g. "Length1"
-  bcn: string; // The BCN, which is the parent document's ID
-  itemName: string;
-  serialNo?: string;
-  hsnCode?: string;
+  id: string; // Document ID (BCN for master, or lengthId for length)
+
+  // Master identity
+  itemId?: string;
+  productId?: string;
+  bcn: string;
+  bcnDigits?: string;
+  name?: string;
+  itemName?: string; // legacy display name
+
+  // Classification
+  category?: string;
+  categoryGroup?: string;
+  isService?: boolean;
+  type?: string; // legacy
+
+  // Tax/price
+  costPriceRs?: number;
+  rrpWithGstRs?: number;
+  hsnOrSac?: string;
+  gstPercent?: number;
+  hsnCode?: string; // legacy
+  mrp?: number; // legacy
+  tax?: number; // legacy
   rlPrice?: number;
   clPrice?: number;
-  mrp?: number;
-  tax?: number;
-  category?: string;
-  vendorName?: string;
-  quantity: number; // Original length of this roll/piece
-  availableQty: number; // Available length = quantity - reservedQty
-  reservedQty: number; // Reserved for orders but not yet cut
-  cutQty: number; // Physically cut from this roll
-  unit: string;
-  type: string;
-  lastUpdatedAt: string; // ISO Date
+
+  // Vendor
+  supplierCompanyName?: string;
+  supplierCollectionName?: string;
+  supplierCollectionCode?: string;
+  vendorName?: string; // legacy
+
+  // Unit/spec
+  unit?: string;
+  verticalRepeatCms?: number | string;
+  horizontalRepeatCms?: number | string;
+
+  // Status + totals
+  isActive?: boolean;
+  totalQty?: number;
+  availableQty?: number;
+  reservedQty?: number;
+  damagedQty?: number;
+  cutQty?: number;
+  closingstock?: number; // legacy total
+  quantity?: number; // legacy total or length quantity
+  nextLengthNo?: number;
+
+  // Length (sub-doc)
+  lengthId?: string;
+  lengthNo?: number;
+  batchNo?: string;
+  warehouseId?: string;
+  originalLength?: number;
+  availableLength?: number;
   rack?: string;
-  status?: "available" | "on-hold";
+  status?: "AVAILABLE" | "RESERVED" | "CUT" | "CONSUMED" | "DAMAGED" | "available" | "on-hold";
+  reservation?: {
+    orderId?: string;
+    orderNo?: string;
+    reservedQty?: number;
+    reservedAt?: string;
+    reservedBy?: string;
+  };
+  cutHistory?: Array<{
+    cutAt?: string;
+    cutBy?: string;
+    qty?: number;
+    remainingQty?: number;
+  }>;
+
+  // System
+  createdAt?: string;
+  updatedAt?: string;
+  lastUpdatedAt?: string;
+  receivedAt?: string;
+  lastUpdatedAtLength?: string;
+
+  // Misc legacy fields
+  serialNo?: string;
   poNumber?: string;
   salesman?: string;
 }
@@ -348,6 +545,9 @@ export interface StockTransaction {
   type: 'addition' | 'deduction';
   quantityChange: number;
   poNumber?: string;
+  batchNo?: string;
+  warehouseId?: string;
+  rack?: string;
   orderId?: string;
   lengths?: number[];
   lastLength?: number;
@@ -360,24 +560,66 @@ export interface StockTransaction {
   cutHistory?: StockTransaction[];
 }
 
+export interface CustomerAddress {
+    line1?: string;
+    line2?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+}
+
+export interface CustomerStats {
+    totalVisits: number;
+    totalQuotations: number;
+    approvedQuotations: number;
+    totalOrders: number;
+    completedOrders: number;
+    totalInvoicedAmount: number;
+    totalPaidAmount: number;
+    totalPendingAmount: number;
+    lastVisitDate?: string | null;
+    lastOrderDate?: string | null;
+    lastInvoiceDate?: string | null;
+}
+
+export interface CustomerRecent {
+    visits: Array<{ visitId?: string; visitNo?: string; date?: string; status?: string }>;
+    quotations: Array<{ quotationId?: string; quotationNo?: string; amount?: number; status?: string }>;
+    orders: Array<{ orderId?: string; orderNo?: string; amount?: number; status?: string }>;
+}
+
 export interface Customer {
     id: string;
+    customerId: string;
+    customerCode?: string;
     name: string;
-    mobileNo: string;
+    phone: string;
     email?: string;
-    architect?: string;
+    gstin?: string;
+    isGstRegistered?: boolean;
+    billingAddress?: CustomerAddress;
+    shippingAddress?: CustomerAddress;
+    customerType?: string;
+    tags?: string[];
+    assignedSalesPerson?: { id?: string; name?: string };
+    stats?: CustomerStats;
+    recent?: CustomerRecent;
+    status?: string;
+    createdAt: string;
+    lastUpdatedAt?: string;
+
+    // Legacy fields (to be removed after migration)
+    mobileNo?: string;
     salesSupport?: string;
+    addressPinCode?: string;
     landmark?: string;
     city?: string;
     state?: string;
-    addressPinCode?: string;
-    gstin?: string;
     panNo?: string;
     referenceName?: string;
     sourceOfCustomer?: string;
     pinCode?: string;
-    createdAt: string;
-    createdBy: string;
+    createdBy?: string;
     savedAddresses?: Array<{ address: string; landmark?: string }>;
 }
 
@@ -386,6 +628,7 @@ export interface DealProduct {
     productType?: string;
     productCategory?: string;
     collectionBrand: string;
+    bcn?: string;
     serialNo?: string;
     itemName?: string;
     salesDescription?: string;
@@ -399,6 +642,62 @@ export interface DealProduct {
     stitchingType?: "in" | "out";
     file?: any;
     rate?: number; // Added from another request, seems useful
+    productSource?: string;
+    subCategory?: string;
+    VasType?: string;
+    verticalRepeat?: string;
+    horizontalRepeat?: string;
+    unit?: string;
+    gstPercent?: number;
+    hsnOrSac?: string;
+    hsnCode?: string;
+    supplierCompanyName?: string;
+    supplierCollectionName?: string;
+    supplierCollectionCode?: string;
+    category?: string;
+    categoryGroup?: string;
+    productId?: string;
+    group?: string;
+}
+
+export interface DealProductItem {
+    roomName?: string;
+    type?: string;
+    category?: string;
+    bcn?: string;
+    description?: string;
+    unit?: string;
+    rate?: number;
+    qty?: number;
+    gst?: number;
+    hsn?: string;
+    group?: string;
+    itemName?: string;
+    meta?: Record<string, any>;
+}
+
+export interface DealProductSection {
+    items: DealProductItem[];
+}
+
+export interface DealProductsDoc {
+    dealProductId: string;
+    dealId: string;
+    customerId: string;
+    sections: {
+        NORMAL?: DealProductSection;
+        VAS?: DealProductSection;
+    };
+    status?: "DRAFT" | "FINALIZED" | "CONVERTED" | string;
+    updates?: Array<{
+        updatedAt: string;
+        updatedBy?: { id?: string; name?: string };
+        action?: string;
+        message?: string;
+    }>;
+    createdAt?: string;
+    updatedAt?: string;
+    createdBy?: string;
 }
 
 export interface DeliveryInstallationItem {
@@ -406,14 +705,79 @@ export interface DeliveryInstallationItem {
     noOfPcs?: string;
 }
 
+export interface VisitAssignee {
+    id?: string;
+    name?: string;
+    role?: string;
+}
+
+export interface VisitAssignmentSlot {
+    date?: string;     // YYYY-MM-DD
+    timeFrom?: string; // HH:mm
+    timeTo?: string;   // HH:mm
+}
+
+export interface VisitAssignment {
+    assignedTo?: VisitAssignee;
+    assignedAt?: string;
+    slot?: VisitAssignmentSlot;
+}
+
+export interface VisitLocation {
+    address?: string;
+    latitude?: number;
+    longitude?: number;
+}
+
+export interface VisitUpdateLog {
+    updatedAt: string;
+    updatedBy?: {
+        id?: string;
+        name?: string;
+    };
+    action?: string;
+    message?: string;
+}
+
+export interface VisitCustomerSnapshot {
+    id?: string;
+    name?: string;
+    phone?: string;
+    address?: string;
+    customerType?: string;
+}
+
+export interface VisitDealSnapshot {
+    dealCode?: string;
+    title?: string;
+}
+
 export interface DealVisit {
     id: string;
-    dealId: string; // The 4-digit numeric deal ID
+    visitId?: string;
+    visitNo?: string;
+    customerId?: string;
+    dealId: string; // The 4-digit numeric deal ID (or deal doc ID legacy)
+    customerSnapshot?: VisitCustomerSnapshot;
+    dealSnapshot?: VisitDealSnapshot;
+    assignedSalesPerson?: VisitAssignee;
+    visitType?: string;
+    purpose?: string;
+    assignment?: VisitAssignment;
+    location?: VisitLocation;
+    status?: string;
+    cancelReason?: string;
+    measurementId?: string;
+    nextVisitId?: string;
+    updates?: VisitUpdateLog[];
+    createdAt: string; // ISO string
+    updatedAt?: string;
+    createdBy: string;
+
+    // Legacy fields (kept for backward compatibility)
     representative: string;
     typeOfVisit: string;
     dueDate?: string; // ISO string, now optional on creation
-    createdAt: string; // ISO string
-    createdBy: string;
     assignedTo?: string; // Installer User ID
     selectionId?: string; // Link to a pre-made selection
     // Measurement fields
@@ -540,14 +904,54 @@ export interface Cpd {
   createdBy: string;
 }
 
+export interface DealCustomerSnapshot {
+    id: string;
+    name: string;
+    phone: string;
+    customerType?: string;
+}
+
+export interface DealDates {
+    createdAt?: string;
+    firstVisitDate?: string;
+    measurementDate?: string;
+    quotationDate?: string;
+    orderDate?: string;
+    closedDate?: string;
+}
+
+export interface DealRecent {
+    visits: Array<{ visitId?: string; visitNo?: string; status?: string; date?: string }>;
+    quotations: Array<{ quotationId?: string; quotationNo?: string; amount?: number; status?: string }>;
+    orders: Array<{ orderId?: string; orderNo?: string; amount?: number; status?: string }>;
+}
+
 export interface Deal {
     id: string; // Firestore document ID
-    dealId: string; // 4-digit numeric ID
-    dealName: string;
-    dealAmount: number;
-    representativeId: string;
-    description: string;
-    createdAt: string; // ISO string
+    dealId: string; // 4-digit numeric ID (same as doc id)
+    dealCode?: string;
+    customer?: DealCustomerSnapshot;
+    title?: string;
+    description?: string;
+    dealType?: string;
+    dealSource?: string;
+    assignedSalesPerson?: { id?: string; name?: string };
+    handleByCmr?: { id?: string; name?: string };
+    expectedValue?: number;
+    actualQuotationValue?: number;
+    actualOrderValue?: number;
+    status?: string;
+    lostReason?: string;
+    dates?: DealDates;
+    recent?: DealRecent;
+    lastUpdatedAt?: string;
+
+    // Legacy fields (to be removed after migration)
+    dealName?: string;
+    dealAmount?: number;
+    representativeId?: string;
+    createdAt?: string; // ISO string
+    customerId?: string;
     products?: DealProduct[];
     visits?: DealVisit[];
     measurements?: DealMeasurement[];
@@ -563,13 +967,17 @@ export interface QuotationItem {
   salesDescription: string;
   quantity: number;
   rate: number;
+  exclusiveRate?: number;
   discountPercent?: number;
   amount?: number;
   room?: string;
   remark?: string;
   gstPercent?: number;
+  gstMode?: "EXCL" | "INCL";
   hsnCode?: string;
   taxableAmt?: number;
+  gstAmount?: number;
+  totalAmount?: number;
   cgst?: number;
   sgst?: number;
   igst?: number;
@@ -631,6 +1039,23 @@ export interface InvoiceBatchItem {
     stockSoldId?: string;
 }
 
+export interface InvoiceLineItem {
+    name?: string;
+    itemName?: string;
+    bcn?: string;
+    hsn?: string;
+    quantity?: number;
+    quantityAllocated?: number;
+    rate?: number;
+    discountPercent?: number;
+    taxableAmount?: number;
+    cgst?: number;
+    sgst?: number;
+    igst?: number;
+    total?: number;
+    uom?: string;
+}
+
 export interface InvoiceBatch {
     id: string;
     orderId: string;
@@ -652,26 +1077,105 @@ export interface InvoiceBatch {
 export interface Invoice {
     id: string; // Firestore document ID
     invoiceNo: string; // e.g. MOTRACK-INV-1234
+    invoiceId?: string;
+    invoiceType?: "NORMAL" | "VAS" | "MIXED";
+    invoiceDate?: string;
     orderId: string;
+    orderNo?: string;
+    customerId?: string;
     tallyBillNo?: string;
     tallyVoucherNo?: string;
     isVas?: boolean;
+    status?: "ISSUED" | "CANCELLED" | "VOID";
+    isLocked?: boolean;
+    sellerSnapshot?: {
+      companyName?: string;
+      address?: string;
+      gstin?: string;
+    };
+    customerSnapshot?: {
+      name?: string;
+      phone?: string;
+      address?: string;
+      gstin?: string;
+    };
+    sections?: {
+      NORMAL?: {
+        items: Array<{
+          roomName?: string;
+          type?: string;
+          bcn?: string;
+          description?: string;
+          unit?: string;
+          rate?: number;
+          qty?: number;
+          gst?: number;
+          hsn?: string;
+          group?: string;
+          taxableAmount?: number;
+          gstAmount?: number;
+          totalAmount?: number;
+          allocationRef?: {
+            lengthId?: string;
+            stockItemId?: string;
+          };
+        }>;
+        summary?: {
+          subTotal?: number;
+          gstTotal?: number;
+          grandTotal?: number;
+        };
+      };
+      VAS?: {
+        items: Array<{
+          roomName?: string;
+          type?: "VAS" | string;
+          description?: string;
+          unit?: string;
+          rate?: number;
+          qty?: number;
+          gst?: number;
+          hsn?: string;
+          group?: string;
+          taxableAmount?: number;
+          gstAmount?: number;
+          totalAmount?: number;
+        }>;
+        summary?: {
+          subTotal?: number;
+          gstTotal?: number;
+          grandTotal?: number;
+        };
+      };
+    };
+    overallSummary?: {
+      goodsTotal?: number;
+      vasTotal?: number;
+      grandTotal?: number;
+    };
+    taxSummary?: {
+      NORMAL?: { cgst?: number; sgst?: number; igst?: number };
+      VAS?: { cgst?: number; sgst?: number; igst?: number };
+    };
+    payment?: Record<string, any>;
     customer: {
         name: string;
         phone: string;
         address: string;
     };
     salesPerson: string;
-    items: InvoiceBatchItem[];
+    items: InvoiceLineItem[];
     totals: {
         subTotal: number;
-        totalDiscount: number;
+        discount?: number;
+        totalDiscount?: number;
         taxableValue: number;
         cgst: number;
         sgst: number;
         igst: number;
         roundOff: number;
         grandTotal: number;
+        totalGst?: number;
     };
     gstPercentages?: {
         cgst: number;
@@ -764,11 +1268,8 @@ export interface CuttingTask {
 
 export interface TaxDetail {
     id: string; // Firestore document ID
-    hsnCode: string;
-    gst: number;
-    cgst: number;
-    sgst: number;
-    igst: number;
+    hsnOrSac: string;
+    gstPercent: number;
 }
 
 export interface Receipt {

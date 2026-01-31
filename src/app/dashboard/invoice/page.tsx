@@ -1,332 +1,620 @@
 "use client";
 
 import * as React from "react";
-import {
-  ColumnDef,
-  flexRender,
-  getCoreRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  useReactTable,
-  SortingState,
-  RowSelectionState,
-} from "@tanstack/react-table";
-import { ArrowUpDown, ChevronRight, Loader2, FileText, Printer, CheckCircle, XCircle, Combine } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Card, CardContent } from "@/components/ui/card";
-import { collection, onSnapshot, query, getDocs, doc, writeBatch, where, orderBy, limit, increment, collectionGroup, getDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, getDocs, doc, writeBatch, limit, increment } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { Invoice, Order } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { format } from "date-fns";
-import { InvoiceBatch, Order, Invoice, CuttingTask, StockTransaction } from "@/lib/types";
+import { useAuth } from "@/context/AuthContext";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PrintableInvoice, PrintableInvoicePayload } from "@/components/features/invoice/PrintableInvoice";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from "@/components/ui/alert-dialog";
+import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
+import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { useAuth } from "@/context/AuthContext";
-import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
-import { sendInvoiceToTally } from "@/services/tally";
+import { FileText, Loader2, Printer } from "lucide-react";
 
-interface QuotationItem {
-  collectionBrand: string;
-  salesDescription: string;
-  quantity: number;
-  rate: number;
-  discountPercent: number;
-  gstPercent: number;
-  cgst: number;
-  sgst: number;
-  igst: number;
-  subtotal: number;
-  taxableAmt: number;
-  room?: string;
-}
+const normalizeKey = (value?: string) =>
+  String(value || "")
+    .split(" - ")[0]
+    .trim()
+    .toLowerCase();
 
-interface QuotationData {
-  billingName: string;
-  billingAddress: string;
-  company: string;
-  customerName: string;
-  items: QuotationItem[];
-}
-const num = (v: any) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+const num = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const computeVasTax = (taxable: number, gstPercent: number) => {
-  const tax = taxable * (gstPercent / 100);
-  return {
-    cgst: tax / 2,
-    sgst: tax / 2,
-    igst: 0,
-    total: taxable + tax,
+const stripUndefinedDeep = (value: any): any => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (Array.isArray(value)) {
+    const cleaned = value
+      .map((entry) => stripUndefinedDeep(entry))
+      .filter((entry) => entry !== undefined);
+    return cleaned;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value)
+      .map(([key, entry]) => [key, stripUndefinedDeep(entry)])
+      .filter(([, entry]) => entry !== undefined);
+    return Object.fromEntries(entries);
+  }
+  return value;
+};
+
+type InvoiceLineItem = {
+  roomName?: string;
+  type?: string;
+  bcn?: string;
+  description?: string;
+  unit?: string;
+  rate?: number;
+  qty?: number;
+  gst?: number;
+  hsn?: string;
+  group?: string;
+  taxableAmount?: number;
+  gstAmount?: number;
+  totalAmount?: number;
+  allocationRef?: {
+    lengthId?: string;
+    stockItemId?: string;
   };
 };
 
+type InvoiceCandidate = {
+  order: Order;
+  normalItems: InvoiceLineItem[];
+  vasItems: InvoiceLineItem[];
+  normalSummary: { subTotal: number; gstTotal: number; grandTotal: number };
+  vasSummary: { subTotal: number; gstTotal: number; grandTotal: number };
+  overallSummary: { goodsTotal: number; vasTotal: number; grandTotal: number };
+  taxSummary: {
+    NORMAL: { cgst: number; sgst: number; igst: number };
+    VAS: { cgst: number; sgst: number; igst: number };
+  };
+};
 
-function GenerateInvoiceDialog({
-  isOpen,
-  onClose,
-  batches,
-  orders,
-  creator,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  batches: InvoiceBatch[];
-  orders: Order[];
-  creator: { id: string; name: string } | null;
-}) {
-  const [normalPayload, setNormalPayload] = React.useState<PrintableInvoicePayload | null>(null);
-  const [vasPayload, setVasPayload] = React.useState<PrintableInvoicePayload | null>(null);
-  const [isGenerating, setIsGenerating] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+const summarizeItems = (items: InvoiceLineItem[]) =>
+  items.reduce(
+    (acc, item) => {
+      acc.subTotal += num(item.taxableAmount);
+      acc.gstTotal += num(item.gstAmount);
+      acc.grandTotal += num(item.totalAmount);
+      return acc;
+    },
+    { subTotal: 0, gstTotal: 0, grandTotal: 0 }
+  );
 
-  const { toast } = useToast();
+const buildTaxSummary = (items: InvoiceLineItem[]) => {
+  const totals = items.reduce(
+    (acc, item) => {
+      const gst = num(item.gstAmount);
+      acc.cgst += gst / 2;
+      acc.sgst += gst / 2;
+      acc.igst += 0;
+      return acc;
+    },
+    { cgst: 0, sgst: 0, igst: 0 }
+  );
+  return totals;
+};
 
-  /* ================= FETCH + BUILD ================= */
-  React.useEffect(() => {
-    if (!isOpen || !orders.length) {
-      setNormalPayload(null);
-      setVasPayload(null);
+const sumQtyByKey = (
+  items: Array<any>,
+  getKey: (item: any) => string,
+  getQty: (item: any) => number
+) => {
+  return items.reduce((map, item) => {
+    const key = getKey(item);
+    if (!key) return map;
+    map.set(key, num(map.get(key)) + num(getQty(item)));
+    return map;
+  }, new Map<string, number>());
+};
+
+const computeInvoicingStatus = (order: Order, invoices: Invoice[]) => {
+  const orderNormalItems = order.sections?.NORMAL?.items || [];
+  const orderVasItems = order.sections?.VAS?.items || [];
+
+  const orderedNormal = sumQtyByKey(
+    orderNormalItems,
+    (item) => normalizeKey(item.bcn || item.description || item.itemName),
+    (item) => num(item.qty)
+  );
+  const orderedVas = sumQtyByKey(
+    orderVasItems,
+    (item) => normalizeKey(item.description || item.bcn || item.itemName),
+    (item) => num(item.qty)
+  );
+
+  const invoicedNormal = new Map<string, number>();
+  const invoicedVas = new Map<string, number>();
+
+  invoices.forEach((invoice) => {
+    const hasSections = (invoice.sections?.NORMAL?.items?.length || 0) > 0 || (invoice.sections?.VAS?.items?.length || 0) > 0;
+    if (hasSections) {
+      (invoice.sections?.NORMAL?.items || []).forEach((item: any) => {
+        const key = normalizeKey(item.bcn || item.description || item.itemName);
+        invoicedNormal.set(key, num(invoicedNormal.get(key)) + num(item.qty ?? item.quantity));
+      });
+      (invoice.sections?.VAS?.items || []).forEach((item: any) => {
+        const key = normalizeKey(item.description || item.bcn || item.itemName);
+        invoicedVas.set(key, num(invoicedVas.get(key)) + num(item.qty ?? item.quantity));
+      });
       return;
     }
 
-    const fetchAndBuildPayload = async () => {
-      try {
-        const order = orders[0];
-        const quotationNo = order.crmOrderNo;
+    const targetMap =
+      invoice.invoiceType === "VAS" || invoice.isVas ? invoicedVas : invoicedNormal;
+    (invoice.items || []).forEach((item: any) => {
+      const key = normalizeKey(item.bcn || item.name || item.itemName || item.description);
+      targetMap.set(key, num(targetMap.get(key)) + num(item.quantity ?? item.quantityAllocated));
+    });
+  });
 
-        const snap = await getDocs(
-          query(
-            collectionGroup(db, "quotations"),
-            where("quotationNo", "==", quotationNo),
-            limit(1)
-          )
-        );
+  const hasInvoices = invoices.length > 0;
+  if (!hasInvoices) return "NOT_INVOICED";
 
-        if (snap.empty) throw new Error("Quotation not found");
+  const goodsRemaining = [...orderedNormal.entries()].some(
+    ([key, qty]) => num(invoicedNormal.get(key)) < qty
+  );
+  const vasRemaining = [...orderedVas.entries()].some(
+    ([key, qty]) => num(invoicedVas.get(key)) < qty
+  );
 
-        const q = snap.docs[0].data() as any;
+  return goodsRemaining || vasRemaining ? "PARTIALLY_INVOICED" : "INVOICED";
+};
 
-        const hasItems = q.items?.length > 0;
-        const hasVas = q.vasDetails?.length > 0;
+const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCandidate[] => {
+  const invoicesByOrder = invoices.reduce((acc, invoice) => {
+    const key = invoice.orderId;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(invoice);
+    return acc;
+  }, {} as Record<string, Invoice[]>);
 
-        /* ========== NORMAL ITEMS ========== */
-        if (hasItems) {
-          const items = q.items.map((i: any) => ({
-            name: i.salesDescription || i.collectionBrand,
-            bcn: i.collectionBrand,
-            hsn: "54076190",
-            quantity: num(i.quantity),
-            uom: "Mtr",
-            rate: num(i.rate),
-            discountPercent: num(i.discountPercent),
-            taxableAmount: num(i.taxableAmt),
-            cgst: num(i.cgst),
-            sgst: num(i.sgst),
-            igst: num(i.igst),
-            total: num(i.subtotal),
-          }));
+  return orders
+    .map((order) => {
+      const orderInvoices = invoicesByOrder[order.id] || [];
+      const invoicedQtyByBcn = new Map<string, number>();
+      const invoicedQtyByLength = new Map<string, number>();
+      let vasAlreadyInvoiced = false;
 
-          const totals = items.reduce(
-            (a, i) => {
-              a.subTotal += i.rate * i.quantity;
-              a.discount += (i.rate * i.quantity * i.discountPercent) / 100;
-              a.taxableValue += i.taxableAmount;
-              a.cgst += i.cgst;
-              a.sgst += i.sgst;
-              a.igst += i.igst;
-              return a;
-            },
-            { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
-          );
-
-          const gross = totals.taxableValue + totals.cgst + totals.sgst + totals.igst;
-          const rounded = Math.round(gross);
-
-          setNormalPayload({
-            meta: {
-              orderNo: order.id,
-              quotationNo,
-              invoiceDate: new Date().toISOString(),
-              isVas: false,
-              salesPerson: order.salesPerson,
-            },
-            customer: {
-              name: q.billingName || order.customerName,
-              phone: order.customerPhone,
-              address: q.billingAddress || order.customerAddress,
-            },
-            seller: {
-              companyName: "MO Designs Private Limited - (2024-2025)",
-              address: "A-6, Sushant Lok-1, Gurgaon",
-              gstin: "06AAMCM5012B1ZY",
-            },
-            items,
-            totals: {
-              ...totals,
-              roundOff: rounded - gross,
-              grandTotal: rounded,
-              totalGst: totals.cgst + totals.sgst + totals.igst,
-            },
-            gstBreakdown: [],
-          });
-        }
-
-        /* ========== VAS ITEMS ========== */
-        if (hasVas) {
-          const items = q.vasDetails.map((v: any) => {
-            const qty = num(v.quantity);
-            const rate = num(v.rate);
-            const taxable = qty * rate;
-            const gst = num(v.gstPercent || 18);
-            const tax = computeVasTax(taxable, gst);
-
-            return {
-              name: v.vasName,
-              bcn: `VAS-${v.vasName}`,
-              hsn: "998819",
-              quantity: qty,
-              uom: "Pcs",
-              rate,
-              discountPercent: 0,
-              taxableAmount: taxable,
-              cgst: tax.cgst,
-              sgst: tax.sgst,
-              igst: 0,
-              total: tax.total,
-            };
-          });
-
-          const totals = items.reduce(
-            (a, i) => {
-              a.subTotal += i.rate * i.quantity;
-              a.taxableValue += i.taxableAmount;
-              a.cgst += i.cgst;
-              a.sgst += i.sgst;
-              return a;
-            },
-            { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
-          );
-
-          const gross = totals.taxableValue + totals.cgst + totals.sgst;
-          const rounded = Math.round(gross);
-
-          setVasPayload({
-            meta: {
-              orderNo: order.id,
-              quotationNo,
-              invoiceDate: new Date().toISOString(),
-              isVas: true,
-              salesPerson: order.salesPerson,
-            },
-            customer: {
-              name: q.billingName || order.customerName,
-              phone: order.customerPhone,
-              address: q.billingAddress || order.customerAddress,
-            },
-            seller: {
-              companyName: "MO SPACES PVT.LTD.",
-              address: "A-6, Sushant Lok-1, Gurgaon",
-              gstin: "06AAMCM5012B1ZY",
-            },
-            items,
-            totals: {
-              ...totals,
-              roundOff: rounded - gross,
-              grandTotal: rounded,
-              totalGst: totals.cgst + totals.sgst,
-            },
-            gstBreakdown: [],
-          });
-        }
-      } catch (e: any) {
-        setError(e.message);
-      }
-    };
-
-    fetchAndBuildPayload();
-  }, [isOpen, orders]);
-
-  /* ================= GENERATE ================= */
-  const handleGenerate = async () => {
-    if (!creator) return;
-
-    try {
-      setIsGenerating(true);
-      const batch = writeBatch(db);
-      const order = orders[0];
-
-      const createInvoice = async (payload: PrintableInvoicePayload) => {
-        const ref = doc(collection(db, "invoices"));
-        batch.set(ref, {
-          orderId: order.id,
-          isVas: payload.meta.isVas,
-          customer: payload.customer,
-          salesPerson: payload.meta.salesPerson,
-          items: payload.items,
-          totals: payload.totals,
-          createdAt: new Date().toISOString(),
-          createdBy: creator.name,
+      orderInvoices.forEach((invoice) => {
+        const normalItems = invoice.sections?.NORMAL?.items || invoice.items || [];
+        normalItems.forEach((item: any) => {
+          const key = normalizeKey(item.bcn || item.description);
+          const qty = num(item.qty ?? item.quantity);
+          if (key) {
+            invoicedQtyByBcn.set(key, num(invoicedQtyByBcn.get(key)) + qty);
+          }
+          const lengthId = item.allocationRef?.lengthId;
+          if (lengthId) {
+            invoicedQtyByLength.set(lengthId, num(invoicedQtyByLength.get(lengthId)) + qty);
+          }
         });
+        if ((invoice.sections?.VAS?.items || []).length > 0) {
+          vasAlreadyInvoiced = true;
+        }
+      });
 
-        // Stock + Cutting ONLY for non-VAS
-        if (!payload.meta.isVas) {
-          for (const item of payload.items) {
-            const stockRef = doc(db, "stocks", item.bcn.replace(/\//g, "-"));
-            batch.update(stockRef, {
-              quantity: increment(-item.quantity),
-              reservedQty: increment(-item.quantity),
-              cutQty: increment(item.quantity),
+      const normalItemsRaw = order.sections?.NORMAL?.items || [];
+      const normalInvoiceItems: InvoiceLineItem[] = [];
+
+      normalItemsRaw.forEach((item: any) => {
+        const bcnKey = normalizeKey(item.bcn || item.description || item.itemName);
+        if (!bcnKey) return;
+        const allocatedLengths = item.allocation?.lengths || [];
+        const allocatedLots = item.allocation?.lots || [];
+        const allocatedTotal = [...allocatedLengths, ...allocatedLots].reduce(
+          (sum: number, entry: any) => sum + num(entry.allocatedQty),
+          0
+        );
+        const alreadyInvoiced = num(invoicedQtyByBcn.get(bcnKey));
+        let remaining = Math.max(0, allocatedTotal - alreadyInvoiced);
+        if (remaining <= 0) return;
+
+        const rate = num(item.exclusiveRate ?? item.rate);
+        const gst = num(item.gst);
+        const unit = item.unit || "MTR";
+
+        if (allocatedLengths.length > 0) {
+          for (const length of allocatedLengths) {
+            if (remaining <= 0) break;
+            const lengthAllocated = num(length.allocatedQty);
+            const lengthInvoiced = num(invoicedQtyByLength.get(length.lengthId));
+            const lengthRemaining = Math.max(0, lengthAllocated - lengthInvoiced);
+            if (lengthRemaining <= 0) continue;
+
+            const qty = Math.min(remaining, lengthRemaining);
+            const taxableAmount = rate * qty;
+            const gstAmount = taxableAmount * (gst / 100);
+            normalInvoiceItems.push({
+              roomName: item.roomName,
+              type: item.type,
+              bcn: item.bcn,
+              description: item.description,
+              unit,
+              rate,
+              qty,
+              gst,
+              hsn: item.hsn,
+              group: item.group,
+              taxableAmount,
+              gstAmount,
+              totalAmount: taxableAmount + gstAmount,
+              allocationRef: {
+                lengthId: length.lengthId,
+                stockItemId: length.stockItemId || item.bcn,
+              },
             });
+            remaining -= qty;
           }
         }
+
+        if (remaining > 0 && allocatedLengths.length === 0) {
+          const qty = remaining;
+          const taxableAmount = rate * qty;
+          const gstAmount = taxableAmount * (gst / 100);
+          normalInvoiceItems.push({
+            roomName: item.roomName,
+            type: item.type,
+            bcn: item.bcn,
+            description: item.description,
+            unit,
+            rate,
+            qty,
+            gst,
+            hsn: item.hsn,
+            group: item.group,
+            taxableAmount,
+            gstAmount,
+            totalAmount: taxableAmount + gstAmount,
+          });
+        }
+      });
+
+      const vasItemsRaw = order.sections?.VAS?.items || [];
+      const vasInvoiceItems: InvoiceLineItem[] = [];
+      if (!vasAlreadyInvoiced && vasItemsRaw.length > 0) {
+        vasItemsRaw.forEach((item: any) => {
+          const qty = num(item.qty);
+          const rate = num(item.rate);
+          const gst = num(item.gst);
+          const taxableAmount = rate * qty;
+          const gstAmount = taxableAmount * (gst / 100);
+          vasInvoiceItems.push({
+            roomName: item.roomName,
+            type: "VAS",
+            description: item.description,
+            unit: item.unit || "PCS",
+            rate,
+            qty,
+            gst,
+            hsn: item.hsn,
+            group: item.group,
+            taxableAmount,
+            gstAmount,
+            totalAmount: taxableAmount + gstAmount,
+          });
+        });
+      }
+
+      if (normalInvoiceItems.length === 0 && vasInvoiceItems.length === 0) return null;
+
+      const normalSummary = summarizeItems(normalInvoiceItems);
+      const vasSummary = summarizeItems(vasInvoiceItems);
+      const overallSummary = {
+        goodsTotal: normalSummary.grandTotal,
+        vasTotal: vasSummary.grandTotal,
+        grandTotal: normalSummary.grandTotal + vasSummary.grandTotal,
       };
 
-      if (normalPayload) await createInvoice(normalPayload);
-      if (vasPayload) await createInvoice(vasPayload);
+      return {
+        order,
+        normalItems: normalInvoiceItems,
+        vasItems: vasInvoiceItems,
+        normalSummary,
+        vasSummary,
+        overallSummary,
+        taxSummary: {
+          NORMAL: buildTaxSummary(normalInvoiceItems),
+          VAS: buildTaxSummary(vasInvoiceItems),
+        },
+      } as InvoiceCandidate;
+    })
+    .filter(Boolean) as InvoiceCandidate[];
+};
+
+const createSectionCandidate = (
+  candidate: InvoiceCandidate,
+  section: "NORMAL" | "VAS"
+) => {
+  const normalItems = section === "NORMAL" ? candidate.normalItems : [];
+  const vasItems = section === "VAS" ? candidate.vasItems : [];
+  if (section === "NORMAL" && normalItems.length === 0) return null;
+  if (section === "VAS" && vasItems.length === 0) return null;
+
+  const normalSummary = summarizeItems(normalItems);
+  const vasSummary = summarizeItems(vasItems);
+  const overallSummary = {
+    goodsTotal: normalSummary.grandTotal,
+    vasTotal: vasSummary.grandTotal,
+    grandTotal: normalSummary.grandTotal + vasSummary.grandTotal,
+  };
+
+  return {
+    ...candidate,
+    normalItems,
+    vasItems,
+    normalSummary,
+    vasSummary,
+    overallSummary,
+    taxSummary: {
+      NORMAL: buildTaxSummary(normalItems),
+      VAS: buildTaxSummary(vasItems),
+    },
+  } as InvoiceCandidate;
+};
+
+const buildPrintablePayload = (candidate: InvoiceCandidate, invoiceNo?: string) => {
+  const { order, normalItems, vasItems, overallSummary } = candidate;
+  const mergedItems = [...normalItems, ...vasItems].map((item) => {
+    const gstAmount = num(item.gstAmount);
+    return {
+      name: item.description || item.bcn || "",
+      bcn: item.bcn || (item.type === "VAS" ? `VAS-${item.description}` : ""),
+      hsn: item.hsn || "",
+      quantity: num(item.qty),
+      uom: item.unit || "MTR",
+      rate: num(item.rate),
+      discountPercent: 0,
+      taxableAmount: num(item.taxableAmount),
+      cgst: gstAmount / 2,
+      sgst: gstAmount / 2,
+      igst: 0,
+      total: num(item.totalAmount),
+    };
+  });
+
+  const totals = mergedItems.reduce(
+    (acc, item) => {
+      acc.subTotal += item.rate * item.quantity;
+      acc.taxableValue += item.taxableAmount;
+      acc.cgst += item.cgst;
+      acc.sgst += item.sgst;
+      acc.igst += item.igst;
+      return acc;
+    },
+    { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
+  );
+
+  const netAmount = totals.taxableValue + totals.cgst + totals.sgst + totals.igst;
+  const roundedTotal = Math.round(netAmount);
+
+  return {
+    meta: {
+      invoiceNo: invoiceNo,
+      orderNo: order.orderNo || order.id,
+      quotationNo: order.quotationNo || order.crmOrderNo,
+      invoiceDate: new Date().toISOString(),
+      isVas: normalItems.length === 0 && vasItems.length > 0,
+      salesPerson: order.salesPerson,
+    },
+    customer: {
+      name: order.customerSnapshot?.name || order.customerName,
+      phone: order.customerSnapshot?.phone || order.customerPhone,
+      address: order.customerSnapshot?.billingAddress?.line1 || order.customerAddress,
+      gstin: order.customerSnapshot?.gstin,
+    },
+    seller: {
+      companyName: normalItems.length === 0 && vasItems.length > 0
+        ? "MO SPACES PVT.LTD."
+        : "MO Designs Private Limited - (2024-2025)",
+      address: "A-6, Sushant Lok-1, Gurgaon",
+      gstin: "06AAMCM5012B1ZY",
+    },
+    items: mergedItems,
+    totals: {
+      ...totals,
+      roundOff: roundedTotal - netAmount,
+      grandTotal: roundedTotal,
+      totalGst: totals.cgst + totals.sgst + totals.igst,
+    },
+    gstBreakdown: [],
+  };
+};
+
+function GenerateInvoiceDialog({
+  candidate,
+  invoices,
+  onClose,
+}: {
+  candidate: InvoiceCandidate | null;
+  invoices: Invoice[];
+  onClose: () => void;
+}) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [isGenerating, setIsGenerating] = React.useState(false);
+
+  if (!candidate) return null;
+
+  const payload = buildPrintablePayload(candidate);
+
+  const handleGenerate = async () => {
+    if (!user) {
+      toast({ variant: "destructive", title: "Error", description: "Login required." });
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const batch = writeBatch(db);
+      const order = candidate.order;
+
+      const invoicesRef = collection(db, "invoices");
+      const lastInvoiceSnap = await getDocs(query(invoicesRef, orderBy("invoiceNo", "desc"), limit(1)));
+      let nextInvoiceNumber = 1001;
+      if (!lastInvoiceSnap.empty) {
+        const lastNo = parseInt(String(lastInvoiceSnap.docs[0].data().invoiceNo || ""), 10);
+        if (!Number.isNaN(lastNo)) {
+          nextInvoiceNumber = lastNo + 1;
+        }
+      }
+      const invoiceNo = String(nextInvoiceNumber);
+      const invoiceId = doc(collection(db, "invoices")).id;
+      const now = new Date().toISOString();
+
+      const invoiceType =
+        candidate.normalItems.length > 0 && candidate.vasItems.length > 0
+          ? "MIXED"
+          : candidate.vasItems.length > 0
+          ? "VAS"
+          : "NORMAL";
+
+      const invoiceDoc: Omit<Invoice, "id"> = {
+        invoiceId,
+        invoiceNo,
+        invoiceType,
+        invoiceDate: now,
+        orderId: order.id,
+        orderNo: order.orderNo || order.id,
+        customerId: order.customerId,
+        sellerSnapshot: payload.seller,
+        customerSnapshot: payload.customer,
+        sections: {
+          NORMAL: {
+            items: candidate.normalItems,
+            summary: candidate.normalSummary,
+          },
+          VAS: {
+            items: candidate.vasItems,
+            summary: candidate.vasSummary,
+          },
+        },
+        overallSummary: candidate.overallSummary,
+        taxSummary: candidate.taxSummary,
+        payment: {},
+        status: "ISSUED",
+        isLocked: true,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: user.displayName || "System",
+        customer: {
+          name: payload.customer.name,
+          phone: payload.customer.phone,
+          address: payload.customer.address,
+        },
+        salesPerson: payload.meta.salesPerson || "",
+        items: payload.items,
+        totals: payload.totals,
+      };
+
+      const invoiceRef = doc(db, "invoices", invoiceId);
+      const cleanedInvoiceDoc = stripUndefinedDeep(invoiceDoc) as Omit<Invoice, "id">;
+      batch.set(invoiceRef, cleanedInvoiceDoc);
+
+      // Stock updates for NORMAL items
+      candidate.normalItems.forEach((item) => {
+        if (!item.bcn) return;
+        const stockId = item.bcn.replace(/\//g, "-");
+        const stockRef = doc(db, "stocks", stockId);
+        const qty = num(item.qty);
+        batch.update(stockRef, {
+          reservedQty: increment(-qty),
+          cutQty: increment(qty),
+        });
+
+        if (item.allocationRef?.lengthId) {
+          const lengthRef = doc(db, "stocks", stockId, "lengths", item.allocationRef.lengthId);
+          batch.update(lengthRef, {
+            reservedQty: increment(-qty),
+            cutQty: increment(qty),
+          });
+        }
+      });
+
+      // Update order invoicing summary
+      const updatedInvoices = [
+        ...(candidate.order.invoicing?.invoices || []),
+        {
+          invoiceId,
+          invoiceNo,
+          invoiceType,
+          createdAt: now,
+          amount: candidate.overallSummary.grandTotal,
+        },
+      ];
+
+      const orderInvoices = invoices.filter((inv) => inv.orderId === candidate.order.id);
+      const invoicesWithNew = [
+        ...orderInvoices,
+        { ...(invoiceDoc as Invoice), id: invoiceId },
+      ];
+      const invoicingStatus = computeInvoicingStatus(candidate.order, invoicesWithNew);
+
+      const orderRef = doc(db, "orders", candidate.order.id);
+      batch.update(orderRef, {
+        invoicing: {
+          ...(candidate.order.invoicing || {}),
+          status: invoicingStatus,
+          invoices: updatedInvoices,
+          canCreateGoodsInvoice: (candidate.order.sections?.NORMAL?.items?.length || 0) > 0,
+          canCreateVasInvoice: (candidate.order.sections?.VAS?.items?.length || 0) > 0,
+        },
+        updatedAt: now,
+      });
 
       await batch.commit();
 
-      toast({ title: "Success", description: "Invoice(s) generated successfully" });
+      toast({ title: "Invoice created", description: `Invoice ${invoiceNo} generated.` });
       onClose();
-
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Error", description: e.message });
+    } catch (error: any) {
+      console.error("Invoice generation failed", error);
+      toast({ variant: "destructive", title: "Error", description: error.message || "Failed to generate invoice." });
     } finally {
       setIsGenerating(false);
     }
   };
 
-  /* ================= UI ================= */
+  const handlePrint = () => {
+    const printContent = document.getElementById("printable-invoice-preview");
+    if (!printContent) return;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+    printWindow.document.write("<html><head><title>Print Invoice</title></head><body>");
+    printWindow.document.write(printContent.innerHTML);
+    printWindow.document.write("</body></html>");
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+    }, 250);
+  };
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-7xl h-[90vh]">
+    <Dialog open={!!candidate} onOpenChange={onClose}>
+      <DialogContent className="max-w-7xl h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Generate Invoice</DialogTitle>
+          <DialogDescription>
+            Review the items below. Only allocated items will be invoiced.
+          </DialogDescription>
         </DialogHeader>
-
-        <div className="overflow-y-auto space-y-10">
-          {normalPayload && <PrintableInvoice payload={normalPayload} />}
-          {vasPayload && <PrintableInvoice payload={vasPayload} />}
+        <div className="flex-grow overflow-y-auto pr-4" id="printable-invoice-preview">
+          <PrintableInvoice payload={payload} />
         </div>
-
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={handlePrint}><Printer className="mr-2 h-4 w-4" />Print</Button>
           <Button onClick={handleGenerate} disabled={isGenerating}>
-            Generate Invoice{normalPayload && vasPayload ? "s" : ""}
+            {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Generate Invoice
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -334,331 +622,148 @@ function GenerateInvoiceDialog({
   );
 }
 
-
-function InvoiceTable({
-  batches,
-  orders,
-  loading,
-  view
-}: {
-  batches: InvoiceBatch[];
-  orders: Order[];
-  loading: boolean;
-  view: 'active' | 'all';
-}) {
-  const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
-  const [isGenerateDialogOpen, setIsGenerateDialogOpen] = React.useState(false);
-  const [isCombineDialogOpen, setIsCombineDialogOpen] = React.useState(false);
-
-  const ordersById = React.useMemo(() => {
-    return new Map(orders.map(order => [order.id, order]));
-  }, [orders]);
-
-  const { user } = useAuth();
-  const { toast } = useToast();
-
-  const parseDateSafe = (dateInput: any): Date | null => {
-    if (!dateInput) return null;
-    if (dateInput instanceof Date) return dateInput;
-    if (typeof dateInput.toDate === 'function') return dateInput.toDate();
-    if (typeof dateInput === 'string') {
-      const d = new Date(dateInput);
-      if (!isNaN(d.getTime())) return d;
-    }
-    return null;
-  };
-
-  const columns: ColumnDef<InvoiceBatch>[] = [
-    {
-      id: "select",
-      header: ({ table }) => (
-        <Checkbox
-          checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
-          onCheckedChange={(value) => {
-            const availableRows = table.getFilteredRowModel().rows.filter(row => row.original.status !== 'invoiced');
-            availableRows.forEach(row => row.toggleSelected(!!value));
-          }}
-          aria-label="Select all"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Select row"
-          disabled={row.original.status === "invoiced"}
-        />
-      ),
-      enableSorting: false,
-      enableHiding: false,
-    },
-    {
-      accessorKey: "orderId",
-      header: "Order No",
-      cell: ({ row }) => {
-        const batch = row.original;
-        const displayId = batch.orderId.replace("MOTRACK-", "");
-        return (
-          <div className="flex items-center gap-1">
-            {batch.isCombined && <Combine className="mr-2 h-4 w-4 text-muted-foreground" title="Combined Invoice" />}
-            <span>{displayId}</span>
-          </div>
-        );
-      }
-    },
-    {
-      accessorKey: "createdAt",
-      header: ({ column }) => (
-        <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-          Invoice Date
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-      cell: ({ row }) => {
-        const date = parseDateSafe(row.original.createdAt);
-        return date ? format(date, "dd/MM/yyyy HH:mm") : "Invalid Date";
-      }
-    },
-    {
-      accessorKey: "customerName",
-      header: "Customer Name",
-    },
-    {
-      accessorKey: "customerPhone",
-      header: "Phone",
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.original.status;
-        const tallyBillNo = row.original.tallyVoucherNo;
-        const variant = status === 'pendingInvoice' ? 'secondary' : 'default';
-        const color = status === 'pendingInvoice' ? '' : 'bg-green-600';
-        const text = status === 'pendingInvoice' ? 'Pending for Invoice' : `Invoiced: ${tallyBillNo || ''}`;
-        return <Badge variant={variant} className={color}>{text}</Badge>;
-      }
-    },
-  ];
-
-  const table = useReactTable({
-    data: batches,
-    columns,
-    onSortingChange: setSorting,
-    onRowSelectionChange: setRowSelection,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    state: { sorting, rowSelection },
-    enableRowSelection: row => row.original.status !== 'invoiced',
-  });
-
-  const selectedBatches = table.getFilteredSelectedRowModel().rows.map(row => row.original);
-  const selectedOrders = orders.filter(order => selectedBatches.some(batch => batch.orderId === order.id));
-  const canGenerate = selectedBatches.length > 0 && selectedBatches.every(b => b.status === 'pendingInvoice');
-  const canCombine = selectedBatches.length > 1;
-
-  const handleCombineClick = () => {
-    if (!canCombine) return;
-
-    const firstOrderId = selectedBatches[0].orderId;
-    const allSameOrder = selectedBatches.every(b => b.orderId === firstOrderId);
-
-    if (!allSameOrder) {
-      toast({
-        variant: "destructive",
-        title: "Cannot Combine",
-        description: "You can only combine invoices that belong to the same order."
-      });
-      return;
-    }
-
-    setIsCombineDialogOpen(true);
-  };
-
-  const handleConfirmCombine = async () => {
-    const plainBatches = JSON.parse(JSON.stringify(selectedBatches));
-  //   const result = await combineInvoiceBatchesAction(plainBatches);
-
-  //   if (result.success) {
-  //     toast({ title: 'Success', description: result.message });
-  //     table.resetRowSelection();
-  //   } else {
-  //     toast({ variant: 'destructive', title: 'Error', description: result.message });
-  //   }
-  //   setIsCombineDialogOpen(false);
-  };
-
-  return (
-    <>
-      <Card>
-        <div className="p-4">
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id}>
-                    {headerGroup.headers.map((header) => (
-                      <TableHead key={header.id}>
-                        {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={columns.length} className="h-24 text-center">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                    </TableCell>
-                  </TableRow>
-                ) : table.getRowModel().rows?.length ? (
-                  table.getRowModel().rows.map((row) => (
-                    <TableRow key={row.id}>
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={columns.length} className="h-24 text-center">
-                      No results.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          <div className="flex items-center justify-end space-x-2 py-4">
-            <div className="flex-1 text-sm text-muted-foreground">
-              {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s) selected.
-            </div>
-            {view !== 'all' && (
-              <div className="flex items-center gap-2">
-                <Button onClick={handleCombineClick} disabled={!canCombine} variant="outline">
-                  <Combine className="mr-2 h-4 w-4" />
-                  Combine Invoice
-                </Button>
-                <Button onClick={() => setIsGenerateDialogOpen(true)} disabled={!canGenerate}>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Generate
-                </Button>
-              </div>
-            )}
-            <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
-              Previous
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
-              Next
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      <GenerateInvoiceDialog
-        isOpen={isGenerateDialogOpen}
-        onClose={() => setIsGenerateDialogOpen(false)}
-        batches={selectedBatches}
-        orders={selectedOrders}
-        creator={user ? { id: user.uid, name: user.displayName || 'System' } : null}
-      />
-
-      <AlertDialog open={isCombineDialogOpen} onOpenChange={setIsCombineDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Combine Invoices?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will combine {selectedBatches.length} invoice batches into one. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmCombine}>Combine</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  );
-}
-
 export default function InvoicePage() {
-  const [activeBatches, setActiveBatches] = React.useState<InvoiceBatch[]>([]);
-  const [vasBatches, setVasBatches] = React.useState<InvoiceBatch[]>([]);
-  const [allOrders, setAllOrders] = React.useState<Order[]>([]);
+  const [orders, setOrders] = React.useState<Order[]>([]);
+  const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [selectedCandidate, setSelectedCandidate] = React.useState<InvoiceCandidate | null>(null);
   const { toast } = useToast();
 
   React.useEffect(() => {
-    setLoading(true);
+    const ordersQuery = query(collection(db, "orders"), orderBy("createdAt", "desc"));
+    const invoicesQuery = query(collection(db, "invoices"), orderBy("createdAt", "desc"));
 
-    const batchesQuery = query(collection(db, "invoiceBatches"), orderBy("createdAt", "desc"));
-    const ordersQuery = query(collection(db, "orders"));
-
-    const unsubscribeBatches = onSnapshot(
-      batchesQuery,
-      (snapshot) => {
-        const batchesData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as InvoiceBatch));
-        setActiveBatches(batchesData.filter(b => b.status === 'pendingInvoice' && !b.isVas));
-        setVasBatches(batchesData.filter(b => b.status === 'pendingInvoice' && b.isVas));
-      },
-      (error) => {
-        toast({ variant: "destructive", title: "Error", description: "Could not load invoice data." });
-      }
-    );
-
-    const unsubscribeOrders = onSnapshot(
+    const unsubOrders = onSnapshot(
       ordersQuery,
       (snapshot) => {
-        const ordersData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order));
-        setAllOrders(ordersData);
+        setOrders(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Order)));
+        setLoading(false);
       },
-      (error) => {
+      () => {
         toast({ variant: "destructive", title: "Error", description: "Could not load orders." });
+        setLoading(false);
       }
     );
 
-    Promise.all([getDocs(batchesQuery), getDocs(ordersQuery)])
-      .finally(() => setLoading(false));
+    const unsubInvoices = onSnapshot(
+      invoicesQuery,
+      (snapshot) => {
+        setInvoices(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Invoice)));
+      },
+      () => {
+        toast({ variant: "destructive", title: "Error", description: "Could not load invoices." });
+      }
+    );
 
     return () => {
-      unsubscribeBatches();
-      unsubscribeOrders();
+      unsubOrders();
+      unsubInvoices();
     };
   }, [toast]);
+
+  const candidates = React.useMemo(() => buildInvoiceCandidates(orders, invoices), [orders, invoices]);
+  const goodsCandidates = React.useMemo(
+    () => candidates.map((c) => createSectionCandidate(c, "NORMAL")).filter(Boolean) as InvoiceCandidate[],
+    [candidates]
+  );
+  const vasCandidates = React.useMemo(
+    () => candidates.map((c) => createSectionCandidate(c, "VAS")).filter(Boolean) as InvoiceCandidate[],
+    [candidates]
+  );
+
+  const renderPendingTable = (pendingCandidates: InvoiceCandidate[], emptyLabel: string) => (
+    <Card>
+      <CardHeader>
+        <CardTitle>Orders Ready for Invoice</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Order No</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Mobile No</TableHead>
+                <TableHead>Deal ID</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Created By</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-24 text-center">
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                  </TableCell>
+                </TableRow>
+              ) : pendingCandidates.length ? (
+                pendingCandidates.map((candidate) => (
+                  <TableRow key={`${candidate.order.id}-${candidate.normalItems.length ? "goods" : "vas"}`}>
+                    <TableCell>{candidate.order.id.replace("MOTRACK-", "")}</TableCell>
+                    <TableCell>{candidate.order.customerSnapshot?.name || candidate.order.customerName || "-"}</TableCell>
+                    <TableCell>{candidate.order.customerPhone || "-"}</TableCell>
+                    <TableCell>{candidate.order.dealId || "-"}</TableCell>
+                    <TableCell>₹ {candidate.overallSummary.grandTotal.toFixed(2)}</TableCell>
+                    <TableCell>{candidate.order.createdBy?.name || "-"}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">Pending</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" onClick={() => setSelectedCandidate(candidate)}>
+                        <FileText className="mr-2 h-4 w-4" />Generate
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-24 text-center">
+                    {emptyLabel}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8">
       <header className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Generate Invoice</h1>
-        <p className="text-muted-foreground">
-          Select allocated items to generate and log invoices.
-        </p>
+        <p className="text-muted-foreground">Only allocated items are available for invoicing.</p>
       </header>
 
-      <Tabs defaultValue="active-invoices">
+      <Tabs defaultValue="goods-invoices">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="active-invoices">Active Invoices</TabsTrigger>
+          <TabsTrigger value="goods-invoices">Goods Invoice</TabsTrigger>
           <TabsTrigger value="vas-invoices">VAS Invoice</TabsTrigger>
-          <TabsTrigger value="tally-log">Tally Log / Invoice History</TabsTrigger>
+          <TabsTrigger value="tally-log">Invoice History</TabsTrigger>
         </TabsList>
-        
-        <TabsContent value="active-invoices" className="mt-4">
-          <InvoiceTable batches={activeBatches} orders={allOrders} loading={loading} view="active" />
+
+        <TabsContent value="goods-invoices" className="mt-4">
+          {renderPendingTable(goodsCandidates, "No pending goods invoices.")}
         </TabsContent>
-        
+
         <TabsContent value="vas-invoices" className="mt-4">
-          <InvoiceTable batches={vasBatches} orders={allOrders} loading={loading} view="active" />
+          {renderPendingTable(vasCandidates, "No pending VAS invoices.")}
         </TabsContent>
-        
+
         <TabsContent value="tally-log" className="mt-4">
           <InvoiceLogTable />
         </TabsContent>
       </Tabs>
+
+      <GenerateInvoiceDialog
+        candidate={selectedCandidate}
+        invoices={invoices}
+        onClose={() => setSelectedCandidate(null)}
+      />
     </div>
   );
- }
+}
+

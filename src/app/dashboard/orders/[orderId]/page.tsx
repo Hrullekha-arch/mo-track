@@ -91,14 +91,14 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
         }
     }, [isOpen, stock.id, toast, form]);
 
-    const handleCheckboxChange = (checked: boolean, lengthId: string, availableQty: number) => {
+    const handleCheckboxChange = (checked: boolean, lengthId: string, availableLength: number) => {
         const existingIndex = fields.findIndex(f => f.lengthId === lengthId);
 
         if (checked) {
             if (existingIndex === -1) {
                 const currentTotal = form.getValues('allocations').reduce((sum, alloc) => sum + (Number(alloc.quantity) || 0), 0);
                 const remainingNeeded = requiredQty - currentTotal;
-                const quantityToAllocate = Math.max(0, Math.min(availableQty, remainingNeeded));
+                const quantityToAllocate = Math.max(0, Math.min(availableLength, remainingNeeded));
                 
                 append({ lengthId, quantity: quantityToAllocate });
             }
@@ -120,12 +120,14 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
         setIsSubmitting(true);
         try {
             const itemRate = Number((item as any).rate);
-            const allocationRate = Number.isFinite(itemRate) ? itemRate : (stock.mrp || 0);
+            const allocationRate = Number.isFinite(itemRate)
+                ? itemRate
+                : (stock.rrpWithGstRs ?? stock.mrp ?? 0);
             const result = await allocateStockToAction({
                 orderId,
                 bcn: stock.bcn,
                 allocations: data.allocations,
-                itemName: stock.itemName,
+                itemName: stock.name || stock.itemName || stock.bcn,
                 rate: allocationRate,
                 userId: user.id,
                 userName: user.name,
@@ -284,12 +286,20 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 invoicePromise
             ]);
             const sumAvailableFromLengths = lengthsSnapshot.docs.reduce((sum, docSnap) => {
-                const value = Number((docSnap.data() as any)?.availableQty);
-                return sum + (Number.isFinite(value) ? value : 0);
+                const data = docSnap.data() as any;
+                const available = Number(data?.availableLength ?? data?.availableQty ?? 0);
+                return sum + (Number.isFinite(available) ? available : 0);
             }, 0);
             const sumReservedFromLengths = lengthsSnapshot.docs.reduce((sum, docSnap) => {
-                const value = Number((docSnap.data() as any)?.reservedQty);
-                return sum + (Number.isFinite(value) ? value : 0);
+                const data = docSnap.data() as any;
+                const reserved = Number(data?.reservedQty);
+                if (Number.isFinite(reserved)) {
+                    return sum + reserved;
+                }
+                const original = Number(data?.originalLength ?? data?.quantity ?? 0);
+                const available = Number(data?.availableLength ?? data?.availableQty ?? 0);
+                const derived = original - available;
+                return sum + (derived > 0 ? derived : 0);
             }, 0);
 
             const stockAvailable = Number(stock?.availableQty);
@@ -323,7 +333,8 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
 
             const matchedInvoice = invoiceSnaps.docs.find(d => {
                 const invoice = d.data() as Invoice;
-                return invoice.items.some(invItem => invItem.bcn === bcn);
+                const invoiceItems = invoice.sections?.NORMAL?.items || invoice.items || [];
+                return invoiceItems.some((invItem: any) => invItem.bcn === bcn);
             });
 
             const availableQty = Number.isFinite(Number(resolvedStock?.availableQty))
@@ -360,14 +371,16 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
     const name = (item as any).fabricName || (item as any).furnitureName;
     const unit = item.type === 'Fabric' ? 'Mtr' : '';
 
+    console.log('OrderItemRow render:', { item, stockInfo, allocatedQty, status });
+
     return (
         <TableRow>
             <TableCell>{index + 1}</TableCell>
             <TableCell>
                 <p className="font-mono">{stockInfo?.bcn || name}</p>
-                <p className="text-xs text-muted-foreground">{stockInfo?.itemName}</p>
+                <p className="text-xs text-muted-foreground">{stockInfo?.name || stockInfo?.itemName}</p>
             </TableCell>
-            <TableCell>{stockInfo?.serialNo || 'N/A'}</TableCell>
+            <TableCell>{stockInfo?.supplierCollectionCode || 'N/A'}</TableCell>
             <TableCell>{(item as any).quantity} {unit}</TableCell>
             <TableCell>
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (stockInfo?.availableQty?.toFixed(2) ?? 'N/A')}
@@ -451,6 +464,71 @@ function AllocateOrderTable({ order, onAllocationSuccess, refreshKey }: { order:
             </CardContent>
         </Card>
     )
+}
+
+function VasDetailsTable({ order }: { order: Order }) {
+    const vasItems = useMemo(() => {
+        if (order.sections?.VAS?.items?.length) {
+            return order.sections.VAS.items;
+        }
+        return (order.vasDetails || []).map((vas: any) => ({
+            description: vas.vasName,
+            qty: Number(vas.quantity) || 0,
+            rate: Number(vas.rate) || 0,
+            gst: Number(vas.gstPercent) || 0,
+            hsn: vas.hsnCode || "",
+            unit: "PCS",
+            roomName: vas.room || "",
+        }));
+    }, [order]);
+
+    if (!vasItems.length) return null;
+    console.log('VAS Items:', vasItems);
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>VAS Details</CardTitle>
+                <CardDescription>Value-added services for this order.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="border rounded-md">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>#</TableHead>
+                                <TableHead>Description</TableHead>
+                                <TableHead>Qty</TableHead>
+                                <TableHead>Rate</TableHead>
+                                <TableHead>GST %</TableHead>
+                                <TableHead>Amount</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {vasItems.map((item: any, index: number) => {
+                                const qty = Number(item.qty ?? item.quantity ?? 0);
+                                const rate = Number(item.rate ?? 0);
+                                const gst = Number(item.gst ?? item.gstPercent ?? 0);
+                                const taxable = qty * rate;
+                                const gstAmount = taxable * (gst / 100);
+                                const total = taxable + gstAmount;
+                                return (
+                                    <TableRow key={`${item.description || item.vasName || "vas"}-${index}`}>
+                                        <TableCell>{index + 1}</TableCell>
+                                        <TableCell>{item.description || item.vasName}</TableCell>
+                                        <TableCell>{`${qty} ${item.unit || "PCS"}`}</TableCell>
+                                        <TableCell>₹{rate.toFixed(2)}</TableCell>
+                                        <TableCell>{gst.toFixed(1)}%</TableCell>
+                                        <TableCell>₹{total.toFixed(2)}</TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                </div>
+            </CardContent>
+        </Card>
+    );
 }
 
 export default function OrderDetailPage({ params: paramsPromise }: { params: Promise<{ orderId: string }> }) {
@@ -570,6 +648,7 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
                     </Card>
 
                     <AllocateOrderTable order={order} onAllocationSuccess={handleAllocationSuccess} refreshKey={refreshKey} />
+                    <VasDetailsTable order={order} />
 
                 </div>
 
