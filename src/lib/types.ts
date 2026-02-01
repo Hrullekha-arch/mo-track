@@ -5,6 +5,93 @@ import { Timestamp as AdminTimestamp } from "firebase-admin/firestore";
 
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
 
+export interface PmsProduct {
+  id: string;
+  name: string;
+  category: string;
+}
+
+export interface PmsRoutingStep {
+  id: string;
+  productId: string;
+  stepNo: number;
+  process: string;
+  cycleMinutes: number;
+  ops: number;
+}
+
+export interface PmsMachine {
+  id: string;
+  name: string;
+  process: string;
+  shiftMinutes: number;
+  active: boolean;
+}
+
+export interface PmsPerson {
+  id: string;
+  name: string;
+  role?: string;
+}
+
+export interface PmsSkill {
+  id: string;
+  machineId: string;
+  personId: string;
+  process: string;
+  category: string;
+  allowed: boolean;
+}
+
+export interface PmsDowntime {
+  id: string;
+  machineId: string;
+  from: string;
+  to: string;
+  reason?: string;
+}
+
+export type PmsJobStatus = "WAITING" | "PLANNED" | "IN_PROGRESS" | "DONE";
+
+export interface PmsJob {
+  id: string;
+  orderId: string;
+  productId: string;
+  stepNo: number;
+  process: string;
+  requiredMinutes: number;
+  status: PmsJobStatus;
+  priority?: number;
+  plannedStart?: string;
+  plannedEnd?: string;
+  actualStart?: string;
+  actualEnd?: string;
+  actualMinutes?: number;
+  varianceMinutes?: number;
+}
+
+export interface PmsPlan {
+  id: string;
+  jobId: string;
+  machineId: string;
+  personId: string;
+  plannedStart: string;
+  plannedEnd: string;
+  locked?: boolean;
+}
+
+export type PmsWorkLogType = "START" | "PAUSE" | "COMPLETE";
+
+export interface PmsWorkLog {
+  id: string;
+  jobId: string;
+  type: PmsWorkLogType;
+  at: string;
+  reason?: string;
+  machineId?: string;
+  personId?: string;
+}
+
 export interface User {
   id: string; // Document ID, same as Firebase Auth UID
   name: string;

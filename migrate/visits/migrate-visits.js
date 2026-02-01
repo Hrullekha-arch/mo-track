@@ -32,7 +32,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const CONFIG = {
-  dryRun: process.env.MIGRATE_DRY_RUN !== "false",
+  dryRun: process.env.MIGRATE_DRY_RUN === "true",
   writeIdMap: true,
 };
 

@@ -378,8 +378,20 @@ export async function importStockData(
     // ✅ Required headers (core)
     const required = [
       { key: "bcn", candidates: ["bcn"] },
-      { key: "itemName", candidates: ["itemname", "item name"] },
-      { key: "closingStock", candidates: ["closing stock", "closingstock"] },
+      { key: "itemName", candidates: ["itemname", "item name", "name"] },
+      {
+        key: "qty",
+        candidates: [
+          "closing stock",
+          "closingstock",
+          "qty",
+          "quantity",
+          "opening stock",
+          "openingstock",
+          "total qty",
+          "totalqty",
+        ],
+      },
     ];
 
     const missing = required
@@ -396,17 +408,33 @@ export async function importStockData(
     // ✅ Column indexes
     const COL = {
       id: idx(["id"]),
+      productId: idx(["product id", "productid", "item code", "itemcode"]),
       bcn: idx(["bcn"]),
       itemName: idx(["itemName", "item name"]),
       categoryGroup: idx(["category group", "categorygroup"]),
       category: idx(["category"]),
       unit: idx(["unit"]),
       type: idx(["type"]),
+      isService: idx(["is service", "isservice", "service item", "service"]),
       width: idx(["width"]),
+      rack: idx(["rack"]),
       moCollection: idx(["mo collection", "mocollection"]),
       moCollectionCode: idx(["mo collection code", "mocollectioncode"]),
       maxlevel: idx(["maxlevel", "max level"]),
-      closingStock: idx(["closing stock", "closingstock"]),
+      closingStock: idx([
+        "closing stock",
+        "closingstock",
+        "qty",
+        "quantity",
+        "opening stock",
+        "openingstock",
+        "total qty",
+        "totalqty",
+      ]),
+      availableQty: idx(["available qty", "availableqty"]),
+      reservedQty: idx(["reserved qty", "reservedqty"]),
+      damagedQty: idx(["damaged qty", "damagedqty"]),
+      cutQty: idx(["cut qty", "cutqty"]),
       supplierCompanyName: idx(["supplier company name", "suppliercompanyname"]),
       supplierCollectionName: idx(["supplier collection name", "suppliercollectionname"]),
       supplierCollectionCode: idx(["supplier collection code", "suppliercollectioncode"]),
@@ -418,6 +446,8 @@ export async function importStockData(
       costPrice: idx(["cost price rs", "cost price"]),
       costMultiplier: idx(["cost multiplier rs", "cost multiplier"]),
       rrpWithGst: idx(["rrp with gst rs", "rrp with gst"]),
+      hsnOrSac: idx(["hsn", "hsn sac", "hsn/sac", "hsn sac code", "hsn code", "sac"]),
+      gstPercent: idx(["gst", "gst percent", "gst %", "gstpercentage"]),
     };
 
     // ✅ Helpers for safe value parsing
@@ -428,58 +458,80 @@ export async function importStockData(
       const num = Number(String(val ?? "").replace(/,/g, "").trim());
       return Number.isFinite(num) ? num : def;
     };
+    const nOpt = (row: any[], i: number) => {
+      if (i < 0) return undefined;
+      const raw = row[i];
+      if (raw === undefined || raw === null || String(raw).trim() === "") return undefined;
+      const num = Number(String(raw).replace(/,/g, "").trim());
+      return Number.isFinite(num) ? num : undefined;
+    };
 
     const allItems = (json.slice(1) as any[])
       .map((row) => {
-        const bcn = s(row, COL.bcn);
+        const rawBcn = s(row, COL.bcn);
+        const bcn = rawBcn;
         if (!bcn) return null;
+        const docId = sanitizeBcnDocId(rawBcn);
 
         const closingStock = n(row, COL.closingStock, 0);
+        const availableQty = nOpt(row, COL.availableQty) ?? closingStock;
+        const reservedQty = nOpt(row, COL.reservedQty) ?? 0;
+        const cutQty = nOpt(row, COL.cutQty) ?? 0;
+        const damagedQty = nOpt(row, COL.damagedQty) ?? 0;
         const resolvedCategory = (s(row, COL.category) || "FABRIC").toUpperCase();
         const resolvedUnit = (s(row, COL.unit) || "MTR").toUpperCase();
+        const resolvedIsService =
+          s(row, COL.isService).toLowerCase() === "true" ||
+          s(row, COL.isService).toLowerCase() === "yes" ||
+          resolvedCategory === "VAS";
 
         const stockItem = {
           // keep sheet id if present (stable), else will be auto id later
           _sheetId: s(row, COL.id),
-          productId: s(row, COL.id),
+          productId: s(row, COL.productId) || s(row, COL.id),
 
+          docId,
           bcn,
           name: s(row, COL.itemName),
           itemName: s(row, COL.itemName),
 
           categoryGroup: s(row, COL.categoryGroup),
           category: resolvedCategory,
+          isService: resolvedIsService,
 
           unit: resolvedUnit,
           type: (s(row, COL.type) || "fabric").toLowerCase(),
 
-          width: n(row, COL.width, 0),
+          width: nOpt(row, COL.width),
+          rack: s(row, COL.rack),
 
           moCollection: s(row, COL.moCollection),
           moCollectionCode: s(row, COL.moCollectionCode),
 
-          maxlevel: n(row, COL.maxlevel, 0),
+          maxlevel: nOpt(row, COL.maxlevel),
 
           totalQty: closingStock,
-          availableQty: closingStock,
-          reservedQty: 0,
-          cutQty: 0,
-          damagedQty: 0,
+          availableQty,
+          reservedQty,
+          cutQty,
+          damagedQty,
 
           supplierCompanyName: s(row, COL.supplierCompanyName),
           supplierCollectionName: s(row, COL.supplierCollectionName),
           supplierCollectionCode: s(row, COL.supplierCollectionCode),
 
           composition: s(row, COL.composition),
-          martindale: n(row, COL.martindale, 0),
-          weightGsm: n(row, COL.weightGsm, 0),
+          martindale: nOpt(row, COL.martindale),
+          weightGsm: nOpt(row, COL.weightGsm),
 
-          horizontalRepeatCms: n(row, COL.horizontalRepeat, 0),
-          verticalRepeatCms: n(row, COL.verticalRepeat, 0),
+          horizontalRepeatCms: nOpt(row, COL.horizontalRepeat),
+          verticalRepeatCms: nOpt(row, COL.verticalRepeat),
           
-          costPriceRs: n(row, COL.costPrice, 0),
-          costMultiplierRs: n(row, COL.costMultiplier, 0),
-          rrpWithGstRs: n(row, COL.rrpWithGst, 0),
+          costPriceRs: nOpt(row, COL.costPrice),
+          costMultiplierRs: nOpt(row, COL.costMultiplier),
+          rrpWithGstRs: nOpt(row, COL.rrpWithGst),
+          hsnOrSac: s(row, COL.hsnOrSac),
+          gstPercent: nOpt(row, COL.gstPercent),
 
           lastUpdatedAt: new Date().toISOString(),
         };
@@ -501,113 +553,122 @@ export async function importStockData(
     const writtenMasters = new Set<string>();
     const lengthNoByBcn = new Map<string, number>();
 
-    allItems.forEach((item) => {
-      const current = masterTotals.get(item.bcn) || {
-        totalQty: 0,
-        availableQty: 0,
-        reservedQty: 0,
-        cutQty: 0,
-        damagedQty: 0,
-      };
-      masterTotals.set(item.bcn, {
-        totalQty: current.totalQty + (Number(item.totalQty) || 0),
-        availableQty: current.availableQty + (Number(item.availableQty) || 0),
-        reservedQty: current.reservedQty + (Number(item.reservedQty) || 0),
-        cutQty: current.cutQty + (Number(item.cutQty) || 0),
-        damagedQty: current.damagedQty + (Number(item.damagedQty) || 0),
+      allItems.forEach((item) => {
+        const key = item.docId || item.bcn;
+        const current = masterTotals.get(key) || {
+          totalQty: 0,
+          availableQty: 0,
+          reservedQty: 0,
+          cutQty: 0,
+          damagedQty: 0,
+        };
+        masterTotals.set(key, {
+          totalQty: current.totalQty + (Number(item.totalQty) || 0),
+          availableQty: current.availableQty + (Number(item.availableQty) || 0),
+          reservedQty: current.reservedQty + (Number(item.reservedQty) || 0),
+          cutQty: current.cutQty + (Number(item.cutQty) || 0),
+          damagedQty: current.damagedQty + (Number(item.damagedQty) || 0),
+        });
+        lengthCountByBcn.set(key, (lengthCountByBcn.get(key) || 0) + 1);
       });
-      lengthCountByBcn.set(item.bcn, (lengthCountByBcn.get(item.bcn) || 0) + 1);
-    });
 
-    for (const item of allItems) {
-    const bcnDocRef = adminDb.collection("stocks").doc(item.bcn);
-    const bcnDigits = extractBcnDigits(item.bcn);
-    const totals = masterTotals.get(item.bcn) || {
-      totalQty: Number(item.totalQty) || 0,
-      availableQty: Number(item.availableQty) || 0,
-      reservedQty: Number(item.reservedQty) || 0,
-      cutQty: Number(item.cutQty) || 0,
-      damagedQty: Number(item.damagedQty) || 0,
-    };
+      for (const item of allItems) {
+      const docId = item.docId || item.bcn;
+      const bcnDocRef = adminDb.collection("stocks").doc(docId);
+      const bcnDigits = extractBcnDigits(item.bcn);
+      const totals = masterTotals.get(docId) || {
+        totalQty: Number(item.totalQty) || 0,
+        availableQty: Number(item.availableQty) || 0,
+        reservedQty: Number(item.reservedQty) || 0,
+        cutQty: Number(item.cutQty) || 0,
+        damagedQty: Number(item.damagedQty) || 0,
+      };
 
-    // Parent doc
-    if (!writtenMasters.has(item.bcn)) {
-      const now = new Date().toISOString();
-      batch.set(
-          bcnDocRef,
-          {
-          itemId: item.bcn,
-          productId: item.productId || undefined,
-          bcn: item.bcn,
+      // Parent doc
+      if (!writtenMasters.has(docId)) {
+        const now = new Date().toISOString();
+        batch.set(
+            bcnDocRef,
+            stripUndefined({
+            itemId: docId,
+            productId: item.productId || undefined,
+            bcn: item.bcn,
+            bcnDigits,
+            name: item.name || item.itemName,
+            itemName: item.itemName,
+            categoryGroup: item.categoryGroup,
+            category: item.category,
+            isService: item.isService,
+            unit: item.unit,
+            type: item.type,
+            width: item.width,
+            rack: item.rack || undefined,
+            moCollection: item.moCollection,
+            moCollectionCode: item.moCollectionCode,
+            supplierCompanyName: item.supplierCompanyName,
+            supplierCollectionName: item.supplierCollectionName,
+            supplierCollectionCode: item.supplierCollectionCode,
+            composition: item.composition,
+            martindale: item.martindale,
+            weightGsm: item.weightGsm,
+            horizontalRepeatCms: item.horizontalRepeatCms,
+            verticalRepeatCms: item.verticalRepeatCms,
+            costPriceRs: item.costPriceRs,
+            costMultiplierRs: item.costMultiplierRs,
+            rrpWithGstRs: item.rrpWithGstRs,
+            hsnOrSac: item.hsnOrSac || undefined,
+            hsnCode: item.hsnOrSac || undefined,
+            gstPercent: item.gstPercent || undefined,
+            maxlevel: item.maxlevel,
+            totalQty: totals.totalQty,
+            availableQty: totals.availableQty,
+            reservedQty: totals.reservedQty,
+            damagedQty: totals.damagedQty,
+            cutQty: totals.cutQty,
+            closingstock: totals.totalQty,
+            quantity: totals.totalQty,
+            isActive: true,
+            createdAt: now,
+            updatedAt: now,
+            lastUpdatedAt: now,
+            nextLengthNo: totals.totalQty > 0 ? (lengthCountByBcn.get(docId) || 0) + 1 : 1,
+            }),
+            { merge: true }
+        );
+        writtenMasters.add(docId);
+      }
+
+      // Length sub-doc
+      const lengthsCol = bcnDocRef.collection("lengths");
+      const currentLengthNo = (lengthNoByBcn.get(docId) || 0) + 1;
+      lengthNoByBcn.set(docId, currentLengthNo);
+      const lengthId = `${docId}_${currentLengthNo}`;
+      const lengthDocRef = lengthsCol.doc(lengthId);
+
+      const { _sheetId, ...payload } = item;
+
+      batch.set(lengthDocRef, stripUndefined({
+          id: lengthDocRef.id,
+          lengthId: lengthDocRef.id,
+          lengthNo: currentLengthNo,
+          batchNo: "",
+          warehouseId: "",
+          originalLength: payload.totalQty,
+          availableLength: payload.availableQty,
+          unit: payload.unit,
+          rack: payload.rack || "",
+          status: "AVAILABLE",
+          reservation: null,
+          cutHistory: [],
+          receivedAt: new Date().toISOString(),
+          lastUpdatedAt: new Date().toISOString(),
+          // legacy mirrors
+          ...payload,
+          quantity: payload.totalQty,
           bcnDigits,
-          name: item.name || item.itemName,
-          itemName: item.itemName,
-          categoryGroup: item.categoryGroup,
-          category: item.category,
-          isService: item.category === "VAS",
-          unit: item.unit,
-          type: item.type,
-          width: item.width,
-          moCollection: item.moCollection,
-          moCollectionCode: item.moCollectionCode,
-          supplierCompanyName: item.supplierCompanyName,
-          supplierCollectionName: item.supplierCollectionName,
-          supplierCollectionCode: item.supplierCollectionCode,
-          composition: item.composition,
-          martindale: item.martindale,
-          weightGsm: item.weightGsm,
-          horizontalRepeatCms: item.horizontalRepeatCms,
-          verticalRepeatCms: item.verticalRepeatCms,
-          costPriceRs: item.costPriceRs,
-          costMultiplierRs: item.costMultiplierRs,
-          rrpWithGstRs: item.rrpWithGstRs,
-          maxlevel: item.maxlevel,
-          totalQty: totals.totalQty,
-          availableQty: totals.availableQty,
-          reservedQty: totals.reservedQty,
-          damagedQty: totals.damagedQty,
-          cutQty: totals.cutQty,
-          closingstock: totals.totalQty,
-          quantity: totals.totalQty,
-          isActive: true,
-          createdAt: now,
-          updatedAt: now,
-          lastUpdatedAt: now,
-          nextLengthNo: totals.totalQty > 0 ? (lengthCountByBcn.get(item.bcn) || 0) + 1 : 1,
-          },
-          { merge: true }
-      );
-      writtenMasters.add(item.bcn);
-    }
-
-    // Length sub-doc
-    const lengthsCol = bcnDocRef.collection("lengths");
-    const currentLengthNo = (lengthNoByBcn.get(item.bcn) || 0) + 1;
-    lengthNoByBcn.set(item.bcn, currentLengthNo);
-    const lengthId = `${item.bcn}_${currentLengthNo}`;
-    const lengthDocRef = lengthsCol.doc(lengthId);
-
-    const { _sheetId, ...payload } = item;
-
-    batch.set(lengthDocRef, {
-        id: lengthDocRef.id,
-        lengthId: lengthDocRef.id,
-        lengthNo: currentLengthNo,
-        batchNo: "",
-        warehouseId: "",
-        originalLength: payload.totalQty,
-        availableLength: payload.availableQty,
-        unit: payload.unit,
-        rack: "",
-        status: "AVAILABLE",
-        reservation: null,
-        cutHistory: [],
-        receivedAt: new Date().toISOString(),
-        lastUpdatedAt: new Date().toISOString(),
-        // legacy mirrors
-        ...payload,
-        quantity: payload.totalQty,
-    });
+          bcn: payload.bcn,
+          itemId: docId,
+      }));
 
     batchRowCount++;
     totalImported++;
@@ -630,7 +691,7 @@ export async function importStockData(
     }
 
 
-    return { success: true, message: "Import successful!", count: allItems.length };
+    return { success: true, message: "Import successful!", count: totalImported };
   } catch (error: any) {
     console.error("Error in importStockData server action:", error);
     return {

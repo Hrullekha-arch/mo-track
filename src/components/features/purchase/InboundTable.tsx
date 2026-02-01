@@ -496,7 +496,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
       header: "Order ID",
       cell: ({ row }) => {
         const poNumber = row.original.poNumber;
-        const link = poNumber ? `/dashboard/inbound/receive/${poNumber}` : '#';
+        const link ='#';
         return (
           <Button asChild variant="link" className="p-0 h-auto font-medium" disabled={!poNumber}>
             <Link href={link}>
@@ -549,11 +549,11 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                 Receive Material
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem asChild>
+            {/* <DropdownMenuItem asChild>
                 <Link href={`/dashboard/inbound/${row.original.poNumber}`}>
                     View Inbound Process
                 </Link>
-            </DropdownMenuItem>
+            </DropdownMenuItem> */}
           </DropdownMenuContent>
         </DropdownMenu>
       ),

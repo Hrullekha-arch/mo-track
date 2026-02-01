@@ -32,8 +32,8 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const CONFIG = {
-  dryRun: process.env.MIGRATE_DRY_RUN !== "false",
-  deleteOldDocs: process.env.MIGRATE_DELETE_OLD === "true",
+  dryRun: process.env.MIGRATE_DRY_RUN === "true",
+  deleteOldDocs: process.env.MIGRATE_DELETE_OLD !== "false",
   copySubcollections: true,
   writeIdMap: true,
 };
@@ -44,6 +44,23 @@ const stripUndefined = (value) =>
   Object.fromEntries(
     Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined)
   );
+
+const stripUndefinedDeep = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => stripUndefinedDeep(entry))
+      .filter((entry) => entry !== undefined);
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value)
+      .map(([key, entry]) => [key, stripUndefinedDeep(entry)])
+      .filter(([, entry]) => entry !== undefined);
+    return Object.fromEntries(entries);
+  }
+  return value;
+};
 
 const toNumber = (value, fallback = 0) => {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -88,7 +105,16 @@ const buildDealPayload = async ({ dealData, dealId, customerId, customer }) => {
   const createdAt = dealData?.createdAt || now;
   const lastUpdatedAt = dealData?.lastUpdatedAt || dealData?.updatedAt || now;
 
-  return stripUndefined({
+  const dates = stripUndefined({
+    createdAt,
+    firstVisitDate: dealData?.dates?.firstVisitDate,
+    measurementDate: dealData?.dates?.measurementDate,
+    quotationDate: dealData?.dates?.quotationDate,
+    orderDate: dealData?.dates?.orderDate,
+    closedDate: dealData?.dates?.closedDate,
+  });
+
+  return stripUndefinedDeep({
     dealId,
     dealCode: dealData?.dealCode || buildDealCode(dealId),
     customer: stripUndefined({
@@ -107,14 +133,7 @@ const buildDealPayload = async ({ dealData, dealId, customerId, customer }) => {
     actualOrderValue: toNumber(dealData?.actualOrderValue, 0),
     status: dealData?.status || "OPEN",
     lostReason: dealData?.lostReason,
-    dates: {
-      createdAt,
-      firstVisitDate: dealData?.dates?.firstVisitDate,
-      measurementDate: dealData?.dates?.measurementDate,
-      quotationDate: dealData?.dates?.quotationDate,
-      orderDate: dealData?.dates?.orderDate,
-      closedDate: dealData?.dates?.closedDate,
-    },
+    dates: Object.keys(dates).length ? dates : undefined,
     recent: dealData?.recent || { visits: [], quotations: [], orders: [] },
     lastUpdatedAt,
 

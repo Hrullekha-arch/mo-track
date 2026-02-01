@@ -32,8 +32,8 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const CONFIG = {
-  dryRun: process.env.MIGRATE_DRY_RUN !== "false",
-  deleteOldLengths: process.env.MIGRATE_DELETE_OLD === "true",
+  dryRun: process.env.MIGRATE_DRY_RUN === "true",
+  deleteOldLengths: process.env.MIGRATE_DELETE_OLD !== "false",
   writeIdMap: true,
 };
 

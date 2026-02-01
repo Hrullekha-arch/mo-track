@@ -1,0 +1,1876 @@
+{
+  "products": [
+    {
+      "id": "roller_blind__blind",
+      "name": "Roller Blind",
+      "category": "Blind"
+    },
+    {
+      "id": "roman_blind__roman",
+      "name": "Roman Blind",
+      "category": "Roman"
+    },
+    {
+      "id": "roman_blind_with_one_border__roman",
+      "name": "Roman Blind With One Border",
+      "category": "Roman"
+    },
+    {
+      "id": "roman_blind_with_two_border__roman",
+      "name": "Roman Blind With Two Border",
+      "category": "Roman"
+    },
+    {
+      "id": "roman_blind_with_three_border__roman",
+      "name": "Roman Blind With Three Border",
+      "category": "Roman"
+    },
+    {
+      "id": "three_plate_regular__three_plate",
+      "name": "Three Plate Regular",
+      "category": "Three Plate"
+    },
+    {
+      "id": "three_plate_with_one_border__three_plate",
+      "name": "Three Plate With One Border",
+      "category": "Three Plate"
+    },
+    {
+      "id": "three_plate_with_two_border__three_plate",
+      "name": "Three Plate With Two Border",
+      "category": "Three Plate"
+    },
+    {
+      "id": "three_plate_with_three_border__three_plate",
+      "name": "Three Plate With Three Border",
+      "category": "Three Plate"
+    },
+    {
+      "id": "three_plate_share__three_plate_share",
+      "name": "Three Plate Share",
+      "category": "Three Plate Share"
+    },
+    {
+      "id": "three_plate_share_with_one_border__three_plate_share",
+      "name": "Three Plate Share With One Border",
+      "category": "Three Plate Share"
+    },
+    {
+      "id": "three_plate_share_with_two_border__three_plate_share",
+      "name": "Three Plate Share With Two Border",
+      "category": "Three Plate Share"
+    },
+    {
+      "id": "three_plate_share_with_three_border__three_plate_share",
+      "name": "Three Plate Share With Three Border",
+      "category": "Three Plate Share"
+    },
+    {
+      "id": "eyelet_regular__eyelet",
+      "name": "Eyelet Regular",
+      "category": "Eyelet"
+    },
+    {
+      "id": "eyelet_regular_one_border__eyelet",
+      "name": "Eyelet Regular One Border",
+      "category": "Eyelet"
+    }
+  ],
+  "machines": [
+    {
+      "id": "seaser_blade__cutting",
+      "name": "Seaser Blade",
+      "process": "Cutting",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "hardware_cutting_machine__hardware_cutting",
+      "name": "Hardware Cutting Machine",
+      "process": "Hardware Cutting",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "manual__assembling",
+      "name": "Manual",
+      "process": "Assembling",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "cutting_table_1__cutting",
+      "name": "Cutting Table -1",
+      "process": "Cutting",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "stitching_computer_1__stitching",
+      "name": "Stitching Computer -1",
+      "process": "Stitching",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "manul__sizing",
+      "name": "Manul",
+      "process": "Sizing",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "stitching_computer_2__stitching",
+      "name": "Stitching Computer -2",
+      "process": "Stitching",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "ironning_table_1__ironing",
+      "name": "Ironning Table -1",
+      "process": "Ironing",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "manual__hardware_cutting",
+      "name": "Manual",
+      "process": "Hardware Cutting",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "cutting_table_2__table_cutting",
+      "name": "Cutting Table-2",
+      "process": "Table Cutting",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "stitching_computer_3__stitching",
+      "name": "Stitching Computer -3",
+      "process": "Stitching",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "stitching_computer_4__stitching",
+      "name": "Stitching Computer -4",
+      "process": "Stitching",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "ironning_table_2__ironing",
+      "name": "Ironning Table - 2",
+      "process": "Ironing",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "cutting_table_1__table_cutting",
+      "name": "Cutting Table -1",
+      "process": "Table Cutting",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "stitching_computer_5__stitching",
+      "name": "Stitching Computer -5",
+      "process": "Stitching",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "stitching_computer_6__stitching",
+      "name": "Stitching Computer -6",
+      "process": "Stitching",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "ironning_table_3__ironing",
+      "name": "Ironning Table - 3",
+      "process": "Ironing",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "manual__pakaging",
+      "name": "Manual",
+      "process": "Pakaging",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "stitching_computer_7__stitching",
+      "name": "Stitching Computer -7",
+      "process": "Stitching",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "manual_steaching_1__stitching",
+      "name": "Manual Steaching - 1",
+      "process": "Stitching",
+      "shiftMinutes": 480,
+      "active": true
+    },
+    {
+      "id": "manual_stitching_2__stitching",
+      "name": "Manual Stitching -2",
+      "process": "Stitching",
+      "shiftMinutes": 480,
+      "active": true
+    }
+  ],
+  "people": [
+    {
+      "id": "sandeep_bara",
+      "name": "Sandeep Bara",
+      "role": "Supervisor"
+    },
+    {
+      "id": "sanjay",
+      "name": "Sanjay",
+      "role": "Supervisor"
+    },
+    {
+      "id": "suresh",
+      "name": "Suresh",
+      "role": "Supervisor"
+    },
+    {
+      "id": "raja",
+      "name": "Raja",
+      "role": "Supervisor"
+    },
+    {
+      "id": "bharat_das",
+      "name": "Bharat Das",
+      "role": "Supervisor"
+    },
+    {
+      "id": "arvind",
+      "name": "Arvind",
+      "role": "Supervisor"
+    },
+    {
+      "id": "shalendra",
+      "name": "Shalendra",
+      "role": "Supervisor"
+    },
+    {
+      "id": "feroz",
+      "name": "Feroz",
+      "role": "Supervisor"
+    },
+    {
+      "id": "salendra",
+      "name": "Salendra",
+      "role": "Supervisor"
+    },
+    {
+      "id": "rohit",
+      "name": "Rohit",
+      "role": "Supervisor"
+    },
+    {
+      "id": "umesh",
+      "name": "Umesh",
+      "role": "Supervisor"
+    },
+    {
+      "id": "santosh",
+      "name": "Santosh",
+      "role": "Supervisor"
+    },
+    {
+      "id": "ajay",
+      "name": "Ajay",
+      "role": "Supervisor"
+    },
+    {
+      "id": "amarjeet",
+      "name": "Amarjeet",
+      "role": "Supervisor"
+    },
+    {
+      "id": "moieudeen",
+      "name": "Moieudeen",
+      "role": "Supervisor"
+    },
+    {
+      "id": "rambabu",
+      "name": "Rambabu",
+      "role": "Supervisor"
+    },
+    {
+      "id": "devi_charan",
+      "name": "Devi Charan",
+      "role": "Supervisor"
+    },
+    {
+      "id": "santosh_kumar",
+      "name": "Santosh Kumar",
+      "role": "Supervisor"
+    },
+    {
+      "id": "santosh_das",
+      "name": "Santosh Das",
+      "role": "Supervisor"
+    },
+    {
+      "id": "gambhir_singh",
+      "name": "Gambhir Singh",
+      "role": "Supervisor"
+    },
+    {
+      "id": "ashalam",
+      "name": "Ashalam",
+      "role": "Supervisor"
+    }
+  ],
+  "routing": [
+    {
+      "id": "roller_blind__blind_10",
+      "productId": "roller_blind__blind",
+      "stepNo": 10,
+      "process": "Cutting",
+      "cycleMinutes": 15,
+      "ops": 1
+    },
+    {
+      "id": "roller_blind__blind_15",
+      "productId": "roller_blind__blind",
+      "stepNo": 15,
+      "process": "Hardware Cutting",
+      "cycleMinutes": 15,
+      "ops": 1
+    },
+    {
+      "id": "roller_blind__blind_60",
+      "productId": "roller_blind__blind",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind__roman_10",
+      "productId": "roman_blind__roman",
+      "stepNo": 10,
+      "process": "Cutting",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind__roman_30",
+      "productId": "roman_blind__roman",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind__roman_20",
+      "productId": "roman_blind__roman",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind__roman_70",
+      "productId": "roman_blind__roman",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind__roman_15",
+      "productId": "roman_blind__roman",
+      "stepNo": 15,
+      "process": "Hardware Cutting",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind__roman_60",
+      "productId": "roman_blind__roman",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_one_border__roman_18",
+      "productId": "roman_blind_with_one_border__roman",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_one_border__roman_30",
+      "productId": "roman_blind_with_one_border__roman",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_one_border__roman_20",
+      "productId": "roman_blind_with_one_border__roman",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_one_border__roman_70",
+      "productId": "roman_blind_with_one_border__roman",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_one_border__roman_15",
+      "productId": "roman_blind_with_one_border__roman",
+      "stepNo": 15,
+      "process": "Hardware Cutting",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_one_border__roman_60",
+      "productId": "roman_blind_with_one_border__roman",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_two_border__roman_18",
+      "productId": "roman_blind_with_two_border__roman",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 15,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_two_border__roman_30",
+      "productId": "roman_blind_with_two_border__roman",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_two_border__roman_20",
+      "productId": "roman_blind_with_two_border__roman",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_two_border__roman_70",
+      "productId": "roman_blind_with_two_border__roman",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_two_border__roman_15",
+      "productId": "roman_blind_with_two_border__roman",
+      "stepNo": 15,
+      "process": "Hardware Cutting",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_two_border__roman_60",
+      "productId": "roman_blind_with_two_border__roman",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_two_border__roman_90",
+      "productId": "roman_blind_with_two_border__roman",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_three_border__roman_18",
+      "productId": "roman_blind_with_three_border__roman",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_three_border__roman_30",
+      "productId": "roman_blind_with_three_border__roman",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_three_border__roman_20",
+      "productId": "roman_blind_with_three_border__roman",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_three_border__roman_70",
+      "productId": "roman_blind_with_three_border__roman",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_three_border__roman_15",
+      "productId": "roman_blind_with_three_border__roman",
+      "stepNo": 15,
+      "process": "Hardware Cutting",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_three_border__roman_60",
+      "productId": "roman_blind_with_three_border__roman",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "roman_blind_with_three_border__roman_90",
+      "productId": "roman_blind_with_three_border__roman",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_regular__three_plate_18",
+      "productId": "three_plate_regular__three_plate",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_regular__three_plate_30",
+      "productId": "three_plate_regular__three_plate",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_regular__three_plate_20",
+      "productId": "three_plate_regular__three_plate",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 2,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_regular__three_plate_70",
+      "productId": "three_plate_regular__three_plate",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_regular__three_plate_60",
+      "productId": "three_plate_regular__three_plate",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_regular__three_plate_90",
+      "productId": "three_plate_regular__three_plate",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_one_border__three_plate_18",
+      "productId": "three_plate_with_one_border__three_plate",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_one_border__three_plate_30",
+      "productId": "three_plate_with_one_border__three_plate",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_one_border__three_plate_20",
+      "productId": "three_plate_with_one_border__three_plate",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 2,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_one_border__three_plate_70",
+      "productId": "three_plate_with_one_border__three_plate",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_one_border__three_plate_60",
+      "productId": "three_plate_with_one_border__three_plate",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_one_border__three_plate_90",
+      "productId": "three_plate_with_one_border__three_plate",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_two_border__three_plate_18",
+      "productId": "three_plate_with_two_border__three_plate",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 7,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_two_border__three_plate_30",
+      "productId": "three_plate_with_two_border__three_plate",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 15,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_two_border__three_plate_20",
+      "productId": "three_plate_with_two_border__three_plate",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 2,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_two_border__three_plate_70",
+      "productId": "three_plate_with_two_border__three_plate",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_two_border__three_plate_60",
+      "productId": "three_plate_with_two_border__three_plate",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_two_border__three_plate_90",
+      "productId": "three_plate_with_two_border__three_plate",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_three_border__three_plate_18",
+      "productId": "three_plate_with_three_border__three_plate",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 9,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_three_border__three_plate_30",
+      "productId": "three_plate_with_three_border__three_plate",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_three_border__three_plate_20",
+      "productId": "three_plate_with_three_border__three_plate",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 2,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_three_border__three_plate_70",
+      "productId": "three_plate_with_three_border__three_plate",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_three_border__three_plate_60",
+      "productId": "three_plate_with_three_border__three_plate",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_with_three_border__three_plate_90",
+      "productId": "three_plate_with_three_border__three_plate",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share__three_plate_share_18",
+      "productId": "three_plate_share__three_plate_share",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share__three_plate_share_30",
+      "productId": "three_plate_share__three_plate_share",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share__three_plate_share_20",
+      "productId": "three_plate_share__three_plate_share",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 2,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share__three_plate_share_70",
+      "productId": "three_plate_share__three_plate_share",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share__three_plate_share_60",
+      "productId": "three_plate_share__three_plate_share",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share__three_plate_share_90",
+      "productId": "three_plate_share__three_plate_share",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_one_border__three_plate_share_18",
+      "productId": "three_plate_share_with_one_border__three_plate_share",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_one_border__three_plate_share_30",
+      "productId": "three_plate_share_with_one_border__three_plate_share",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_one_border__three_plate_share_20",
+      "productId": "three_plate_share_with_one_border__three_plate_share",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 2,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_one_border__three_plate_share_70",
+      "productId": "three_plate_share_with_one_border__three_plate_share",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_one_border__three_plate_share_60",
+      "productId": "three_plate_share_with_one_border__three_plate_share",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_one_border__three_plate_share_90",
+      "productId": "three_plate_share_with_one_border__three_plate_share",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_two_border__three_plate_share_18",
+      "productId": "three_plate_share_with_two_border__three_plate_share",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 7,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_two_border__three_plate_share_30",
+      "productId": "three_plate_share_with_two_border__three_plate_share",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 15,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_two_border__three_plate_share_20",
+      "productId": "three_plate_share_with_two_border__three_plate_share",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 2,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_two_border__three_plate_share_70",
+      "productId": "three_plate_share_with_two_border__three_plate_share",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_two_border__three_plate_share_60",
+      "productId": "three_plate_share_with_two_border__three_plate_share",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_two_border__three_plate_share_90",
+      "productId": "three_plate_share_with_two_border__three_plate_share",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_three_border__three_plate_share_18",
+      "productId": "three_plate_share_with_three_border__three_plate_share",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 9,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_three_border__three_plate_share_30",
+      "productId": "three_plate_share_with_three_border__three_plate_share",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_three_border__three_plate_share_20",
+      "productId": "three_plate_share_with_three_border__three_plate_share",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 2,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_three_border__three_plate_share_70",
+      "productId": "three_plate_share_with_three_border__three_plate_share",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_three_border__three_plate_share_60",
+      "productId": "three_plate_share_with_three_border__three_plate_share",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 20,
+      "ops": 1
+    },
+    {
+      "id": "three_plate_share_with_three_border__three_plate_share_90",
+      "productId": "three_plate_share_with_three_border__three_plate_share",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "eyelet_regular__eyelet_18",
+      "productId": "eyelet_regular__eyelet",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 3,
+      "ops": 1
+    },
+    {
+      "id": "eyelet_regular__eyelet_30",
+      "productId": "eyelet_regular__eyelet",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "eyelet_regular__eyelet_20",
+      "productId": "eyelet_regular__eyelet",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 2,
+      "ops": 1
+    },
+    {
+      "id": "eyelet_regular__eyelet_70",
+      "productId": "eyelet_regular__eyelet",
+      "stepNo": 70,
+      "process": "Ironing",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "eyelet_regular__eyelet_60",
+      "productId": "eyelet_regular__eyelet",
+      "stepNo": 60,
+      "process": "Assembling",
+      "cycleMinutes": 10,
+      "ops": 1
+    },
+    {
+      "id": "eyelet_regular__eyelet_90",
+      "productId": "eyelet_regular__eyelet",
+      "stepNo": 90,
+      "process": "Pakaging",
+      "cycleMinutes": 5,
+      "ops": 1
+    },
+    {
+      "id": "eyelet_regular_one_border__eyelet_18",
+      "productId": "eyelet_regular_one_border__eyelet",
+      "stepNo": 18,
+      "process": "Table Cutting",
+      "cycleMinutes": 6,
+      "ops": 1
+    },
+    {
+      "id": "eyelet_regular_one_border__eyelet_30",
+      "productId": "eyelet_regular_one_border__eyelet",
+      "stepNo": 30,
+      "process": "Stitching",
+      "cycleMinutes": 15,
+      "ops": 1
+    },
+    {
+      "id": "eyelet_regular_one_border__eyelet_20",
+      "productId": "eyelet_regular_one_border__eyelet",
+      "stepNo": 20,
+      "process": "Sizing",
+      "cycleMinutes": 2,
+      "ops": 1
+    }
+  ],
+  "skills": [
+    {
+      "id": "seaser_blade__cutting_sandeep_bara_blind",
+      "machineId": "seaser_blade__cutting",
+      "personId": "sandeep_bara",
+      "process": "Cutting",
+      "category": "Blind",
+      "allowed": true
+    },
+    {
+      "id": "seaser_blade__cutting_sanjay_blind",
+      "machineId": "seaser_blade__cutting",
+      "personId": "sanjay",
+      "process": "Cutting",
+      "category": "Blind",
+      "allowed": true
+    },
+    {
+      "id": "hardware_cutting_machine__hardware_cutting_suresh_blind",
+      "machineId": "hardware_cutting_machine__hardware_cutting",
+      "personId": "suresh",
+      "process": "Hardware Cutting",
+      "category": "Blind",
+      "allowed": true
+    },
+    {
+      "id": "manual__assembling_raja_blind",
+      "machineId": "manual__assembling",
+      "personId": "raja",
+      "process": "Assembling",
+      "category": "Blind",
+      "allowed": true
+    },
+    {
+      "id": "manual__assembling_bharat_das_blind",
+      "machineId": "manual__assembling",
+      "personId": "bharat_das",
+      "process": "Assembling",
+      "category": "Blind",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_1__cutting_arvind_roman",
+      "machineId": "cutting_table_1__cutting",
+      "personId": "arvind",
+      "process": "Cutting",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_1__cutting_shalendra_roman",
+      "machineId": "cutting_table_1__cutting",
+      "personId": "shalendra",
+      "process": "Cutting",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_1__stitching_feroz_roman",
+      "machineId": "stitching_computer_1__stitching",
+      "personId": "feroz",
+      "process": "Stitching",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_salendra_roman",
+      "machineId": "manul__sizing",
+      "personId": "salendra",
+      "process": "Sizing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_rohit_roman",
+      "machineId": "manul__sizing",
+      "personId": "rohit",
+      "process": "Sizing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_arvind_roman",
+      "machineId": "manul__sizing",
+      "personId": "arvind",
+      "process": "Sizing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_2__stitching_umesh_roman",
+      "machineId": "stitching_computer_2__stitching",
+      "personId": "umesh",
+      "process": "Stitching",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_santosh_roman",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "santosh",
+      "process": "Ironing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_ajay_roman",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "ajay",
+      "process": "Ironing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_amarjeet_roman",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "amarjeet",
+      "process": "Ironing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "manual__hardware_cutting_suresh_roman",
+      "machineId": "manual__hardware_cutting",
+      "personId": "suresh",
+      "process": "Hardware Cutting",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "manual__assembling_raja_roman",
+      "machineId": "manual__assembling",
+      "personId": "raja",
+      "process": "Assembling",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "manual__assembling_bharat_das_roman",
+      "machineId": "manual__assembling",
+      "personId": "bharat_das",
+      "process": "Assembling",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_2__table_cutting_santosh_roman",
+      "machineId": "cutting_table_2__table_cutting",
+      "personId": "santosh",
+      "process": "Table Cutting",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_2__table_cutting_ajay_roman",
+      "machineId": "cutting_table_2__table_cutting",
+      "personId": "ajay",
+      "process": "Table Cutting",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_2__table_cutting_amarjeet_roman",
+      "machineId": "cutting_table_2__table_cutting",
+      "personId": "amarjeet",
+      "process": "Table Cutting",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_3__stitching_rohit_roman",
+      "machineId": "stitching_computer_3__stitching",
+      "personId": "rohit",
+      "process": "Stitching",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_4__stitching_moieudeen_roman",
+      "machineId": "stitching_computer_4__stitching",
+      "personId": "moieudeen",
+      "process": "Stitching",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_2__ironing_santosh_roman",
+      "machineId": "ironning_table_2__ironing",
+      "personId": "santosh",
+      "process": "Ironing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_2__ironing_ajay_roman",
+      "machineId": "ironning_table_2__ironing",
+      "personId": "ajay",
+      "process": "Ironing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_2__ironing_amarjeet_roman",
+      "machineId": "ironning_table_2__ironing",
+      "personId": "amarjeet",
+      "process": "Ironing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_1__table_cutting_arvind_roman",
+      "machineId": "cutting_table_1__table_cutting",
+      "personId": "arvind",
+      "process": "Table Cutting",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_1__table_cutting_shalendra_roman",
+      "machineId": "cutting_table_1__table_cutting",
+      "personId": "shalendra",
+      "process": "Table Cutting",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_5__stitching_rambabu_roman",
+      "machineId": "stitching_computer_5__stitching",
+      "personId": "rambabu",
+      "process": "Stitching",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_6__stitching_devi_charan_roman",
+      "machineId": "stitching_computer_6__stitching",
+      "personId": "devi_charan",
+      "process": "Stitching",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_3__ironing_santosh_roman",
+      "machineId": "ironning_table_3__ironing",
+      "personId": "santosh",
+      "process": "Ironing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_3__ironing_ajay_roman",
+      "machineId": "ironning_table_3__ironing",
+      "personId": "ajay",
+      "process": "Ironing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_3__ironing_amarjeet_roman",
+      "machineId": "ironning_table_3__ironing",
+      "personId": "amarjeet",
+      "process": "Ironing",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "manual__pakaging_santosh_kumar_roman",
+      "machineId": "manual__pakaging",
+      "personId": "santosh_kumar",
+      "process": "Pakaging",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_7__stitching_santosh_das_roman",
+      "machineId": "stitching_computer_7__stitching",
+      "personId": "santosh_das",
+      "process": "Stitching",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "manual_steaching_1__stitching_gambhir_singh_roman",
+      "machineId": "manual_steaching_1__stitching",
+      "personId": "gambhir_singh",
+      "process": "Stitching",
+      "category": "Roman",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_2__table_cutting_santosh_three_plate",
+      "machineId": "cutting_table_2__table_cutting",
+      "personId": "santosh",
+      "process": "Table Cutting",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_2__table_cutting_ajay_three_plate",
+      "machineId": "cutting_table_2__table_cutting",
+      "personId": "ajay",
+      "process": "Table Cutting",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_2__table_cutting_amarjeet_three_plate",
+      "machineId": "cutting_table_2__table_cutting",
+      "personId": "amarjeet",
+      "process": "Table Cutting",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "manual_stitching_2__stitching_ashalam_three_plate",
+      "machineId": "manual_stitching_2__stitching",
+      "personId": "ashalam",
+      "process": "Stitching",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_salendra_three_plate",
+      "machineId": "manul__sizing",
+      "personId": "salendra",
+      "process": "Sizing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_rohit_three_plate",
+      "machineId": "manul__sizing",
+      "personId": "rohit",
+      "process": "Sizing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_arvind_three_plate",
+      "machineId": "manul__sizing",
+      "personId": "arvind",
+      "process": "Sizing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_1__stitching_feroz_three_plate",
+      "machineId": "stitching_computer_1__stitching",
+      "personId": "feroz",
+      "process": "Stitching",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_2__ironing_santosh_three_plate",
+      "machineId": "ironning_table_2__ironing",
+      "personId": "santosh",
+      "process": "Ironing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_2__ironing_ajay_three_plate",
+      "machineId": "ironning_table_2__ironing",
+      "personId": "ajay",
+      "process": "Ironing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_2__ironing_amarjeet_three_plate",
+      "machineId": "ironning_table_2__ironing",
+      "personId": "amarjeet",
+      "process": "Ironing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "manual__assembling_raja_three_plate",
+      "machineId": "manual__assembling",
+      "personId": "raja",
+      "process": "Assembling",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "manual__assembling_bharat_das_three_plate",
+      "machineId": "manual__assembling",
+      "personId": "bharat_das",
+      "process": "Assembling",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "manual__pakaging_santosh_kumar_three_plate",
+      "machineId": "manual__pakaging",
+      "personId": "santosh_kumar",
+      "process": "Pakaging",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_1__table_cutting_arvind_three_plate",
+      "machineId": "cutting_table_1__table_cutting",
+      "personId": "arvind",
+      "process": "Table Cutting",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_1__table_cutting_shalendra_three_plate",
+      "machineId": "cutting_table_1__table_cutting",
+      "personId": "shalendra",
+      "process": "Table Cutting",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_2__stitching_umesh_three_plate",
+      "machineId": "stitching_computer_2__stitching",
+      "personId": "umesh",
+      "process": "Stitching",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_3__stitching_rohit_three_plate",
+      "machineId": "stitching_computer_3__stitching",
+      "personId": "rohit",
+      "process": "Stitching",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_3__ironing_santosh_three_plate",
+      "machineId": "ironning_table_3__ironing",
+      "personId": "santosh",
+      "process": "Ironing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_3__ironing_ajay_three_plate",
+      "machineId": "ironning_table_3__ironing",
+      "personId": "ajay",
+      "process": "Ironing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_3__ironing_amarjeet_three_plate",
+      "machineId": "ironning_table_3__ironing",
+      "personId": "amarjeet",
+      "process": "Ironing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_4__stitching_moieudeen_three_plate",
+      "machineId": "stitching_computer_4__stitching",
+      "personId": "moieudeen",
+      "process": "Stitching",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_5__stitching_rambabu_three_plate",
+      "machineId": "stitching_computer_5__stitching",
+      "personId": "rambabu",
+      "process": "Stitching",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_santosh_three_plate",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "santosh",
+      "process": "Ironing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_ajay_three_plate",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "ajay",
+      "process": "Ironing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_amarjeet_three_plate",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "amarjeet",
+      "process": "Ironing",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_6__stitching_devi_charan_three_plate",
+      "machineId": "stitching_computer_6__stitching",
+      "personId": "devi_charan",
+      "process": "Stitching",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_7__stitching_santosh_das_three_plate",
+      "machineId": "stitching_computer_7__stitching",
+      "personId": "santosh_das",
+      "process": "Stitching",
+      "category": "Three Plate",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_2__table_cutting_santosh_three_plate_share",
+      "machineId": "cutting_table_2__table_cutting",
+      "personId": "santosh",
+      "process": "Table Cutting",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_2__table_cutting_ajay_three_plate_share",
+      "machineId": "cutting_table_2__table_cutting",
+      "personId": "ajay",
+      "process": "Table Cutting",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_2__table_cutting_amarjeet_three_plate_share",
+      "machineId": "cutting_table_2__table_cutting",
+      "personId": "amarjeet",
+      "process": "Table Cutting",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "manual_steaching_1__stitching_gambhir_singh_three_plate_share",
+      "machineId": "manual_steaching_1__stitching",
+      "personId": "gambhir_singh",
+      "process": "Stitching",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_salendra_three_plate_share",
+      "machineId": "manul__sizing",
+      "personId": "salendra",
+      "process": "Sizing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_rohit_three_plate_share",
+      "machineId": "manul__sizing",
+      "personId": "rohit",
+      "process": "Sizing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_arvind_three_plate_share",
+      "machineId": "manul__sizing",
+      "personId": "arvind",
+      "process": "Sizing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "manual_stitching_2__stitching_ashalam_three_plate_share",
+      "machineId": "manual_stitching_2__stitching",
+      "personId": "ashalam",
+      "process": "Stitching",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_3__ironing_santosh_three_plate_share",
+      "machineId": "ironning_table_3__ironing",
+      "personId": "santosh",
+      "process": "Ironing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_3__ironing_ajay_three_plate_share",
+      "machineId": "ironning_table_3__ironing",
+      "personId": "ajay",
+      "process": "Ironing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_3__ironing_amarjeet_three_plate_share",
+      "machineId": "ironning_table_3__ironing",
+      "personId": "amarjeet",
+      "process": "Ironing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "manual__assembling_raja_three_plate_share",
+      "machineId": "manual__assembling",
+      "personId": "raja",
+      "process": "Assembling",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "manual__assembling_bharat_das_three_plate_share",
+      "machineId": "manual__assembling",
+      "personId": "bharat_das",
+      "process": "Assembling",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "manual__pakaging_santosh_kumar_three_plate_share",
+      "machineId": "manual__pakaging",
+      "personId": "santosh_kumar",
+      "process": "Pakaging",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_1__table_cutting_arvind_three_plate_share",
+      "machineId": "cutting_table_1__table_cutting",
+      "personId": "arvind",
+      "process": "Table Cutting",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_1__table_cutting_shalendra_three_plate_share",
+      "machineId": "cutting_table_1__table_cutting",
+      "personId": "shalendra",
+      "process": "Table Cutting",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_1__stitching_feroz_three_plate_share",
+      "machineId": "stitching_computer_1__stitching",
+      "personId": "feroz",
+      "process": "Stitching",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_2__stitching_umesh_three_plate_share",
+      "machineId": "stitching_computer_2__stitching",
+      "personId": "umesh",
+      "process": "Stitching",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_santosh_three_plate_share",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "santosh",
+      "process": "Ironing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_ajay_three_plate_share",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "ajay",
+      "process": "Ironing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_amarjeet_three_plate_share",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "amarjeet",
+      "process": "Ironing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_3__stitching_rohit_three_plate_share",
+      "machineId": "stitching_computer_3__stitching",
+      "personId": "rohit",
+      "process": "Stitching",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_4__stitching_moieudeen_three_plate_share",
+      "machineId": "stitching_computer_4__stitching",
+      "personId": "moieudeen",
+      "process": "Stitching",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_2__ironing_santosh_three_plate_share",
+      "machineId": "ironning_table_2__ironing",
+      "personId": "santosh",
+      "process": "Ironing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_2__ironing_ajay_three_plate_share",
+      "machineId": "ironning_table_2__ironing",
+      "personId": "ajay",
+      "process": "Ironing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_2__ironing_amarjeet_three_plate_share",
+      "machineId": "ironning_table_2__ironing",
+      "personId": "amarjeet",
+      "process": "Ironing",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_5__stitching_rambabu_three_plate_share",
+      "machineId": "stitching_computer_5__stitching",
+      "personId": "rambabu",
+      "process": "Stitching",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_6__stitching_devi_charan_three_plate_share",
+      "machineId": "stitching_computer_6__stitching",
+      "personId": "devi_charan",
+      "process": "Stitching",
+      "category": "Three Plate Share",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_1__table_cutting_arvind_eyelet",
+      "machineId": "cutting_table_1__table_cutting",
+      "personId": "arvind",
+      "process": "Table Cutting",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "cutting_table_1__table_cutting_shalendra_eyelet",
+      "machineId": "cutting_table_1__table_cutting",
+      "personId": "shalendra",
+      "process": "Table Cutting",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "stitching_computer_7__stitching_santosh_das_eyelet",
+      "machineId": "stitching_computer_7__stitching",
+      "personId": "santosh_das",
+      "process": "Stitching",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_salendra_eyelet",
+      "machineId": "manul__sizing",
+      "personId": "salendra",
+      "process": "Sizing",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_rohit_eyelet",
+      "machineId": "manul__sizing",
+      "personId": "rohit",
+      "process": "Sizing",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "manul__sizing_arvind_eyelet",
+      "machineId": "manul__sizing",
+      "personId": "arvind",
+      "process": "Sizing",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "manual_steaching_1__stitching_gambhir_singh_eyelet",
+      "machineId": "manual_steaching_1__stitching",
+      "personId": "gambhir_singh",
+      "process": "Stitching",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_santosh_eyelet",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "santosh",
+      "process": "Ironing",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_ajay_eyelet",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "ajay",
+      "process": "Ironing",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "ironning_table_1__ironing_amarjeet_eyelet",
+      "machineId": "ironning_table_1__ironing",
+      "personId": "amarjeet",
+      "process": "Ironing",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "manual__assembling_raja_eyelet",
+      "machineId": "manual__assembling",
+      "personId": "raja",
+      "process": "Assembling",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "manual__assembling_bharat_das_eyelet",
+      "machineId": "manual__assembling",
+      "personId": "bharat_das",
+      "process": "Assembling",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "manual__pakaging_santosh_kumar_eyelet",
+      "machineId": "manual__pakaging",
+      "personId": "santosh_kumar",
+      "process": "Pakaging",
+      "category": "Eyelet",
+      "allowed": true
+    },
+    {
+      "id": "manual_stitching_2__stitching_ashalam_eyelet",
+      "machineId": "manual_stitching_2__stitching",
+      "personId": "ashalam",
+      "process": "Stitching",
+      "category": "Eyelet",
+      "allowed": true
+    }
+  ],
+  "downtimes": []
+}

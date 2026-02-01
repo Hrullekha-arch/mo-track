@@ -1,0 +1,101 @@
+Supervisor	Product Name	Machine Name	Process	Category	Item Code	Process Group	Step No	Cycle	Cap/HR	OPS
+Sandeep Bara,Sanjay	Roller Blind	Seaser Blade	Cutting	Blind	Roller Blind	Cutting	10	15	4	1
+Suresh	Roller Blind	Hardware Cutting Machine	Hardware Cutting	Blind	Roller Blind	Cutting	15	15	4	1
+Raja, Bharat Das	Roller Blind	Manual	Assembling	Blind	Roller Blind	Assembly	60	20	3	1
+Arvind, Shalendra	Roman Blind	Cutting Table -1	Cutting	Roman	Roman Blind	Cutting	10	5	6	1
+Feroz	Roman Blind	Stitching Computer -1	Stitching	Roman	Roman Blind	Stitching	30	10	12	1
+Salendra,Rohit,Arvind	Roman Blind	Manul	Sizing	Roman	Roman Blind	Preparation	20	5	6	1
+Umesh	Roman Blind	Stitching Computer -2	Stitching	Roman	Roman Blind	Stitching	30	10	20	1
+Santosh,Ajay,Amarjeet	Roman Blind	Ironning Table -1	Ironing	Roman	Roman Blind	Finishing	70	3	6	1
+Suresh	Roman Blind	Manual	Hardware Cutting	Roman	Roman Blind	Cutting	15	10	3	1
+Raja, Bharat Das	Roman Blind	Manual	Assembling	Roman	Roman Blind	Assembly	60	20	6	1
+Santosh, Ajay,Amarjeet	Roman Blind With One Border	Cutting Table-2	Table Cutting	Roman	Roman Blind With One Border	Cutting	18	10	6	1
+Rohit	Roman Blind With One Border	Stitching Computer -3	Stitching	Roman	Roman Blind With One Border	Stitching	30	10	12	1
+Salendra,Rohit,Arvind	Roman Blind With One Border	Manul	Sizing	Roman	Roman Blind With One Border	Preparation	20	5	3	1
+Moieudeen	Roman Blind With One Border	Stitching Computer -4	Stitching	Roman	Roman Blind With One Border	Stitching	30	20	20	1
+Santosh,Ajay,Amarjeet	Roman Blind With One Border	Ironning Table - 2	Ironing	Roman	Roman Blind With One Border	Finishing	70	3	6	1
+Suresh	Roman Blind With One Border	Manual	Hardware Cutting	Roman	Roman Blind With One Border	Cutting	15	10	3	1
+Raja, Bharat Das	Roman Blind With One Border	Manual	Assembling	Roman	Roman Blind With One Border	Assembly	60	20	4	1
+Arvind, Shalendra	Roman Blind With Two Border	Cutting Table -1	Table Cutting	Roman	Roman Blind With Two Border	Cutting	18	15	6	1
+Rambabu	Roman Blind With Two Border	Stitching Computer -5	Stitching	Roman	Roman Blind With Two Border	Stitching	30	10	12	1
+Salendra,Rohit,Arvind	Roman Blind With Two Border	Manul	Sizing	Roman	Roman Blind With Two Border	Preparation	20	5	2.4	1
+Devi Charan	Roman Blind With Two Border	Stitching Computer -6	Stitching	Roman	Roman Blind With Two Border	Stitching	30	25	20	1
+Santosh,Ajay,Amarjeet	Roman Blind With Two Border	Ironning Table - 3	Ironing	Roman	Roman Blind With Two Border	Finishing	70	3	6	1
+Suresh	Roman Blind With Two Border	Manual	Hardware Cutting	Roman	Roman Blind With Two Border	Cutting	15	10	3	1
+Raja, Bharat Das	Roman Blind With Two Border	Manual	Assembling	Roman	Roman Blind With Two Border	Assembly	60	20	3	1
+Santosh Kumar	Roman Blind With Two Border	Manual	Pakaging	Roman	Roman Blind With Two Border	Packing	90	20	3	1
+Arvind, Shalendra	Roman Blind With Three Border	Cutting Table -1	Table Cutting	Roman	Roman Blind With Three Border	Cutting	18	20	6	1
+Santosh Das	Roman Blind With Three Border	Stitching Computer -7	Stitching	Roman	Roman Blind With Three Border	Stitching	30	10	12	1
+Salendra,Rohit,Arvind	Roman Blind With Three Border	Manul	Sizing	Roman	Roman Blind With Three Border	Preparation	20	5	2	1
+Gambhir Singh	Roman Blind With Three Border	Manual Steaching - 1	Stitching	Roman	Roman Blind With Three Border	Stitching	30	30	20	1
+Santosh,Ajay,Amarjeet	Roman Blind With Three Border	Ironning Table -1	Ironing	Roman	Roman Blind With Three Border	Finishing	70	3	6	1
+Suresh	Roman Blind With Three Border	Manual	Hardware Cutting	Roman	Roman Blind With Three Border	Cutting	15	10	3	1
+Raja, Bharat Das	Roman Blind With Three Border	Manual	Assembling	Roman	Roman Blind With Three Border	Assembly	60	20	3	1
+Santosh Kumar	Roman Blind With Three Border	Manual	Pakaging	Roman	Roman Blind With Three Border	Packing	90	20	20	1
+Santosh, Ajay,Amarjeet	Three Plate Regular	Cutting Table-2	Table Cutting	Three Plate	Three Plate Regular	Cutting	18	3	12	1
+Ashalam	Three Plate Regular	Manual Stitching -2	Stitching	Three Plate	Three Plate Regular	Stitching	30	5	30	1
+Salendra,Rohit,Arvind	Three Plate Regular	Manul	Sizing	Three Plate	Three Plate Regular	Preparation	20	2	4	1
+Feroz	Three Plate Regular	Stitching Computer -1	Stitching	Three Plate	Three Plate Regular	Stitching	30	15	12	1
+Santosh,Ajay,Amarjeet	Three Plate Regular	Ironning Table - 2	Ironing	Three Plate	Three Plate Regular	Finishing	70	5	3	1
+Raja, Bharat Das	Three Plate Regular	Manual	Assembling	Three Plate	Three Plate Regular	Assembly	60	20	12	1
+Santosh Kumar	Three Plate Regular	Manual	Pakaging	Three Plate	Three Plate Regular	Packing	90	5	12	1
+Arvind, Shalendra	Three Plate With One Border	Cutting Table -1	Table Cutting	Three Plate	Three Plate With One Border	Cutting	18	5	6	1
+Umesh	Three Plate With One Border	Stitching Computer -2	Stitching	Three Plate	Three Plate With One Border	Stitching	30	10	30	1
+Salendra,Rohit,Arvind	Three Plate With One Border	Manul	Sizing	Three Plate	Three Plate With One Border	Preparation	20	2	4	1
+Rohit	Three Plate With One Border	Stitching Computer -3	Stitching	Three Plate	Three Plate With One Border	Stitching	30	15	20	1
+Santosh,Ajay,Amarjeet	Three Plate With One Border	Ironning Table - 3	Ironing	Three Plate	Three Plate With One Border	Finishing	70	3	3	1
+Raja, Bharat Das	Three Plate With One Border	Manual	Assembling	Three Plate	Three Plate With One Border	Assembly	60	20	12	1
+Santosh Kumar	Three Plate With One Border	Manual	Pakaging	Three Plate	Three Plate With One Border	Packing	90	5	8.57143	1
+Arvind, Shalendra	Three Plate With Two Border	Cutting Table -1	Table Cutting	Three Plate	Three Plate With Two Border	Cutting	18	7	4	1
+Moieudeen	Three Plate With Two Border	Stitching Computer -4	Stitching	Three Plate	Three Plate With Two Border	Stitching	30	15	30	1
+Salendra,Rohit,Arvind	Three Plate With Two Border	Manul	Sizing	Three Plate	Three Plate With Two Border	Preparation	20	2	4	1
+Rambabu	Three Plate With Two Border	Stitching Computer -5	Stitching	Three Plate	Three Plate With Two Border	Stitching	30	15	20	1
+Santosh,Ajay,Amarjeet	Three Plate With Two Border	Ironning Table -1	Ironing	Three Plate	Three Plate With Two Border	Finishing	70	3	3	1
+Raja, Bharat Das	Three Plate With Two Border	Manual	Assembling	Three Plate	Three Plate With Two Border	Assembly	60	20	12	1
+Santosh Kumar	Three Plate With Two Border	Manual	Pakaging	Three Plate	Three Plate With Two Border	Packing	90	5	6.66667	1
+Arvind, Shalendra	Three Plate With Three Border	Cutting Table -1	Table Cutting	Three Plate	Three Plate With Three Border	Cutting	18	9	3	1
+Devi Charan	Three Plate With Three Border	Stitching Computer -6	Stitching	Three Plate	Three Plate With Three Border	Stitching	30	20	30	1
+Salendra,Rohit,Arvind	Three Plate With Three Border	Manul	Sizing	Three Plate	Three Plate With Three Border	Preparation	20	2	3	1
+Santosh Das	Three Plate With Three Border	Stitching Computer -7	Stitching	Three Plate	Three Plate With Three Border	Stitching	30	20	12	1
+Santosh,Ajay,Amarjeet	Three Plate With Three Border	Ironning Table - 2	Ironing	Three Plate	Three Plate With Three Border	Finishing	70	5	3	1
+Raja, Bharat Das	Three Plate With Three Border	Manual	Assembling	Three Plate	Three Plate With Three Border	Assembly	60	20	12	1
+Santosh Kumar	Three Plate With Three Border	Manual	Pakaging	Three Plate	Three Plate With Three Border	Packing	90	5	20	1
+Santosh, Ajay,Amarjeet	Three Plate Share	Cutting Table-2	Table Cutting	Three Plate Share	Three Plate Share	Cutting	18	3	12	1
+Gambhir Singh	Three Plate Share	Manual Steaching - 1	Stitching	Three Plate Share	Three Plate Share	Stitching	30	5	30	1
+Salendra,Rohit,Arvind	Three Plate Share	Manul	Sizing	Three Plate Share	Three Plate Share	Preparation	20	2	4	1
+Ashalam	Three Plate Share	Manual Stitching -2	Stitching	Three Plate Share	Three Plate Share	Stitching	30	15	12	1
+Santosh,Ajay,Amarjeet	Three Plate Share	Ironning Table - 3	Ironing	Three Plate Share	Three Plate Share	Finishing	70	5	3	1
+Raja, Bharat Das	Three Plate Share	Manual	Assembling	Three Plate Share	Three Plate Share	Assembly	60	20	12	1
+Santosh Kumar	Three Plate Share	Manual	Pakaging	Three Plate Share	Three Plate Share	Packing	90	5	12	1
+Arvind, Shalendra	Three Plate Share With One Border	Cutting Table -1	Table Cutting	Three Plate Share	Three Plate Share With One Border	Cutting	18	5	6	1
+Feroz	Three Plate Share With One Border	Stitching Computer -1	Stitching	Three Plate Share	Three Plate Share With One Border	Stitching	30	10	30	1
+Salendra,Rohit,Arvind	Three Plate Share With One Border	Manul	Sizing	Three Plate Share	Three Plate Share With One Border	Preparation	20	2	4	1
+Umesh	Three Plate Share With One Border	Stitching Computer -2	Stitching	Three Plate Share	Three Plate Share With One Border	Stitching	30	15	20	1
+Santosh,Ajay,Amarjeet	Three Plate Share With One Border	Ironning Table -1	Ironing	Three Plate Share	Three Plate Share With One Border	Finishing	70	3	3	1
+Raja, Bharat Das	Three Plate Share With One Border	Manual	Assembling	Three Plate Share	Three Plate Share With One Border	Assembly	60	20	12	1
+Santosh Kumar	Three Plate Share With One Border	Manual	Pakaging	Three Plate Share	Three Plate Share With One Border	Packing	90	5	8.57143	1
+Arvind, Shalendra	Three Plate Share With Two Border	Cutting Table -1	Table Cutting	Three Plate Share	Three Plate Share With Two Border	Cutting	18	7	4	1
+Rohit	Three Plate Share With Two Border	Stitching Computer -3	Stitching	Three Plate Share	Three Plate Share With Two Border	Stitching	30	15	30	1
+Salendra,Rohit,Arvind	Three Plate Share With Two Border	Manul	Sizing	Three Plate Share	Three Plate Share With Two Border	Preparation	20	2	4	1
+Moieudeen	Three Plate Share With Two Border	Stitching Computer -4	Stitching	Three Plate Share	Three Plate Share With Two Border	Stitching	30	15	20	1
+Santosh,Ajay,Amarjeet	Three Plate Share With Two Border	Ironning Table - 2	Ironing	Three Plate Share	Three Plate Share With Two Border	Finishing	70	3	3	1
+Raja, Bharat Das	Three Plate Share With Two Border	Manual	Assembling	Three Plate Share	Three Plate Share With Two Border	Assembly	60	20	12	1
+Santosh Kumar	Three Plate Share With Two Border	Manual	Pakaging	Three Plate Share	Three Plate Share With Two Border	Packing	90	5	6.66667	1
+Arvind, Shalendra	Three Plate Share With Three Border	Cutting Table -1	Table Cutting	Three Plate Share	Three Plate Share With Three Border	Cutting	18	9	3	1
+Rambabu	Three Plate Share With Three Border	Stitching Computer -5	Stitching	Three Plate Share	Three Plate Share With Three Border	Stitching	30	20	30	1
+Salendra,Rohit,Arvind	Three Plate Share With Three Border	Manul	Sizing	Three Plate Share	Three Plate Share With Three Border	Preparation	20	2	3	1
+Devi Charan	Three Plate Share With Three Border	Stitching Computer -6	Stitching	Three Plate Share	Three Plate Share With Three Border	Stitching	30	20	12	1
+Santosh,Ajay,Amarjeet	Three Plate Share With Three Border	Ironning Table - 3	Ironing	Three Plate Share	Three Plate Share With Three Border	Finishing	70	5	3	1
+Raja, Bharat Das	Three Plate Share With Three Border	Manual	Assembling	Three Plate Share	Three Plate Share With Three Border	Assembly	60	20	12	1
+Santosh Kumar	Three Plate Share With Three Border	Manual	Pakaging	Three Plate Share	Three Plate Share With Three Border	Packing	90	5	20	1
+Arvind, Shalendra	Eyelet Regular	Cutting Table -1	Table Cutting	Eyelet	Eyelet Regular	Cutting	18	3	6	1
+Santosh Das	Eyelet Regular	Stitching Computer -7	Stitching	Eyelet	Eyelet Regular	Stitching	30	10	30	1
+Salendra,Rohit,Arvind	Eyelet Regular	Manul	Sizing	Eyelet	Eyelet Regular	Preparation	20	2	12	1
+Gambhir Singh	Eyelet Regular	Manual Steaching - 1	Stitching	Eyelet	Eyelet Regular	Stitching	30	5	12	1
+Santosh,Ajay,Amarjeet	Eyelet Regular	Ironning Table -1	Ironing	Eyelet	Eyelet Regular	Finishing	70	5	6	1
+Raja, Bharat Das	Eyelet Regular	Manual	Assembling	Eyelet	Eyelet Regular	Assembly	60	10	12	1
+Santosh Kumar	Eyelet Regular	Manual	Pakaging	Eyelet	Eyelet Regular	Packing	90	5	10	1
+Arvind, Shalendra	Eyelet Regular One Border	Cutting Table -1	Table Cutting	Eyelet	Eyelet Regular One Border	Cutting	18	6	4	1
+Ashalam	Eyelet Regular One Border	Manual Stitching -2	Stitching	Eyelet	Eyelet Regular One Border	Stitching	30	15	30	1
+Salendra,Rohit,Arvind	Eyelet Regular One Border	Manul	Sizing	Eyelet	Eyelet Regular One Border	Preparation	20	2	12	1
+Raja, Bharat Das	Roller Blind	Manual	Assembling	Blind	Roller Blind	Assembly	60	20	3	1
