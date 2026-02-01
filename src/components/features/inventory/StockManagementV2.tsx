@@ -1361,7 +1361,23 @@ const reservedTransactions = React.useMemo(
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label>Supplier Company *</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Supplier Company *</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => {
+                        setUseCustomSupplierCompany(true);
+                        setCustomSupplierCompany("");
+                        setDraft((prev) => ({ ...prev, supplierCompanyName: "" }));
+                      }}
+                      title="Add new supplier"
+                    >
+                      <PlusCircle className="h-4 w-4" />
+                    </Button>
+                  </div>
                   <Combobox
                     options={supplierOptions}
                     value={useCustomSupplierCompany ? "" : draft.supplierCompanyName}
@@ -1600,4 +1616,3 @@ const reservedTransactions = React.useMemo(
     </div>
   );
 }
-

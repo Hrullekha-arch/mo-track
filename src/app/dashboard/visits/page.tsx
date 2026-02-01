@@ -659,6 +659,9 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
     fileName: string;
     dealId?: string;
     } | null>(null);
+    const [confirmDelete, setConfirmDelete] = React.useState<EnrichedDealVisit | null>(null);
+    const [confirmUnassign, setConfirmUnassign] = React.useState<EnrichedDealVisit | null>(null);
+    const [isActionBusy, setIsActionBusy] = React.useState(false);
 
 
 
@@ -946,32 +949,26 @@ const previewUrl =
                                                 Edit Visit
                                             </DropdownMenuItem>
                                             <DropdownMenuSeparator />
-                                            <AlertDialog>
-                                                <AlertDialogTrigger asChild>
-                                                    <DropdownMenuItem className="text-destructive focus:text-destructive">
-                                                        <Trash2 className="mr-2 h-4 w-4" />
-                                                        Delete Visit
-                                                    </DropdownMenuItem>
-                                                </AlertDialogTrigger>
-                                                <AlertDialogContent>
-                                                    <AlertDialogHeader>
-                                                        <AlertDialogTitle>Delete this visit permanently?</AlertDialogTitle>
-                                                        <AlertDialogDescription>
-                                                            This will remove the visit from the database and cannot be undone.
-                                                        </AlertDialogDescription>
-                                                    </AlertDialogHeader>
-                                                    <AlertDialogFooter>
-                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                        <AlertDialogAction onClick={() => onDelete(visit)}>
-                                                            Delete
-                                                        </AlertDialogAction>
-                                                    </AlertDialogFooter>
-                                                </AlertDialogContent>
-                                            </AlertDialog>
+                                            <DropdownMenuItem
+                                                className="text-destructive focus:text-destructive"
+                                                onSelect={(e) => {
+                                                    e.preventDefault();
+                                                    setConfirmDelete(visit);
+                                                }}
+                                            >
+                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                Delete Visit
+                                            </DropdownMenuItem>
                                             {visit.assignedTo && (
                                                 <>
                                                     <DropdownMenuSeparator />
-                                                    <DropdownMenuItem onClick={() => onUnassign(visit)} className="text-destructive focus:text-destructive">
+                                                    <DropdownMenuItem
+                                                        className="text-destructive focus:text-destructive"
+                                                        onSelect={(e) => {
+                                                            e.preventDefault();
+                                                            setConfirmUnassign(visit);
+                                                        }}
+                                                    >
                                                         <UserX className="mr-2 h-4 w-4" />
                                                         Unassign
                                                     </DropdownMenuItem>
@@ -1033,6 +1030,64 @@ const previewUrl =
                 )}
             </DialogContent>
             </Dialog>
+        <AlertDialog open={!!confirmDelete} onOpenChange={(open) => !open && setConfirmDelete(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this visit permanently?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will remove the visit from the database and cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isActionBusy}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                        onClick={async () => {
+                            if (!confirmDelete) return;
+                            setIsActionBusy(true);
+                            try {
+                                await onDelete(confirmDelete);
+                            } finally {
+                                setIsActionBusy(false);
+                                setConfirmDelete(null);
+                            }
+                        }}
+                        disabled={isActionBusy}
+                    >
+                        {isActionBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Delete
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+        <AlertDialog open={!!confirmUnassign} onOpenChange={(open) => !open && setConfirmUnassign(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Unassign this visit?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        The visit will be removed from the installer schedule but kept in the system.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel disabled={isActionBusy}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                        onClick={async () => {
+                            if (!confirmUnassign) return;
+                            setIsActionBusy(true);
+                            try {
+                                await onUnassign(confirmUnassign);
+                            } finally {
+                                setIsActionBusy(false);
+                                setConfirmUnassign(null);
+                            }
+                        }}
+                        disabled={isActionBusy}
+                    >
+                        {isActionBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Unassign
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
         </>
     );
 }
