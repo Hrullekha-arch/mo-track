@@ -9,7 +9,11 @@ export async function POST(request: Request) {
     const orderId = String(body?.orderId || "").trim();
     const productId = String(body?.productId || "").trim();
     const qty = Number(body?.qty || 0);
-    const priority = body?.priority !== undefined ? Number(body.priority) : undefined;
+    const rawPriority = body?.priority;
+    const priority =
+      rawPriority !== undefined && Number.isFinite(Number(rawPriority))
+        ? Number(rawPriority)
+        : undefined;
 
     if (!orderId || !productId || !Number.isFinite(qty) || qty <= 0) {
       return NextResponse.json(
@@ -21,15 +25,16 @@ export async function POST(request: Request) {
     const now = new Date().toISOString();
     const orderRef = adminDb.collection("orders").doc(orderId);
 
-    await orderRef.set(
-      {
-        productId,
-        qty,
-        priority,
-        createdAt: now,
-      },
-      { merge: true }
-    );
+    const orderData: Record<string, unknown> = {
+      productId,
+      qty,
+      createdAt: now,
+    };
+    if (priority !== undefined) {
+      orderData.priority = priority;
+    }
+
+    await orderRef.set(orderData, { merge: true });
 
     const routingSnap = await adminDb
       .collection("routing")

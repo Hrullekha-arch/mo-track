@@ -8,6 +8,9 @@ import {
   doc,
   onSnapshot,
   setDoc,
+  query,
+  orderBy,
+  limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
@@ -79,6 +82,8 @@ import {
 } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { format } from "date-fns";
+import { Order } from "@/lib/types";
 
 
 type PmsProduct = { id: string; name: string; category: string };
@@ -94,11 +99,45 @@ type PmsSkill = {
   allowed: boolean;
 };
 type PmsDowntime = { id: string; machineId: string; from: string; to: string; reason?: string };
+type PmsJob = {
+  id: string;
+  orderId: string;
+  productId?: string;
+  stepNo?: number;
+  process?: string;
+  requiredMinutes?: number;
+  status?: "WAITING" | "PLANNED" | "IN_PROGRESS" | "DONE";
+  plannedStart?: string;
+  plannedEnd?: string;
+  actualStart?: string;
+  actualEnd?: string;
+  updatedAt?: string;
+};
+type PmsPlan = {
+  id: string;
+  jobId: string;
+  machineId: string;
+  personId: string;
+  plannedStart?: string;
+  plannedEnd?: string;
+};
 
 const toNumber = (value: string) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 };
+
+const formatDateTime = (value?: string) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return format(date, "dd MMM, HH:mm");
+};
+
+const normalizeText = (value?: string) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
 
 const buildSkillId = (machineId: string, personId: string, category: string) =>
   `${machineId}_${personId}_${category.replace(/[^a-zA-Z0-9]/g, "_")}`;
@@ -113,6 +152,11 @@ export default function PmsPage() {
   const [people, setPeople] = useState<PmsPerson[]>([]);
   const [skills, setSkills] = useState<PmsSkill[]>([]);
   const [downtimes, setDowntimes] = useState<PmsDowntime[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [jobs, setJobs] = useState<PmsJob[]>([]);
+  const [plans, setPlans] = useState<PmsPlan[]>([]);
+  const [vasSearch, setVasSearch] = useState("");
+  const [creatingJobKey, setCreatingJobKey] = useState<string | null>(null);
 
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [routingRows, setRoutingRows] = useState<PmsRouting[]>([]);
@@ -169,6 +213,16 @@ export default function PmsPage() {
     const unsubDowntime = onSnapshot(collection(db, "machineDowntime"), (snap) => {
       setDowntimes(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
     });
+    const ordersQuery = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(250));
+    const unsubOrders = onSnapshot(ordersQuery, (snap) => {
+      setOrders(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) } as Order)));
+    });
+    const unsubJobs = onSnapshot(collection(db, "jobs"), (snap) => {
+      setJobs(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
+    });
+    const unsubPlans = onSnapshot(collection(db, "plan"), (snap) => {
+      setPlans(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
+    });
 
     return () => {
       unsubProducts();
@@ -177,6 +231,9 @@ export default function PmsPage() {
       unsubPeople();
       unsubSkills();
       unsubDowntime();
+      unsubOrders();
+      unsubJobs();
+      unsubPlans();
     };
   }, []);
 
@@ -236,6 +293,178 @@ export default function PmsPage() {
       downtimeEvents: downtimes.length,
     };
   }, [products, machines, people, downtimes]);
+
+  const liveVasRows = useMemo(() => {
+    const planByJob = new Map(plans.map((plan) => [plan.jobId, plan]));
+    const machineById = new Map(machines.map((machine) => [machine.id, machine]));
+    const personById = new Map(people.map((person) => [person.id, person]));
+
+    const jobsByOrder = new Map<string, PmsJob[]>();
+    jobs.forEach((job) => {
+      if (!job.orderId) return;
+      if (!jobsByOrder.has(job.orderId)) jobsByOrder.set(job.orderId, []);
+      jobsByOrder.get(job.orderId)!.push(job);
+    });
+
+    const getJobBucket = (orderId: string) => {
+      const bucket = jobsByOrder.get(orderId) || [];
+      const sorted = [...bucket].sort((a, b) => (a.stepNo || 0) - (b.stepNo || 0));
+      const inProgress = sorted.find((job) => job.status === "IN_PROGRESS");
+      const planned = sorted.find((job) => job.status === "PLANNED");
+      const waiting = sorted.find((job) => job.status === "WAITING");
+      const nextJob = inProgress || planned || waiting || null;
+      const nextPlan = nextJob ? planByJob.get(nextJob.id) : null;
+      const etaFromJobs = sorted
+        .map((job) => job.plannedEnd)
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0];
+      return { sorted, inProgress, nextJob, nextPlan, etaFromJobs };
+    };
+
+    const rows = orders
+      .filter((order) => (order.sections?.VAS?.items?.length || 0) > 0)
+      .flatMap((order) => {
+        const jobBucket = getJobBucket(order.id);
+        const status = jobBucket.inProgress?.status || jobBucket.nextJob?.status || "WAITING";
+        const currentProcess = jobBucket.inProgress?.process || jobBucket.nextJob?.process || "Not scheduled";
+        const stepNo = jobBucket.inProgress?.stepNo ?? jobBucket.nextJob?.stepNo;
+        const plannedStart = jobBucket.nextPlan?.plannedStart;
+        const plannedEnd = jobBucket.nextPlan?.plannedEnd;
+        const eta = order.pmsEta || jobBucket.etaFromJobs || plannedEnd;
+        const machineName = jobBucket.nextPlan?.machineId
+          ? machineById.get(jobBucket.nextPlan.machineId)?.name
+          : undefined;
+        const personName = jobBucket.nextPlan?.personId
+          ? personById.get(jobBucket.nextPlan.personId)?.name
+          : undefined;
+
+        return (order.sections?.VAS?.items || []).map((item, index) => {
+          const vasName = item.description || item.group || "VAS";
+          const searchCandidates = [
+            vasName,
+            item.group,
+            item.roomName,
+            item.type,
+          ].filter(Boolean) as string[];
+          const match =
+            products.find((product) => normalizeText(product.name) === normalizeText(vasName)) ||
+            products.find((product) =>
+              searchCandidates.some((candidate) => {
+                const left = normalizeText(candidate);
+                const right = normalizeText(product.name);
+                return left === right || left.includes(right) || right.includes(left);
+              })
+            );
+          const hasJobsForProduct = match
+            ? jobs.some((job) => job.orderId === order.id && job.productId === match.id)
+            : false;
+
+          return {
+            key: `${order.id}-vas-${index}`,
+            orderId: order.id,
+            orderNo: order.crmOrderNo || order.orderNo || order.id,
+            customer: order.customerSnapshot?.name || order.customerName || "N/A",
+            vasName,
+            qty: item.qty ?? item.quantity ?? 0,
+            group: item.group || "-",
+            status,
+            currentProcess: stepNo ? `${currentProcess} (Step ${stepNo})` : currentProcess,
+            nextProcess: jobBucket.nextJob && jobBucket.inProgress ? jobBucket.nextJob.process : undefined,
+            machineName: machineName || "TBD",
+            personName: personName || "TBD",
+            plannedStart,
+            plannedEnd,
+            eta,
+            lastUpdate:
+              jobBucket.inProgress?.updatedAt ||
+              jobBucket.nextJob?.updatedAt ||
+              (order as any).updatedAt ||
+              order.createdAt,
+            matchedProductId: match?.id,
+            matchedProductName: match?.name,
+            hasJobsForProduct,
+          };
+        });
+      });
+
+    const search = vasSearch.trim().toLowerCase();
+    const filtered = search
+      ? rows.filter((row) =>
+          [row.orderNo, row.customer, row.vasName, row.machineName, row.personName, row.group]
+            .join(" ")
+            .toLowerCase()
+            .includes(search)
+        )
+      : rows;
+
+    const rank: Record<string, number> = { IN_PROGRESS: 0, PLANNED: 1, WAITING: 2, DONE: 3 };
+    return filtered.sort((a, b) => (rank[a.status] ?? 99) - (rank[b.status] ?? 99));
+  }, [orders, jobs, plans, machines, people, products, vasSearch]);
+
+  const liveStats = useMemo(() => {
+    const totalItems = liveVasRows.length;
+    const inProgress = liveVasRows.filter((row) => row.status === "IN_PROGRESS").length;
+    const planned = liveVasRows.filter((row) => row.status === "PLANNED").length;
+    const waiting = liveVasRows.filter((row) => row.status === "WAITING").length;
+    const done = liveVasRows.filter((row) => row.status === "DONE").length;
+    return { totalItems, inProgress, planned, waiting, done };
+  }, [liveVasRows]);
+
+  const handleCreateJobsForRow = async (row: any) => {
+    if (!row?.matchedProductId) {
+      toast({
+        variant: "destructive",
+        title: "No PMS product match",
+        description: "Create a PMS product with the same name as the VAS item, then try again.",
+      });
+      return;
+    }
+    if (row.hasJobsForProduct) {
+      toast({
+        title: "Jobs already exist",
+        description: "PMS jobs are already created for this VAS item.",
+      });
+      return;
+    }
+
+    const qty = Number(row.qty) || 1;
+    setCreatingJobKey(row.key);
+    try {
+      const createRes = await fetch("/api/pms/createOrder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: row.orderId,
+          productId: row.matchedProductId,
+          qty,
+        }),
+      });
+      const createData = await createRes.json().catch(() => ({}));
+      if (!createRes.ok || !createData?.success) {
+        throw new Error(createData?.message || "Failed to create PMS jobs.");
+      }
+
+      await fetch("/api/pms/runAutopilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: row.orderId }),
+      });
+
+      toast({
+        title: "PMS jobs created",
+        description: `Scheduled ${row.vasName} (Qty: ${qty}).`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "PMS creation failed",
+        description: (error as Error).message,
+      });
+    } finally {
+      setCreatingJobKey(null);
+    }
+  };
 
   if (role && role !== "admin") {
     return (
@@ -838,8 +1067,12 @@ const getGroupedSkills = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="routing" className="space-y-6">
-          <TabsList className="grid grid-cols-4 w-full max-w-2xl">
+        <Tabs defaultValue="live" className="space-y-6">
+          <TabsList className="grid grid-cols-5 w-full max-w-3xl">
+            <TabsTrigger value="live" className="gap-2">
+              <Eye className="h-4 w-4" />
+              Live VAS
+            </TabsTrigger>
             <TabsTrigger value="routing" className="gap-2">
               <Package className="h-4 w-4" />
               Routing
@@ -857,6 +1090,125 @@ const getGroupedSkills = () => {
               Downtime
             </TabsTrigger>
           </TabsList>
+
+          {/* LIVE VAS TAB */}
+          <TabsContent value="live" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Live VAS Tracker</CardTitle>
+                <CardDescription>
+                  Real-time view of VAS work, current processing, and upcoming steps with ETA.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">Total: {liveStats.totalItems}</Badge>
+                    <Badge className="bg-emerald-600 hover:bg-emerald-600">In Progress: {liveStats.inProgress}</Badge>
+                    <Badge className="bg-blue-600 hover:bg-blue-600">Planned: {liveStats.planned}</Badge>
+                    <Badge className="bg-amber-500 hover:bg-amber-500">Waiting: {liveStats.waiting}</Badge>
+                    <Badge variant="outline">Done: {liveStats.done}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <Input
+                      className="w-full md:w-64"
+                      placeholder="Search order / customer / VAS..."
+                      value={vasSearch}
+                      onChange={(event) => setVasSearch(event.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Order No</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>VAS Item</TableHead>
+                        <TableHead>Qty</TableHead>
+                        <TableHead>PMS Product</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Current Step</TableHead>
+                        <TableHead>Machine</TableHead>
+                        <TableHead>Person</TableHead>
+                        <TableHead>Planned Start</TableHead>
+                        <TableHead>ETA</TableHead>
+                        <TableHead className="text-right">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {liveVasRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={12} className="h-24 text-center text-muted-foreground">
+                            No VAS items are active right now.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        liveVasRows.map((row) => (
+                          <TableRow key={row.key}>
+                            <TableCell className="font-medium">{row.orderNo}</TableCell>
+                            <TableCell>{row.customer}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="font-medium">{row.vasName}</div>
+                                <div className="text-xs text-muted-foreground">{row.group}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{row.qty}</TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="font-medium">{row.matchedProductName || "No match"}</div>
+                                {!row.matchedProductName && (
+                                  <div className="text-xs text-muted-foreground">Create PMS product</div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                className={cn(
+                                  row.status === "IN_PROGRESS" && "bg-emerald-600 hover:bg-emerald-600",
+                                  row.status === "PLANNED" && "bg-blue-600 hover:bg-blue-600",
+                                  row.status === "WAITING" && "bg-amber-500 hover:bg-amber-500",
+                                  row.status === "DONE" && "bg-slate-500 hover:bg-slate-500"
+                                )}
+                              >
+                                {row.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{row.currentProcess}</TableCell>
+                            <TableCell>{row.machineName}</TableCell>
+                            <TableCell>{row.personName}</TableCell>
+                            <TableCell>{formatDateTime(row.plannedStart)}</TableCell>
+                            <TableCell>{formatDateTime(row.eta)}</TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={
+                                  creatingJobKey === row.key ||
+                                  row.hasJobsForProduct ||
+                                  !row.matchedProductId
+                                }
+                                onClick={() => handleCreateJobsForRow(row)}
+                              >
+                                {row.hasJobsForProduct
+                                  ? "Jobs Created"
+                                  : creatingJobKey === row.key
+                                  ? "Creating..."
+                                  : "Create Jobs"}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* ROUTING TAB */}
           <TabsContent value="routing" className="space-y-4">
@@ -2188,4 +2540,3 @@ const getGroupedSkills = () => {
     </TooltipProvider>
   );
 }
-

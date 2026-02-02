@@ -62,7 +62,7 @@ const formatDate = (date: string | Date | null | undefined) => {
 };
 
 // ==================== CONSTANTS ====================
-const CATEGORY_OPTIONS = ["FABRIC", "HARDWARE", "CHANNEL", "ACCESSORY", "VAS"];
+const CATEGORY_OPTIONS = ["FABRIC","CARPET","LOOSE MATERIAL","FOAM", "NIWAR", "CHANNEL", "ACCESSORY", "VAS"];
 const UNIT_OPTIONS = ["PCS", "MTR", "SET"];
 const DEFAULT_CATEGORY_GROUPS = ["MAIN", "SHREE", "SOFA"];
 const CATEGORY_GROUP_OTHER = "__OTHER_CATEGORY_GROUP__";
@@ -745,7 +745,7 @@ const reservedTransactions = React.useMemo(
                               <tr className="border-b">
                                 <th className="px-4 py-3 text-left font-semibold">Date & Time</th>
                                 <th className="px-4 py-3 text-left font-semibold">Type</th>
-                                                                <th className="px-4 py-3 text-right font-semibold">Quantity</th>
+                                <th className="px-4 py-3 text-right font-semibold">Quantity</th>
                                 <th className="px-4 py-3 text-left font-semibold">Unit</th>
                                 <th className="px-4 py-3 text-left font-semibold">Batch/Rack</th>
                                 <th className="px-4 py-3 text-left font-semibold">Order ID</th>

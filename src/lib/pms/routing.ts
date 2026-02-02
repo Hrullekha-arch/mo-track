@@ -29,14 +29,18 @@ export const buildJobsFromRouting = (
   qty: number,
   routingSteps: RoutingStep[],
   priority?: number
-) =>
-  normalizeRoutingSteps(routingSteps).map((step) => ({
-    id: `${orderId}_${step.stepNo}`,
-    orderId,
-    productId,
-    stepNo: step.stepNo,
-    process: step.process,
-    requiredMinutes: computeRequiredMinutes(step.cycleMinutes, qty, step.ops),
-    status: "WAITING" as const,
-    priority,
-  }));
+) => {
+  const safePriority = Number.isFinite(priority as number) ? (priority as number) : undefined;
+  return normalizeRoutingSteps(routingSteps).map((step) => {
+    const baseJob = {
+      id: `${orderId}_${step.stepNo}`,
+      orderId,
+      productId,
+      stepNo: step.stepNo,
+      process: step.process,
+      requiredMinutes: computeRequiredMinutes(step.cycleMinutes, qty, step.ops),
+      status: "WAITING" as const,
+    };
+    return safePriority === undefined ? baseJob : { ...baseJob, priority: safePriority };
+  });
+};
