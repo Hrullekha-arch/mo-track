@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight, Truck, UserIcon, UserCircle, Dock, CalendarSync, PlayCircle, HistoryIcon } from "lucide-react";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight, Truck, UserIcon, UserCircle, Dock, CalendarSync, PlayCircle, HistoryIcon, Clock } from "lucide-react";
 import { Order, Milestone, DealVisit, User, Customer, Deal, O2DStatus } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState, useMemo, useCallback } from "react";
@@ -15,6 +15,33 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+
+const formatDetailEntry = (entry: any): string | null => {
+  if (entry === null || entry === undefined) return null;
+  if (typeof entry === "string" || typeof entry === "number") {
+    const text = String(entry).trim();
+    return text ? text : null;
+  }
+  if (typeof entry === "object") {
+    const label = entry.label ?? entry.name ?? entry.type ?? entry.title ?? entry.id;
+    const qty = entry.noOfPcs ?? entry.qty ?? entry.quantity ?? entry.count;
+    if (label && qty !== undefined && qty !== null && String(qty).trim() !== "") {
+      return `${label} x${qty}`;
+    }
+    if (label) return String(label);
+    return null;
+  }
+  return null;
+};
+
+const collectDetailEntries = (value: any): string[] => {
+  if (value === null || value === undefined) return [];
+  if (Array.isArray(value)) {
+    return value.map(formatDetailEntry).filter(Boolean) as string[];
+  }
+  const single = formatDetailEntry(value);
+  return single ? [single] : [];
+};
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
@@ -263,18 +290,30 @@ export function MobileView() {
       return false;
     })
     .sort((a, b) => {
-      const dateA =
-        a.type === "order"
-          ? new Date(a.data.createdAt)
-          : new Date(a.data.dueDate);
+  // ---------- VISIT vs VISIT ----------
+  if (a.type === "visit" && b.type === "visit") {
+    const aTime = a.data.slotDate
+      ? new Date(`${a.data.slotDate} ${a.data.slotStart || "00:00"}`).getTime()
+      : Number.MAX_SAFE_INTEGER;
 
-      const dateB =
-        b.type === "order"
-          ? new Date(b.data.createdAt)
-          : new Date(b.data.dueDate);
+    const bTime = b.data.slotDate
+      ? new Date(`${b.data.slotDate} ${b.data.slotStart || "00:00"}`).getTime()
+      : Number.MAX_SAFE_INTEGER;
 
-      return dateA.getTime() - dateB.getTime();
-    });
+    return aTime - bTime;
+  }
+
+  // ---------- VISIT BEFORE ORDER ----------
+  if (a.type === "visit" && b.type === "order") return -1;
+  if (a.type === "order" && b.type === "visit") return 1;
+
+  // ---------- ORDER vs ORDER ----------
+  const aCreated = new Date(a.data.createdAt || 0).getTime();
+  const bCreated = new Date(b.data.createdAt || 0).getTime();
+
+  return aCreated - bCreated;
+});
+
 }, [tasks]);
 
 
@@ -756,9 +795,46 @@ const InstallerVisitCard = ({
         }
     };
 
+    function getDelayDuration(
+            slotDate?: string,
+            slotEnd?: string
+            ): { delayed: boolean; label: string } {
+            if (!slotDate || !slotEnd) {
+                return { delayed: false, label: "" };
+            }
+
+            const endTime = new Date(`${slotDate} ${slotEnd}`);
+            const now = new Date();
+
+            if (now <= endTime) {
+                return { delayed: false, label: "" };
+            }
+
+            const diffMs = now.getTime() - endTime.getTime();
+            const totalMinutes = Math.floor(diffMs / 60000);
+
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+
+            return {
+                delayed: true,
+                label: `${hours.toString().padStart(2, "0")}:${minutes
+                .toString()
+                .padStart(2, "0")}`,
+            };
+            }
+    const delayInfo = getDelayDuration(visit.slotDate, visit.slotEnd);
+
+    const showDelay =
+    delayInfo.delayed &&
+    visit.status !== "completed" &&
+    visit.visitStatus !== "Working";
+            
+
     const buttonContent = getButtonContent();
     const phone = (visit.customer?.phone || visit.customer?.mobileNo || "").trim();
     const address = (visit.customer?.billingAddress?.line1 || visit.customer?.addressPinCode || visit.customer?.city || "").trim();
+    
     console.log('Rendering InstallerVisitCard for visit:', visit);
     return (
         <Card>
@@ -798,15 +874,25 @@ const InstallerVisitCard = ({
                     <span>N/A</span>
                 )}
                 </p>
-                 <div className="flex items-center gap-2"><Dock className="h-4 w-4 text-muted-foreground" /> 
-                 {visit.remark}
-                 {visit.measurements}
-                 {visit.deliveryInstallations}
-                 {visit.subDeliveryInstallations}
-                 {visit.otherDelivery}
-                 {visit.fittingInstallations}
-                 {visit.subFittingInstallations}
-
+                 <div className="flex items-center gap-2">
+                  <Dock className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    {[
+                      { label: "Remark", value: visit.remark },
+                      { label: "Measurements", value: visit.measurements },
+                      { label: "Delivery", value: visit.deliveryInstallations },
+                      { label: "Sub Delivery", value: visit.subDeliveryInstallations },
+                      { label: "Other Delivery", value: visit.otherDelivery },
+                      { label: "Fitting", value: visit.fittingInstallations },
+                      { label: "Sub Fitting", value: visit.subFittingInstallations },
+                    ]
+                      .flatMap(({ label, value }) => {
+                        const entries = collectDetailEntries(value);
+                        if (!entries.length) return [];
+                        return [`${label}: ${entries.join(", ")}`];
+                      })
+                      .join(" | ") || "No details"}
+                  </span>
                  </div>
                  <div className="flex justify-between items-center gap-2">
                     <Badge variant={"outline"} className="flex items-center gap-2"><UserCircle className="h-4 w-4 text-muted-foreground" />CRM: {visit.createdBy || 'N/A'}</Badge>
@@ -851,6 +937,16 @@ const InstallerVisitCard = ({
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
+                <p className="flex items-center gap-2 font-semibold">
+                
+                {showDelay && (
+                    
+                    <Badge variant="destructive" className="ml-2 gap-2 flex items-center">
+                    <Clock className="h-4 w-4 text-white" />
+                    Delayed {delayInfo.label} Hrs
+                    </Badge>
+                )}
+                </p>
             </CardFooter>
         </Card>
     );

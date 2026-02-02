@@ -38,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, deleteDoc, where, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, deleteDoc, where, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, User } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -47,7 +47,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import Link from "next/link";
-import { format, isWithinInterval, addHours, differenceInHours } from "date-fns";
+import { format, differenceInHours, startOfDay, endOfDay } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { DateRange } from "react-day-picker";
@@ -57,7 +57,21 @@ import { NewOrderDialog } from "./NewOrderDialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { setFullKittingTime } from "./actions";
 
-function OrderTableComponent({ data, columns, loading }: { data: Order[], columns: ColumnDef<Order>[], loading: boolean }) {
+function OrderTableComponent({
+  data,
+  columns,
+  loading,
+  searching,
+  onSearch,
+  onClear,
+}: {
+  data: Order[];
+  columns: ColumnDef<Order>[];
+  loading: boolean;
+  searching: boolean;
+  onSearch: (filters: { orderNo: string; dateRange?: DateRange; store: string }) => void;
+  onClear: () => void;
+}) {
     const [sorting, setSorting] = React.useState<SortingState>([
         { id: "createdAt", desc: true }
     ]);
@@ -68,18 +82,8 @@ function OrderTableComponent({ data, columns, loading }: { data: Order[], column
     const [dateRangeFilter, setDateRangeFilter] = React.useState<DateRange | undefined>();
     const [storeFilter, setStoreFilter] = React.useState("all");
 
-    const filteredData = React.useMemo(() => {
-        return data.filter(order => {
-          const orderNoMatch = orderNoFilter ? order.crmOrderNo.includes(orderNoFilter) : true;
-          const dateMatch = dateRangeFilter?.from ? isWithinInterval(new Date(order.createdAt), { start: dateRangeFilter.from, end: dateRangeFilter.to || dateRangeFilter.from }) : true;
-          const storeMatch = storeFilter === 'all' ? true : order.storeName === storeFilter;
-
-          return orderNoMatch && dateMatch && storeMatch;
-        });
-    }, [data, orderNoFilter, dateRangeFilter, storeFilter]);
-
     const table = useReactTable({
-        data: filteredData,
+        data,
         columns,
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
@@ -103,6 +107,7 @@ function OrderTableComponent({ data, columns, loading }: { data: Order[], column
         setOrderNoFilter("");
         setDateRangeFilter(undefined);
         setStoreFilter("all");
+        onClear();
     }
 
     return (
@@ -198,8 +203,23 @@ function OrderTableComponent({ data, columns, loading }: { data: Order[], column
                     </Select>
                   </div>
                   <div className="flex gap-2">
-                    <Button><Search className="mr-2 h-4 w-4"/>Search</Button>
-                    <Button variant="outline" onClick={clearFilters}><X className="mr-2 h-4 w-4"/>Clear</Button>
+                    <Button
+                      onClick={() =>
+                        onSearch({
+                          orderNo: orderNoFilter,
+                          dateRange: dateRangeFilter,
+                          store: storeFilter,
+                        })
+                      }
+                      disabled={searching}
+                    >
+                      {searching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+                      Search
+                    </Button>
+                    <Button variant="outline" onClick={clearFilters} disabled={searching}>
+                      <X className="mr-2 h-4 w-4" />
+                      Clear
+                    </Button>
                   </div>
                 </div>
                 <div className="flex items-center py-4 gap-4">
@@ -362,39 +382,83 @@ function KittingTimePicker({ order }: { order: Order }) {
 export function OrdersTable() {
   const [orders, setOrders] = React.useState<Order[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [searching, setSearching] = React.useState(false);
   const [deletingOrder, setDeletingOrder] = React.useState<Order | null>(null);
   const [isQuotationDialogOpen, setIsQuotationDialogOpen] = React.useState(false);
+  const [serverFilters, setServerFilters] = React.useState<{
+    orderNo: string;
+    dateRange?: DateRange;
+    store: string;
+  }>({ orderNo: "", dateRange: undefined, store: "all" });
 
   const { toast } = useToast();
   const { user, role } = useAuth();
   
   const isAuthorized = role === 'admin' || role === 'employee';
 
-  React.useEffect(() => {
-    if (!user) return;
+  const buildOrdersQuery = React.useCallback(() => {
+    if (!user) return null;
+    const constraints: any[] = [];
 
-    let ordersQuery;
-    
-    // Admins and PCs see all acknowledged orders.
-    // CRMs only see orders assigned to them.
-    if (user.designation === 'CRM') {
-        ordersQuery = query(collection(db, "orders"), where("handledByCrm", "==", user.id), where("isAcknowledged", "==", true), where("status", "==", "Approved"));
-    } else {
-        ordersQuery = query(collection(db, "orders"), where("isAcknowledged", "==", true), where("status", "==", "Approved"));
+    if (user.designation === "CRM") {
+      constraints.push(where("handledByCrm", "==", user.id));
     }
 
-    const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
-      const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-      setOrders(ordersData);
-      setLoading(false);
-    }, (error) => {
+    constraints.push(where("isAcknowledged", "==", true));
+    constraints.push(where("status", "==", "Approved"));
+
+    const normalizedOrderNo = serverFilters.orderNo.trim().replace(/^MOTRACK-/i, "");
+    if (normalizedOrderNo) {
+      constraints.push(where("crmOrderNo", "==", normalizedOrderNo));
+    }
+
+    const hasCustomDate = !!serverFilters.dateRange?.from;
+    const hasCustomStore = serverFilters.store !== "all";
+    const hasCustomFilters = !!normalizedOrderNo || hasCustomDate || hasCustomStore;
+
+    const rangeStart = hasCustomDate
+      ? startOfDay(serverFilters.dateRange!.from!)
+      : startOfDay(new Date());
+    const rangeEnd = hasCustomDate
+      ? endOfDay(serverFilters.dateRange!.to ?? serverFilters.dateRange!.from!)
+      : endOfDay(new Date());
+
+    if (!hasCustomFilters || hasCustomDate) {
+      constraints.push(where("createdAt", ">=", rangeStart.toISOString()));
+      constraints.push(where("createdAt", "<=", rangeEnd.toISOString()));
+    }
+
+    if (hasCustomStore) {
+      constraints.push(where("storeName", "==", serverFilters.store));
+    }
+
+    constraints.push(orderBy("createdAt", "desc"));
+    return query(collection(db, "orders"), ...constraints);
+  }, [user, serverFilters]);
+
+  React.useEffect(() => {
+    const ordersQuery = buildOrdersQuery();
+    if (!ordersQuery) return;
+
+    setSearching(true);
+    const unsubscribe = onSnapshot(
+      ordersQuery,
+      (snapshot) => {
+        const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+        setOrders(ordersData);
+        setLoading(false);
+        setSearching(false);
+      },
+      (error) => {
         console.error("Firestore Orders Snapshot Error:", error);
         toast({ variant: "destructive", title: "Permission Error", description: "Could not fetch orders. Check Firestore rules."});
         setLoading(false);
-    });
+        setSearching(false);
+      }
+    );
     
     return () => unsubscribe();
-  }, [user, toast]);
+  }, [buildOrdersQuery, toast]);
   
   const handleDeleteOrder = async () => {
     if (!deletingOrder || role !== 'admin') return;
@@ -619,6 +683,13 @@ export function OrdersTable() {
   };
 
   const activeOrders = React.useMemo(() => orders.filter(o => !isInstallationDone(o)), [orders]);
+  const handleSearch = React.useCallback((filters: { orderNo: string; dateRange?: DateRange; store: string }) => {
+    setServerFilters(filters);
+  }, []);
+
+  const handleClear = React.useCallback(() => {
+    setServerFilters({ orderNo: "", dateRange: undefined, store: "all" });
+  }, []);
 
   if (loading) {
     return (
@@ -665,10 +736,10 @@ export function OrdersTable() {
                 <TabsTrigger value="all">All Order</TabsTrigger>
             </TabsList>
             <TabsContent value="active" className="mt-4">
-                 <OrderTableComponent data={activeOrders} columns={columns} loading={loading} />
+                 <OrderTableComponent data={activeOrders} columns={columns} loading={loading} searching={searching} onSearch={handleSearch} onClear={handleClear} />
             </TabsContent>
             <TabsContent value="all" className="mt-4">
-                <OrderTableComponent data={orders} columns={columns} loading={loading} />
+                <OrderTableComponent data={orders} columns={columns} loading={loading} searching={searching} onSearch={handleSearch} onClear={handleClear} />
             </TabsContent>
         </Tabs>
     </div>

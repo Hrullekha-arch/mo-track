@@ -51,23 +51,12 @@ const blindEntrySchema = z.object({
 const newProductEntrySchema = z.object({
   Type: z.string().optional().default(""), // ✅ ADD (used in flooring)
   collectionBrand: z.string().min(1, "BCN is required."),
-  bcn: z.string().optional().default(""),
   salesDescription: z.string().optional().default(""),
   mrp: z.string().optional().default(""),
   verticalRepeat: z.string().optional().default(""),
   horizontalRepeat: z.string().optional().default(""),
   quantity: z.string().optional().default(""),
   remarks: z.string().optional().default(""),
-  unit: z.string().optional().default(""),
-  gstPercent: z.string().optional().default(""),
-  hsnOrSac: z.string().optional().default(""),
-  supplierCollectionName: z.string().optional().default(""),
-  supplierCollectionCode: z.string().optional().default(""),
-  supplierCompanyName: z.string().optional().default(""),
-  category: z.string().optional().default(""),
-  categoryGroup: z.string().optional().default(""),
-  itemName: z.string().optional().default(""),
-  productId: z.string().optional().default(""),
 });
 
 const productListSchema = z.object({
@@ -77,59 +66,6 @@ const productListSchema = z.object({
 
 type ProductListFormValues = z.infer<typeof productListSchema>;
 type BlindEntryFormValues = z.infer<typeof blindEntrySchema>;
-
-const normalizeText = (value: unknown) => String(value ?? "").toLowerCase();
-
-const matchesStockSection = (stock: any, section: string) => {
-  if (!stock || !section) return true;
-  const category = normalizeText(stock.category);
-  const group = normalizeText(stock.categoryGroup);
-  const type = normalizeText(stock.type);
-  const name = normalizeText(stock.name || stock.itemName);
-  const isService = Boolean(stock.isService);
-  const matchesAny = (value: string, terms: string[]) =>
-    terms.some((term) => value === term || value.includes(term));
-
-  if (section === "fabric") {
-    const terms = ["fabric"];
-    return (
-      matchesAny(category, terms) ||
-      matchesAny(type, terms) ||
-      matchesAny(group, terms)
-    );
-  }
-  if (section === "wallpaper") {
-    const terms = ["wallpaper", "wall"];
-    return (
-      matchesAny(category, terms) ||
-      matchesAny(type, terms) ||
-      matchesAny(group, terms) ||
-      matchesAny(name, ["wallpaper"])
-    );
-  }
-  if (section === "flooring") {
-    const terms = ["floor", "flooring"];
-    return (
-      matchesAny(category, terms) ||
-      matchesAny(type, terms) ||
-      matchesAny(group, terms) ||
-      matchesAny(name, ["floor"])
-    );
-  }
-  if (section === "hardware") {
-    const terms = ["hardware", "channel"];
-    return matchesAny(category, terms) || matchesAny(type, terms) || matchesAny(group, terms);
-  }
-  if (section === "accessories") {
-    const terms = ["accessory", "accessories"];
-    return matchesAny(category, terms) || matchesAny(type, terms) || matchesAny(group, terms);
-  }
-  if (section === "stitching") {
-    const terms = ["vas", "service"];
-    return matchesAny(category, terms) || matchesAny(type, terms) || isService;
-  }
-  return true;
-};
 
 const AddBlindsDialog = ({
   isOpen,
@@ -172,6 +108,7 @@ const AddBlindsDialog = ({
     newBlinds[index] = { ...newBlinds[index], [field]: value };
     setLocalBlinds(newBlinds);
   };
+  
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -413,10 +350,6 @@ export function ProductForm({
   useEffect(() => {
     setCurrentProducts(initialProducts || []);
   }, [initialProducts]);
-
-  useEffect(() => {
-    setBcnOptions([]);
-  }, [activeMainSection]);
   
 
   const form = useForm<ProductListFormValues>({
@@ -424,7 +357,6 @@ export function ProductForm({
     defaultValues: {
       room: "",
       newProduct: {
-        bcn: "",
         collectionBrand: "",
         salesDescription: "",
         mrp: "",
@@ -432,16 +364,6 @@ export function ProductForm({
         horizontalRepeat: "",
         quantity: "",
         remarks: "",
-        unit: "",
-        gstPercent: "",
-        hsnOrSac: "",
-        supplierCollectionName: "",
-        supplierCollectionCode: "",
-        supplierCompanyName: "",
-        category: "",
-        categoryGroup: "",
-        itemName: "",
-        productId: "",
       },
     },
   });
@@ -454,8 +376,7 @@ export function ProductForm({
       }
       try {
         const results = await searchStockByBcn(query);
-        const filtered = results.filter((stock) => matchesStockSection(stock, activeMainSection));
-        const options = filtered.map((stock) => ({
+        const options = results.map((stock) => ({
           value: stock.bcn || stock.id,
           label: `${stock.bcn}`,
           stockItem: stock,
@@ -466,49 +387,18 @@ export function ProductForm({
         toast({ variant: "destructive", title: "Search failed" });
       }
     },
-    [toast, activeMainSection]
+    [toast]
   );
 
   const handleBcnSelect = (value: string) => {
     const selectedOption = bcnOptions.find((opt) => opt.value === value) as any;
     if (selectedOption) {
       const stockItem = selectedOption.stockItem;
-      const supplierDescription = [stockItem?.supplierCollectionName, stockItem?.supplierCollectionCode]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
-
-      const displayDescription =
-        supplierDescription ||
-        stockItem?.itemName ||
-        stockItem?.name ||
-        stockItem?.categoryGroup ||
-        "";
-
-      const resolvedBcn = stockItem?.bcn || stockItem?.id || value;
-      const resolvedMrp =
-        stockItem?.rrpWithGstRs != null
-          ? String(stockItem.rrpWithGstRs)
-          : stockItem?.mrp != null
-          ? String(stockItem.mrp)
-          : "";
-
-      form.setValue("newProduct.collectionBrand", resolvedBcn);
-      form.setValue("newProduct.bcn", resolvedBcn);
-      form.setValue("newProduct.mrp", resolvedMrp);
-      form.setValue("newProduct.salesDescription", displayDescription);
+      form.setValue("newProduct.collectionBrand", stockItem.bcn || stockItem.id);
+      form.setValue("newProduct.mrp", (stockItem.rrpWithGstRs || 0).toString());
+      form.setValue("newProduct.salesDescription", stockItem.itemName || "");
       form.setValue("newProduct.verticalRepeat", stockItem.verticalRepeatCms || "");
       form.setValue("newProduct.horizontalRepeat", stockItem.horizontalRepeatCms || "");
-      form.setValue("newProduct.unit", stockItem.unit || "");
-      form.setValue("newProduct.gstPercent", stockItem.gstPercent != null ? String(stockItem.gstPercent) : "");
-      form.setValue("newProduct.hsnOrSac", stockItem.hsnOrSac || "");
-      form.setValue("newProduct.supplierCollectionName", stockItem.supplierCollectionName || "");
-      form.setValue("newProduct.supplierCollectionCode", stockItem.supplierCollectionCode || "");
-      form.setValue("newProduct.supplierCompanyName", stockItem.supplierCompanyName || "");
-      form.setValue("newProduct.category", stockItem.category || "");
-      form.setValue("newProduct.categoryGroup", stockItem.categoryGroup || "");
-      form.setValue("newProduct.itemName", stockItem.itemName || stockItem.name || "");
-      form.setValue("newProduct.productId", stockItem.productId || "");
       console.log("✅ BCN selected:", stockItem);
     }
   };
@@ -524,22 +414,11 @@ export function ProductForm({
         productCategory: payload.productCategory,
         subCategory: payload.subCategory,
         bcn: payload.bcn || null,
-        itemName: payload.itemName || null,
-        salesDescription: payload.salesDescription || "",
         rate: payload.rate || "",
         quantity: payload.quantity || "",
         room: payload.room,
         image: payload.image || null,
         timestamp: payload.timestamp,
-        unit: payload.unit || "",
-        gstPercent: payload.gstPercent ?? "",
-        hsnOrSac: payload.hsnOrSac || "",
-        supplierCollectionName: payload.supplierCollectionName || "",
-        supplierCollectionCode: payload.supplierCollectionCode || "",
-        supplierCompanyName: payload.supplierCompanyName || "",
-        category: payload.category || "",
-        categoryGroup: payload.categoryGroup || "",
-        productId: payload.productId || "",
       },
     ]);
   };
@@ -618,7 +497,10 @@ useEffect(() => {
 
 const handleStageItem = () => {
   const newProduct = form.getValues("newProduct");
-  const resolvedBcn = newProduct.bcn || newProduct.collectionBrand;
+  if (form.getValues("room") === "") {
+    toast({ variant: "destructive", title: "Missing Room", description: "Please select a room first." });
+    return;
+  }
 
   const sourceTag =
     activeMainSection === "fabric"
@@ -633,37 +515,25 @@ const handleStageItem = () => {
     ...prev,
     {
       ...newProduct,
-      bcn: resolvedBcn,
       productSource: sourceTag,
       flooringType: selectedFlooringType || newProduct.Type || null,
     },
   ]);
 
-    form.reset({
-      ...form.getValues(),
-      newProduct: {
-        Type: "",
-        collectionBrand: "",
-        bcn: "",
-        salesDescription: "",
-        mrp: "",
-        quantity: "",
-        remarks: "",
-        verticalRepeat: "",
-        horizontalRepeat: "",
-        unit: "",
-        gstPercent: "",
-        hsnOrSac: "",
-        supplierCollectionName: "",
-        supplierCollectionCode: "",
-        supplierCompanyName: "",
-        category: "",
-        categoryGroup: "",
-        itemName: "",
-        productId: "",
-      },
-    });
-  };
+  form.reset({
+    ...form.getValues(),
+    newProduct: {
+      Type: "",
+      collectionBrand: "",
+      salesDescription: "",
+      mrp: "",
+      quantity: "",
+      remarks: "",
+      verticalRepeat: "",
+      horizontalRepeat: "",
+    },
+  });
+};
 
   const [step, setStep] = useState("main");
 
@@ -684,37 +554,26 @@ const handleStageItem = () => {
       
       let collectionBrand;
       let salesDescription;
-      let resolvedBcn;
 
       if (isHardware) {
         collectionBrand = item.bcn || item.subCategory || item.productCategory;
-        salesDescription =
-          item.salesDescription ||
-          (item.subCategory ? `${item.productCategory} -> ${item.subCategory}` : item.productCategory);
-        resolvedBcn = item.bcn || item.collectionBrand || item.subCategory;
+        salesDescription = item.subCategory ? `${item.productCategory} → ${item.subCategory}` : item.productCategory;
       } else if (isVAS) {
         collectionBrand = item.productCategory || "VAS";
-        salesDescription = item.salesDescription || item.subCategory;
-        resolvedBcn = undefined;
+        salesDescription = item.subCategory;
       } else {
         collectionBrand = item.collectionBrand;
         salesDescription = item.salesDescription;
-        resolvedBcn = item.bcn || item.collectionBrand;
       }
       
       const label = collectionBrand || `item-${index}`;
-
-      const resolvedProductType =
-        item.productType ||
-        (String(item.productSource || "").toLowerCase() === "hardware" ? "Hardware" : "fabric");
 
       return {
         ...(item as any),
         id: `${label}-${timestamp}-${index}`,
         collectionBrand: collectionBrand,
         salesDescription: salesDescription,
-        bcn: resolvedBcn,
-        productType: resolvedProductType,
+        productType: item.productType || 'fabric',
         quantity: (item as any).quantity ?? (item as any).items?.itemQty ?? "0",
         room,
         isBlind: false,
@@ -790,14 +649,8 @@ const handleStageItem = () => {
 
     const resolveStockSource = useCallback((stock: any) => {
       const rawType = String(stock?.type || "").toLowerCase();
-      const rawCategory = String(stock?.category || "").toLowerCase();
-      const rawGroup = String(stock?.categoryGroup || "").toLowerCase();
-      const combined = `${rawType} ${rawCategory} ${rawGroup}`;
-      if (combined.includes("wall")) return "wallpaper";
-      if (combined.includes("floor")) return "flooring";
-      if (combined.includes("hardware") || combined.includes("accessory") || combined.includes("channel")) {
-        return "hardware";
-      }
+      if (rawType.includes("wall")) return "wallpaper";
+      if (rawType.includes("floor")) return "flooring";
       return "fabric";
     }, []);
 
@@ -840,22 +693,8 @@ const handleStageItem = () => {
           );
           if (alreadyStaged) return prev;
 
-          const supplierDescription = [stock?.supplierCollectionName, stock?.supplierCollectionCode]
-            .filter(Boolean)
-            .join(" ")
-            .trim();
-          const salesDescription =
-            supplierDescription ||
-            stock?.itemName ||
-            stock?.name ||
-            stock?.categoryGroup ||
-            "";
-          const mrp =
-            stock?.rrpWithGstRs != null
-              ? String(stock.rrpWithGstRs)
-              : stock?.mrp != null
-              ? String(stock.mrp)
-              : "";
+          const salesDescription = stock?.itemName || stock?.categoryGroup || "";
+          const mrp = stock?.rrpWithGstRs != null ? String(stock.rrpWithGstRs) : "";
           const verticalRepeat = stock?.verticalRepeatCms != null ? String(stock.verticalRepeatCms) : "";
           const horizontalRepeat = stock?.horizontalRepeatCms != null ? String(stock.horizontalRepeatCms) : "";
           const productSource = resolveStockSource(stock);
@@ -864,7 +703,6 @@ const handleStageItem = () => {
             ...prev,
             {
               collectionBrand,
-              bcn: stock?.bcn || stock?.id || collectionBrand,
               salesDescription,
               mrp,
               quantity: "",
@@ -873,15 +711,6 @@ const handleStageItem = () => {
               horizontalRepeat,
               productId: stock?.productId || productId,
               productSource,
-              unit: stock?.unit || "",
-              gstPercent: stock?.gstPercent != null ? String(stock.gstPercent) : "",
-              hsnOrSac: stock?.hsnOrSac || "",
-              supplierCollectionName: stock?.supplierCollectionName || "",
-              supplierCollectionCode: stock?.supplierCollectionCode || "",
-              supplierCompanyName: stock?.supplierCompanyName || "",
-              category: stock?.category || "",
-              categoryGroup: stock?.categoryGroup || "",
-              itemName: stock?.itemName || stock?.name || "",
             },
           ];
         });
@@ -1668,9 +1497,7 @@ const handleStageItem = () => {
                           <span>
                             <strong>{item.productCategory}</strong>
                             {" → "}
-                            {item.itemName && item.bcn
-                              ? (item.subCategory || "").replace(item.bcn, item.itemName)
-                              : item.itemName || item.subCategory}
+                            {item.subCategory}
                             {item.quantity && <span>{` (Qty: ${item.quantity})`}</span>}
                             {item.bcn && <span>{` | BCN: ${item.bcn}`}</span>}
                           </span>
