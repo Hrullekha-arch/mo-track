@@ -867,7 +867,7 @@ const previewUrl =
                             <TableHead>Type / Created By</TableHead>
                             <TableHead>Date & Slot</TableHead>
                             <TableHead>Assigned To</TableHead>
-                            <TableHead>Status</TableHead>
+                            <TableHead>Status / Due Date</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -912,6 +912,11 @@ const previewUrl =
                                 </TableCell>
                                 <TableCell className="flex flex-col items-center gap-2">
                                     {renderVisitStatus(visit)}
+                                     {visit.status !== "completed" &&(              
+                                      <Badge variant="Outline" className="text-xs">
+                                        { format(new Date(visit.dueDate || 0), 'dd MMM yyyy')}
+                                      </Badge>
+                                      )}
 
                                     {visit.status === "completed" &&
                                       visit.typeOfVisit === "measurement" &&
@@ -934,6 +939,8 @@ const previewUrl =
                                             </Badge>
                                             </button>
                                         )}
+
+                                        
 
                                     </TableCell>
 
