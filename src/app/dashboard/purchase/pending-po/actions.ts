@@ -9,6 +9,7 @@ import { PurchaseRequest, Stock, Quotation, Deal, Cpd } from '@/lib/types';
 export interface PendingPoItem {
   id: string;
   purchaseRequestId?: string;
+  fabricIndex?: number;
   quotationNo: string;
   dealId: string;
   customerName: string;
@@ -44,7 +45,7 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
       const request = { id: requestDoc.id, ...requestDoc.data() } as PurchaseRequest;
       const items = request.fabricDetails || [];
 
-      for (const item of items) {
+      for (const [index, item] of items.entries()) {
         if (item.poNumber) continue;
 
         const bcn = item.fabricName; // BCN
@@ -108,8 +109,9 @@ export async function getPendingPoItems(): Promise<PendingPoItem[]> {
         );
 
         pendingItems.push({
-          id: `${requestDoc.id}-${bcn}`,
+          id: `${requestDoc.id}-${bcn}-${index}`,
           purchaseRequestId: requestDoc.id,
+          fabricIndex: index,
           quotationNo: request.quotationNo || request.dealId,
           dealId: request.dealId,
           customerName: request.customerName,
@@ -185,22 +187,47 @@ export async function createPurchaseOrderAction(
                 continue;
             }
             
-            const originalRequestData = originalRequestDoc.data() as PurchaseRequest;
-            const itemsToUpdateInThisRequest = new Set(requestItems.map(i => i.collectionBrand));
+        const originalRequestData = originalRequestDoc.data() as PurchaseRequest;
+        const itemsByIndex = new Map<number, PendingPoItem>();
+        requestItems.forEach((item) => {
+          if (typeof item.fabricIndex === "number") {
+            itemsByIndex.set(item.fabricIndex, item);
+          }
+        });
+        const itemsByBcn = new Map<string, PendingPoItem[]>();
+        requestItems.forEach((item) => {
+          const key = item.collectionBrand;
+          if (!key) return;
+          if (!itemsByBcn.has(key)) itemsByBcn.set(key, []);
+          itemsByBcn.get(key)!.push(item);
+        });
 
-            const newFabricDetails = (originalRequestData.fabricDetails || []).map(originalItem => {
-                if (itemsToUpdateInThisRequest.has(originalItem.fabricName) && !originalItem.poNumber) {
-                    const updatedItemData = requestItems.find(i => i.collectionBrand === originalItem.fabricName)!;
-                    return {
-                        ...originalItem,
-                        poNumber: poNumber,
-                        vendorName: vendor,
-                        expectedDeliveryDate: promiseDeliveryDate,
-                        quantity: updatedItemData.neededQty.toString(),
-                    };
-                }
-                return originalItem;
-            });
+        const newFabricDetails = (originalRequestData.fabricDetails || []).map((originalItem, index) => {
+            if (originalItem.poNumber) return originalItem;
+            const indexedMatch = itemsByIndex.get(index);
+            if (indexedMatch) {
+                const updatedItemData = indexedMatch;
+                return {
+                    ...originalItem,
+                    poNumber: poNumber,
+                    vendorName: vendor,
+                    expectedDeliveryDate: promiseDeliveryDate,
+                    quantity: updatedItemData.neededQty.toString(),
+                };
+            }
+            const bcnMatches = itemsByBcn.get(originalItem.fabricName) || [];
+            if (bcnMatches.length > 0) {
+                const updatedItemData = bcnMatches.shift()!;
+                return {
+                    ...originalItem,
+                    poNumber: poNumber,
+                    vendorName: vendor,
+                    expectedDeliveryDate: promiseDeliveryDate,
+                    quantity: updatedItemData.neededQty.toString(),
+                };
+            }
+            return originalItem;
+        });
 
             const allItemsInRequestHavePo = newFabricDetails.every(i => !!i.poNumber);
 

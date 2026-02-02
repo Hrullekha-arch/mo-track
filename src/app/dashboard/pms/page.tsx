@@ -29,6 +29,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -78,6 +79,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+
 
 type PmsProduct = { id: string; name: string; category: string };
 type PmsRouting = { id: string; productId: string; stepNo: number; process: string; cycleMinutes: number; ops: number };
@@ -648,72 +650,129 @@ export default function PmsPage() {
     toast({ title: `✓ Exported ${filename}` });
   };
 
-  //==========================for redesign Ui
-  // Add these state variables
-  const [machineFilter, setMachineFilter] = useState<string>("all");
-  const [personFilter, setPersonFilter] = useState<string>("all");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  // Add these state variables near the top
+const [selectedSkillMachine, setSelectedSkillMachine] = useState<string>("");
+const [selectedSkillPerson, setSelectedSkillPerson] = useState<string>("");
+const [copyToMachine, setCopyToMachine] = useState<string>("");
+const [skillSearch, setSkillSearch] = useState<string>("");
+const [viewFilter, setViewFilter] = useState<string>("all");
 
-  // Helper Functions
-  const getFilteredMatrix = () => {
-    let filteredMachines = machines.filter(m => m.active);
-    let filteredPeople = [...people];
+// Helper functions
+const getSelectedSkillCount = () => {
+  if (!selectedSkillMachine || !selectedSkillPerson) return 0;
+  return categories.filter(cat =>
+    getSkillAllowed(selectedSkillMachine, selectedSkillPerson, cat)
+  ).length;
+};
 
-    if (machineFilter !== "all") {
-      filteredMachines = filteredMachines.filter(m => m.id === machineFilter);
-    }
-    if (personFilter !== "all") {
-      filteredPeople = filteredPeople.filter(p => p.id === personFilter);
-    }
+const handleBulkUpdateCurrentSelection = async (allowed: boolean) => {
+  if (!selectedSkillMachine || !selectedSkillPerson) return;
+  
+  const updates = categories.map(category =>
+    updateSkill(selectedSkillMachine, selectedSkillPerson, category, allowed)
+  );
+  
+  await Promise.all(updates);
+  toast({
+    title: `✓ ${allowed ? 'Enabled' : 'Disabled'} all ${categories.length} skills`,
+  });
+};
 
-    return filteredMachines.flatMap(machine =>
-      filteredPeople.map(person => ({ machine, person }))
+const handleCopySkills = async () => {
+  if (!selectedSkillMachine || !selectedSkillPerson || !copyToMachine) return;
+  
+  const currentSkills = categories.filter(cat =>
+    getSkillAllowed(selectedSkillMachine, selectedSkillPerson, cat)
+  );
+  
+  const updates = currentSkills.map(category =>
+    updateSkill(copyToMachine, selectedSkillPerson, category, true)
+  );
+  
+  await Promise.all(updates);
+  toast({
+    title: `✓ Copied ${currentSkills.length} skills to ${machines.find(m => m.id === copyToMachine)?.name}`,
+  });
+  setCopyToMachine("");
+};
+
+const handleDeleteAllSkills = async (machineId: string, personId: string) => {
+  const updates = categories.map(category =>
+    updateSkill(machineId, personId, category, false)
+  );
+  
+  await Promise.all(updates);
+  toast({ title: "✓ All skills removed" });
+};
+
+const getUniqueAssignments = () => {
+  const unique = new Set(
+    skills
+      .filter(s => s.allowed)
+      .map(s => `${s.machineId}-${s.personId}`)
+  );
+  return unique.size;
+};
+
+const getGroupedSkills = () => {
+  // Get unique machine-person pairs that have at least one skill
+  const pairs = Array.from(
+    new Set(
+      skills
+        .filter(s => s.allowed)
+        .map(s => `${s.machineId}-${s.personId}`)
+    )
+  ).map(pair => {
+    const [machineId, personId] = pair.split('-');
+    return { machineId, personId };
+  });
+
+  // Filter based on search
+  const filtered = pairs.filter(pair => {
+    const machine = machines.find(m => m.id === pair.machineId);
+    const person = people.find(p => p.id === pair.personId);
+    
+    const searchLower = skillSearch.toLowerCase();
+    return (
+      machine?.name.toLowerCase().includes(searchLower) ||
+      machine?.process.toLowerCase().includes(searchLower) ||
+      person?.name.toLowerCase().includes(searchLower) ||
+      person?.role?.toLowerCase().includes(searchLower)
     );
-  };
+  });
 
-  const getFilteredSkillCount = () => {
-    const matrix = getFilteredMatrix();
-    const relevantCategories = categoryFilter === "all" ? categories : [categoryFilter];
-    
-    return matrix.reduce((count, row) => {
-      return count + relevantCategories.filter(cat =>
-        getSkillAllowed(row.machine.id, row.person.id, cat)
-      ).length;
-    }, 0);
-  };
-
-  const getSkillCountForCategory = (category: string) => {
-    const matrix = getFilteredMatrix();
-    return matrix.filter(row =>
-      getSkillAllowed(row.machine.id, row.person.id, category)
-    ).length;
-  };
-
-  const calculateCoverage = (machineId: string, personId: string) => {
-    if (categories.length === 0) return 0;
-    
-    const allowedCount = categories.filter(cat =>
-      getSkillAllowed(machineId, personId, cat)
-    ).length;
-    
-    return Math.round((allowedCount / categories.length) * 100);
-  };
-
-  const handleBulkSkillUpdate = async (allowed: boolean) => {
-    const matrix = getFilteredMatrix();
-    const relevantCategories = categoryFilter === "all" ? categories : [categoryFilter];
-    
-    const updates = matrix.flatMap(row =>
-      relevantCategories.map(category =>
-        updateSkill(row.machine.id, row.person.id, category, allowed)
-      )
-    );
-    
-    await Promise.all(updates);
-    toast({
-      title: `✓ ${allowed ? 'Enabled' : 'Disabled'} ${updates.length} skills`,
+  // Group based on view filter
+  if (viewFilter === "machine") {
+    const grouped = new Map<string, typeof pairs>();
+    filtered.forEach(pair => {
+      const key = pair.machineId;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(pair);
     });
-  };
+
+    return Array.from(grouped.entries()).map(([machineId, items]) => ({
+      header: machines.find(m => m.id === machineId)?.name || 'Unknown',
+      items,
+    }));
+  }
+
+  if (viewFilter === "person") {
+    const grouped = new Map<string, typeof pairs>();
+    filtered.forEach(pair => {
+      const key = pair.personId;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(pair);
+    });
+
+    return Array.from(grouped.entries()).map(([personId, items]) => ({
+      header: people.find(p => p.id === personId)?.name || 'Unknown',
+      items,
+    }));
+  }
+
+  return [{ header: null, items: filtered }];
+};
+
 
 
   return (
@@ -1305,15 +1364,320 @@ export default function PmsPage() {
           </TabsContent>
 
           {/* SKILLS TAB - REDESIGNED */}
-              <TabsContent value="skills" className="space-y-4">
+              {/* SKILLS TAB - FORM-BASED REDESIGN */}
+            <TabsContent value="skills" className="space-y-4">
+              <div className="grid gap-6 lg:grid-cols-[500px_1fr]">
+                {/* Skill Assignment Form */}
+                <Card className="h-fit">
+                  <CardHeader>
+                    <CardTitle>Assign Skills</CardTitle>
+                    <CardDescription>Select machine and person to configure capabilities</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Machine Selection */}
+                    <div className="space-y-2">
+                      <Label htmlFor="skill-machine">Select Machine</Label>
+                      <Select
+                        value={selectedSkillMachine}
+                        onValueChange={setSelectedSkillMachine}
+                      >
+                        <SelectTrigger id="skill-machine">
+                          <SelectValue placeholder="Choose a machine..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {machines.filter(m => m.active).map((machine) => (
+                            <SelectItem key={machine.id} value={machine.id}>
+                              <div className="flex items-center justify-between w-full">
+                                <span>{machine.name}</span>
+                                <Badge variant="outline" className="ml-2 text-xs">
+                                  {machine.process}
+                                </Badge>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Person Selection */}
+                    <div className="space-y-2">
+                      <Label htmlFor="skill-person">Select Person</Label>
+                      <Select
+                        value={selectedSkillPerson}
+                        onValueChange={setSelectedSkillPerson}
+                      >
+                        <SelectTrigger id="skill-person">
+                          <SelectValue placeholder="Choose a person..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {people.map((person) => (
+                            <SelectItem key={person.id} value={person.id}>
+                              <div className="flex items-center justify-between w-full">
+                                <span>{person.name}</span>
+                                {person.role && (
+                                  <Badge variant="secondary" className="ml-2 text-xs">
+                                    {person.role}
+                                  </Badge>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Show Skills when both selected */}
+                    {selectedSkillMachine && selectedSkillPerson && (
+                      <>
+                        <Separator />
+                        
+                        {/* Current Selection Info */}
+                        <div className="p-4 bg-primary/5 rounded-lg border-2 border-primary/20">
+                          <div className="flex items-start justify-between">
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <Settings2 className="h-4 w-4 text-primary" />
+                                <span className="font-semibold text-sm">
+                                  {machines.find(m => m.id === selectedSkillMachine)?.name}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Users className="h-4 w-4 text-primary" />
+                                <span className="font-semibold text-sm">
+                                  {people.find(p => p.id === selectedSkillPerson)?.name}
+                                </span>
+                              </div>
+                            </div>
+                            <Badge variant="secondary">
+                              {getSelectedSkillCount()}/{categories.length}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        {/* Category Skills */}
+                        <div className="space-y-2">
+                          <Label className="text-sm font-semibold">Product Categories</Label>
+                          {categories.length === 0 ? (
+                            <div className="p-4 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
+                              No categories available. Add products first.
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {categories.map((category) => {
+                                const isAllowed = getSkillAllowed(
+                                  selectedSkillMachine,
+                                  selectedSkillPerson,
+                                  category
+                                );
+                                
+                                return (
+                                  <div
+                                    key={category}
+                                    className={cn(
+                                      "flex items-center justify-between p-3 rounded-lg border-2 transition-all cursor-pointer hover:border-primary/50",
+                                      isAllowed && "bg-green-50 border-green-500 dark:bg-green-950/20"
+                                    )}
+                                    onClick={() =>
+                                      updateSkill(
+                                        selectedSkillMachine,
+                                        selectedSkillPerson,
+                                        category,
+                                        !isAllowed
+                                      )
+                                    }
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <Checkbox
+                                        checked={isAllowed}
+                                        onCheckedChange={(checked) =>
+                                          updateSkill(
+                                            selectedSkillMachine,
+                                            selectedSkillPerson,
+                                            category,
+                                            Boolean(checked)
+                                          )
+                                        }
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="h-5 w-5"
+                                      />
+                                      <div className="space-y-1">
+                                        <p className="font-medium text-sm">{category}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          Products in this category
+                                        </p>
+                                      </div>
+                                    </div>
+                                    {isAllowed && (
+                                      <Badge variant="default" className="bg-green-600">
+                                        <Check className="mr-1 h-3 w-3" />
+                                        Qualified
+                                      </Badge>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Bulk Actions for current selection */}
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => handleBulkUpdateCurrentSelection(true)}
+                          >
+                            <Check className="mr-2 h-4 w-4" />
+                            Enable All
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => handleBulkUpdateCurrentSelection(false)}
+                          >
+                            <X className="mr-2 h-4 w-4" />
+                            Disable All
+                          </Button>
+                        </div>
+
+                        {/* Copy Skills Action */}
+                        <div className="space-y-2">
+                          <Label className="text-sm">Quick Copy</Label>
+                          <div className="flex gap-2">
+                            <Select
+                              value={copyToMachine}
+                              onValueChange={setCopyToMachine}
+                            >
+                              <SelectTrigger className="flex-1">
+                                <SelectValue placeholder="Copy to machine..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {machines
+                                  .filter(m => m.active && m.id !== selectedSkillMachine)
+                                  .map((machine) => (
+                                    <SelectItem key={machine.id} value={machine.id}>
+                                      {machine.name}
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  onClick={handleCopySkills}
+                                  disabled={!copyToMachine}
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Copy skills to another machine</TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </div>
+
+                        {/* Reset Button */}
+                        <Button
+                          variant="ghost"
+                          className="w-full"
+                          onClick={() => {
+                            setSelectedSkillMachine("");
+                            setSelectedSkillPerson("");
+                            setCopyToMachine("");
+                          }}
+                        >
+                          <Plus className="mr-2 h-4 w-4" />
+                          Assign Skills to Another
+                        </Button>
+                      </>
+                    )}
+
+                    {/* Initial State - No Selection */}
+                    {(!selectedSkillMachine || !selectedSkillPerson) && (
+                      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                        <Users className="h-12 w-12 opacity-50 mb-3" />
+                        <p className="text-sm font-medium">Select machine and person</p>
+                        <p className="text-xs">to configure their capabilities</p>
+                      </div>
+                    )}
+
+                    {/* Quick Add Forms */}
+                    <Separator />
+                    <div className="space-y-3">
+                      <Label className="text-sm font-semibold">Quick Add</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button variant="outline" size="sm" className="w-full">
+                              <Plus className="mr-2 h-4 w-4" />
+                              Person
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Add Person</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-3">
+                              <Input
+                                placeholder="Full name"
+                                value={newPerson.name}
+                                onChange={(e) => setNewPerson((prev) => ({ ...prev, name: e.target.value }))}
+                              />
+                              <Input
+                                placeholder="Role (optional)"
+                                value={newPerson.role}
+                                onChange={(e) => setNewPerson((prev) => ({ ...prev, role: e.target.value }))}
+                              />
+                            </div>
+                            <DialogFooter>
+                              <Button onClick={handleAddPerson}>Add Person</Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
+
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button variant="outline" size="sm" className="w-full">
+                              <Plus className="mr-2 h-4 w-4" />
+                              Machine
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>Add Machine</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-3">
+                              <Input
+                                placeholder="Machine name"
+                                value={newMachine.name}
+                                onChange={(e) => setNewMachine((prev) => ({ ...prev, name: e.target.value }))}
+                              />
+                              <Input
+                                placeholder="Process"
+                                value={newMachine.process}
+                                onChange={(e) => setNewMachine((prev) => ({ ...prev, process: e.target.value }))}
+                              />
+                            </div>
+                            <DialogFooter>
+                              <Button onClick={handleAddMachine}>Add Machine</Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Skills Overview & History */}
                 <Card>
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <div>
-                        <CardTitle>Capability Matrix</CardTitle>
-                        <CardDescription>
-                          Configure machine-person-category skill assignments
-                        </CardDescription>
+                        <CardTitle>Skills Overview</CardTitle>
+                        <CardDescription>All configured machine-person-category assignments</CardDescription>
                       </div>
                       <div className="flex gap-2">
                         <Tooltip>
@@ -1336,84 +1700,18 @@ export default function PmsPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {/* Control Panel */}
-                    <div className="grid gap-4 md:grid-cols-3 p-4 bg-muted/50 rounded-lg">
-                      {/* Machine Filter */}
-                      <div className="space-y-2">
-                        <Label className="text-xs font-semibold">Filter by Machine</Label>
-                        <Select
-                          value={machineFilter}
-                          onValueChange={setMachineFilter}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="All machines" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Machines</SelectItem>
-                            {machines.filter(m => m.active).map((machine) => (
-                              <SelectItem key={machine.id} value={machine.id}>
-                                {machine.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Person Filter */}
-                      <div className="space-y-2">
-                        <Label className="text-xs font-semibold">Filter by Person</Label>
-                        <Select
-                          value={personFilter}
-                          onValueChange={setPersonFilter}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="All people" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All People</SelectItem>
-                            {people.map((person) => (
-                              <SelectItem key={person.id} value={person.id}>
-                                {person.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Category Filter */}
-                      <div className="space-y-2">
-                        <Label className="text-xs font-semibold">Filter by Category</Label>
-                        <Select
-                          value={categoryFilter}
-                          onValueChange={setCategoryFilter}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="All categories" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Categories</SelectItem>
-                            {categories.map((cat) => (
-                              <SelectItem key={cat} value={cat}>
-                                {cat}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-
-                    {/* Quick Stats */}
-                    <div className="grid grid-cols-4 gap-4">
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-3 gap-3">
                       <Card className="border-2">
                         <CardContent className="pt-4">
-                          <div className="text-2xl font-bold">{machines.filter(m => m.active).length}</div>
-                          <p className="text-xs text-muted-foreground">Active Machines</p>
+                          <div className="text-2xl font-bold">{skills.filter(s => s.allowed).length}</div>
+                          <p className="text-xs text-muted-foreground">Total Skills</p>
                         </CardContent>
                       </Card>
                       <Card className="border-2">
                         <CardContent className="pt-4">
-                          <div className="text-2xl font-bold">{people.length}</div>
-                          <p className="text-xs text-muted-foreground">Total People</p>
+                          <div className="text-2xl font-bold">{getUniqueAssignments()}</div>
+                          <p className="text-xs text-muted-foreground">Assignments</p>
                         </CardContent>
                       </Card>
                       <Card className="border-2">
@@ -1422,210 +1720,133 @@ export default function PmsPage() {
                           <p className="text-xs text-muted-foreground">Categories</p>
                         </CardContent>
                       </Card>
-                      <Card className="border-2">
-                        <CardContent className="pt-4">
-                          <div className="text-2xl font-bold">{skills.filter(s => s.allowed).length}</div>
-                          <p className="text-xs text-muted-foreground">Total Skills</p>
-                        </CardContent>
-                      </Card>
                     </div>
 
-                    {/* Bulk Actions */}
-                    <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleBulkSkillUpdate(true)}
-                        >
-                          <Check className="mr-2 h-4 w-4" />
-                          Enable All Visible
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleBulkSkillUpdate(false)}
-                        >
-                          <X className="mr-2 h-4 w-4" />
-                          Disable All Visible
-                        </Button>
+                    {/* Filter */}
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search assignments..."
+                          value={skillSearch}
+                          onChange={(e) => setSkillSearch(e.target.value)}
+                          className="pl-9"
+                        />
                       </div>
-                      <Badge variant="secondary">
-                        {getFilteredSkillCount()} assignments shown
-                      </Badge>
+                      <Select value={viewFilter} onValueChange={setViewFilter}>
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Assignments</SelectItem>
+                          <SelectItem value="active">Active Only</SelectItem>
+                          <SelectItem value="machine">Group by Machine</SelectItem>
+                          <SelectItem value="person">Group by Person</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
-                    {/* Dynamic Matrix Table */}
-                    {machines.length === 0 || people.length === 0 || categories.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed rounded-lg">
-                        <Users className="h-16 w-16 opacity-50 mb-4" />
-                        <p className="text-lg font-medium">Setup Required</p>
-                        <p className="text-sm text-muted-foreground">
-                          {machines.length === 0 && "Add machines first"}
-                          {people.length === 0 && machines.length > 0 && "Add people"}
-                          {categories.length === 0 && machines.length > 0 && people.length > 0 && "Add products with categories"}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border overflow-hidden">
-                        <div className="overflow-x-auto">
-                          <table className="w-full">
-                            <thead className="bg-muted/50 sticky top-0 z-10">
-                              <tr>
-                                <th className="p-3 text-left font-semibold text-sm border-r w-[50px]">#</th>
-                                <th className="p-3 text-left font-semibold text-sm border-r min-w-[200px] sticky left-0 bg-muted/50">
-                                  Machine
-                                </th>
-                                <th className="p-3 text-left font-semibold text-sm border-r min-w-[180px]">
-                                  Person
-                                </th>
-                                {categories.map((category) => (
-                                  <th key={category} className="p-3 text-center font-semibold text-sm border-r min-w-[150px]">
-                                    <div className="flex flex-col items-center gap-1">
-                                      <span>{category}</span>
-                                      <Badge variant="outline" className="text-xs">
-                                        {getSkillCountForCategory(category)}
-                                      </Badge>
-                                    </div>
-                                  </th>
-                                ))}
-                                <th className="p-3 text-center font-semibold text-sm min-w-[120px]">
-                                  Coverage
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {getFilteredMatrix().length === 0 && (
-                                <tr>
-                                  <td colSpan={categories.length + 4} className="p-8 text-center text-muted-foreground">
-                                    No matching assignments found
-                                  </td>
-                                </tr>
-                              )}
-                              {getFilteredMatrix().map((row, index) => {
-                                const coverage = calculateCoverage(row.machine.id, row.person.id);
-                                
-                                return (
-                                  <tr
-                                    key={`${row.machine.id}-${row.person.id}`}
-                                    className="border-t hover:bg-muted/30 transition-colors"
-                                  >
-                                    <td className="p-3 text-center text-sm text-muted-foreground border-r">
-                                      {index + 1}
-                                    </td>
-                                    <td className="p-3 border-r sticky left-0 bg-background">
-                                      <div className="space-y-1">
-                                        <p className="font-medium text-sm">{row.machine.name}</p>
-                                        <Badge variant="outline" className="text-xs">
-                                          {row.machine.process}
-                                        </Badge>
-                                      </div>
-                                    </td>
-                                    <td className="p-3 border-r">
-                                      <div className="space-y-1">
-                                        <p className="font-medium text-sm">{row.person.name}</p>
-                                        {row.person.role && (
-                                          <p className="text-xs text-muted-foreground">{row.person.role}</p>
-                                        )}
-                                      </div>
-                                    </td>
-                                    {categories.map((category) => {
-                                      const isAllowed = getSkillAllowed(row.machine.id, row.person.id, category);
-                                      
-                                      return (
-                                        <td key={category} className="p-3 text-center border-r">
-                                          <div className="flex items-center justify-center gap-2">
-                                            <Checkbox
-                                              checked={isAllowed}
-                                              onCheckedChange={(checked) =>
-                                                updateSkill(row.machine.id, row.person.id, category, Boolean(checked))
-                                              }
-                                              className="h-5 w-5"
-                                            />
-                                            {isAllowed && (
-                                              <Check className="h-4 w-4 text-green-600" />
-                                            )}
+                    {/* Skills List */}
+                    <ScrollArea className="h-[600px]">
+                      <div className="space-y-3">
+                        {getGroupedSkills().length === 0 && (
+                          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                            <Package className="h-12 w-12 opacity-50 mb-3" />
+                            <p className="text-sm">No skills configured yet</p>
+                          </div>
+                        )}
+
+                        {getGroupedSkills().map((group, groupIndex) => (
+                          <div key={groupIndex} className="space-y-2">
+                            {group.header && (
+                              <div className="flex items-center gap-2 py-2">
+                                <div className="h-px bg-border flex-1" />
+                                <Badge variant="secondary">{group.header}</Badge>
+                                <div className="h-px bg-border flex-1" />
+                              </div>
+                            )}
+
+                            {group.items.map((item) => {
+                              const machine = machines.find(m => m.id === item.machineId);
+                              const person = people.find(p => p.id === item.personId);
+                              const skillsForPair = skills.filter(
+                                s => s.machineId === item.machineId && 
+                                s.personId === item.personId && 
+                                s.allowed
+                              );
+
+                              return (
+                                <Card
+                                  key={`${item.machineId}-${item.personId}`}
+                                  className="cursor-pointer hover:border-primary/50 transition-all"
+                                  onClick={() => {
+                                    setSelectedSkillMachine(item.machineId);
+                                    setSelectedSkillPerson(item.personId);
+                                  }}
+                                >
+                                  <CardContent className="p-4">
+                                    <div className="flex items-start justify-between">
+                                      <div className="space-y-2 flex-1">
+                                        <div className="flex items-center gap-3">
+                                          <div className="flex items-center gap-2">
+                                            <Settings2 className="h-4 w-4 text-muted-foreground" />
+                                            <span className="font-semibold text-sm">
+                                              {machine?.name || 'Unknown'}
+                                            </span>
+                                            <Badge variant="outline" className="text-xs">
+                                              {machine?.process}
+                                            </Badge>
                                           </div>
-                                        </td>
-                                      );
-                                    })}
-                                    <td className="p-3 text-center">
-                                      <div className="flex flex-col items-center gap-1">
-                                        <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                                          <div
-                                            className={cn(
-                                              "h-full transition-all",
-                                              coverage >= 75 ? "bg-green-500" :
-                                              coverage >= 50 ? "bg-yellow-500" :
-                                              coverage >= 25 ? "bg-orange-500" :
-                                              "bg-red-500"
-                                            )}
-                                            style={{ width: `${coverage}%` }}
-                                          />
+                                          <span className="text-muted-foreground">→</span>
+                                          <div className="flex items-center gap-2">
+                                            <Users className="h-4 w-4 text-muted-foreground" />
+                                            <span className="font-semibold text-sm">
+                                              {person?.name || 'Unknown'}
+                                            </span>
+                                          </div>
                                         </div>
-                                        <span className="text-xs font-medium">{coverage}%</span>
+
+                                        <div className="flex flex-wrap gap-1">
+                                          {skillsForPair.map((skill) => (
+                                            <Badge key={skill.id} variant="secondary" className="text-xs">
+                                              {skill.category}
+                                            </Badge>
+                                          ))}
+                                          {skillsForPair.length === 0 && (
+                                            <span className="text-xs text-muted-foreground">No skills assigned</span>
+                                          )}
+                                        </div>
                                       </div>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline">
+                                          {skillsForPair.length}/{categories.length}
+                                        </Badge>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteAllSkills(item.machineId, item.personId);
+                                          }}
+                                        >
+                                          <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
+                          </div>
+                        ))}
                       </div>
-                    )}
-
-                    {/* People & Machine Quick Add */}
-                    <div className="grid md:grid-cols-2 gap-4 pt-4 border-t">
-                      {/* Quick Add Person */}
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-sm">Quick Add Person</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <Input
-                            placeholder="Full name"
-                            value={newPerson.name}
-                            onChange={(e) => setNewPerson((prev) => ({ ...prev, name: e.target.value }))}
-                          />
-                          <Input
-                            placeholder="Role (optional)"
-                            value={newPerson.role}
-                            onChange={(e) => setNewPerson((prev) => ({ ...prev, role: e.target.value }))}
-                          />
-                          <Button onClick={handleAddPerson} className="w-full" size="sm">
-                            <Plus className="mr-2 h-4 w-4" />
-                            Add Person
-                          </Button>
-                        </CardContent>
-                      </Card>
-
-                      {/* Quick Add Machine */}
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-sm">Quick Add Machine</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <Input
-                            placeholder="Machine name"
-                            value={newMachine.name}
-                            onChange={(e) => setNewMachine((prev) => ({ ...prev, name: e.target.value }))}
-                          />
-                          <Input
-                            placeholder="Process"
-                            value={newMachine.process}
-                            onChange={(e) => setNewMachine((prev) => ({ ...prev, process: e.target.value }))}
-                          />
-                          <Button onClick={handleAddMachine} className="w-full" size="sm">
-                            <Plus className="mr-2 h-4 w-4" />
-                            Add Machine
-                          </Button>
-                        </CardContent>
-                      </Card>
-                    </div>
+                    </ScrollArea>
                   </CardContent>
                 </Card>
-              </TabsContent>
+              </div>
+            </TabsContent>
+
 
 
           {/* DOWNTIME TAB */}

@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { CloudDownload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export function MeasurementPreviewDialog({
@@ -210,7 +210,7 @@ const handleDownloadPdf = async () => {
       }}
     >
 
-      <DialogContent className="p-0 w-[95vw] max-w-6xl h-[95dvh] overflow-hidden">
+      <DialogContent className="p-0 w-[92vw] max-w-6xl h-[95dvh] rounded-lg overflow-auto">
         <DialogHeader className="p-4 sm:p-8 pb-0 sr-only">
           <DialogTitle>Measurement Preview</DialogTitle>
         </DialogHeader>
@@ -825,10 +825,13 @@ const handleDownloadPdf = async () => {
             {pdfLoading ? (
               <>
                 <Loader2 className="animate-spin mr-2 h-4 w-4" />
-                Generating PDF...
+                PDF...
               </>
             ) : (
-              "📄 Download PDF"
+              <>
+                <CloudDownload className="mr-2 h-4 w-4" /> 
+                PDF
+              </>
             )}
           </Button>
 
