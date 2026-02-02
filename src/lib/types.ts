@@ -284,8 +284,11 @@ export interface OrderItem {
   unit?: string;
   rate?: number;
   exclusiveRate?: number;
+  discountPercent?: number;
+  discountAmount?: number;
   qty?: number;
   gst?: number;
+  gstMode?: "EXCL" | "INCL";
   hsn?: string;
   group?: string;
   taxableAmount?: number;
@@ -1096,12 +1099,18 @@ export interface Quotation {
 
 export interface DealOrder {
     id: string;
+    orderId?: string;
     orderNo: string;
-    orderDate: string; // ISO string
-    createdBy: string;
+    orderDate?: string; // ISO string
+    createdBy?: string;
     remark?: string;
-    items: QuotationItem[];
-    status: 'Pending Approval' | 'Approved';
+    status?: string;
+    overallSummary?: {
+        goodsTotal?: number;
+        vasTotal?: number;
+        grandTotal?: number;
+    };
+    items?: QuotationItem[];
 }
 
 export interface Selection {
@@ -1134,7 +1143,9 @@ export interface InvoiceLineItem {
     quantity?: number;
     quantityAllocated?: number;
     rate?: number;
+    exclusiveRate?: number;
     discountPercent?: number;
+    discountAmount?: number;
     taxableAmount?: number;
     cgst?: number;
     sgst?: number;
@@ -1303,7 +1314,9 @@ export interface PrintableInvoicePayload {
     quantity: number;
     uom: string;
     rate: number;
+    exclusiveRate?: number;
     discountPercent: number;
+    discountAmount?: number;
     taxableAmount: number;
     cgst: number;
     sgst: number;

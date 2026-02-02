@@ -38,6 +38,7 @@ const productSchema = z.object({
   serialNo: z.string().optional(),
   quantity: z.number(),
   mrp: z.number(),
+  exclusiveRate: z.number().optional(),
   discountPercent: z.number().optional(),
   quotationRate: z.number(),
   orderRate: z.number(),
@@ -154,10 +155,20 @@ function ConvertToOrderContent() {
     return 5;
   };
 
+  const resolveInclusiveRate = (item: { exclusiveRate?: number | string; rate?: number | string; mrp?: number | string; quotationRate?: number | string; gstPercent?: number | string }) => {
+    const gstPercent = Number((item as any)?.gstPercent ?? 0);
+    const exclusiveRate = Number((item as any)?.exclusiveRate);
+    if (Number.isFinite(exclusiveRate) && exclusiveRate > 0) {
+      return gstPercent > 0 ? exclusiveRate * (1 + gstPercent / 100) : exclusiveRate;
+    }
+    const fallback = Number((item as any)?.rate ?? (item as any)?.mrp ?? (item as any)?.quotationRate);
+    return Number.isFinite(fallback) ? fallback : 0;
+  };
+
   const totals = useMemo(() => {
     const productTotals = (watchedValues.products || []).reduce((acc, item) => {
         const qty = Number(item.quantity) || 0;
-        const rate = Number(item.orderRate ?? item.mrp ?? item.quotationRate) || 0;
+        const rate = Number(item.orderRate ?? resolveInclusiveRate(item)) || 0;
         const discountPercent = Number(item.discountPercent) || 0;
         const subtotal = qty * rate; // GST-inclusive
         const discountAmount = subtotal * (discountPercent / 100);
@@ -217,22 +228,35 @@ function ConvertToOrderContent() {
         if (specificQuotation) {
           setQuotation(specificQuotation);
           const productsFromQuotation = specificQuotation.items.map((item: QuotationItem) => {
-            const quotationRate = item.rate * (1 - (Number(item.discountPercent) || 0) / 100);
+            const gstPercent = Number(item.gstPercent ?? 0);
+            const discountPercent = Number(item.discountPercent) || 0;
+            const inclusiveRate = resolveInclusiveRate({
+              exclusiveRate: item.exclusiveRate,
+              rate: item.rate,
+              mrp: item.rate,
+              quotationRate: item.rate,
+              gstPercent,
+            });
+            const exclusiveRate = Number.isFinite(Number(item.exclusiveRate))
+              ? Number(item.exclusiveRate)
+              : (gstPercent > 0 ? inclusiveRate / (1 + gstPercent / 100) : inclusiveRate);
+            const quotationRate = inclusiveRate * (1 - discountPercent / 100);
             return {
               id: item.id || undefined,
               collectionBrand: item.collectionBrand,
               serialNo: item.serialNo || '',
               quantity: item.quantity,
-              mrp: item.rate,
-              discountPercent: Number(item.discountPercent) || 0,
+              mrp: inclusiveRate,
+              exclusiveRate,
+              discountPercent,
               quotationRate: quotationRate,
-              orderRate: item.rate, 
+              orderRate: inclusiveRate, 
               room: item.room || '',
               noOfPcs: 1, 
-              amount: item.rate * item.quantity, 
+              amount: quotationRate * item.quantity, 
               description: item.salesDescription,
               remark: item.remark || '',
-              gstPercent: Number(item.gstPercent ?? 0),
+              gstPercent,
             };
           });
           form.setValue("products", productsFromQuotation);
@@ -281,17 +305,21 @@ function ConvertToOrderContent() {
     }
    const rate = parseFloat(productData.rate || '0');
    const quantity = parseFloat(productData.quantity);
-   const amount = rate * quantity;
    const selectedStock = bcnOptions.find(option => option.value === productData.collectionBrand)?.stockItem;
    const gstPercent = Number(selectedStock?.tax ?? 0);
+   const exclusiveRate = gstPercent > 0 ? rate / (1 + gstPercent / 100) : rate;
+   const discountPercent = parseFloat(productData.discountPercent || '0');
+   const quotationRate = rate * (1 - discountPercent / 100);
+   const amount = quotationRate * quantity;
     
     append({
       collectionBrand: productData.collectionBrand,
       serialNo: productData.serialNo,
       quantity: quantity,
       mrp: rate,
-      discountPercent: parseFloat(productData.discountPercent || '0'),
-      quotationRate: rate,
+      exclusiveRate,
+      discountPercent,
+      quotationRate: quotationRate,
       orderRate: rate,
       room: productData.room,
       noOfPcs: parseInt(productData.noOfPcs || '1', 10),
@@ -472,7 +500,12 @@ function convertQuotationToTemporaryOrder(q: Quotation): Order {
                   {fields.map((item, index) => {
                     const currentItem = watchedValues.products?.[index] ?? item;
                     const quantity = Number(currentItem.quantity) || 0;
-                    const baseRate = Number(currentItem.orderRate ?? currentItem.mrp ?? item.mrp) || 0;
+                    const baseRate = resolveInclusiveRate({
+                      exclusiveRate: (currentItem as any).exclusiveRate ?? (item as any).exclusiveRate,
+                      mrp: currentItem.mrp ?? item.mrp,
+                      quotationRate: currentItem.quotationRate,
+                      gstPercent: currentItem.gstPercent ?? item.gstPercent,
+                    });
                     const discountPercent = Number(currentItem.discountPercent) || 0;
                     const displayQuotationRate = baseRate * (1 - discountPercent / 100);
                     const displayAmount = quantity * displayQuotationRate;

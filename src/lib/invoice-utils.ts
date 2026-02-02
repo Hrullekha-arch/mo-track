@@ -5,6 +5,12 @@ const num = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const numOrUndefined = (value: unknown) => {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 const formatAddress = (address: any) => {
   if (!address) return "";
   if (typeof address === "string") return address;
@@ -16,8 +22,12 @@ const formatAddress = (address: any) => {
 
 const mapLineItem = (item: any, type: "NORMAL" | "VAS") => {
   const qty = num(item.qty ?? item.quantity ?? item.quantityAllocated);
-  const rate = num(item.rate);
-  const taxableAmount = num(item.taxableAmount ?? rate * qty);
+  const rate = num(item.exclusiveRate ?? item.rate);
+  const discountPercent = num(item.discountPercent);
+  const baseAmount = rate * qty;
+  const discountAmount =
+    numOrUndefined(item.discountAmount) ?? (baseAmount * (discountPercent / 100));
+  const taxableAmount = num(item.taxableAmount ?? Math.max(0, baseAmount - discountAmount));
   const gstAmount = num(item.gstAmount ?? taxableAmount * (num(item.gst) / 100));
   const cgst = num(item.cgst ?? gstAmount / 2);
   const sgst = num(item.sgst ?? gstAmount / 2);
@@ -31,7 +41,9 @@ const mapLineItem = (item: any, type: "NORMAL" | "VAS") => {
     quantity: qty,
     uom: item.uom ?? item.unit ?? (type === "VAS" ? "PCS" : "MTR"),
     rate,
-    discountPercent: num(item.discountPercent),
+    exclusiveRate: numOrUndefined(item.exclusiveRate),
+    discountPercent,
+    discountAmount,
     taxableAmount,
     cgst,
     sgst,
@@ -52,23 +64,30 @@ const buildItemsFromSections = (invoice: Invoice) => {
 const buildTotalsFromItems = (items: PrintableInvoicePayload["items"]) => {
   const totals = items.reduce(
     (acc, item) => {
-      acc.subTotal += num(item.rate) * num(item.quantity);
+      const lineRate = num(item.exclusiveRate ?? item.rate);
+      const lineQty = num(item.quantity);
+      const lineAmount = lineRate * lineQty;
+      const lineDiscount =
+        item.discountAmount !== undefined
+          ? num(item.discountAmount)
+          : lineAmount * (num(item.discountPercent) / 100);
+      acc.subTotal += lineAmount;
+      acc.discount += lineDiscount;
       acc.taxableValue += num(item.taxableAmount);
       acc.cgst += num(item.cgst);
       acc.sgst += num(item.sgst);
       acc.igst += num(item.igst);
       return acc;
     },
-    { subTotal: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
+    { subTotal: 0, discount: 0, taxableValue: 0, cgst: 0, sgst: 0, igst: 0 }
   );
-  const discount = Math.max(0, totals.subTotal - totals.taxableValue);
   const totalGst = totals.cgst + totals.sgst + totals.igst;
   const netAmount = totals.taxableValue + totalGst;
   const roundedTotal = Math.round(netAmount);
 
   return {
     subTotal: totals.subTotal,
-    discount,
+    discount: totals.discount,
     taxableValue: totals.taxableValue,
     cgst: totals.cgst,
     sgst: totals.sgst,

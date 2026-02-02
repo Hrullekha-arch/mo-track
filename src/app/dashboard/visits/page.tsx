@@ -860,9 +860,10 @@ const previewUrl =
                 <Table>
                     <TableHeader>
                         <TableRow>
+                            <TableHead>Created Date</TableHead>
                             <TableHead>Customer</TableHead>
                             <TableHead>Address</TableHead>
-                            <TableHead>Deal ID</TableHead>
+                            <TableHead>Deal ID / SM</TableHead>
                             <TableHead>Type / Created By</TableHead>
                             <TableHead>Date & Slot</TableHead>
                             <TableHead>Assigned To</TableHead>
@@ -873,6 +874,16 @@ const previewUrl =
                     <TableBody>
                         {filteredVisits.map(visit => (
                             <TableRow key={visit.id} className={cn(visit.visitStatus === 'Working' && 'ring-2 ring-blue-500 ring-offset-2')}>
+                                <TableCell className="font-medium">{visit.slotDate ? (
+                                                                    <>
+                                                                        {format(new Date(visit.createdAt), 'dd MMM yyyy')}
+                                                                        <br />
+                                                                        {format(new Date(visit.createdAt), 'hh:mm a')}
+                                                                    </>
+                                                                    ) : (
+                                                                    'Not Set'
+                                                                    )}
+                                </TableCell>
                                 <TableCell className="font-medium">{visit.customerName}</TableCell>
                                 <TableCell className="max-w-[220px] whitespace-normal break-words">
                                 {visit.customerSnapshot?.address || "—"}
@@ -892,9 +903,9 @@ const previewUrl =
                                     <Badge variant="secondary">{visit.createdBy}</Badge>
                                 </TableCell>
                                 <TableCell>
-                                    {visit.dueDate ? format(new Date(visit.dueDate), 'PPP') : 'Not Set'}
+                                    {visit.slotDate ? format(new Date(visit.slotDate), 'dd MMM yyyy') : 'Not Set'}
                                     <br />
-                                    <span className="text-xs text-muted-foreground">{visit.slotLabel || 'N/A'}</span>
+                                    <Badge variant={"secondary"} className="text-xs">{visit.slotLabel || 'N/A'}</Badge>
                                 </TableCell>
                                 <TableCell>
                                     {visit.assignedTo ? (assigneeNameById[visit.assignedTo] || 'Unknown') : 'Unassigned'}

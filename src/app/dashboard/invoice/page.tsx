@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice";
@@ -25,6 +26,12 @@ const normalizeKey = (value?: string) =>
 const num = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const numOrUndefined = (value: unknown) => {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 };
 
 const stripUndefinedDeep = (value: any): any => {
@@ -45,14 +52,43 @@ const stripUndefinedDeep = (value: any): any => {
   return value;
 };
 
+const resolveDiscountPercent = (order: Order, item: any) => {
+  const direct = numOrUndefined(item?.discountPercent ?? item?.discount);
+  if (direct !== undefined) return direct;
+
+  const key = normalizeKey(item?.bcn || item?.description || item?.itemName);
+  if (!key) return 0;
+
+  const fabricDetails = (order as any)?.fabricDetails || [];
+  const match = fabricDetails.find((entry: any) => normalizeKey(entry?.fabricName) === key);
+  return numOrUndefined(match?.discountPercent) ?? 0;
+};
+
+const resolveExclusiveRateForInvoice = (item: any) => {
+  const gst = num(item?.gst ?? item?.gstPercent);
+  const gstMode = String(item?.gstMode ?? item?.gstType ?? "").toUpperCase();
+  const rawRate = num(item?.rate);
+  const rawExclusive = numOrUndefined(item?.exclusiveRate);
+
+  if (gstMode === "INCL" && gst > 0) {
+    const base = rawRate || rawExclusive || 0;
+    return base ? base / (1 + gst / 100) : 0;
+  }
+
+  return rawExclusive ?? rawRate;
+};
+
 type InvoiceLineItem = {
   roomName?: string;
   type?: string;
   bcn?: string;
   description?: string;
   unit?: string;
+  exclusiveRate?: number;
   rate?: number;
   qty?: number;
+  discountPercent?: number;
+  discountAmount?: number;
   gst?: number;
   hsn?: string;
   group?: string;
@@ -204,6 +240,7 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
 
       const normalItemsRaw = order.sections?.NORMAL?.items || [];
       const normalInvoiceItems: InvoiceLineItem[] = [];
+      console.log("normalItemsRaw:", normalItemsRaw);
 
       normalItemsRaw.forEach((item: any) => {
         const bcnKey = normalizeKey(item.bcn || item.description || item.itemName);
@@ -218,9 +255,11 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
         let remaining = Math.max(0, allocatedTotal - alreadyInvoiced);
         if (remaining <= 0) return;
 
-        const rate = num(item.exclusiveRate ?? item.rate);
+        const exclusiveRate = item.exclusiveRate ?? resolveExclusiveRateForInvoice(item);
+        const rate = exclusiveRate;
         const gst = num(item.gst);
         const unit = item.unit || "MTR";
+        const discountPercent = resolveDiscountPercent(order, item);
 
         if (allocatedLengths.length > 0) {
           for (const length of allocatedLengths) {
@@ -231,7 +270,9 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
             if (lengthRemaining <= 0) continue;
 
             const qty = Math.min(remaining, lengthRemaining);
-            const taxableAmount = rate * qty;
+            const baseAmount = rate * qty;
+            const discountAmount = baseAmount * (discountPercent / 100);
+            const taxableAmount = Math.max(0, baseAmount - discountAmount);
             const gstAmount = taxableAmount * (gst / 100);
             normalInvoiceItems.push({
               roomName: item.roomName,
@@ -239,9 +280,12 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
               bcn: item.bcn,
               description: item.description,
               unit,
+              exclusiveRate,
               rate,
               qty,
               gst,
+              discountPercent,
+              discountAmount,
               hsn: item.hsn,
               group: item.group,
               taxableAmount,
@@ -258,7 +302,9 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
 
         if (remaining > 0 && allocatedLengths.length === 0) {
           const qty = remaining;
-          const taxableAmount = rate * qty;
+          const baseAmount = rate * qty;
+          const discountAmount = baseAmount * (discountPercent / 100);
+          const taxableAmount = Math.max(0, baseAmount - discountAmount);
           const gstAmount = taxableAmount * (gst / 100);
           normalInvoiceItems.push({
             roomName: item.roomName,
@@ -266,9 +312,12 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
             bcn: item.bcn,
             description: item.description,
             unit,
+            exclusiveRate,
             rate,
             qty,
             gst,
+            discountPercent,
+            discountAmount,
             hsn: item.hsn,
             group: item.group,
             taxableAmount,
@@ -280,21 +329,29 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
 
       const vasItemsRaw = order.sections?.VAS?.items || [];
       const vasInvoiceItems: InvoiceLineItem[] = [];
+      console.log("vasItemsRaw:", vasItemsRaw);
       if (!vasAlreadyInvoiced && vasItemsRaw.length > 0) {
         vasItemsRaw.forEach((item: any) => {
           const qty = num(item.qty);
-          const rate = num(item.rate);
+          const exclusiveRate = item.exclusiveRate ?? resolveExclusiveRateForInvoice(item);
+          const rate = exclusiveRate;
           const gst = num(item.gst);
-          const taxableAmount = rate * qty;
+          const discountPercent = resolveDiscountPercent(order, item);
+          const baseAmount = rate * qty;
+          const discountAmount = baseAmount * (discountPercent / 100);
+          const taxableAmount = Math.max(0, baseAmount - discountAmount);
           const gstAmount = taxableAmount * (gst / 100);
           vasInvoiceItems.push({
             roomName: item.roomName,
             type: "VAS",
             description: item.description,
             unit: item.unit || "PCS",
+            exclusiveRate,
             rate,
             qty,
             gst,
+            discountPercent,
+            discountAmount,
             hsn: item.hsn,
             group: item.group,
             taxableAmount,
@@ -363,27 +420,41 @@ const createSectionCandidate = (
 
 const buildPrintablePayload = (candidate: InvoiceCandidate, invoiceNo?: string) => {
   const { order, normalItems, vasItems, overallSummary } = candidate;
+  console.log("candidate:" , candidate);
   const mergedItems = [...normalItems, ...vasItems].map((item) => {
     const gstAmount = num(item.gstAmount);
+    const discountPercent = num(item.discountPercent);
+    const rate = num(item.exclusiveRate ?? item.rate);
+    const baseAmount = rate * num(item.qty);
+    const discountAmount =
+      numOrUndefined(item.discountAmount) ?? (baseAmount * (discountPercent / 100));
     return {
       name: item.description || item.bcn || "",
       bcn: item.bcn || (item.type === "VAS" ? `VAS-${item.description}` : ""),
       hsn: item.hsn || "",
       quantity: num(item.qty),
       uom: item.unit || "MTR",
-      rate: num(item.rate),
-      discountPercent: 0,
+      rate,
+      exclusiveRate: numOrUndefined(item.exclusiveRate),
+      discountPercent,
       taxableAmount: num(item.taxableAmount),
       cgst: gstAmount / 2,
       sgst: gstAmount / 2,
       igst: 0,
       total: num(item.totalAmount),
+      discountAmount,
     };
   });
 
   const totals = mergedItems.reduce(
     (acc, item) => {
-      acc.subTotal += item.rate * item.quantity;
+      const amount = item.rate * item.quantity;
+      const discount =
+        item.discountAmount !== undefined
+          ? item.discountAmount
+          : amount * (item.discountPercent / 100);
+      acc.subTotal += amount;
+      acc.discount += discount;
       acc.taxableValue += item.taxableAmount;
       acc.cgst += item.cgst;
       acc.sgst += item.sgst;
@@ -627,6 +698,7 @@ export default function InvoicePage() {
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [selectedCandidate, setSelectedCandidate] = React.useState<InvoiceCandidate | null>(null);
+  const [quickOrderNo, setQuickOrderNo] = React.useState("");
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -662,6 +734,7 @@ export default function InvoicePage() {
   }, [toast]);
 
   const candidates = React.useMemo(() => buildInvoiceCandidates(orders, invoices), [orders, invoices]);
+  console.log("Invoice candidates:", candidates);
   const goodsCandidates = React.useMemo(
     () => candidates.map((c) => createSectionCandidate(c, "NORMAL")).filter(Boolean) as InvoiceCandidate[],
     [candidates]
@@ -670,6 +743,55 @@ export default function InvoicePage() {
     () => candidates.map((c) => createSectionCandidate(c, "VAS")).filter(Boolean) as InvoiceCandidate[],
     [candidates]
   );
+
+  const findCandidateByOrderNo = React.useCallback(
+    (value: string) => {
+      const raw = value.trim();
+      if (!raw) return { goods: null, vas: null };
+      const normalized = raw.toUpperCase();
+      const withPrefix = normalized.startsWith("MOTRACK-") ? normalized : `MOTRACK-${normalized}`;
+      const compact = withPrefix.replace(/^MOTRACK-/, "");
+      const matchCandidate = (candidate: InvoiceCandidate) => {
+        const orderId = String(candidate.order.id || "").toUpperCase();
+        const orderNo = String(candidate.order.orderNo || "").toUpperCase();
+        const orderCompact = orderId.replace(/^MOTRACK-/, "");
+        const orderNoCompact = orderNo.replace(/^MOTRACK-/, "");
+        return (
+          orderId === withPrefix ||
+          orderNo === withPrefix ||
+          orderCompact === compact ||
+          orderNoCompact === compact
+        );
+      };
+      const goods = goodsCandidates.find(matchCandidate) || null;
+      const vas = vasCandidates.find(matchCandidate) || null;
+      return { goods, vas };
+    },
+    [goodsCandidates, vasCandidates]
+  );
+
+  const handleQuickGenerate = React.useCallback(() => {
+    const value = quickOrderNo.trim();
+    if (!value) {
+      toast({ variant: "destructive", title: "Order number required", description: "Enter an order number to generate an invoice." });
+      return;
+    }
+    const { goods, vas } = findCandidateByOrderNo(value);
+    if (!goods && !vas) {
+      toast({ variant: "destructive", title: "Order not ready", description: "No pending invoice found for this order." });
+      return;
+    }
+    if (goods) {
+      setSelectedCandidate(goods);
+      if (vas) {
+        toast({ title: "Goods invoice opened", description: "VAS invoice is also pending for this order." });
+      }
+      return;
+    }
+    if (vas) {
+      setSelectedCandidate(vas);
+    }
+  }, [findCandidateByOrderNo, quickOrderNo, toast]);
 
   const renderPendingTable = (pendingCandidates: InvoiceCandidate[], emptyLabel: string) => (
     <Card>
@@ -733,9 +855,22 @@ export default function InvoicePage() {
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Generate Invoice</h1>
-        <p className="text-muted-foreground">Only allocated items are available for invoicing.</p>
+      <header className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Generate Invoice</h1>
+          <p className="text-muted-foreground">Only allocated items are available for invoicing.</p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input
+            className="w-full sm:w-48"
+            placeholder="Order No (e.g. 4891)"
+            value={quickOrderNo}
+            onChange={(event) => setQuickOrderNo(event.target.value)}
+          />
+          <Button onClick={handleQuickGenerate}>
+            Generate
+          </Button>
+        </div>
       </header>
 
       <Tabs defaultValue="goods-invoices">
@@ -766,4 +901,3 @@ export default function InvoicePage() {
     </div>
   );
 }
-

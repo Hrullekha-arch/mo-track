@@ -173,6 +173,7 @@ function QuotationsTab({ customerId, dealId, deal, salesmen, cpds, onCloneQuotat
     }
     return <Badge variant="outline">{status}</Badge>;
   };
+  console.log("Quotations:", quotations);
 
   if (loading) {
     return (

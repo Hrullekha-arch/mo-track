@@ -501,11 +501,47 @@ export async function createDealOrderAction(
     const normalItems = rawNormalItems.map((item: any) => {
       const itemType = resolveOrderItemType(item);
       const qty = coerceNumber(item.qty ?? item.quantity);
-      const exclusiveRate = coerceNumber(item.exclusiveRate ?? item.rate);
       const gst = coerceNumber(item.gst ?? item.gstPercent);
-      const taxableAmount = coerceNumber(item.taxableAmount ?? item.taxableAmt, exclusiveRate * qty);
-      const gstAmount = coerceNumber(item.gstAmount, taxableAmount * (gst / 100));
-      const totalAmount = coerceNumber(item.totalAmount, taxableAmount + gstAmount);
+      const discountPercent = coerceNumber(item.discountPercent ?? item.discount, 0);
+      const gstMode = String(item.gstMode ?? item.gstType ?? "").toUpperCase() === "EXCL" ? "EXCL" : "INCL";
+
+      const inputRate = coerceNumber(item.rate ?? item.originalMrp ?? item.mrp ?? item.unitPrice);
+      let exclusiveRate = coerceNumber(item.exclusiveRate, Number.NaN);
+      if (!Number.isFinite(exclusiveRate)) {
+        if (gstMode === "INCL" && gst > 0 && Number.isFinite(inputRate)) {
+          exclusiveRate = inputRate / (1 + gst / 100);
+        } else if (Number.isFinite(inputRate)) {
+          exclusiveRate = inputRate;
+        } else {
+          exclusiveRate = 0;
+        }
+      }
+
+      let grossRate = inputRate;
+      if (!Number.isFinite(grossRate) || grossRate === 0) {
+        if (gstMode === "INCL" && gst > 0) {
+          grossRate = exclusiveRate * (1 + gst / 100);
+        } else {
+          grossRate = exclusiveRate;
+        }
+      }
+
+      const grossAmount = grossRate * qty;
+      const discountAmount = grossAmount * (discountPercent / 100);
+      const amountAfterDiscount = grossAmount - discountAmount;
+
+      let taxableAmount = 0;
+      let gstAmount = 0;
+      let totalAmount = 0;
+      if (gstMode === "EXCL") {
+        taxableAmount = amountAfterDiscount;
+        gstAmount = taxableAmount * (gst / 100);
+        totalAmount = taxableAmount + gstAmount;
+      } else {
+        taxableAmount = gst > 0 ? amountAfterDiscount / (1 + gst / 100) : amountAfterDiscount;
+        gstAmount = amountAfterDiscount - taxableAmount;
+        totalAmount = amountAfterDiscount;
+      }
 
       return stripUndefinedDeep({
         roomName: toTrimmedString(item.roomName ?? item.room),
@@ -519,6 +555,8 @@ export async function createDealOrderAction(
         exclusiveRate,
         qty,
         gst,
+        gstMode,
+        discountPercent,
         hsn: toTrimmedString(item.hsn ?? item.hsnCode),
         group: toTrimmedString(item.group),
         taxableAmount,
@@ -534,20 +572,41 @@ export async function createDealOrderAction(
 
     const vasItems = rawVasItems.map((vas: any) => {
       const qty = coerceNumber(vas.qty ?? vas.quantity);
-      const rate = coerceNumber(vas.rate);
       const gst = coerceNumber(vas.gst ?? vas.gstPercent);
-      const taxableAmount = coerceNumber(vas.taxableAmount ?? vas.taxableAmt, qty * rate);
-      const gstAmount = coerceNumber(vas.gstAmount, taxableAmount * (gst / 100));
-      const totalAmount = coerceNumber(vas.totalAmount, taxableAmount + gstAmount);
+      const discountPercent = coerceNumber(vas.discountPercent ?? vas.discount, 0);
+      const gstMode = String(vas.gstMode ?? vas.gstType ?? "").toUpperCase() === "EXCL" ? "EXCL" : "INCL";
+      const inputRate = coerceNumber(vas.rate ?? vas.originalMrp ?? vas.mrp ?? vas.unitPrice);
+      const exclusiveRate =
+        gstMode === "INCL" && gst > 0 ? inputRate / (1 + gst / 100) : inputRate;
+      const grossRate = gstMode === "INCL" && gst > 0 ? inputRate : exclusiveRate;
+      const grossAmount = grossRate * qty;
+      const discountAmount = grossAmount * (discountPercent / 100);
+      const amountAfterDiscount = grossAmount - discountAmount;
+
+      let taxableAmount = 0;
+      let gstAmount = 0;
+      let totalAmount = 0;
+      if (gstMode === "EXCL") {
+        taxableAmount = amountAfterDiscount;
+        gstAmount = taxableAmount * (gst / 100);
+        totalAmount = taxableAmount + gstAmount;
+      } else {
+        taxableAmount = gst > 0 ? amountAfterDiscount / (1 + gst / 100) : amountAfterDiscount;
+        gstAmount = amountAfterDiscount - taxableAmount;
+        totalAmount = amountAfterDiscount;
+      }
 
       return stripUndefinedDeep({
         roomName: toTrimmedString(vas.roomName ?? vas.room),
         type: "VAS",
         description: toTrimmedString(vas.description ?? vas.vasName),
         unit: resolveOrderItemUnit("VAS", vas),
-        rate,
+        rate: exclusiveRate,
+        exclusiveRate,
         qty,
         gst,
+        gstMode,
+        discountPercent,
         hsn: toTrimmedString(vas.hsn ?? vas.hsnCode),
         group: toTrimmedString(vas.group),
         taxableAmount,
@@ -684,15 +743,16 @@ export async function createDealOrderAction(
 
     batch.set(newOrderRef, newOrder);
 
-    const newDealOrder: DealOrder = {
-      orderNo: newOrder.id,
+    const newDealOrder: DealOrder = stripUndefinedDeep({
       id: newDealOrderRef.id,
+      orderId: newOrder.id,
+      orderNo: newOrder.orderNo ?? newOrder.id,
       orderDate: now,
       createdBy: creator.name,
-      remark: quotation.billingName || '',
-      items: quotation.items,
-      status: isVasOnly ? 'Approved' : 'Pending Approval'
-    };
+      remark: quotation.billingName || undefined,
+      status: newOrder.workflow?.status ?? "CREATED",
+      overallSummary: newOrder.overallSummary,
+    });
 
     batch.set(newDealOrderRef, newDealOrder);
 
