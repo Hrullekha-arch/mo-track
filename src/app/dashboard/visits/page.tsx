@@ -874,7 +874,7 @@ const previewUrl =
                     <TableBody>
                         {filteredVisits.map(visit => (
                             <TableRow key={visit.id} className={cn(visit.visitStatus === 'Working' && 'ring-2 ring-blue-500 ring-offset-2')}>
-                                <TableCell className="font-medium">{visit.slotDate ? (
+                                <TableCell className="font-medium">{visit.createdAt ? (
                                                                     <>
                                                                         {format(new Date(visit.createdAt), 'dd MMM yyyy')}
                                                                         <br />
