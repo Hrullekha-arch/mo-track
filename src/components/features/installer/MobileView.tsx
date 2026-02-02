@@ -759,39 +759,6 @@ const InstallerVisitCard = ({
     const buttonContent = getButtonContent();
     const phone = (visit.customer?.phone || visit.customer?.mobileNo || "").trim();
     const address = (visit.customer?.billingAddress?.line1 || visit.customer?.addressPinCode || visit.customer?.city || "").trim();
-    const formatVisitValue = (value: unknown): string | null => {
-        if (value === undefined || value === null) return null;
-        if (typeof value === "string") {
-            const trimmed = value.trim();
-            return trimmed ? trimmed : null;
-        }
-        if (typeof value === "number" || typeof value === "boolean") {
-            return String(value);
-        }
-        if (Array.isArray(value)) {
-            const parts = value
-                .map((item) => formatVisitValue(item))
-                .filter(Boolean) as string[];
-            return parts.length ? parts.join(", ") : null;
-        }
-        if (typeof value === "object") {
-            const item = value as { id?: string; noOfPcs?: string | number };
-            const id = String(item.id ?? "").trim();
-            const pcs = item.noOfPcs !== undefined && item.noOfPcs !== null ? String(item.noOfPcs).trim() : "";
-            if (!id && !pcs) return null;
-            return pcs ? `${id} x${pcs}` : id;
-        }
-        return null;
-    };
-    const extraDetails = [
-        formatVisitValue(visit.remark),
-        formatVisitValue(visit.measurements),
-        formatVisitValue(visit.deliveryInstallations),
-        formatVisitValue(visit.subDeliveryInstallations),
-        formatVisitValue(visit.otherDelivery),
-        formatVisitValue(visit.fittingInstallations),
-        formatVisitValue(visit.subFittingInstallations),
-    ].filter(Boolean) as string[];
     console.log('Rendering InstallerVisitCard for visit:', visit);
     return (
         <Card>
@@ -800,7 +767,7 @@ const InstallerVisitCard = ({
             </CardHeader>
             <CardContent className="text-sm space-y-3">
                  <p className="flex items-center gap-2 font-semibold"><CalendarCheck className="h-4 w-4 text-muted-foreground" /> <span className="text-teal-800">{format(new Date(visit.slotDate),"dd MMM yyyy")} - {visit.slotLabel}</span></p>
-                 <p className="flex items-center gap-2">
+                 {/* <p className="flex items-center gap-2">
                     <Phone color="blue" className="h-4 w-4 text-muted-foreground " />
                 {phone ? (
                     <a 
@@ -812,7 +779,7 @@ const InstallerVisitCard = ({
                 ) : (
                     <span>N/A</span>
                 )}
-                </p>
+                </p> */}
                  <p className="flex items-center gap-2">
                 <MapPin color="green" className="h-4 w-4 text-muted-foreground" />
 
@@ -831,13 +798,15 @@ const InstallerVisitCard = ({
                     <span>N/A</span>
                 )}
                 </p>
-                 <div className="flex items-center gap-2">
-                    <Dock className="h-4 w-4 text-muted-foreground" />
-                    {extraDetails.length ? (
-                        <span className="text-muted-foreground">{extraDetails.join(" | ")}</span>
-                    ) : (
-                        <span className="text-muted-foreground">No notes</span>
-                    )}
+                 <div className="flex items-center gap-2"><Dock className="h-4 w-4 text-muted-foreground" /> 
+                 {visit.remark}
+                 {visit.measurements}
+                 {visit.deliveryInstallations}
+                 {visit.subDeliveryInstallations}
+                 {visit.otherDelivery}
+                 {visit.fittingInstallations}
+                 {visit.subFittingInstallations}
+
                  </div>
                  <div className="flex justify-between items-center gap-2">
                     <Badge variant={"outline"} className="flex items-center gap-2"><UserCircle className="h-4 w-4 text-muted-foreground" />CRM: {visit.createdBy || 'N/A'}</Badge>
