@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
+  writeBatch,
   onSnapshot,
   setDoc,
   query,
@@ -73,6 +74,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  ListChecks,
 } from "lucide-react";
 import {
   Tooltip,
@@ -102,6 +104,7 @@ type PmsDowntime = { id: string; machineId: string; from: string; to: string; re
 type PmsJob = {
   id: string;
   orderId: string;
+  jobGroupId?: string;
   productId?: string;
   stepNo?: number;
   process?: string;
@@ -157,6 +160,10 @@ export default function PmsPage() {
   const [plans, setPlans] = useState<PmsPlan[]>([]);
   const [vasSearch, setVasSearch] = useState("");
   const [creatingJobKey, setCreatingJobKey] = useState<string | null>(null);
+  const [runningAutopilot, setRunningAutopilot] = useState(false);
+  const [resettingAutopilot, setResettingAutopilot] = useState(false);
+  const [resetAutopilotDialogOpen, setResetAutopilotDialogOpen] = useState(false);
+  const [expandedWorkRows, setExpandedWorkRows] = useState<Record<string, boolean>>({});
 
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [routingRows, setRoutingRows] = useState<PmsRouting[]>([]);
@@ -183,6 +190,7 @@ export default function PmsPage() {
   const [newMachine, setNewMachine] = useState({ name: "", process: "", shiftMinutes: "480" });
   const [newPerson, setNewPerson] = useState({ name: "", role: "" });
   const [newDowntime, setNewDowntime] = useState({ machineId: "", from: "", to: "", reason: "" });
+  
 
   const [importState, setImportState] = useState<{
     open: boolean;
@@ -223,6 +231,8 @@ export default function PmsPage() {
     const unsubPlans = onSnapshot(collection(db, "plan"), (snap) => {
       setPlans(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
     });
+
+
 
     return () => {
       unsubProducts();
@@ -294,20 +304,38 @@ export default function PmsPage() {
     };
   }, [products, machines, people, downtimes]);
 
-  const liveVasRows = useMemo(() => {
+  const isOrderInvoiced = useCallback((order?: Order) => {
+    if (!order) return false;
+    const status = order.invoicing?.status;
+    const invoices = order.invoicing?.invoices || [];
+    if (status && status !== "NOT_INVOICED") return true;
+    return Array.isArray(invoices) && invoices.length > 0;
+  }, []);
+
+  const liveVasRowsAll = useMemo(() => {
     const planByJob = new Map(plans.map((plan) => [plan.jobId, plan]));
     const machineById = new Map(machines.map((machine) => [machine.id, machine]));
     const personById = new Map(people.map((person) => [person.id, person]));
-
-    const jobsByOrder = new Map<string, PmsJob[]>();
-    jobs.forEach((job) => {
-      if (!job.orderId) return;
-      if (!jobsByOrder.has(job.orderId)) jobsByOrder.set(job.orderId, []);
-      jobsByOrder.get(job.orderId)!.push(job);
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const routingByProduct = new Map<string, PmsRouting[]>();
+    routing.forEach((step) => {
+      if (!routingByProduct.has(step.productId)) routingByProduct.set(step.productId, []);
+      routingByProduct.get(step.productId)!.push(step);
     });
 
-    const getJobBucket = (orderId: string) => {
-      const bucket = jobsByOrder.get(orderId) || [];
+    const toGroupKey = (orderId: string, productId?: string, jobGroupId?: string) =>
+      jobGroupId || (productId ? `${orderId}_${productId}` : orderId);
+
+    const jobsByGroup = new Map<string, PmsJob[]>();
+    jobs.forEach((job) => {
+      if (!job.orderId) return;
+      const groupKey = toGroupKey(job.orderId, job.productId, job.jobGroupId);
+      if (!jobsByGroup.has(groupKey)) jobsByGroup.set(groupKey, []);
+      jobsByGroup.get(groupKey)!.push(job);
+    });
+
+    const getJobBucket = (groupKey: string) => {
+      const bucket = jobsByGroup.get(groupKey) || [];
       const sorted = [...bucket].sort((a, b) => (a.stepNo || 0) - (b.stepNo || 0));
       const inProgress = sorted.find((job) => job.status === "IN_PROGRESS");
       const planned = sorted.find((job) => job.status === "PLANNED");
@@ -322,23 +350,56 @@ export default function PmsPage() {
       return { sorted, inProgress, nextJob, nextPlan, etaFromJobs };
     };
 
+    const explainNoPlan = (
+      productId?: string,
+      hasJobs?: boolean,
+      waitingJob?: PmsJob,
+      prevJob?: PmsJob,
+      invoiceReady?: boolean
+    ) => {
+      if (!invoiceReady) return "Invoice not generated";
+      if (!productId) return "No PMS product match";
+      if (!hasJobs) return "Jobs not created";
+      if (waitingJob && prevJob && prevJob.status !== "DONE") {
+        return "Previous step pending";
+      }
+      const product = productById.get(productId);
+      if (!product?.category) return "Missing product category";
+      const steps = routingByProduct.get(productId) || [];
+      if (steps.length === 0) return "No routing for product";
+      if (waitingJob?.process) {
+        const routingProcesses = new Set(steps.map((step) => normalizeText(step.process)));
+        if (!routingProcesses.has(normalizeText(waitingJob.process))) {
+          return "Routing changed — recreate jobs";
+        }
+      }
+
+      const processKey = normalizeText(waitingJob?.process || steps[0]?.process || "");
+      if (!processKey) return "Job missing process";
+
+      const eligibleMachines = machines.filter(
+        (machine) =>
+          machine.active !== false && normalizeText(machine.process) === processKey
+      );
+      if (eligibleMachines.length === 0) return "No machine for process";
+
+      const machineIds = new Set(eligibleMachines.map((machine) => machine.id));
+      const categoryKey = normalizeText(product.category);
+      const skillMatch = skills.some(
+        (skill) =>
+          skill.allowed &&
+          machineIds.has(skill.machineId) &&
+          normalizeText(skill.process) === processKey &&
+          normalizeText(skill.category) === categoryKey
+      );
+      if (!skillMatch) return "No skill match";
+
+      return "Waiting for slot";
+    };
+
     const rows = orders
       .filter((order) => (order.sections?.VAS?.items?.length || 0) > 0)
       .flatMap((order) => {
-        const jobBucket = getJobBucket(order.id);
-        const status = jobBucket.inProgress?.status || jobBucket.nextJob?.status || "WAITING";
-        const currentProcess = jobBucket.inProgress?.process || jobBucket.nextJob?.process || "Not scheduled";
-        const stepNo = jobBucket.inProgress?.stepNo ?? jobBucket.nextJob?.stepNo;
-        const plannedStart = jobBucket.nextPlan?.plannedStart;
-        const plannedEnd = jobBucket.nextPlan?.plannedEnd;
-        const eta = order.pmsEta || jobBucket.etaFromJobs || plannedEnd;
-        const machineName = jobBucket.nextPlan?.machineId
-          ? machineById.get(jobBucket.nextPlan.machineId)?.name
-          : undefined;
-        const personName = jobBucket.nextPlan?.personId
-          ? personById.get(jobBucket.nextPlan.personId)?.name
-          : undefined;
-
         return (order.sections?.VAS?.items || []).map((item, index) => {
           const vasName = item.description || item.group || "VAS";
           const searchCandidates = [
@@ -356,9 +417,34 @@ export default function PmsPage() {
                 return left === right || left.includes(right) || right.includes(left);
               })
             );
+          const groupKey = toGroupKey(order.id, match?.id);
+          const jobBucket = getJobBucket(groupKey);
+          const status = jobBucket.inProgress?.status || jobBucket.nextJob?.status || "WAITING";
+          const currentProcess = jobBucket.inProgress?.process || jobBucket.nextJob?.process || "Not scheduled";
+          const stepNo = jobBucket.inProgress?.stepNo ?? jobBucket.nextJob?.stepNo;
+          const plannedStart = jobBucket.nextPlan?.plannedStart;
+          const plannedEnd = jobBucket.nextPlan?.plannedEnd;
+          const eta = order.pmsEta || jobBucket.etaFromJobs || plannedEnd;
+          const machineName = jobBucket.nextPlan?.machineId
+            ? machineById.get(jobBucket.nextPlan.machineId)?.name
+            : undefined;
+          const personName = jobBucket.nextPlan?.personId
+            ? personById.get(jobBucket.nextPlan.personId)?.name
+            : undefined;
+          const invoiceReady = isOrderInvoiced(order);
           const hasJobsForProduct = match
             ? jobs.some((job) => job.orderId === order.id && job.productId === match.id)
             : false;
+          const waitingJob =
+            jobBucket.nextJob?.status === "WAITING" ? jobBucket.nextJob : undefined;
+          const prevJob =
+            waitingJob && waitingJob.stepNo !== undefined
+              ? jobBucket.sorted.find((job) => job.stepNo === waitingJob.stepNo! - 1)
+              : undefined;
+          const noPlanReason =
+            status === "WAITING" && !plannedStart
+              ? explainNoPlan(match?.id, hasJobsForProduct, waitingJob, prevJob, invoiceReady)
+              : "";
 
           return {
             key: `${order.id}-vas-${index}`,
@@ -384,23 +470,28 @@ export default function PmsPage() {
             matchedProductId: match?.id,
             matchedProductName: match?.name,
             hasJobsForProduct,
+            noPlanReason,
+            invoiceReady,
           };
         });
       });
+    return rows;
+  }, [orders, jobs, plans, machines, people, products, routing, skills, isOrderInvoiced]);
 
+  const liveVasRows = useMemo(() => {
     const search = vasSearch.trim().toLowerCase();
     const filtered = search
-      ? rows.filter((row) =>
+      ? liveVasRowsAll.filter((row) =>
           [row.orderNo, row.customer, row.vasName, row.machineName, row.personName, row.group]
             .join(" ")
             .toLowerCase()
             .includes(search)
         )
-      : rows;
+      : liveVasRowsAll;
 
     const rank: Record<string, number> = { IN_PROGRESS: 0, PLANNED: 1, WAITING: 2, DONE: 3 };
-    return filtered.sort((a, b) => (rank[a.status] ?? 99) - (rank[b.status] ?? 99));
-  }, [orders, jobs, plans, machines, people, products, vasSearch]);
+    return [...filtered].sort((a, b) => (rank[a.status] ?? 99) - (rank[b.status] ?? 99));
+  }, [liveVasRowsAll, vasSearch]);
 
   const liveStats = useMemo(() => {
     const totalItems = liveVasRows.length;
@@ -411,7 +502,415 @@ export default function PmsPage() {
     return { totalItems, inProgress, planned, waiting, done };
   }, [liveVasRows]);
 
+  const resolveVasInfo = useCallback((order?: Order, productName?: string) => {
+    const items = (order?.sections as any)?.VAS?.items || [];
+    if (!items.length) {
+      return { vasName: productName || "VAS", vasGroup: "-", qty: 0 };
+    }
+    if (!productName) {
+      const fallback = items[0] || {};
+      return {
+        vasName: fallback.description || fallback.group || "VAS",
+        vasGroup: fallback.group || "-",
+        qty: fallback.qty ?? fallback.quantity ?? 0,
+      };
+    }
+    const productKey = normalizeText(productName);
+    const exactMatch = items.find(
+      (item: any) => normalizeText(item.description || item.group || "") === productKey
+    );
+    if (exactMatch) {
+      return {
+        vasName: exactMatch.description || exactMatch.group || productName,
+        vasGroup: exactMatch.group || "-",
+        qty: exactMatch.qty ?? exactMatch.quantity ?? 0,
+      };
+    }
+    const fuzzyMatch = items.find((item: any) => {
+      const candidates = [
+        item.description,
+        item.group,
+        item.roomName,
+        item.type,
+      ].filter(Boolean) as string[];
+      return candidates.some((candidate) => {
+        const left = normalizeText(candidate);
+        return left === productKey || left.includes(productKey) || productKey.includes(left);
+      });
+    });
+    const matched = fuzzyMatch || items[0] || {};
+    return {
+      vasName: matched.description || matched.group || productName,
+      vasGroup: matched.group || "-",
+      qty: matched.qty ?? matched.quantity ?? 0,
+    };
+  }, []);
+
+  const workDetailRows = useMemo(() => {
+    const ordersById = new Map(orders.map((order) => [order.id, order]));
+    const peopleById = new Map(people.map((person) => [person.id, person]));
+    const machineById = new Map(machines.map((machine) => [machine.id, machine]));
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const routingByProduct = new Map<string, PmsRouting[]>();
+    routing.forEach((step) => {
+      if (!routingByProduct.has(step.productId)) routingByProduct.set(step.productId, []);
+      routingByProduct.get(step.productId)!.push(step);
+    });
+    routingByProduct.forEach((steps, key) => {
+      routingByProduct.set(
+        key,
+        [...steps].sort((a, b) => a.stepNo - b.stepNo)
+      );
+    });
+
+    const planByJob = new Map<string, PmsPlan>();
+    plans.forEach((plan) => {
+      const existing = planByJob.get(plan.jobId);
+      if (!existing) {
+        planByJob.set(plan.jobId, plan);
+        return;
+      }
+      const existingTime = new Date(existing.plannedEnd || existing.plannedStart || 0).getTime();
+      const nextTime = new Date(plan.plannedEnd || plan.plannedStart || 0).getTime();
+      if (nextTime >= existingTime) {
+        planByJob.set(plan.jobId, plan);
+      }
+    });
+
+    const jobsByGroup = new Map<string, PmsJob[]>();
+    jobs.forEach((job) => {
+      if (!job.orderId) return;
+      const groupKey =
+        job.jobGroupId || (job.productId ? `${job.orderId}_${job.productId}` : job.orderId);
+      if (!jobsByGroup.has(groupKey)) jobsByGroup.set(groupKey, []);
+      jobsByGroup.get(groupKey)!.push(job);
+    });
+
+    const rows = Array.from(jobsByGroup.entries())
+      .map(([groupKey, groupJobs]) => {
+        if (!groupJobs.length) return null;
+        const sortedJobs = [...groupJobs].sort((a, b) => (a.stepNo || 0) - (b.stepNo || 0));
+        const hasActive = sortedJobs.some((job) => job.status !== "DONE");
+        if (!hasActive) return null;
+
+        const currentJob =
+          sortedJobs.find((job) => job.status === "IN_PROGRESS") ||
+          sortedJobs.find((job) => job.status === "PLANNED") ||
+          sortedJobs.find((job) => job.status === "WAITING") ||
+          sortedJobs[0];
+
+        if (!currentJob) return null;
+
+        const order = ordersById.get(currentJob.orderId);
+        const product = currentJob.productId ? productById.get(currentJob.productId) : undefined;
+        const routingSteps = currentJob.productId
+          ? routingByProduct.get(currentJob.productId) || []
+          : [];
+
+        const stepPlanMap = new Map<number, { plannedStart?: string; plannedEnd?: string; status?: string }>();
+        sortedJobs.forEach((groupJob) => {
+          if (groupJob.stepNo === undefined || groupJob.stepNo === null) return;
+          stepPlanMap.set(groupJob.stepNo, {
+            plannedStart: groupJob.plannedStart,
+            plannedEnd: groupJob.plannedEnd,
+            status: groupJob.status,
+          });
+        });
+
+        const currentStepNo = currentJob.stepNo ?? routingSteps[0]?.stepNo;
+        const currentStep =
+          routingSteps.find((step) => step.stepNo === currentStepNo) || routingSteps[0];
+        const nextStep = currentStep
+          ? routingSteps.find((step) => step.stepNo === currentStep.stepNo + 1)
+          : undefined;
+
+        const currentPlan = currentStep ? stepPlanMap.get(currentStep.stepNo) : undefined;
+        const nextPlan = nextStep ? stepPlanMap.get(nextStep.stepNo) : undefined;
+
+        const plan = planByJob.get(currentJob.id);
+        const machine = plan?.machineId ? machineById.get(plan.machineId)?.name : undefined;
+        const person = plan?.personId ? peopleById.get(plan.personId)?.name : undefined;
+
+        const vasInfo = resolveVasInfo(order, product?.name);
+        return {
+          key: groupKey,
+          orderNo: order?.crmOrderNo || order?.orderNo || order?.id || currentJob.orderId,
+          customer: order?.customerSnapshot?.name || order?.customerName || "N/A",
+          vasName: vasInfo.vasName,
+          vasGroup: vasInfo.vasGroup,
+          qty: vasInfo.qty,
+          process: currentJob.process || currentStep?.process || "Not scheduled",
+          machine,
+          person,
+          plannedStart: currentPlan?.plannedStart ?? currentJob.plannedStart,
+          plannedEnd: currentPlan?.plannedEnd ?? currentJob.plannedEnd,
+          status: currentJob.status || "WAITING",
+          routingSteps,
+          currentStepNo,
+          productName: product?.name || currentJob.productId || "Unknown product",
+          stepPlanMap,
+          nextProcess: nextStep?.process,
+          nextPlannedStart: nextPlan?.plannedStart,
+          nextPlannedEnd: nextPlan?.plannedEnd,
+        };
+      })
+      .filter(Boolean) as Array<{
+        key: string;
+        orderNo: string;
+        customer: string;
+        vasName: string;
+        vasGroup: string;
+        qty: number;
+        process: string;
+        machine?: string;
+        person?: string;
+        plannedStart?: string;
+        plannedEnd?: string;
+        status: string;
+        routingSteps: PmsRouting[];
+        currentStepNo?: number;
+        productName: string;
+        stepPlanMap: Map<number, { plannedStart?: string; plannedEnd?: string; status?: string }>;
+        nextProcess?: string;
+        nextPlannedStart?: string;
+        nextPlannedEnd?: string;
+      }>;
+
+    return rows.sort(
+      (a, b) =>
+        new Date(a.plannedStart || 0).getTime() - new Date(b.plannedStart || 0).getTime()
+    );
+  }, [plans, jobs, orders, people, machines, products, routing, resolveVasInfo]);
+
+  const workSheetStepRows = useMemo(() => {
+    const ordersById = new Map(orders.map((order) => [order.id, order]));
+    const peopleById = new Map(people.map((person) => [person.id, person]));
+    const machineById = new Map(machines.map((machine) => [machine.id, machine]));
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const routingByProduct = new Map<string, PmsRouting[]>();
+    routing.forEach((step) => {
+      if (!routingByProduct.has(step.productId)) routingByProduct.set(step.productId, []);
+      routingByProduct.get(step.productId)!.push(step);
+    });
+    routingByProduct.forEach((steps, key) => {
+      routingByProduct.set(
+        key,
+        [...steps].sort((a, b) => a.stepNo - b.stepNo)
+      );
+    });
+
+    const planByJob = new Map<string, PmsPlan>();
+    plans.forEach((plan) => {
+      const existing = planByJob.get(plan.jobId);
+      if (!existing) {
+        planByJob.set(plan.jobId, plan);
+        return;
+      }
+      const existingTime = new Date(existing.plannedEnd || existing.plannedStart || 0).getTime();
+      const nextTime = new Date(plan.plannedEnd || plan.plannedStart || 0).getTime();
+      if (nextTime >= existingTime) {
+        planByJob.set(plan.jobId, plan);
+      }
+    });
+
+    const rows = jobs
+      .filter((job) => job.status !== "DONE")
+      .map((job) => {
+        const order = ordersById.get(job.orderId);
+        if (!isOrderInvoiced(order)) return null;
+        const product = job.productId ? productById.get(job.productId) : undefined;
+        const routingSteps = job.productId
+          ? routingByProduct.get(job.productId) || []
+          : [];
+        const currentStep =
+          routingSteps.find((step) => step.stepNo === job.stepNo) || routingSteps[0];
+        const nextStep = currentStep
+          ? routingSteps.find((step) => step.stepNo === currentStep.stepNo + 1)
+          : undefined;
+        const plan = planByJob.get(job.id);
+        const vasInfo = resolveVasInfo(order, product?.name);
+        const processName = job.process || currentStep?.process || "Not scheduled";
+        const processLabel = job.stepNo ? `${processName} (Step ${job.stepNo})` : processName;
+        const nextLabel = nextStep?.process
+          ? `${nextStep.process} (Step ${nextStep.stepNo})`
+          : "-";
+
+        return {
+          key: job.id,
+          stepNo: job.stepNo ?? currentStep?.stepNo,
+          orderNo: order?.crmOrderNo || order?.orderNo || order?.id || job.orderId,
+          customer: order?.customerSnapshot?.name || order?.customerName || "N/A",
+          vasName: vasInfo.vasName,
+          qty: vasInfo.qty,
+          productName: product?.name || job.productId || "Unknown product",
+          status: job.status || "WAITING",
+          nextProcess: nextLabel,
+          machine: plan?.machineId ? machineById.get(plan.machineId)?.name : undefined,
+          person: plan?.personId ? peopleById.get(plan.personId)?.name : undefined,
+          process: processLabel,
+          plannedStart: job.plannedStart || plan?.plannedStart,
+          plannedEnd: job.plannedEnd || plan?.plannedEnd,
+        };
+      })
+      .filter(Boolean) as Array<{
+      key: string;
+      orderNo: string;
+      customer: string;
+      vasName: string;
+      qty: number;
+      productName: string;
+      status: string;
+      nextProcess: string;
+      machine?: string;
+      person?: string;
+      process: string;
+      plannedStart?: string;
+      plannedEnd?: string;
+      stepNo?: number;
+    }>;
+
+    const compareOrderNo = (left: string, right: string) => {
+      const leftNum = Number(left);
+      const rightNum = Number(right);
+      const leftIsNum = Number.isFinite(leftNum);
+      const rightIsNum = Number.isFinite(rightNum);
+      if (leftIsNum && rightIsNum) return leftNum - rightNum;
+      return String(left).localeCompare(String(right));
+    };
+
+    return rows.sort((a, b) => {
+      const orderCompare = compareOrderNo(a.orderNo, b.orderNo);
+      if (orderCompare !== 0) return orderCompare;
+      const productCompare = a.productName.localeCompare(b.productName);
+      if (productCompare !== 0) return productCompare;
+      const vasCompare = a.vasName.localeCompare(b.vasName);
+      if (vasCompare !== 0) return vasCompare;
+      const stepA = a.stepNo ?? Number.MAX_SAFE_INTEGER;
+      const stepB = b.stepNo ?? Number.MAX_SAFE_INTEGER;
+      if (stepA !== stepB) return stepA - stepB;
+      return (
+        new Date(a.plannedStart || 0).getTime() - new Date(b.plannedStart || 0).getTime()
+      );
+    });
+  }, [jobs, orders, people, machines, products, routing, plans, resolveVasInfo, isOrderInvoiced]);
+
+  const syncingWorkSheetRef = useRef(false);
+  const autoAdvanceRef = useRef(false);
+
+  const buildWorkSheetRows = (
+    rows: Array<{
+      orderNo: string;
+      customer: string;
+      vasName: string;
+      qty: number;
+      productName: string;
+      status: string;
+      nextProcess: string;
+      machine?: string;
+      person?: string;
+      process: string;
+      plannedStart?: string;
+      plannedEnd?: string;
+    }>
+  ) => {
+    const header = [
+      "Order No",
+      "Customer",
+      "Vas Item",
+      "Qty",
+      "PMS Product",
+      "Status",
+      "Next Step",
+      "Machine",
+      "Person",
+      "Process (step)",
+      "Planned Start",
+      "Planned End",
+    ];
+
+    const values = rows.map((row) => [
+      row.orderNo,
+      row.customer,
+      row.vasName,
+      row.qty,
+      row.productName,
+      row.status,
+      row.nextProcess || "-",
+      row.machine || "TBD",
+      row.person || "TBD",
+      row.process,
+      formatDateTime(row.plannedStart),
+      formatDateTime(row.plannedEnd),
+    ]);
+
+    return [header, ...values];
+  };
+
+  useEffect(() => {
+    if (role && role !== "admin") return;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const syncWorkSheet = async () => {
+      if (syncingWorkSheetRef.current) return;
+      syncingWorkSheetRef.current = true;
+      try {
+        const rows = buildWorkSheetRows(workSheetStepRows);
+        await fetch("/api/pms/syncWorkSheet", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows }),
+        });
+      } catch (error) {
+        console.error("PMS work sheet sync failed:", error);
+      } finally {
+        syncingWorkSheetRef.current = false;
+      }
+    };
+
+    syncWorkSheet();
+    intervalId = setInterval(syncWorkSheet, 60_000);
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [role, workSheetStepRows]);
+
+  useEffect(() => {
+    if (role && role !== "admin") return;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const runAutoAdvance = async () => {
+      if (autoAdvanceRef.current) return;
+      autoAdvanceRef.current = true;
+      try {
+        await fetch("/api/pms/autoAdvance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch (error) {
+        console.error("PMS auto-advance failed:", error);
+      } finally {
+        autoAdvanceRef.current = false;
+      }
+    };
+
+    runAutoAdvance();
+    intervalId = setInterval(runAutoAdvance, 60_000);
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [role]);
+
   const handleCreateJobsForRow = async (row: any) => {
+    if (!row?.invoiceReady) {
+      toast({
+        variant: "destructive",
+        title: "Invoice required",
+        description: "Generate an invoice for this order before creating PMS jobs.",
+      });
+      return;
+    }
     if (!row?.matchedProductId) {
       toast({
         variant: "destructive",
@@ -464,6 +963,146 @@ export default function PmsPage() {
     } finally {
       setCreatingJobKey(null);
     }
+  };
+
+  const deleteDocsInBatches = async (refs: Array<ReturnType<typeof doc>>) => {
+    const chunkSize = 450;
+    let deleted = 0;
+    for (let i = 0; i < refs.length; i += chunkSize) {
+      const batch = writeBatch(db);
+      const chunk = refs.slice(i, i + chunkSize);
+      chunk.forEach((ref) => batch.delete(ref));
+      await batch.commit();
+      deleted += chunk.length;
+    }
+    return deleted;
+  };
+
+  const handleResetAndRerunAutopilot = async () => {
+    if (resettingAutopilot) return;
+    setResettingAutopilot(true);
+    try {
+      const jobGroupMap = new Map<string, { orderId: string; productId: string; qty: number }>();
+      let skipped = 0;
+      liveVasRowsAll.forEach((row) => {
+        if (!row.matchedProductId) {
+          skipped += 1;
+          return;
+        }
+        const qty = Number(row.qty) || 1;
+        const key = `${row.orderId}_${row.matchedProductId}`;
+        const existing = jobGroupMap.get(key);
+        if (existing) {
+          existing.qty += qty;
+        } else {
+          jobGroupMap.set(key, { orderId: row.orderId, productId: row.matchedProductId, qty });
+        }
+      });
+
+      const jobRefs = jobs.filter((job) => job.id).map((job) => doc(db, "jobs", job.id));
+      const planRefs = plans.filter((plan) => plan.id).map((plan) => doc(db, "plan", plan.id));
+      const [deletedJobs, deletedPlans] = await Promise.all([
+        deleteDocsInBatches(jobRefs),
+        deleteDocsInBatches(planRefs),
+      ]);
+
+      let createdGroups = 0;
+      let failedGroups = 0;
+      for (const group of jobGroupMap.values()) {
+        try {
+          const createRes = await fetch("/api/pms/createOrder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              orderId: group.orderId,
+              productId: group.productId,
+              qty: group.qty,
+            }),
+          });
+          const createData = await createRes.json().catch(() => ({}));
+          if (!createRes.ok || !createData?.success) {
+            throw new Error(createData?.message || "Failed to create PMS jobs.");
+          }
+          createdGroups += 1;
+        } catch (error) {
+          console.error("PMS reset create failed:", error);
+          failedGroups += 1;
+        }
+      }
+
+      const runRes = await fetch("/api/pms/runAutopilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const runData = await runRes.json().catch(() => ({}));
+      if (!runRes.ok || !runData?.success) {
+        throw new Error(runData?.message || "Failed to run autopilot.");
+      }
+
+      let description = `Deleted ${deletedJobs} jobs and ${deletedPlans} plan(s).`;
+      if (jobGroupMap.size > 0) {
+        description += ` Created ${createdGroups}/${jobGroupMap.size} job group(s).`;
+      } else {
+        description += " No job groups to create.";
+      }
+      description += ` Planned ${runData?.planned ?? 0} job(s).`;
+      if (skipped > 0) {
+        description += ` Skipped ${skipped} item(s) without PMS product match.`;
+      }
+      if (failedGroups > 0) {
+        description += ` ${failedGroups} group(s) failed to create.`;
+      }
+
+      toast({
+        title: "Autopilot reset complete",
+        description,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Autopilot reset failed",
+        description: (error as Error).message,
+      });
+    } finally {
+      setResettingAutopilot(false);
+      setResetAutopilotDialogOpen(false);
+    }
+  };
+
+  const handleRunAutopilot = async () => {
+    if (resettingAutopilot) return;
+    setRunningAutopilot(true);
+    try {
+      const res = await fetch("/api/pms/runAutopilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to run autopilot.");
+      }
+      toast({
+        title: "Autopilot run",
+        description:
+          data?.planned && data.planned > 0
+            ? `Planned ${data.planned} job(s).`
+            : data?.message || "No new plans. Check the Not Scheduled Reason column.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Autopilot failed",
+        description: (error as Error).message,
+      });
+    } finally {
+      setRunningAutopilot(false);
+    }
+  };
+
+  const toggleWorkRow = (rowKey: string) => {
+    setExpandedWorkRows((prev) => ({ ...prev, [rowKey]: !prev[rowKey] }));
   };
 
   if (role && role !== "admin") {
@@ -537,11 +1176,13 @@ export default function PmsPage() {
       return;
     }
     const sorted = [...routingRows].sort((a, b) => a.stepNo - b.stepNo);
-    const isAscending = sorted.every((row, index) => row.stepNo === stepNos[index]);
+
+    const isAscending = routingRows.every((row, idx) => row.stepNo === sorted[idx]?.stepNo);
     if (!isAscending) {
       toast({ variant: "destructive", title: "Step numbers must be in ascending order." });
       return;
     }
+
     const invalidRow = routingRows.find((row) => row.cycleMinutes <= 0 || row.ops <= 0 || !row.process);
     if (invalidRow) {
       toast({ variant: "destructive", title: "All fields are required and must be positive." });
@@ -656,13 +1297,17 @@ export default function PmsPage() {
       toast({ variant: "destructive", title: "'To' must be after 'From'." });
       return;
     }
+    const fromIso = new Date(newDowntime.from).toISOString();
+    const toIso = new Date(newDowntime.to).toISOString();
+
     await addDoc(collection(db, "machineDowntime"), {
       machineId: newDowntime.machineId,
-      from: newDowntime.from,
-      to: newDowntime.to,
+      from: fromIso,
+      to: toIso,
       reason: newDowntime.reason?.trim() || null,
       createdAt: new Date().toISOString(),
     });
+
     setNewDowntime({ machineId: "", from: "", to: "", reason: "" });
     toast({ title: "✓ Downtime logged" });
   };
@@ -969,6 +1614,12 @@ const getGroupedSkills = () => {
       person?.role?.toLowerCase().includes(searchLower)
     );
   });
+    // after `filtered` is computed
+  const filteredFinal =
+    viewFilter === "active"
+      ? filtered.filter(({ machineId }) => machines.find(m => m.id === machineId)?.active !== false)
+      : filtered;
+
 
   // Group based on view filter
   if (viewFilter === "machine") {
@@ -1068,10 +1719,14 @@ const getGroupedSkills = () => {
         </div>
 
         <Tabs defaultValue="live" className="space-y-6">
-          <TabsList className="grid grid-cols-5 w-full max-w-3xl">
+          <TabsList className="grid grid-cols-6 w-full max-w-4xl">
             <TabsTrigger value="live" className="gap-2">
               <Eye className="h-4 w-4" />
               Live VAS
+            </TabsTrigger>
+            <TabsTrigger value="work" className="gap-2">
+              <ListChecks className="h-4 w-4" />
+              Work Detail
             </TabsTrigger>
             <TabsTrigger value="routing" className="gap-2">
               <Package className="h-4 w-4" />
@@ -1117,6 +1772,24 @@ const getGroupedSkills = () => {
                       value={vasSearch}
                       onChange={(event) => setVasSearch(event.target.value)}
                     />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRunAutopilot}
+                      disabled={runningAutopilot || resettingAutopilot}
+                    >
+                      {runningAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Run Autopilot
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setResetAutopilotDialogOpen(true)}
+                      disabled={runningAutopilot || resettingAutopilot}
+                    >
+                      {resettingAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Reset & Rerun
+                    </Button>
                   </div>
                 </div>
 
@@ -1135,13 +1808,14 @@ const getGroupedSkills = () => {
                         <TableHead>Person</TableHead>
                         <TableHead>Planned Start</TableHead>
                         <TableHead>ETA</TableHead>
+                        <TableHead>Not Scheduled Reason</TableHead>
                         <TableHead className="text-right">Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {liveVasRows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={12} className="h-24 text-center text-muted-foreground">
+                          <TableCell colSpan={13} className="h-24 text-center text-muted-foreground">
                             No VAS items are active right now.
                           </TableCell>
                         </TableRow>
@@ -1182,6 +1856,7 @@ const getGroupedSkills = () => {
                             <TableCell>{row.personName}</TableCell>
                             <TableCell>{formatDateTime(row.plannedStart)}</TableCell>
                             <TableCell>{formatDateTime(row.eta)}</TableCell>
+                            <TableCell>{row.noPlanReason || "-"}</TableCell>
                             <TableCell className="text-right">
                               <Button
                                 size="sm"
@@ -1189,7 +1864,9 @@ const getGroupedSkills = () => {
                                 disabled={
                                   creatingJobKey === row.key ||
                                   row.hasJobsForProduct ||
-                                  !row.matchedProductId
+                                  !row.matchedProductId ||
+                                  !row.invoiceReady ||
+                                  resettingAutopilot
                                 }
                                 onClick={() => handleCreateJobsForRow(row)}
                               >
@@ -1202,6 +1879,194 @@ const getGroupedSkills = () => {
                             </TableCell>
                           </TableRow>
                         ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* WORK DETAIL TAB */}
+          <TabsContent value="work" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Work Detail</CardTitle>
+                <CardDescription>
+                  Planned work by person, VAS item, and routing roadmap.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">Planned: {workDetailRows.length}</Badge>
+                </div>
+
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Order No</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>VAS Item</TableHead>
+                        <TableHead>Current Step</TableHead>
+                        <TableHead>Next Step</TableHead>
+                        <TableHead>Person</TableHead>
+                        <TableHead>Machine</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Roadmap</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {workDetailRows.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                            No planned work yet.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        workDetailRows.map((row) => {
+                          const isExpanded = Boolean(expandedWorkRows[row.key]);
+                          return (
+                            <Fragment key={row.key}>
+                              <TableRow>
+                                <TableCell className="font-medium">{row.orderNo}</TableCell>
+                                <TableCell>{row.customer}</TableCell>
+                                <TableCell>
+                                  <div className="space-y-1">
+                                    <div className="font-medium">{row.vasName}</div>
+                                    <div className="text-xs text-muted-foreground">{row.vasGroup}</div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="space-y-1">
+                                    <div className="font-medium">{row.process}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      Start: {formatDateTime(row.plannedStart)}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      End: {formatDateTime(row.plannedEnd)}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="space-y-1">
+                                    <div className="font-medium">{row.nextProcess || "-"}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      Start: {formatDateTime(row.nextPlannedStart)}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      End: {formatDateTime(row.nextPlannedEnd)}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell>{row.person || "TBD"}</TableCell>
+                                <TableCell>{row.machine || "TBD"}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      row.status === "IN_PROGRESS" && "border-emerald-500 text-emerald-600",
+                                      row.status === "PLANNED" && "border-blue-500 text-blue-600",
+                                      row.status === "WAITING" && "border-amber-500 text-amber-600",
+                                      row.status === "DONE" && "border-slate-400 text-slate-600"
+                                    )}
+                                  >
+                                    {row.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => toggleWorkRow(row.key)}
+                                  >
+                                    {isExpanded ? (
+                                      <>
+                                        <EyeOff className="mr-2 h-4 w-4" />
+                                        Hide
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Eye className="mr-2 h-4 w-4" />
+                                        View
+                                      </>
+                                    )}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                              {isExpanded && (
+                                <TableRow>
+                                  <TableCell colSpan={9} className="bg-muted/30">
+                                    <div className="space-y-3">
+                                      <div className="text-xs text-muted-foreground">
+                                        Routing roadmap for {row.productName}
+                                      </div>
+                                      {row.routingSteps.length === 0 ? (
+                                        <div className="text-sm text-muted-foreground">
+                                          No routing steps found for this product.
+                                        </div>
+                                      ) : (
+                                        <div className="overflow-x-auto">
+                                          <div className="flex items-center gap-2 min-w-max">
+                                            {row.routingSteps.map((step, index) => {
+                                              const currentStep = row.currentStepNo ?? 0;
+                                              const isDone = currentStep && step.stepNo < currentStep;
+                                              const isCurrent = currentStep && step.stepNo === currentStep;
+                                              const stepPlan = row.stepPlanMap.get(step.stepNo);
+                                              const stepStart = formatDateTime(stepPlan?.plannedStart);
+                                              const stepEnd = formatDateTime(stepPlan?.plannedEnd);
+                                              const tone = isDone
+                                                ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                                                : isCurrent && row.status === "IN_PROGRESS"
+                                                ? "bg-emerald-100 border-emerald-600 text-emerald-700"
+                                                : isCurrent
+                                                ? "bg-blue-50 border-blue-500 text-blue-700"
+                                                : "bg-white border-muted-foreground/40 text-muted-foreground";
+                                              const connectorTone = isDone
+                                                ? "bg-emerald-400"
+                                                : isCurrent
+                                                ? "bg-blue-400"
+                                                : "bg-muted-foreground/30";
+                                              return (
+                                                <div key={`${row.key}-${step.stepNo}`} className="flex items-center">
+                                                  <div className="flex flex-col items-center">
+                                                    <div
+                                                      className={cn(
+                                                        "h-9 w-9 rounded-full border flex items-center justify-center text-xs font-semibold",
+                                                        tone
+                                                      )}
+                                                    >
+                                                      {step.stepNo}
+                                                    </div>
+                                                    <div className="mt-1 text-[11px] text-muted-foreground max-w-[80px] text-center">
+                                                      {step.process}
+                                                    </div>
+                                                    <div className="mt-1 text-[10px] text-muted-foreground leading-tight text-center">
+                                                      <div>Start: {stepStart}</div>
+                                                      <div>End: {stepEnd}</div>
+                                                    </div>
+                                                  </div>
+                                                  {index < row.routingSteps.length - 1 && (
+                                                    <div
+                                                      className={cn(
+                                                        "h-[2px] w-12 mx-2 rounded-full",
+                                                        connectorTone
+                                                      )}
+                                                    />
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </Fragment>
+                          );
+                        })
                       )}
                     </TableBody>
                   </Table>
@@ -2532,6 +3397,35 @@ const getGroupedSkills = () => {
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={resetAutopilotDialogOpen}
+          onOpenChange={(open) => setResetAutopilotDialogOpen(open)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-destructive" />
+                Reset and Rerun Autopilot?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                This will delete all PMS jobs and plans, recreate jobs for every VAS item with a PMS
+                product match, and run autopilot to rebuild the plan. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={resettingAutopilot}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleResetAndRerunAutopilot}
+                disabled={resettingAutopilot}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {resettingAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Reset & Rerun
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

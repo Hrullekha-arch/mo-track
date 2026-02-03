@@ -1,8 +1,10 @@
 import { addWorkingMinutes, CapacityMap } from "./capacity";
+import { maxIso, toMillis } from "./time";
 
 export type SchedulerJob = {
   id: string;
   orderId: string;
+  jobGroupId?: string;
   productId: string;
   stepNo: number;
   process: string;
@@ -46,7 +48,7 @@ const getOrderPriority = (job: SchedulerJob, orderPriorityMap: Record<string, nu
   job.priority ?? orderPriorityMap[job.orderId] ?? 0;
 
 const scoreCandidate = (startIso: string, loadMinutes: number, priority: number) => {
-  const startScore = new Date(startIso).getTime();
+  const startScore = toMillis(startIso) ?? 0;
   const loadPenalty = loadMinutes * 60_000;
   const priorityPenalty = priority * 1_000 * 60;
   return startScore + loadPenalty + priorityPenalty;
@@ -72,18 +74,37 @@ export const scheduleJobs = ({
   now: string;
 }) => {
   const productCategory = new Map(products.map((p) => [p.id, p.category]));
-  const machineMap = new Map(machines.map((m) => [m.id, m]));
-  const jobByOrder = new Map<string, SchedulerJob[]>();
+  const jobByGroup = new Map<string, SchedulerJob[]>();
 
   jobs.forEach((job) => {
-    if (!jobByOrder.has(job.orderId)) jobByOrder.set(job.orderId, []);
-    jobByOrder.get(job.orderId)!.push(job);
+    const groupKey = job.jobGroupId || job.orderId;
+    if (!jobByGroup.has(groupKey)) jobByGroup.set(groupKey, []);
+    jobByGroup.get(groupKey)!.push(job);
   });
 
-  jobByOrder.forEach((orderJobs) => orderJobs.sort((a, b) => a.stepNo - b.stepNo));
+  jobByGroup.forEach((groupJobs) => groupJobs.sort((a, b) => a.stepNo - b.stepNo));
 
   const planned: SchedulerPlan[] = [];
   const updatedJobs: SchedulerJob[] = [];
+  const plannedByJobId = new Map<string, SchedulerPlan>();
+  const bumpMachineSlots = (machineId: string, plannedEnd: string, minutes: number) => {
+    const personMap = capacityMap[machineId];
+    if (!personMap) return;
+    Object.values(personMap).forEach((slot) => {
+      slot.freeAt = maxIso(slot.freeAt, plannedEnd) || slot.freeAt;
+      slot.freeMinutes = Math.max(0, slot.freeMinutes - minutes);
+      slot.plannedMinutes += minutes;
+    });
+  };
+  const bumpPersonSlots = (personId: string, plannedEnd: string, minutes: number) => {
+    Object.values(capacityMap).forEach((personMap) => {
+      const slot = personMap[personId];
+      if (!slot) return;
+      slot.freeAt = maxIso(slot.freeAt, plannedEnd) || slot.freeAt;
+      slot.freeMinutes = Math.max(0, slot.freeMinutes - minutes);
+      slot.plannedMinutes += minutes;
+    });
+  };
 
   const sortedJobs = [...jobs].sort((a, b) => {
     const priorityA = getOrderPriority(a, orderPriorityMap);
@@ -96,16 +117,16 @@ export const scheduleJobs = ({
   sortedJobs.forEach((job) => {
     if (job.status !== "WAITING") return;
 
-    const orderJobs = jobByOrder.get(job.orderId) || [];
-    const prev = orderJobs.find((candidate) => candidate.stepNo === job.stepNo - 1);
+    const groupKey = job.jobGroupId || job.orderId;
+    const groupJobs = jobByGroup.get(groupKey) || [];
+    const prev = groupJobs.find((candidate) => candidate.stepNo === job.stepNo - 1);
     if (!allowChain && prev && prev.status !== "DONE") {
       return;
     }
 
+    const prevPlanned = prev ? plannedByJobId.get(prev.id) : undefined;
     const jobReadyAt =
-      prev?.actualEnd ||
-      prev?.plannedEnd ||
-      (prev ? undefined : now) ||
+      maxIso(prev?.actualEnd, prev?.plannedEnd, prevPlanned?.plannedEnd, prev ? undefined : now) ||
       now;
 
     const category = productCategory.get(job.productId) || "";
@@ -130,8 +151,10 @@ export const scheduleJobs = ({
         const slot = capacityMap[machine.id]?.[skill.personId];
         if (!slot) return;
 
+        const jobReadyAtMs = toMillis(jobReadyAt);
+        const slotFreeAtMs = toMillis(slot.freeAt);
         const candidateStart =
-          jobReadyAt && new Date(jobReadyAt).getTime() > new Date(slot.freeAt).getTime()
+          jobReadyAtMs !== undefined && (slotFreeAtMs === undefined || jobReadyAtMs > slotFreeAtMs)
             ? jobReadyAt
             : slot.freeAt;
 
@@ -161,14 +184,10 @@ export const scheduleJobs = ({
     if (!bestPlan) return;
 
     planned.push(bestPlan);
+    plannedByJobId.set(job.id, bestPlan);
 
-    const slot = capacityMap[bestPlan.machineId]?.[bestPlan.personId];
-    const machine = machineMap.get(bestPlan.machineId);
-    if (slot && machine) {
-      slot.freeAt = bestPlan.plannedEnd;
-      slot.freeMinutes = Math.max(0, slot.freeMinutes - job.requiredMinutes);
-      slot.plannedMinutes += job.requiredMinutes;
-    }
+    bumpMachineSlots(bestPlan.machineId, bestPlan.plannedEnd, job.requiredMinutes);
+    bumpPersonSlots(bestPlan.personId, bestPlan.plannedEnd, job.requiredMinutes);
 
     updatedJobs.push({
       ...job,

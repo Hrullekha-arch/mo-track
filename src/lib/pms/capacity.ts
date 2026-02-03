@@ -1,3 +1,5 @@
+import { maxIso, normalizeIso, toMillis } from "./time";
+
 export type CapacitySlot = {
   machineId: string;
   personId: string;
@@ -31,15 +33,16 @@ export type DowntimeLike = {
 };
 
 export const minutesBetween = (start: string, end: string) => {
-  const from = new Date(start).getTime();
-  const to = new Date(end).getTime();
-  if (!Number.isFinite(from) || !Number.isFinite(to)) return 0;
+  const from = toMillis(start);
+  const to = toMillis(end);
+  if (from === undefined || to === undefined) return 0;
   return Math.max(0, Math.ceil((to - from) / 60000));
 };
 
 export const addWorkingMinutes = (startIso: string, minutes: number, shiftMinutes: number) => {
-  const start = new Date(startIso);
-  if (!Number.isFinite(start.getTime())) return startIso;
+  const normalized = normalizeIso(startIso);
+  const start = new Date(normalized || String(startIso || ""));
+  if (!Number.isFinite(start.getTime())) return normalized || String(startIso || "");
   let remaining = Math.max(0, minutes);
   let cursor = start;
   const perDay = Math.max(1, shiftMinutes);
@@ -54,14 +57,6 @@ export const addWorkingMinutes = (startIso: string, minutes: number, shiftMinute
   }
 
   return cursor.toISOString();
-};
-
-const maxIso = (...values: Array<string | undefined>) => {
-  const valid = values
-    .map((value) => (value ? new Date(value).getTime() : NaN))
-    .filter((value) => Number.isFinite(value));
-  if (valid.length === 0) return undefined;
-  return new Date(Math.max(...valid)).toISOString();
 };
 
 export const buildCapacityMap = ({

@@ -16,7 +16,7 @@ import { db } from "@/lib/firebase";
 import { DealVisit, Customer, Deal, User, SlotId, SlotSelection, InstallerTracking } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { format } from "date-fns";
+import { format, formatDate } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { AssignInstallerDialog, SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
@@ -939,6 +939,12 @@ const previewUrl =
                                             </Badge>
                                             </button>
                                         )}
+                                        {visit.status === "completed" && (
+                                            <Badge variant="secondary" className="text-xs items-center justify-center">
+                                            { format(new Date(visit.completedAt || 0), 'dd MMM yyyy')}<br />
+                                            { format(new Date(visit.completedAt || 0), 'HH:mm a')}
+                                            </Badge>
+                                        )}
 
                                         
 
@@ -1129,6 +1135,7 @@ function EditVisitDialog({
     const formSchema = z.object({
         dueDate: z.string().min(1, "Due date is required."),
         representative: z.string().min(1, "Representative is required."),
+        customerAddress: z.string().optional(),
         remark: z.string().optional(),
     });
 
@@ -1137,6 +1144,7 @@ function EditVisitDialog({
         defaultValues: {
             dueDate: "",
             representative: "",
+            customerAddress: "",
             remark: "",
         },
     });
@@ -1144,8 +1152,11 @@ function EditVisitDialog({
     React.useEffect(() => {
         if (visit) {
             form.reset({
-                dueDate: visit.dueDate ? format(new Date(visit.dueDate), 'yyyy-MM-dd') : "",
+                dueDate: visit.dueDate
+                    ? format(new Date(visit.dueDate), 'yyyy-MM-dd')
+                    : visit.slotDate || "",
                 representative: visit.representative || "",
+                customerAddress: visit.customerAddress || visit.location?.address || "",
                 remark: visit.remark || "",
             });
         }
@@ -1159,6 +1170,7 @@ function EditVisitDialog({
             const result = await updateVisitDetailsAction(visit.customerId, visit.dealDocId, visit.id, {
                 dueDate: new Date(values.dueDate).toISOString(),
                 representative: values.representative,
+                customerAddress: values.customerAddress?.trim(),
                 remark: values.remark,
             });
 
@@ -1192,9 +1204,22 @@ function EditVisitDialog({
                             name="dueDate"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Due Date</FormLabel>
+                                    <FormLabel>Visit Date</FormLabel>
                                     <FormControl>
                                         <Input type="date" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="customerAddress"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Address</FormLabel>
+                                    <FormControl>
+                                        <Textarea placeholder="Customer address" {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>

@@ -24,6 +24,28 @@ export async function POST(request: Request) {
 
     const now = new Date().toISOString();
     const orderRef = adminDb.collection("orders").doc(orderId);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) {
+      return NextResponse.json(
+        { success: false, message: "Order not found." },
+        { status: 404 }
+      );
+    }
+
+    const orderDataSnapshot = orderSnap.data() as any;
+    const invoicingStatus = orderDataSnapshot?.invoicing?.status;
+    const invoiceCount = Array.isArray(orderDataSnapshot?.invoicing?.invoices)
+      ? orderDataSnapshot.invoicing.invoices.length
+      : 0;
+    const hasInvoice = Boolean(
+      (invoicingStatus && invoicingStatus !== "NOT_INVOICED") || invoiceCount > 0
+    );
+    if (!hasInvoice) {
+      return NextResponse.json(
+        { success: false, message: "Invoice not generated for this order yet." },
+        { status: 400 }
+      );
+    }
 
     const orderData: Record<string, unknown> = {
       productId,

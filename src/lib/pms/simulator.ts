@@ -1,5 +1,6 @@
 import { buildCapacityMap, CapacityMap } from "./capacity";
 import { scheduleJobs, SchedulerJob } from "./scheduler";
+import { maxIso } from "./time";
 
 type MachineLike = {
   id: string;
@@ -72,12 +73,10 @@ export const simulateScheduleForOrder = ({
   const fixedJobs = orderJobs.filter((job) => job.status === "DONE" || job.status === "IN_PROGRESS");
   const remainingJobs = orderJobs.filter((job) => job.status === "WAITING" || job.status === "PLANNED");
 
-  const lastFixedEnd = fixedJobs.reduce((latest, job) => {
-    const end = job.actualEnd || job.plannedEnd;
-    if (!end) return latest;
-    if (!latest) return end;
-    return new Date(end).getTime() > new Date(latest).getTime() ? end : latest;
-  }, undefined as string | undefined);
+  const lastFixedEnd = fixedJobs.reduce(
+    (latest, job) => maxIso(latest, job.actualEnd, job.plannedEnd),
+    undefined as string | undefined
+  );
 
   const mutableCapacity = cloneCapacityMap(capacityMap);
 
@@ -102,12 +101,10 @@ export const simulateScheduleForOrder = ({
     now: lastFixedEnd || now,
   });
 
-  const lastPlannedEnd = planned.reduce((latest, plan) => {
-    if (!latest) return plan.plannedEnd;
-    return new Date(plan.plannedEnd).getTime() > new Date(latest).getTime()
-      ? plan.plannedEnd
-      : latest;
-  }, lastFixedEnd);
+  const lastPlannedEnd = planned.reduce(
+    (latest, plan) => maxIso(latest, plan.plannedEnd),
+    lastFixedEnd
+  );
 
   return {
     eta: lastPlannedEnd || lastFixedEnd || now,

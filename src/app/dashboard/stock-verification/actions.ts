@@ -23,13 +23,7 @@ export async function markAsInStockAction(
         .collection('orders')
         .doc(orderId);
 
-      // 1️⃣ Update approved stock
-      tx.update(approvedStockRef, {
-        status: 'In Stock',
-        updatedAt: new Date().toISOString(),
-      });
-
-      // 2️⃣ Update exact fabric line in order
+      // 1️⃣ Read order before any writes (Firestore transaction rule)
       const orderSnap = await tx.get(orderRef);
       if (!orderSnap.exists) return;
 
@@ -42,6 +36,13 @@ export async function markAsInStockAction(
             : item
       );
 
+      // 2️⃣ Update approved stock
+      tx.update(approvedStockRef, {
+        status: 'In Stock',
+        updatedAt: new Date().toISOString(),
+      });
+
+      // 3️⃣ Update exact fabric line in order
       tx.update(orderRef, {
         fabricDetails: updatedFabricDetails,
       });

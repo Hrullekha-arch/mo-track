@@ -79,6 +79,7 @@ export async function updateVisitDetailsAction(
         dueDate?: string;
         representative?: string;
         remark?: string;
+        customerAddress?: string;
     }
 ): Promise<{ success: boolean; message: string }> {
     if (!visitId || !customerId || !dealDocId) {
@@ -106,6 +107,11 @@ export async function updateVisitDetailsAction(
             }
         }
         if (updates.remark) payload.remark = updates.remark;
+        if (updates.customerAddress !== undefined) {
+            payload.customerAddress = updates.customerAddress;
+            payload["location.address"] = updates.customerAddress;
+            payload["customerSnapshot.address"] = updates.customerAddress;
+        }
         
         if (Object.keys(payload).length === 0) {
             return { success: true, message: 'No changes to update.' };

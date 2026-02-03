@@ -31,10 +31,12 @@ export const buildJobsFromRouting = (
   priority?: number
 ) => {
   const safePriority = Number.isFinite(priority as number) ? (priority as number) : undefined;
+  const jobGroupId = `${orderId}_${productId}`;
   return normalizeRoutingSteps(routingSteps).map((step) => {
     const baseJob = {
-      id: `${orderId}_${step.stepNo}`,
+      id: `${orderId}_${productId}_${step.stepNo}`,
       orderId,
+      jobGroupId,
       productId,
       stepNo: step.stepNo,
       process: step.process,
