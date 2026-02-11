@@ -164,6 +164,12 @@ export default function PmsPage() {
   const [resettingAutopilot, setResettingAutopilot] = useState(false);
   const [resetAutopilotDialogOpen, setResetAutopilotDialogOpen] = useState(false);
   const [expandedWorkRows, setExpandedWorkRows] = useState<Record<string, boolean>>({});
+  const [workingHours, setWorkingHours] = useState({
+    startTime: "10:00",
+    endTime: "20:00",
+    timezoneOffsetMinutes: -new Date().getTimezoneOffset(),
+  });
+  const [savingWorkingHours, setSavingWorkingHours] = useState(false);
 
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [routingRows, setRoutingRows] = useState<PmsRouting[]>([]);
@@ -245,6 +251,22 @@ export default function PmsPage() {
       unsubJobs();
       unsubPlans();
     };
+  }, []);
+
+  useEffect(() => {
+    const ref = doc(db, "pmsSettings", "workingHours");
+    return onSnapshot(ref, (snap) => {
+      if (!snap.exists()) return;
+      const data = snap.data() as any;
+      setWorkingHours((prev) => ({
+        ...prev,
+        startTime: typeof data?.startTime === "string" ? data.startTime : prev.startTime,
+        endTime: typeof data?.endTime === "string" ? data.endTime : prev.endTime,
+        timezoneOffsetMinutes: Number.isFinite(Number(data?.timezoneOffsetMinutes))
+          ? Number(data.timezoneOffsetMinutes)
+          : prev.timezoneOffsetMinutes,
+      }));
+    });
   }, []);
 
   useEffect(() => {
@@ -607,13 +629,27 @@ export default function PmsPage() {
           ? routingByProduct.get(currentJob.productId) || []
           : [];
 
-        const stepPlanMap = new Map<number, { plannedStart?: string; plannedEnd?: string; status?: string }>();
+        const stepPlanMap = new Map<
+          number,
+          {
+            plannedStart?: string;
+            plannedEnd?: string;
+            status?: string;
+            machineName?: string;
+            personName?: string;
+          }
+        >();
         sortedJobs.forEach((groupJob) => {
           if (groupJob.stepNo === undefined || groupJob.stepNo === null) return;
+          const plan = planByJob.get(groupJob.id);
+          const machineName = plan?.machineId ? machineById.get(plan.machineId)?.name : undefined;
+          const personName = plan?.personId ? peopleById.get(plan.personId)?.name : undefined;
           stepPlanMap.set(groupJob.stepNo, {
-            plannedStart: groupJob.plannedStart,
-            plannedEnd: groupJob.plannedEnd,
+            plannedStart: groupJob.plannedStart ?? plan?.plannedStart,
+            plannedEnd: groupJob.plannedEnd ?? plan?.plannedEnd,
             status: groupJob.status,
+            machineName,
+            personName,
           });
         });
 
@@ -627,9 +663,10 @@ export default function PmsPage() {
         const currentPlan = currentStep ? stepPlanMap.get(currentStep.stepNo) : undefined;
         const nextPlan = nextStep ? stepPlanMap.get(nextStep.stepNo) : undefined;
 
-        const plan = planByJob.get(currentJob.id);
-        const machine = plan?.machineId ? machineById.get(plan.machineId)?.name : undefined;
-        const person = plan?.personId ? peopleById.get(plan.personId)?.name : undefined;
+        const machine = currentPlan?.machineName;
+        const person = currentPlan?.personName;
+        const nextMachine = nextPlan?.machineName;
+        const nextPerson = nextPlan?.personName;
 
         const vasInfo = resolveVasInfo(order, product?.name);
         return {
@@ -652,6 +689,8 @@ export default function PmsPage() {
           nextProcess: nextStep?.process,
           nextPlannedStart: nextPlan?.plannedStart,
           nextPlannedEnd: nextPlan?.plannedEnd,
+          nextMachine,
+          nextPerson,
         };
       })
       .filter(Boolean) as Array<{
@@ -670,10 +709,21 @@ export default function PmsPage() {
         routingSteps: PmsRouting[];
         currentStepNo?: number;
         productName: string;
-        stepPlanMap: Map<number, { plannedStart?: string; plannedEnd?: string; status?: string }>;
+        stepPlanMap: Map<
+          number,
+          {
+            plannedStart?: string;
+            plannedEnd?: string;
+            status?: string;
+            machineName?: string;
+            personName?: string;
+          }
+        >;
         nextProcess?: string;
         nextPlannedStart?: string;
         nextPlannedEnd?: string;
+        nextMachine?: string;
+        nextPerson?: string;
       }>;
 
     return rows.sort(
@@ -1098,6 +1148,34 @@ export default function PmsPage() {
       });
     } finally {
       setRunningAutopilot(false);
+    }
+  };
+
+  const handleSaveWorkingHours = async () => {
+    if (savingWorkingHours) return;
+    setSavingWorkingHours(true);
+    try {
+      const offsetMinutes = -new Date().getTimezoneOffset();
+      await setDoc(
+        doc(db, "pmsSettings", "workingHours"),
+        {
+          startTime: workingHours.startTime,
+          endTime: workingHours.endTime,
+          timezoneOffsetMinutes: offsetMinutes,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      setWorkingHours((prev) => ({ ...prev, timezoneOffsetMinutes: offsetMinutes }));
+      toast({ title: "✓ Working hours saved" });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Failed to save working hours",
+        description: (error as Error).message,
+      });
+    } finally {
+      setSavingWorkingHours(false);
     }
   };
 
@@ -1716,6 +1794,48 @@ const getGroupedSkills = () => {
               </CardContent>
             </Card>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Working Hours</CardTitle>
+              <CardDescription>
+                Company working window used for PMS scheduling. End time earlier than start means overnight.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col gap-4 md:flex-row md:items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="work-start">Start</Label>
+                  <Input
+                    id="work-start"
+                    type="time"
+                    value={workingHours.startTime}
+                    onChange={(e) =>
+                      setWorkingHours((prev) => ({ ...prev, startTime: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="work-end">End</Label>
+                  <Input
+                    id="work-end"
+                    type="time"
+                    value={workingHours.endTime}
+                    onChange={(e) =>
+                      setWorkingHours((prev) => ({ ...prev, endTime: e.target.value }))
+                    }
+                  />
+                </div>
+                <Button onClick={handleSaveWorkingHours} disabled={savingWorkingHours}>
+                  {savingWorkingHours && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Hours
+                </Button>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Saved with timezone offset: {workingHours.timezoneOffsetMinutes} minutes.
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <Tabs defaultValue="live" className="space-y-6">
@@ -2015,6 +2135,7 @@ const getGroupedSkills = () => {
                                               const stepPlan = row.stepPlanMap.get(step.stepNo);
                                               const stepStart = formatDateTime(stepPlan?.plannedStart);
                                               const stepEnd = formatDateTime(stepPlan?.plannedEnd);
+                                              const stepPerson = stepPlan?.personName;
                                               const tone = isDone
                                                 ? "bg-emerald-50 border-emerald-500 text-emerald-700"
                                                 : isCurrent && row.status === "IN_PROGRESS"
@@ -2044,6 +2165,7 @@ const getGroupedSkills = () => {
                                                     <div className="mt-1 text-[10px] text-muted-foreground leading-tight text-center">
                                                       <div>Start: {stepStart}</div>
                                                       <div>End: {stepEnd}</div>
+                                                      <div>Person: {stepPerson || "-"}</div>
                                                     </div>
                                                   </div>
                                                   {index < row.routingSteps.length - 1 && (

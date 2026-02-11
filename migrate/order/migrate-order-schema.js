@@ -32,6 +32,23 @@ const CONFIG = {
   dryRun: process.env.MIGRATE_DRY_RUN === "true",
 };
 
+const stripUndefinedDeep = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => stripUndefinedDeep(entry))
+      .filter((entry) => entry !== undefined);
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value)
+      .map(([key, entry]) => [key, stripUndefinedDeep(entry)])
+      .filter(([, entry]) => entry !== undefined);
+    return Object.fromEntries(entries);
+  }
+  return value;
+};
+
 const ask = (question) =>
   new Promise((resolve) => {
     const rl = readline.createInterface({
@@ -157,8 +174,8 @@ const buildOrderItem = (item, overrides = {}) => {
     taxableAmount: item.taxableAmount ?? item.taxableAmt ?? amounts.taxableAmount,
     gstAmount:
       item.gstAmount ??
-      (coerceNumber(item.cgst, 0) + coerceNumber(item.sgst, 0) + coerceNumber(item.igst, 0)) ||
-      amounts.gstAmount,
+      ((coerceNumber(item.cgst, 0) + coerceNumber(item.sgst, 0) + coerceNumber(item.igst, 0)) ||
+      amounts.gstAmount),
     totalAmount:
       item.totalAmount ??
       item.total ??
@@ -187,6 +204,49 @@ const summarizeItems = (items) =>
     },
     { subTotal: 0, gstTotal: 0, grandTotal: 0 }
   );
+
+const isFabricItem = (item) => {
+  const type = String(item?.type || "").trim().toUpperCase();
+  const unit = String(item?.unit || "").trim().toUpperCase();
+  return type === "FABRIC" || unit === "MTR";
+};
+
+const ensureFabricAllocations = (items) => {
+  let changed = false;
+  const updated = items.map((item, index) => {
+    if (!isFabricItem(item)) return item;
+
+    const existing = item?.allocation || {};
+    const hasLengths = Array.isArray(existing.lengths) && existing.lengths.length > 0;
+    const hasLots = Array.isArray(existing.lots) && existing.lots.length > 0;
+    if (hasLengths || hasLots) return item;
+
+    const qty = coerceNumber(item?.qty ?? item?.quantity ?? 0);
+    if (!qty || qty <= 0) return item;
+
+    changed = true;
+    const lengthId = `MIG-LEN-${String(index + 1).padStart(3, "0")}`;
+    const stockItemId =
+      item?.bcn || item?.description || item?.itemName || `ITEM-${String(index + 1).padStart(3, "0")}`;
+
+    return {
+      ...item,
+      allocation: {
+        status: "ALLOCATED",
+        lengths: [
+          {
+            lengthId,
+            stockItemId,
+            allocatedQty: qty,
+          },
+        ],
+        lots: [],
+      },
+    };
+  });
+
+  return { items: updated, changed };
+};
 
 const buildSectionsFromLegacy = (order) => {
   const existingNormal = Array.isArray(order?.sections?.NORMAL?.items)
@@ -302,7 +362,11 @@ const run = async () => {
     return;
   }
 
-  const { normalItems, vasItems, usedLegacy } = buildSectionsFromLegacy(order);
+  const { normalItems: rawNormalItems, vasItems, usedLegacy } = buildSectionsFromLegacy(order);
+  const allocationResult = ensureFabricAllocations(rawNormalItems);
+  const normalItems = allocationResult.items;
+  const allocationChanged = allocationResult.changed;
+
   const normalSummary = summarizeItems(normalItems);
   const vasSummary = summarizeItems(vasItems);
   const overallSummary = {
@@ -327,7 +391,7 @@ const run = async () => {
     Array.isArray(order?.sections?.VAS?.items);
   const hasOverall = !!order?.overallSummary?.grandTotal;
 
-  if (hasSections && hasOverall && !usedLegacy) {
+  if (hasSections && hasOverall && !usedLegacy && !allocationChanged) {
     console.log("Order already has the new schema. No changes needed.");
     return;
   }
@@ -340,12 +404,12 @@ const run = async () => {
     message: "Migrated order to new schema sections/summary.",
   });
 
-  const payload = {
+  const payload = stripUndefinedDeep({
     sections,
     overallSummary,
     updates,
     updatedAt: now,
-  };
+  });
 
   if (CONFIG.dryRun) {
     console.log("DRY RUN - no data written");

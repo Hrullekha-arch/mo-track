@@ -85,11 +85,30 @@ export async function POST(request: Request) {
 
     await batch.commit();
 
-    const machinesSnap = await adminDb.collection("machines").where("active", "==", true).get();
-    const skillsSnap = await adminDb.collection("machineSkills").where("allowed", "==", true).get();
-    const productsSnap = await adminDb.collection("products").get();
-    const plansSnap = await adminDb.collection("plan").get();
-    const downtimeSnap = await adminDb.collection("machineDowntime").get();
+    const [
+      machinesSnap,
+      skillsSnap,
+      productsSnap,
+      plansSnap,
+      downtimeSnap,
+      workingHoursSnap,
+    ] = await Promise.all([
+      adminDb.collection("machines").where("active", "==", true).get(),
+      adminDb.collection("machineSkills").where("allowed", "==", true).get(),
+      adminDb.collection("products").get(),
+      adminDb.collection("plan").get(),
+      adminDb.collection("machineDowntime").get(),
+      adminDb.collection("pmsSettings").doc("workingHours").get(),
+    ]);
+
+    const workingHoursData = workingHoursSnap.exists ? (workingHoursSnap.data() as any) : {};
+    const workingHours = {
+      startTime: String(workingHoursData?.startTime || "10:00"),
+      endTime: String(workingHoursData?.endTime || "20:00"),
+      timezoneOffsetMinutes: Number.isFinite(Number(workingHoursData?.timezoneOffsetMinutes))
+        ? Number(workingHoursData?.timezoneOffsetMinutes)
+        : 0,
+    };
 
     const etaResult = simulateScheduleForOrder({
       orderId,
@@ -101,6 +120,7 @@ export async function POST(request: Request) {
       downtimes: downtimeSnap.docs.map((doc) => doc.data() as any),
       orderPriorityMap: { [orderId]: priority },
       now,
+      workingHours,
     });
 
     await orderRef.set({ pmsEta: etaResult.eta }, { merge: true });

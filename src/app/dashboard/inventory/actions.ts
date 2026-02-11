@@ -2,6 +2,11 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
+import {
+  getStockSubcategories,
+  resolveStockCategory,
+  resolveStockCategoryGroup,
+} from '@/lib/stock-category-rules';
 import { Stock, StockTransaction, CuttingTask, CuttingTaskItem } from '@/lib/types';
 import * as XLSX from "xlsx";
 import {FieldValue } from 'firebase-admin/firestore';
@@ -90,6 +95,7 @@ export async function createStockItemAction(payload: {
   bcn: string;
   itemName?: string;
   name?: string;
+  itemNameTokens?: string[];
   closingstock?: number;
   totalQty?: number;
   availableQty?: number;
@@ -116,12 +122,13 @@ export async function createStockItemAction(payload: {
   costPriceRs?: number;
   costMultiplierRs?: number;
   rrpWithGstRs?: number;
-  hsnOrSac?: string;
+  hsnOrSac?: string | null;
   gstPercent?: number;
-  rack?: string;
-  productId?: string;
+  rack?: string | null;
+  productId?: string | null;
 }): Promise<{ success: boolean; message: string; stock?: Stock }> {
   try {
+    console.log("Creating stock item with payload:", payload);
     const rawBcn = String(payload?.bcn ?? "").trim();
     const itemName = String(payload?.name ?? payload?.itemName ?? "").trim();
 
@@ -160,7 +167,7 @@ export async function createStockItemAction(payload: {
       const trimmed = String(value ?? "").trim();
       return trimmed ? trimmed : undefined;
     };
-
+    const itemNameTokens = payload.itemNameTokens;
     const supplierCompanyName = cleanString(payload.supplierCompanyName);
     const supplierCollectionName = cleanString(payload.supplierCollectionName);
     const supplierCollectionCode = cleanString(payload.supplierCollectionCode);
@@ -210,7 +217,13 @@ export async function createStockItemAction(payload: {
     const bcnDigits = extractBcnDigits(rawBcn);
 
     const resolvedUnit = (cleanString(payload.unit) || "MTR").toUpperCase();
-    const resolvedCategory = (cleanString(payload.category) || "FABRIC").toUpperCase();
+    const resolvedCategory = resolveStockCategory(cleanString(payload.category) || "FABRIC");
+    if (!resolvedCategory) {
+      return { success: false, message: "Invalid category. Please select a valid stock category." };
+    }
+    const resolvedCategoryGroup =
+      resolveStockCategoryGroup(payload.categoryGroup, resolvedCategory) ||
+      (getStockSubcategories(resolvedCategory)[0] || undefined);
     const isService = payload.isService ?? resolvedCategory === "VAS";
     const totalQty = toNumber(payload.totalQty) ?? closingstock;
     const availableQty = toNumber(payload.availableQty) ?? closingstock;
@@ -224,9 +237,10 @@ export async function createStockItemAction(payload: {
       bcn: rawBcn,
       bcnDigits,
       name: itemName,
+      itemNameTokens,
       itemName,
       category: resolvedCategory,
-      categoryGroup: cleanString(payload.categoryGroup),
+      categoryGroup: resolvedCategoryGroup,
       isService,
       unit: resolvedUnit,
       type: cleanString(payload.type) || "fabric",
@@ -410,7 +424,7 @@ export async function importStockData(
       id: idx(["id"]),
       productId: idx(["product id", "productid", "item code", "itemcode"]),
       bcn: idx(["bcn"]),
-      itemName: idx(["itemName", "item name"]),
+      itemName: idx(["itemName", "item name", "name"]),
       categoryGroup: idx(["category group", "categorygroup"]),
       category: idx(["category"]),
       unit: idx(["unit"]),
@@ -485,6 +499,16 @@ export async function importStockData(
           s(row, COL.isService).toLowerCase() === "yes" ||
           resolvedCategory === "VAS";
 
+          function buildSearchTokens(value: string): string[] {
+          return value
+            .toLowerCase()
+            .split(/\s+/)
+            .map(w => w.replace(/[^a-z0-9]/g, ''))
+            .filter(Boolean);
+        }
+
+        const itemNameTokens = buildSearchTokens(s(row, COL.itemName));
+
         const stockItem = {
           // keep sheet id if present (stable), else will be auto id later
           _sheetId: s(row, COL.id),
@@ -494,6 +518,7 @@ export async function importStockData(
           bcn,
           name: s(row, COL.itemName),
           itemName: s(row, COL.itemName),
+          itemNameTokens,
 
           categoryGroup: s(row, COL.categoryGroup),
           category: resolvedCategory,
@@ -535,10 +560,12 @@ export async function importStockData(
 
           lastUpdatedAt: new Date().toISOString(),
         };
-
+        console.log(`stock Details extracted from Excel:`, stockItem);
         return stockItem;
       })
       .filter(Boolean) as any[];
+
+      
 
     if (allItems.length === 0) {
       return { success: false, message: "No valid rows found (BCN missing)." };
@@ -596,6 +623,7 @@ export async function importStockData(
             bcnDigits,
             name: item.name || item.itemName,
             itemName: item.itemName,
+            itemNameTokens: item.itemNameTokens,
             categoryGroup: item.categoryGroup,
             category: item.category,
             isService: item.isService,
@@ -635,6 +663,7 @@ export async function importStockData(
             }),
             { merge: true }
         );
+        console.log(batch);
         writtenMasters.add(docId);
       }
 
@@ -703,7 +732,7 @@ export async function importStockData(
 
 
 export async function searchStockByBcn(query: string): Promise<Stock[]> {
-    const trimmed = String(query ?? "").trim();
+      const trimmed = String(query ?? "").trim();
     if (!trimmed || trimmed.length < 2) {
         return [];
     }
@@ -713,6 +742,8 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
         const normalizedQuery = normalizeBcn(trimmed);
         const digitQuery = extractBcnDigits(trimmed);
         const resultsMap = new Map<string, Stock>();
+
+        console.log(`Searching stock by BCN: "${query}" (normalized: "${normalizedQuery}", digits: "${digitQuery}")`);
 
         const addDocs = (docs: any[]) => {
           docs.forEach(doc => {
@@ -735,6 +766,23 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
                 .get();
             addDocs(digitsSnap.docs);
         }
+
+        if (trimmed.length >= 2) {
+          const tokenQuery = trimmed
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '')
+          .trim();
+          console.log(`Searching by itemName token: "${tokenQuery}"`);
+
+          const nameSnap = await stockRef
+            .where("itemNameTokens", "array-contains", tokenQuery)
+            .limit(20)
+            .get();
+
+          console.log(`Found ${nameSnap.size} results for token query.`);
+          addDocs(nameSnap.docs);
+        }
+
 
         if (resultsMap.size === 0 && normalizedQuery.length >= 4) {
             const scanSnap = await stockRef.get();
@@ -1014,6 +1062,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
 
         const soldTransactions: StockTransaction[] = allCuttingItemsForBcn.map(cut => ({
             id: `${cut.orderId}-${cut.stockAddedId}-${new Date(cut.createdAt).getTime()}`, // Make key more unique
+            stockId: bcn,
             bcn: cut.bcn,
             type: 'deduction',
             quantityChange: -cut.quantityAllocated,
@@ -1024,6 +1073,30 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
             lengthId: cut.stockAddedId,
             salesman: cut.salesman,
         } as StockTransaction));
+
+        const reservationTransactions: StockTransaction[] = [];
+        await Promise.all(
+            addedSnapshot.docs.map(async (doc) => {
+                const reservedSnapshot = await doc.ref.collection('reservedQty').get();
+                reservedSnapshot.forEach(reservedDoc => {
+                    const data = reservedDoc.data() as any;
+                    reservationTransactions.push({
+                        id: reservedDoc.id,
+                        stockId: bcn,
+                        bcn,
+                        type: 'reservation',
+                        quantityChange: Number(data.reservedQty) || 0,
+                        orderId: data.orderId,
+                        createdAt: data.timestamp || data.createdAt || new Date().toISOString(),
+                        createdBy: data.reservedBy || "System",
+                        lengthId: doc.id,
+                        customerName: data.customerName,
+                        notes: data.notes,
+                        unit: data.unit,
+                    } as StockTransaction);
+                });
+            })
+        );
 
         const addedTransactionsPromises = addedSnapshot.docs.map(async (doc) => {
             const data = doc.data();
@@ -1045,6 +1118,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
             return { 
                 ...data,
                 id: doc.id,
+                stockId: bcn,
                 bcn: bcn,
                 type: 'addition',
                 quantityChange: Number(data.originalLength ?? data.quantity) || 0,
@@ -1057,7 +1131,7 @@ export async function getStockTransactions(bcn: string): Promise<StockTransactio
   
         const addedTransactions = await Promise.all(addedTransactionsPromises);
   
-        const allTransactions = [...addedTransactions, ...soldTransactions];
+        const allTransactions = [...addedTransactions, ...soldTransactions, ...reservationTransactions];
         allTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   
         return JSON.parse(JSON.stringify(allTransactions));

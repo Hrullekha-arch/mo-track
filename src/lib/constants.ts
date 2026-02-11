@@ -353,7 +353,12 @@ export const roomOptions: ComboboxOption[] = [
 ];
 
 export const vasOptions: ComboboxOption[] = [
-    { value: '22*22', label: '22*22' },
+      { value: 'stitching', label: 'STITCHING' },
+      { value: 'installation', label: 'INSTALLATION' },
+      { value: 'alteration', label: 'ALTERATION' },
+      { value: 'laying', label: 'LAYING' },
+      { value: 'removing', label: 'REMOVING' },
+      { value: '22*22', label: '22*22' },
     { value: 'ac-fold-stitching-charges', label: 'AC FOLD STITCHING CHARGES' },
     { value: 'alteration-charges', label: 'ALTERATION CHARGES' },
     { value: 'bainding-charges', label: 'BAINDING CHARGES' },

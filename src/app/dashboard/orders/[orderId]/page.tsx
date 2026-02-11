@@ -267,10 +267,14 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             }
 
             const stockId = bcn.replace(/\//g, '-');
+            console.log('Fetching stock for BCN:', bcn, 'with stock ID:', stockId);
             const stockPromise = getStockById(stockId);
+            getStockById("w 10001"); // Test log for stock fetching
             
             const stockRef = doc(db, 'stocks', stockId);
+            console.log('Stock document reference:', stockRef);
             const lengthsCollectionRef = collection(stockRef, 'lengths');
+            console.log('Lengths collection reference:', lengthsCollectionRef);
             const lengthsSnapshotPromise = getDocs(lengthsCollectionRef);
 
             const prQuery = query(collection(db, 'purchaseRequests'), where("dealId", "==", orderCrmNo));
@@ -285,6 +289,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 poPromise,
                 invoicePromise
             ]);
+            console.log('Fetched data:', { stock, lengths: lengthsSnapshot.docs.map(d => ({ id: d.id, ...d.data() })), poSnaps: poSnaps.docs.map(d => ({ id: d.id, ...d.data() })), invoiceSnaps: invoiceSnaps.docs.map(d => ({ id: d.id, ...d.data() })) });
             const sumAvailableFromLengths = lengthsSnapshot.docs.reduce((sum, docSnap) => {
                 const data = docSnap.data() as any;
                 const available = Number(data?.availableLength ?? data?.availableQty ?? 0);

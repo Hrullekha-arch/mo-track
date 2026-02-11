@@ -140,6 +140,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
   const [isReceiving, setIsReceiving] = React.useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
+  
 
   React.useEffect(() => {
     const processData = async () => {

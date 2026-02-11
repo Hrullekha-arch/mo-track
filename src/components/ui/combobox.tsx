@@ -47,6 +47,27 @@ export function Combobox({
   const [open, setOpen] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(false);
 
+  const getSearchableText = React.useCallback((node: React.ReactNode): string => {
+    if (node === null || node === undefined || typeof node === "boolean") {
+      return ""
+    }
+
+    if (typeof node === "string" || typeof node === "number") {
+      return String(node)
+    }
+
+    if (Array.isArray(node)) {
+      return node.map(getSearchableText).filter(Boolean).join(" ")
+    }
+
+    if (React.isValidElement(node)) {
+      const children = (node.props as { children?: React.ReactNode })?.children
+      return getSearchableText(children)
+    }
+
+    return ""
+  }, [])
+
   const handleSearch = React.useCallback(async (query: string) => {
       if (!onSearch) return;
       setIsLoading(true);
@@ -89,9 +110,9 @@ export function Combobox({
                   {options.map((option) => (
                     <CommandItem
                       key={option.value}
-                      value={option.value}
-                      onSelect={(currentValue) => {
-                        onSelect(currentValue === value ? "" : currentValue)
+                      value={`${option.value} ${getSearchableText(option.label)}`.trim()}
+                      onSelect={() => {
+                        onSelect(option.value === value ? "" : option.value)
                         setOpen(false)
                       }}
                     >

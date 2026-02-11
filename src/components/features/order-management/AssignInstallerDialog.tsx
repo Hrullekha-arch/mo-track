@@ -22,6 +22,7 @@ const buildSlots = () => {
   const endMinutes = 20 * 60;
   const stepMinutes = 30;
   const slots: Array<{ id: string; label: string; start: string; end: string }> = [];
+
   let idx = 1;
   for (let m = startMinutes; m < endMinutes; m += stepMinutes) {
     const start = formatTime(m);
@@ -30,6 +31,7 @@ const buildSlots = () => {
     slots.push({ id, label: `${id} (${start} - ${end})`, start, end });
     idx += 1;
   }
+
   return slots;
 };
 
@@ -46,7 +48,7 @@ export type SlotSelection = {
 };
 
 type InstallerSlotBooking = SlotSelection & {
-  status?: "free" | "booked";
+  status: "free" | "booked";
   visitId?: string;
   customerName?: string;
   dealId?: string;
@@ -56,6 +58,8 @@ type InstallerSlotBooking = SlotSelection & {
   assignedAt?: string;
 };
 
+type CurrentSlotSelection = Partial<SlotSelection> & { slotIds?: SlotId[] };
+
 interface AssignInstallerDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -63,9 +67,18 @@ interface AssignInstallerDialogProps {
   installers: User[];
   currentInstallerId?: string;
   currentVisitId?: string;
-  currentSlotSelection?: Partial<SlotSelection> & { slotIds?: SlotId[] };
+  currentSlotSelection?: CurrentSlotSelection;
   enableSlotBooking?: boolean;
 }
+
+const getInitialSlotIds = (slotSelection?: CurrentSlotSelection): SlotId[] => {
+  if (!slotSelection) return [];
+  if (Array.isArray(slotSelection.slotIds) && slotSelection.slotIds.length > 0) {
+    return slotSelection.slotIds;
+  }
+  if (slotSelection.slotId) return [slotSelection.slotId];
+  return [];
+};
 
 export function AssignInstallerDialog({
   isOpen,
@@ -78,14 +91,14 @@ export function AssignInstallerDialog({
   enableSlotBooking = true,
 }: AssignInstallerDialogProps) {
   const [slotDate, setSlotDate] = React.useState(currentSlotSelection?.slotDate || "");
-  const [selectedSlotIds, setSelectedSlotIds] = React.useState<SlotId[]>(() => {
-    if (currentSlotSelection?.slotIds?.length) return currentSlotSelection.slotIds;
-    return currentSlotSelection?.slotId ? [currentSlotSelection.slotId as SlotId] : [];
-  });
+  const [selectedSlotIds, setSelectedSlotIds] = React.useState<SlotId[]>(
+    getInitialSlotIds(currentSlotSelection)
+  );
   const [installerId, setInstallerId] = React.useState(currentInstallerId || "");
   const [slotBookings, setSlotBookings] = React.useState<InstallerSlotBooking[]>([]);
   const [slotsLoading, setSlotsLoading] = React.useState(false);
   const [slotsError, setSlotsError] = React.useState<string | null>(null);
+
   const slotsEnabled = enableSlotBooking !== false;
 
   const toggleSlotSelection = (slotId: SlotId) => {
@@ -98,20 +111,8 @@ export function AssignInstallerDialog({
     if (!isOpen) return;
     setInstallerId(currentInstallerId || "");
     setSlotDate(currentSlotSelection?.slotDate || "");
-    if (currentSlotSelection?.slotIds?.length) {
-      setSelectedSlotIds(currentSlotSelection.slotIds);
-    } else {
-      setSelectedSlotIds(
-        currentSlotSelection?.slotId ? [currentSlotSelection.slotId as SlotId] : []
-      );
-    }
-  }, [
-    currentInstallerId,
-    currentSlotSelection?.slotDate,
-    currentSlotSelection?.slotId,
-    currentSlotSelection?.slotIds,
-    isOpen,
-  ]);
+    setSelectedSlotIds(getInitialSlotIds(currentSlotSelection));
+  }, [currentInstallerId, currentSlotSelection, isOpen]);
 
   React.useEffect(() => {
     if (!slotsEnabled) {
@@ -121,7 +122,6 @@ export function AssignInstallerDialog({
       return;
     }
 
-    // IMPORTANT: do nothing when dialog closed
     if (!isOpen) return;
 
     if (!installerId || !slotDate) {
@@ -156,7 +156,6 @@ export function AssignInstallerDialog({
           .map((slot: any) => {
             const sid = (slot.slotId || slot.id) as SlotId;
             const opt = SLOT_OPTIONS.find((s) => s.id === sid);
-
             return {
               slotId: sid,
               slotLabel: slot.slotLabel || opt?.label || sid,
@@ -173,11 +172,11 @@ export function AssignInstallerDialog({
               assignedAt: slot.assignedAt,
             };
           })
-          .filter((s) => !!s.slotId);
+          .filter((s: InstallerSlotBooking) => !!s.slotId);
 
         setSlotBookings(normalized);
-      } catch (err) {
-        console.error("Failed to load installer slots", err);
+      } catch (error) {
+        console.error("Failed to load installer slots", error);
         if (active) {
           setSlotsError("Could not fetch slots for this installer and date.");
           setSlotBookings([]);
@@ -192,7 +191,7 @@ export function AssignInstallerDialog({
     return () => {
       active = false;
     };
-  }, [isOpen, installerId, slotDate, slotsEnabled]);
+  }, [installerId, isOpen, slotDate, slotsEnabled]);
 
   React.useEffect(() => {
     if (!isOpen) {
@@ -209,7 +208,7 @@ export function AssignInstallerDialog({
         .filter((s) => s.status === "booked" && s.visitId && s.visitId !== currentVisitId)
         .map((s) => s.slotId)
     );
-  }, [slotBookings, slotsEnabled, currentVisitId]);
+  }, [currentVisitId, slotBookings, slotsEnabled]);
 
   const selectedSlots = React.useMemo(
     () => SLOT_OPTIONS.filter((slot) => selectedSlotIds.includes(slot.id)),
@@ -245,19 +244,24 @@ export function AssignInstallerDialog({
   const hasBlockedSelected = selectedSlotIds.some((id) => blockedSlotIds.has(id));
 
   const canSubmit = slotsEnabled
-    ? !!installerId && !!slotDate && selectedSlotIds.length > 0 && !hasBlockedSelected && isSelectionContiguous
+    ? !!installerId &&
+      !!slotDate &&
+      selectedSlotIds.length > 0 &&
+      !hasBlockedSelected &&
+      isSelectionContiguous
     : !!installerId;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-[95vw] sm:max-w-2xl lg:max-w-4xl h-[95vh] sm:h-full overflow-auto rounded-lg mt-5 mb-5">
         <DialogHeader>
           <DialogTitle>{slotsEnabled ? "Assign Installer + Slots" : "Assign Installer"}</DialogTitle>
         </DialogHeader>
+
         {slotsEnabled && (
           <>
             <div className="space-y-2 sm:w-[20%] w-[45%]">
-              <div className="text-sm font-medium ">Select Date</div>
+              <div className="text-sm font-medium">Select Date</div>
               <Input
                 type="date"
                 value={slotDate}
@@ -278,6 +282,7 @@ export function AssignInstallerDialog({
                   </div>
                 )}
               </div>
+
               {!slotDate || !installerId ? (
                 <div className="text-xs text-muted-foreground border rounded-md px-3 py-2">
                   Pick a date and installer to load slot availability.
@@ -286,9 +291,13 @@ export function AssignInstallerDialog({
                 <div className="grid sm:grid-cols-4 gap-2">
                   {SLOT_OPTIONS.map((slot) => {
                     const booking = slotBookings.find((b) => b.slotId === slot.id);
-                    const status = booking?.status ?? (booking?.visitId ? "booked" : "free");
-                    const isBookedBySelf = status === "booked" && booking?.visitId === currentVisitId;
-                    const isBookedByAnother = status === "booked" && booking?.visitId && booking.visitId !== currentVisitId;
+                    const status = booking?.status || (booking?.visitId ? "booked" : "free");
+                    const isBookedBySelf =
+                      status === "booked" && booking?.visitId === currentVisitId;
+                    const isBookedByAnother =
+                      status === "booked" &&
+                      !!booking?.visitId &&
+                      booking.visitId !== currentVisitId;
                     const isSelected = selectedSlotIds.includes(slot.id);
 
                     return (
@@ -310,14 +319,15 @@ export function AssignInstallerDialog({
                             <div className="text-xs text-muted-foreground">
                               {slot.start} - {slot.end}
                             </div>
+
                             {status === "booked" && booking ? (
                               <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
-                                <div className={cn("font-semibold", isBookedByAnother ? "text-destructive" : "")}>
+                                <div className={cn("font-semibold", isBookedByAnother && "text-destructive")}>
                                   {isBookedByAnother ? "Booked" : "Reserved for this visit"}
                                 </div>
                                 {booking.customerName && (
                                   <div className="truncate">
-                                    {booking.customerName} - Deal #{booking.dealId || booking.dealDocId}
+                                    {booking.customerName} | Deal #{booking.dealId || booking.dealDocId}
                                   </div>
                                 )}
                                 {booking.dealName && <div className="truncate">{booking.dealName}</div>}
@@ -326,15 +336,18 @@ export function AssignInstallerDialog({
                               <div className="text-xs text-muted-foreground mt-1">Available</div>
                             )}
                           </div>
+
                           <div className="flex flex-col items-end gap-1">
                             {isBookedByAnother ? (
                               <Badge variant="destructive">Unavailable</Badge>
-                            ) : isSelected ? (
-                              <Badge>Selected</Badge>
-                            ) : isBookedBySelf ? (
-                              <Badge variant="outline">Held</Badge>
+                            ) : status === "booked" ? (
+                              <Badge variant={isSelected ? "default" : "outline"}>
+                                {isBookedBySelf ? "Held" : "Booked"}
+                              </Badge>
                             ) : (
-                              <Badge variant="outline">Free</Badge>
+                              <Badge variant={isSelected ? "default" : "outline"}>
+                                {isSelected ? "Selected" : "Free"}
+                              </Badge>
                             )}
                           </div>
                         </div>
@@ -343,10 +356,12 @@ export function AssignInstallerDialog({
                   })}
                 </div>
               )}
+
               {slotsError && <div className="text-xs text-destructive">{slotsError}</div>}
               {selectedRangeLabel && (
                 <div className="text-xs text-muted-foreground">
-                  Selected range: <span className="font-medium text-foreground">{selectedRangeLabel}</span>{" "}
+                  Selected range:{" "}
+                  <span className="font-medium text-foreground">{selectedRangeLabel}</span>{" "}
                   {selectedSlotIds.length > 1 && (
                     <span className="text-muted-foreground">({selectedSlotIds.length} slots)</span>
                   )}
@@ -363,31 +378,29 @@ export function AssignInstallerDialog({
 
         <div className="space-y-2 mt-4">
           <div className="text-sm font-medium">Select Installer</div>
-
           <div className="max-h-64 overflow-auto rounded-md border p-2 space-y-2">
-            {installers.map((ins) => {
-              return (
-                <button
-                  key={ins.id}
-                  type="button"
-                  onClick={() => {
-                    setInstallerId(ins.id);
-                    setSelectedSlotIds([]);
-                  }}
-                  className={cn(
-                    "w-full flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm",
-                    installerId === ins.id && "border-primary"
-                  )}
-                >
-                  <div className="min-w-0">
-                    <div className="font-medium truncate">{ins.name}</div>
-                    <div className="text-xs text-muted-foreground truncate">{ins.email}</div>
-                  </div>
-
-                  <div className="flex items-center gap-2">{installerId === ins.id && <Badge>Selected</Badge>}</div>
-                </button>
-              );
-            })}
+            {installers.map((installer) => (
+              <button
+                key={installer.id}
+                type="button"
+                onClick={() => {
+                  setInstallerId(installer.id);
+                  if (slotsEnabled) setSelectedSlotIds([]);
+                }}
+                className={cn(
+                  "w-full flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm",
+                  installerId === installer.id && "border-primary"
+                )}
+              >
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{installer.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">{installer.email}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {installerId === installer.id && <Badge>Selected</Badge>}
+                </div>
+              </button>
+            ))}
           </div>
 
           {slotsEnabled && (!slotDate || !installerId) ? (
@@ -399,10 +412,11 @@ export function AssignInstallerDialog({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-
           <Button
             disabled={!canSubmit}
             onClick={() => {
+              if (!installerId) return;
+
               if (!slotsEnabled) {
                 onAssign(installerId);
                 return;
@@ -410,13 +424,14 @@ export function AssignInstallerDialog({
 
               if (!slotDate || selectedSlotsSorted.length === 0) return;
 
-              const selections = selectedSlotsSorted.map((slot) => ({
+              const selections: SlotSelection[] = selectedSlotsSorted.map((slot) => ({
                 slotDate,
                 slotId: slot.id,
                 slotLabel: slot.label,
                 slotStart: slot.start,
                 slotEnd: slot.end,
               }));
+
               onAssign(installerId, selections);
             }}
           >

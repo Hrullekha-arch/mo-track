@@ -4,13 +4,13 @@ import * as React from 'react';
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from "@/hooks/use-toast";
-import { doc, getDoc, updateDoc, writeBatch, arrayUnion, collection, query, where, getDocs, limit } from "firebase/firestore";
+import { doc, getDoc, updateDoc, writeBatch, arrayUnion, collection, query, where, getDocs, limit, } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Customer, Deal, DealVisit, Order, O2DStatus } from '@/lib/types';
 import { getCustomerById } from '@/app/dashboard/customers/actions';
-import { getDealById } from '@/app/dashboard/customers/[customerId]/[dealId]/actions';
+import { getDealById, uploadFileToStorageAction } from '@/app/dashboard/customers/[customerId]/[dealId]/actions';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +18,17 @@ import { Loader2, ArrowLeft, Phone, MapPin, CheckCheck, ChevronRight } from "luc
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { deliveryInstallationItems, subDeliveryInstallationItems } from "@/lib/visit-options";
+import { Input } from "@/components/ui/input"
+import { file } from 'googleapis/build/src/apis/file';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { promise } from 'zod';
+import { read } from 'xlsx';
 
 type CheckListItem = {
     id: string;
@@ -183,6 +194,11 @@ export default function DeliveryVisitPage() {
 
     const [deliveryItems, setDeliveryItems] = React.useState<CheckListItem[]>([]);
     const [remarks, setRemarks] = React.useState('');
+    const [images, setImages] = React.useState<File[]>([]);
+    const [selectedimages, setSelectedtImages] = React.useState<File[]>([]);
+    const [previewImages, setPreviewImages] = React.useState(false);
+    const [uploading, setUploading] = React.useState(false);
+    const [imageUrl,setImageUrl] = React.useState<string[]>([]);
     
     const allItemsGathered = deliveryItems.length > 0 && deliveryItems.every(item => item.gathered);
     const isCompleted = visit?.status === 'completed';
@@ -290,13 +306,54 @@ export default function DeliveryVisitPage() {
         });
     };
 
+    const filetoBase64 = (file: File):Promise<string> =>
+        new Promise ((resolve, reject)=>{
+            const reader = new FileReader();
+            reader.onload = () =>{
+                const result = reader.result as string;
+                resolve(result.split(",")[1]);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+
+    const uploadImages = async () =>{
+        if (images.length === 0 ) return;
+
+        setUploading(true);
+        try {
+            const uploadedUrls : string[] =[];
+            
+            for(const file of images){
+                const base64 = await filetoBase64(file);
+                const url = await uploadFileToStorageAction(`Ins/Del-${customer?.name}-${deal?.dealId}`,file.type,base64,"Installation/Delivery");
+                uploadedUrls.push(url);
+            }
+            setImageUrl(uploadedUrls);
+
+        } catch (error) {
+            console.error(error);
+            alert("❌ Upload failed");
+        }finally{
+            setUploading(false)
+        }
+    }
+
     const handleCompleteDelivery = async () => {
-        if (!user || !visit || !customer || !deal) return;
+        if (!user || !visit || !customer || !deal || !imageUrl) return toast({
+            variant:"destructive",
+            title:"Error",
+            description:"Missing required data to complete delivery."
+        })
+        router.back();
+        ;
         
         setIsSubmitting(true);
         try {
             const batch = writeBatch(db);
             const visitRef = doc(db, 'customers', customer.id, 'deals', deal.id, 'visits', visit.id);
+
+            await uploadImages();
             
             // If no items are present, allow completion with remarks
             if (deliveryItems.length === 0 || allItemsGathered) {
@@ -308,6 +365,7 @@ export default function DeliveryVisitPage() {
                     remarks: remarks || '',
                     deliveryChecklist: deliveryItems,
                     updatedAt: new Date().toISOString(),
+                    imageUrls:imageUrl
                 });
 
                 // Optionally update order and O2D status as before
@@ -480,6 +538,30 @@ export default function DeliveryVisitPage() {
                             disabled={isCompleted}
                             className="min-h-[100px] resize-none"
                         />
+                        <div>
+                            <Label>Add Photo</Label>
+                            <Input type="file" multiple onChange={(e) =>{
+                                    if(!e.target.files) return;
+                                    const newimages = Array.from(e.target.files);
+
+                                    setImages((images) =>{
+                                        const Allimages =[...images, ...newimages];
+                                        return Allimages.slice(0,5);
+                                    })
+                            }}/>
+                        </div>
+                        <Card>
+                            <div className='flex justify-start items-start gap-2 p-2'>
+                                {images.map((file, index) => (
+                                    <img onClick={()=>{
+                                        setPreviewImages(true)
+                                        setSelectedtImages([file])
+                                    }}
+                                         key={index} src={URL.createObjectURL(file)} alt={`preview- ${index}`}
+                                        className='w-12 h-12 rounded' />
+                                ))}
+                            </div>
+                        </Card>
                     </CardContent>
                 </Card>
 
@@ -506,6 +588,20 @@ export default function DeliveryVisitPage() {
                     </Card>
                 )}
             </div>
+            <Dialog open={previewImages} onOpenChange={setPreviewImages}>
+            <DialogContent>
+                <DialogHeader>
+                <DialogTitle>Preview Images</DialogTitle>
+                </DialogHeader>
+                <Card>
+                    <div className='flex flex-wrap justify-center items-center gap-2 p-2'>
+                        {selectedimages.map((file, index) => (
+                            <img key={index} src={URL.createObjectURL(file)} alt={`preview- ${index}`} className='w-64 h-64 rounded' />
+                        ))}
+                    </div>
+                </Card>
+            </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -53,13 +53,30 @@ export async function POST(request: Request) {
     }
 
     // 3) Load master data
-    const [machinesSnap, skillsSnap, productsSnap, plansSnap, downtimeSnap] = await Promise.all([
+    const [
+      machinesSnap,
+      skillsSnap,
+      productsSnap,
+      plansSnap,
+      downtimeSnap,
+      workingHoursSnap,
+    ] = await Promise.all([
       adminDb.collection("machines").where("active", "==", true).get(),
       adminDb.collection("machineSkills").where("allowed", "==", true).get(),
       adminDb.collection("products").get(),
       adminDb.collection("plan").get(),
       adminDb.collection("machineDowntime").get(),
+      adminDb.collection("pmsSettings").doc("workingHours").get(),
     ]);
+
+    const workingHoursData = workingHoursSnap.exists ? (workingHoursSnap.data() as any) : {};
+    const workingHours = {
+      startTime: String(workingHoursData?.startTime || "10:00"),
+      endTime: String(workingHoursData?.endTime || "20:00"),
+      timezoneOffsetMinutes: Number.isFinite(Number(workingHoursData?.timezoneOffsetMinutes))
+        ? Number(workingHoursData?.timezoneOffsetMinutes)
+        : 0,
+    };
 
     // 4) For scheduling we need ALL jobs of those orders/groups (so chain works)
     const jobGroupIds = Array.from(new Set(eligibleWaiting.map((j) => j.jobGroupId).filter(Boolean))) as string[];
@@ -119,6 +136,7 @@ export async function POST(request: Request) {
       downtimes: downtimeSnap.docs.map((d) => d.data() as any),
       orderPriorityMap,
       now,
+      workingHours,
     });
 
     // 7) Save: one plan per jobId

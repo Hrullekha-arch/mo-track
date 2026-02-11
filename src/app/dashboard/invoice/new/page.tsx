@@ -165,6 +165,11 @@ function ConvertToOrderContent() {
     return Number.isFinite(fallback) ? fallback : 0;
   };
 
+  const round2 = (value: number) => {
+    if (!Number.isFinite(value)) return 0;
+    return Math.round(value * 100) / 100;
+  };
+
   const totals = useMemo(() => {
     const productTotals = (watchedValues.products || []).reduce((acc, item) => {
         const qty = Number(item.quantity) || 0;
@@ -237,23 +242,24 @@ function ConvertToOrderContent() {
               quotationRate: item.rate,
               gstPercent,
             });
+            const roundedInclusiveRate = round2(inclusiveRate);
             const exclusiveRate = Number.isFinite(Number(item.exclusiveRate))
-              ? Number(item.exclusiveRate)
-              : (gstPercent > 0 ? inclusiveRate / (1 + gstPercent / 100) : inclusiveRate);
-            const quotationRate = inclusiveRate * (1 - discountPercent / 100);
+              ? round2(Number(item.exclusiveRate))
+              : round2(gstPercent > 0 ? inclusiveRate / (1 + gstPercent / 100) : inclusiveRate);
+            const quotationRate = round2(roundedInclusiveRate * (1 - discountPercent / 100));
             return {
               id: item.id || undefined,
               collectionBrand: item.collectionBrand,
               serialNo: item.serialNo || '',
               quantity: item.quantity,
-              mrp: inclusiveRate,
+              mrp: roundedInclusiveRate,
               exclusiveRate,
               discountPercent,
               quotationRate: quotationRate,
-              orderRate: inclusiveRate, 
+              orderRate: roundedInclusiveRate, 
               room: item.room || '',
               noOfPcs: 1, 
-              amount: quotationRate * item.quantity, 
+              amount: round2(quotationRate * item.quantity), 
               description: item.salesDescription,
               remark: item.remark || '',
               gstPercent,
@@ -303,14 +309,14 @@ function ConvertToOrderContent() {
       toast({ variant: 'destructive', title: 'Missing Information', description: 'Please provide at least a brand and quantity.' });
       return;
     }
-   const rate = parseFloat(productData.rate || '0');
+   const rate = round2(parseFloat(productData.rate || '0'));
    const quantity = parseFloat(productData.quantity);
    const selectedStock = bcnOptions.find(option => option.value === productData.collectionBrand)?.stockItem;
    const gstPercent = Number(selectedStock?.tax ?? 0);
-   const exclusiveRate = gstPercent > 0 ? rate / (1 + gstPercent / 100) : rate;
+   const exclusiveRate = round2(gstPercent > 0 ? rate / (1 + gstPercent / 100) : rate);
    const discountPercent = parseFloat(productData.discountPercent || '0');
-   const quotationRate = rate * (1 - discountPercent / 100);
-   const amount = quotationRate * quantity;
+   const quotationRate = round2(rate * (1 - discountPercent / 100));
+   const amount = round2(quotationRate * quantity);
     
     append({
       collectionBrand: productData.collectionBrand,
@@ -342,9 +348,9 @@ const onSubmit = (data: ConvertToOrderFormValues) => {
     salesDescription: p.description ?? "",
 
     quantity: Number(p.quantity) || 0,
-    rate: Number(p.orderRate ?? p.mrp ?? p.quotationRate) || 0,
+      rate: round2(Number(p.orderRate ?? p.mrp ?? p.quotationRate) || 0),
     discountPercent: Number(p.discountPercent) || 0,
-    amount: (Number(p.quantity) || 0) * (Number(p.orderRate ?? p.mrp ?? p.quotationRate) || 0),
+    amount: round2((Number(p.quantity) || 0) * (Number(p.orderRate ?? p.mrp ?? p.quotationRate) || 0)),
     room: p.room ?? "",
     remark: p.remark ?? "",
     gstPercent: Number(p.gstPercent ?? 0),

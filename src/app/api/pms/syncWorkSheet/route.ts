@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
+import { buildPmsWorkSheetRowsFromDb } from "@/services/pms-work-sheet";
 
 const DEFAULT_SHEET_ID = "1RZLIuQM6p3v0QHnCIhBogMQoU1x8zcaTiXmTBpRUe98";
 const DEFAULT_SHEET_NAME = "PMS_WORK";
@@ -28,12 +29,12 @@ const getSheetsClient = async () => {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const rows = Array.isArray(body?.rows) ? body.rows : null;
+    let rows = Array.isArray(body?.rows) ? body.rows : null;
     if (!rows || rows.length === 0) {
-      return NextResponse.json(
-        { success: false, message: "rows array is required." },
-        { status: 400 }
-      );
+      rows = await buildPmsWorkSheetRowsFromDb();
+    }
+    if (!rows || rows.length === 0) {
+      return NextResponse.json({ success: true, appended: 0 });
     }
 
     const sheetId = process.env.PMS_WORK_SHEET_ID || DEFAULT_SHEET_ID;

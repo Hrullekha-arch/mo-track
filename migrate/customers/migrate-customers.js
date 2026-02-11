@@ -32,7 +32,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const CONFIG = {
-  dryRun: process.env.MIGRATE_DRY_RUN === "true",
+  dryRun: process.env.MIGRATE_DRY_RUN === "true",;
   deleteOldDocs: process.env.MIGRATE_DELETE_OLD !== "false",
   updateCustomerIdInSubcollections: true,
   copySubcollections: true,

@@ -1,6 +1,7 @@
 import { buildCapacityMap, CapacityMap } from "./capacity";
 import { scheduleJobs, SchedulerJob } from "./scheduler";
 import { maxIso } from "./time";
+import { WorkingHoursConfig } from "./working-hours";
 
 type MachineLike = {
   id: string;
@@ -48,6 +49,7 @@ export const simulateScheduleForOrder = ({
   downtimes,
   orderPriorityMap,
   now,
+  workingHours,
 }: {
   orderId: string;
   jobs: SchedulerJob[];
@@ -58,6 +60,7 @@ export const simulateScheduleForOrder = ({
   downtimes: DowntimeLike[];
   orderPriorityMap: Record<string, number | undefined>;
   now: string;
+  workingHours?: WorkingHoursConfig;
 }) => {
   const peopleIds = Array.from(new Set(skills.map((skill) => skill.personId)));
   const capacityMap = buildCapacityMap({
@@ -99,6 +102,7 @@ export const simulateScheduleForOrder = ({
     allowChain: true,
     orderPriorityMap,
     now: lastFixedEnd || now,
+    workingHours,
   });
 
   const lastPlannedEnd = planned.reduce(

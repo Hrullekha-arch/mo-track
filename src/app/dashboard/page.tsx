@@ -3,7 +3,7 @@
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle, PhoneCall, Bell, ListOrdered, UserCheck, Dot, GitCommitHorizontal, CheckCheckIcon, UserPlus, X, Briefcase } from "lucide-react";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { collection, onSnapshot, query, where, collectionGroup, getDocs, orderBy, doc, updateDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Link from "next/link";
@@ -287,6 +287,33 @@ const AdminDashboard = () => {
         deliveryFollowUp: null,
     });
     const [loading, setLoading] = useState(true);
+    const syncOrderSheetRef = useRef(false);
+
+    useEffect(() => {
+        let intervalId: ReturnType<typeof setInterval> | null = null;
+
+        const syncOrderSheet = async () => {
+            if (syncOrderSheetRef.current) return;
+            syncOrderSheetRef.current = true;
+            try {
+                await fetch("/api/orders/syncOrderSheet", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                });
+            } catch (error) {
+                console.error("Order sheet sync failed:", error);
+            } finally {
+                syncOrderSheetRef.current = false;
+            }
+        };
+
+        syncOrderSheet();
+        intervalId = setInterval(syncOrderSheet, 60_000);
+
+        return () => {
+            if (intervalId) clearInterval(intervalId);
+        };
+    }, []);
 
      useEffect(() => {
         const queries: { [key: string]: any } = {

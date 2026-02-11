@@ -1,5 +1,6 @@
-import { addWorkingMinutes, CapacityMap } from "./capacity";
+import { CapacityMap } from "./capacity";
 import { maxIso, toMillis } from "./time";
+import { getWorkingSchedule, WorkingHoursConfig } from "./working-hours";
 
 export type SchedulerJob = {
   id: string;
@@ -63,6 +64,7 @@ export const scheduleJobs = ({
   allowChain,
   orderPriorityMap,
   now,
+  workingHours,
 }: {
   jobs: SchedulerJob[];
   machines: MachineLike[];
@@ -72,6 +74,7 @@ export const scheduleJobs = ({
   allowChain: boolean;
   orderPriorityMap: Record<string, number | undefined>;
   now: string;
+  workingHours?: WorkingHoursConfig;
 }) => {
   const productCategory = new Map(products.map((p) => [p.id, p.category]));
   const jobByGroup = new Map<string, SchedulerJob[]>();
@@ -158,15 +161,13 @@ export const scheduleJobs = ({
             ? jobReadyAt
             : slot.freeAt;
 
-        const plannedEnd = addWorkingMinutes(
-          candidateStart,
-          job.requiredMinutes,
-          machine.shiftMinutes
-        );
+        const schedule = getWorkingSchedule(candidateStart, job.requiredMinutes, workingHours);
+        const plannedStart = schedule.start;
+        const plannedEnd = schedule.end;
 
         const loadMinutes = slot.plannedMinutes + (slot.activeMinutes || 0);
         const priority = getOrderPriority(job, orderPriorityMap);
-        const score = scoreCandidate(candidateStart, loadMinutes, priority);
+        const score = scoreCandidate(plannedStart, loadMinutes, priority);
 
         if (score < bestScore) {
           bestScore = score;
@@ -174,7 +175,7 @@ export const scheduleJobs = ({
             jobId: job.id,
             machineId: machine.id,
             personId: skill.personId,
-            plannedStart: candidateStart,
+            plannedStart,
             plannedEnd,
           };
         }

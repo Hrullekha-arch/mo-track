@@ -601,8 +601,9 @@ function GenerateInvoiceDialog({
           cutQty: increment(qty),
         });
 
-        if (item.allocationRef?.lengthId) {
-          const lengthRef = doc(db, "stocks", stockId, "lengths", item.allocationRef.lengthId);
+        const lengthId = item.allocationRef?.lengthId;
+        if (lengthId && !lengthId.startsWith("MIG-LEN-")) {
+          const lengthRef = doc(db, "stocks", stockId, "lengths", lengthId);
           batch.update(lengthRef, {
             reservedQty: increment(-qty),
             cutQty: increment(qty),

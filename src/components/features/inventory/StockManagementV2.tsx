@@ -42,6 +42,12 @@ import {
   ArrowUpCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  getStockCategoryOptions,
+  getStockSubcategories,
+  resolveStockCategory,
+  resolveStockCategoryGroup,
+} from "@/lib/stock-category-rules";
 
 // ==================== HELPERS ====================
 const toNumber = (value: any) => {
@@ -61,11 +67,15 @@ const formatDate = (date: string | Date | null | undefined) => {
   });
 };
 
+const formatQty = (value?: number | string | null) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "0.00";
+  return num.toFixed(2);
+};
+
 // ==================== CONSTANTS ====================
-const CATEGORY_OPTIONS = ["FABRIC","CARPET","LOOSE MATERIAL","FOAM", "NIWAR", "CHANNEL", "ACCESSORY", "VAS"];
+const CATEGORY_OPTIONS = getStockCategoryOptions();
 const UNIT_OPTIONS = ["PCS", "MTR", "SET"];
-const DEFAULT_CATEGORY_GROUPS = ["MAIN", "SHREE", "SOFA"];
-const CATEGORY_GROUP_OTHER = "__OTHER_CATEGORY_GROUP__";
 const SUPPLIER_OTHER = "__OTHER_SUPPLIER__";
 
 // ==================== MAIN COMPONENT ====================
@@ -105,10 +115,7 @@ export function StockManagementV2() {
   // ========== STATE: Create Dialog ==========
   const [isCreateOpen, setIsCreateOpen] = React.useState(false);
   const [isCreating, setIsCreating] = React.useState(false);
-  const [categoryGroupOptions, setCategoryGroupOptions] = React.useState<ComboboxOption[]>([]);
   const [supplierOptions, setSupplierOptions] = React.useState<ComboboxOption[]>([]);
-  const [useCustomCategoryGroup, setUseCustomCategoryGroup] = React.useState(false);
-  const [customCategoryGroup, setCustomCategoryGroup] = React.useState("");
   const [useCustomSupplierCompany, setUseCustomSupplierCompany] = React.useState(false);
   const [customSupplierCompany, setCustomSupplierCompany] = React.useState("");
   const [draft, setDraft] = React.useState({
@@ -139,20 +146,7 @@ export function StockManagementV2() {
     if (!isCreateOpen) return;
     const loadOptions = async () => {
       try {
-        const [groupValues, supplierValues] = await Promise.all([
-          getStockFieldOptions("categoryGroup"),
-          getStockFieldOptions("supplierCompanyName"),
-        ]);
-
-        const uniqueGroups = Array.from(
-          new Set([...DEFAULT_CATEGORY_GROUPS, ...(groupValues || [])]
-            .map((v) => String(v).trim())
-            .filter(Boolean))
-        );
-        setCategoryGroupOptions([
-          ...uniqueGroups.map((v) => ({ value: v, label: v })),
-          { value: CATEGORY_GROUP_OTHER, label: "➕ Add New" },
-        ]);
+        const supplierValues = await getStockFieldOptions("supplierCompanyName");
 
         const uniqueSuppliers = Array.from(
           new Set((supplierValues || []).map((v) => String(v).trim()).filter(Boolean))
@@ -170,27 +164,45 @@ export function StockManagementV2() {
 
   // ========== HANDLERS ==========
   const handleSearch = async (query: string) => {
-    if (query.length < 2) {
-      setBcnOptions([]);
-      return;
-    }
-    setIsSearching(true);
-    try {
-      const results = await searchStockByBcn(query);
-      setBcnOptions(
-        results.map((stock) => ({
-          value: stock.id,
-          label: `${stock.bcn} - ${stock.name || stock.itemName || "Unnamed"}`,
-          stockItem: stock,
-        })) as any
-      );
-    } catch (error) {
-      console.error(error);
-      toast({ variant: "destructive", title: "Search failed" });
-    } finally {
-      setIsSearching(false);
-    }
-  };
+  const q = query?.trim();
+
+  if (!q || q.length < 2) {
+    return; // do NOT clear options
+  }
+
+  setIsSearching(true);
+
+  try {
+    const results = await searchStockByBcn(q);
+
+    const mappedOptions = results.map((stock) => ({
+      value: stock.id,
+      label: `${stock.bcn} - ${stock.name || stock.itemName || "Unnamed"}`,
+      stockItem: stock,
+    }));
+
+    setBcnOptions(mappedOptions as any);
+
+    console.log(`Search for "${q}" returned ${results.length} results.`);
+    console.table(
+      mappedOptions.map((o) => ({
+        value: o.value,
+        label: o.label,
+      }))
+    );
+
+  } catch (error) {
+    console.error(error);
+    toast({ variant: "destructive", title: "Search failed" });
+  } finally {
+    setIsSearching(false);
+  }
+};
+
+React.useEffect(() => {
+  console.log("Updated BCN options:", bcnOptions);
+}, [bcnOptions]);
+
 
   const handleSelectStock = async (stock: Stock) => {
     setSelected(stock);
@@ -212,10 +224,15 @@ export function StockManagementV2() {
 
   const handleQuickUpdate = async () => {
     if (!selected) return;
+    const resolvedCategory = resolveStockCategory(selected.category) || selected.category || "FABRIC";
+    const allowedGroups = getStockSubcategories(resolvedCategory);
+    const resolvedGroup =
+      resolveStockCategoryGroup(selected.categoryGroup, resolvedCategory) ||
+      (allowedGroups.length ? allowedGroups[0] : selected.categoryGroup);
     const updates: Record<string, any> = {
       name: selected.name,
-      category: selected.category,
-      categoryGroup: selected.categoryGroup,
+      category: resolvedCategory,
+      categoryGroup: resolvedGroup,
       unit: selected.unit,
       isActive: selected.isActive,
       hsnOrSac: selected.hsnOrSac,
@@ -290,7 +307,10 @@ export function StockManagementV2() {
 
 
   const handleCreateItem = async () => {
-    const resolvedCategoryGroup = useCustomCategoryGroup ? customCategoryGroup.trim() : draft.categoryGroup.trim();
+    const resolvedCategory = resolveStockCategory(draft.category) || "FABRIC";
+    const resolvedCategoryGroup =
+      resolveStockCategoryGroup(draft.categoryGroup, resolvedCategory) ||
+      (getStockSubcategories(resolvedCategory)[0] || "");
     const resolvedSupplierCompany = useCustomSupplierCompany ? customSupplierCompany.trim() : draft.supplierCompanyName.trim();
 
     if (!draft.bcn.trim() || !draft.name.trim()) {
@@ -301,17 +321,26 @@ export function StockManagementV2() {
       toast({ variant: "destructive", title: "Supplier details are required" });
       return;
     }
-    setIsCreating(true);
+    function buildSearchTokens(value: string): string[] {
+      return value
+        .toLowerCase()
+        .split(/\s+/)
+        .map(w => w.replace(/[^a-z0-9]/g, ''))
+        .filter(Boolean);
+    }
+
+
     try {
       const result = await createStockItemAction({
         bcn: draft.bcn.trim(),
         name: draft.name.trim(),
-        productId: draft.productId.trim() || undefined,
-        category: draft.category.trim(),
+        itemNameTokens: buildSearchTokens(draft.name),
+        productId: draft.productId.trim() || null,
+        category: resolvedCategory,
         categoryGroup: resolvedCategoryGroup || undefined,
         unit: draft.unit.trim(),
         isService: draft.isService,
-        hsnOrSac: draft.hsnOrSac.trim() || undefined,
+        hsnOrSac: draft.hsnOrSac.trim() || null,
         gstPercent: toNumber(draft.gstPercent),
         costPriceRs: toNumber(draft.costPriceRs),
         costMultiplierRs: toNumber(draft.costMultiplierRs),
@@ -326,7 +355,7 @@ export function StockManagementV2() {
         reservedQty: 0,
         damagedQty: 0,
         cutQty: 0,
-        rack: draft.rack.trim() || undefined,
+        rack: draft.rack.trim() || null,
       });
 
       if (!result.success) {
@@ -356,8 +385,6 @@ export function StockManagementV2() {
         rack: "",
         isActive: true,
       });
-      setUseCustomCategoryGroup(false);
-      setCustomCategoryGroup("");
       setUseCustomSupplierCompany(false);
       setCustomSupplierCompany("");
       setIsCreateOpen(false);
@@ -372,17 +399,22 @@ export function StockManagementV2() {
   // ========== COMPUTED ==========
   const metrics = selected
     ? [
-        { label: "Total", value: selected.totalQty ?? 0, icon: Box, color: "text-blue-600" },
-        { label: "Available", value: selected.availableQty ?? 0, icon: CheckCircle2, color: "text-green-600" },
-        { label: "Reserved", value: selected.reservedQty?.toFixed(2) ?? 0, icon: AlertCircle, color: "text-orange-600" },
-        { label: "Damaged", value: selected.damagedQty ?? 0, icon: XCircle, color: "text-red-600" },
-        { label: "Cut", value: selected.cutQty ?? 0, icon: BarChart3, color: "text-purple-600" },
+        { label: "Total", value: formatQty(selected.totalQty), icon: Box, color: "text-blue-600" },
+        { label: "Available", value: formatQty(selected.availableQty), icon: CheckCircle2, color: "text-green-600" },
+        { label: "Reserved", value: formatQty(selected.reservedQty), icon: AlertCircle, color: "text-orange-600" },
+        { label: "Damaged", value: formatQty(selected.damagedQty), icon: XCircle, color: "text-red-600" },
+        { label: "Cut", value: formatQty(selected.cutQty), icon: BarChart3, color: "text-purple-600" },
       ]
     : [];
 
-  const sortedTransactions = React.useMemo(
+  const allTransactions = React.useMemo(
     () => [...transactions].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [transactions]
+  );
+
+  const stockTransactions = React.useMemo(
+    () => allTransactions.filter((tx) => tx.type === "addition" || tx.type === "deduction"),
+    [allTransactions]
   );
 
   // handle reserve stock
@@ -449,10 +481,10 @@ export function StockManagementV2() {
   }
 };
 
-const reservedTransactions = React.useMemo(
-  () => sortedTransactions.filter((tx) => tx.type === "reservation" || tx.type === "release"),
-  [sortedTransactions]
-);
+  const reservedTransactions = React.useMemo(
+    () => allTransactions.filter((tx) => tx.type === "reservation" || tx.type === "release"),
+    [allTransactions]
+  );
 
 
   // ==================== RENDER ====================
@@ -558,7 +590,7 @@ const reservedTransactions = React.useMemo(
                   </TabsTrigger>
                   <TabsTrigger value="reserved" className="gap-2">
                     <AlertCircle className="h-4 w-4" />
-                    Reserved ({selected.reservedQty?.toFixed(2) ?? 0})
+                    Reserved ({formatQty(selected.reservedQty)})
                   </TabsTrigger>
                   <TabsTrigger value="transactions" className="gap-2">
                     <History className="h-4 w-4" />
@@ -583,21 +615,59 @@ const reservedTransactions = React.useMemo(
                           <Package className="h-4 w-4" />
                           Classification
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div className="space-y-2">
-                            <Label>Category</Label>
-                            <Input
-                              value={selected.category || ""}
-                              onChange={(e) => setSelected((prev) => (prev ? { ...prev, category: e.target.value } : prev))}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Category Group</Label>
-                            <Input
-                              value={selected.categoryGroup || ""}
-                              onChange={(e) => setSelected((prev) => (prev ? { ...prev, categoryGroup: e.target.value } : prev))}
-                            />
-                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <Label>Category</Label>
+                              <Select
+                                value={resolveStockCategory(selected.category) || selected.category || "FABRIC"}
+                                onValueChange={(value) =>
+                                  setSelected((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          category: value,
+                                          categoryGroup: getStockSubcategories(value)[0] || "",
+                                        }
+                                      : prev
+                                  )
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select category" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {CATEGORY_OPTIONS.map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                      {option}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Category Group</Label>
+                              <Select
+                                value={resolveStockCategoryGroup(selected.categoryGroup, selected.category) || ""}
+                                onValueChange={(value) =>
+                                  setSelected((prev) =>
+                                    prev ? { ...prev, categoryGroup: value } : prev
+                                  )
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select group" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {getStockSubcategories(
+                                    resolveStockCategory(selected.category) || selected.category
+                                  ).map((option) => (
+                                    <SelectItem key={option} value={option}>
+                                      {option}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
                           <div className="space-y-2">
                             <Label>Unit</Label>
                             <Input
@@ -753,8 +823,8 @@ const reservedTransactions = React.useMemo(
                               </tr>
                             </thead>
                             <tbody>
-                              {sortedTransactions.length ? (
-                                sortedTransactions.map((tx, idx) => (
+                              {stockTransactions.length ? (
+                                stockTransactions.map((tx, idx) => (
                                   <tr
                                     key={tx.id || idx}
                                     className="border-b last:border-b-0 hover:bg-muted/30 transition-colors"
@@ -782,7 +852,7 @@ const reservedTransactions = React.useMemo(
                                     </td>
                                     <td className="px-4 py-3 text-right font-semibold">
                                       {tx.type === "addition" ? "+" : "-"}
-                                      {tx.quantityChange ?? 0}
+                                      {formatQty(tx.quantityChange ?? 0)}
                                     </td>
                                     <td className="px-4 py-3">
                                       <Badge variant="outline">{tx.unit || selected.unit || "-"}</Badge>
@@ -875,7 +945,7 @@ const reservedTransactions = React.useMemo(
                                 <p className="text-sm text-muted-foreground">Reserved</p>
                                 <AlertCircle className="h-5 w-5 text-orange-600" />
                               </div>
-                              <p className="text-3xl font-bold text-orange-600">{selected.reservedQty ?? 0}</p>
+                              <p className="text-3xl font-bold text-orange-600">{formatQty(selected.reservedQty)}</p>
                               <p className="text-xs text-muted-foreground mt-1">{selected.unit}</p>
                             </CardContent>
                           </Card>
@@ -885,7 +955,7 @@ const reservedTransactions = React.useMemo(
                                 <p className="text-sm text-muted-foreground">Available</p>
                                 <CheckCircle2 className="h-5 w-5 text-green-600" />
                               </div>
-                              <p className="text-3xl font-bold text-green-600">{selected.availableQty ?? 0}</p>
+                              <p className="text-3xl font-bold text-green-600">{formatQty(selected.availableQty)}</p>
                               <p className="text-xs text-muted-foreground mt-1">{selected.unit}</p>
                             </CardContent>
                           </Card>
@@ -895,7 +965,7 @@ const reservedTransactions = React.useMemo(
                                 <p className="text-sm text-muted-foreground">Total</p>
                                 <Box className="h-5 w-5 text-blue-600" />
                               </div>
-                              <p className="text-3xl font-bold text-blue-600">{selected.totalQty ?? 0}</p>
+                              <p className="text-3xl font-bold text-blue-600">{formatQty(selected.totalQty)}</p>
                               <p className="text-xs text-muted-foreground mt-1">{selected.unit}</p>
                             </CardContent>
                           </Card>
@@ -950,7 +1020,7 @@ const reservedTransactions = React.useMemo(
                                         </td>
                                         <td className="px-4 py-3 text-right font-semibold">
                                           {tx.type === "reservation" ? "-" : "+"}
-                                          {tx.quantityChange ?? 0}
+                                          {formatQty(tx.quantityChange ?? 0)}
                                         </td>
                                         <td className="px-4 py-3">
                                           {tx.orderId ? (
@@ -1042,11 +1112,11 @@ const reservedTransactions = React.useMemo(
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-muted-foreground">Available</p>
-                  <p className="text-lg font-bold">{selected?.availableQty ?? 0} {selected?.unit}</p>
+                  <p className="text-lg font-bold">{formatQty(selected?.availableQty)} {selected?.unit}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Total</p>
-                  <p className="text-lg font-bold">{selected?.totalQty ?? 0} {selected?.unit}</p>
+                  <p className="text-lg font-bold">{formatQty(selected?.totalQty)} {selected?.unit}</p>
                 </div>
               </div>
             </div>
@@ -1222,14 +1292,20 @@ const reservedTransactions = React.useMemo(
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="category">Category</Label>
-                  <Select
-                    value={draft.category}
-                    onValueChange={(value) => setDraft((prev) => ({ ...prev, category: value }))}
-                  >
-                    <SelectTrigger id="category">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
+                    <Select
+                      value={draft.category}
+                      onValueChange={(value) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          category: value,
+                          categoryGroup: getStockSubcategories(value)[0] || "",
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="category">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
                       {CATEGORY_OPTIONS.map((opt) => (
                         <SelectItem key={opt} value={opt}>
                           {opt}
@@ -1237,32 +1313,25 @@ const reservedTransactions = React.useMemo(
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Category Group</Label>
-                  <Combobox
-                    options={categoryGroupOptions}
-                    value={useCustomCategoryGroup ? "" : draft.categoryGroup}
-                    onSelect={(value) => {
-                      if (value === CATEGORY_GROUP_OTHER) {
-                        setUseCustomCategoryGroup(true);
-                        setDraft((prev) => ({ ...prev, categoryGroup: "" }));
-                      } else {
-                        setUseCustomCategoryGroup(false);
-                        setCustomCategoryGroup("");
-                        setDraft((prev) => ({ ...prev, categoryGroup: value }));
-                      }
-                    }}
-                    placeholder="Select group"
-                  />
-                  {useCustomCategoryGroup && (
-                    <Input
-                      placeholder="Enter new category group"
-                      value={customCategoryGroup}
-                      onChange={(e) => setCustomCategoryGroup(e.target.value)}
-                    />
-                  )}
-                </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Category Group</Label>
+                    <Select
+                      value={draft.categoryGroup}
+                      onValueChange={(value) => setDraft((prev) => ({ ...prev, categoryGroup: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select group" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getStockSubcategories(draft.category).map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 <div className="space-y-2">
                   <Label htmlFor="unit">Unit</Label>
                   <Select value={draft.unit} onValueChange={(value) => setDraft((prev) => ({ ...prev, unit: value }))}>
@@ -1528,15 +1597,15 @@ const reservedTransactions = React.useMemo(
                 <div className="grid grid-cols-3 gap-3 text-sm">
                   <div>
                     <p className="text-muted-foreground">Available</p>
-                    <p className="text-lg font-bold text-green-600">{selected?.availableQty ?? 0}</p>
+                    <p className="text-lg font-bold text-green-600">{formatQty(selected?.availableQty)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Reserved</p>
-                    <p className="text-lg font-bold text-orange-600">{(selected?.reservedQty?.toFixed(2) ?? 0)}</p>
+                    <p className="text-lg font-bold text-orange-600">{formatQty(selected?.reservedQty)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Total</p>
-                    <p className="text-lg font-bold">{selected?.totalQty ?? 0}</p>
+                    <p className="text-lg font-bold">{formatQty(selected?.totalQty)}</p>
                   </div>
                 </div>
               </div>

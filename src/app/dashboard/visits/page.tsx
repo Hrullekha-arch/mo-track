@@ -13,7 +13,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { collection, onSnapshot, query, doc, getDoc, collectionGroup, runTransaction, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { DealVisit, Customer, Deal, User, SlotId, SlotSelection, InstallerTracking } from "@/lib/types";
+import { DealVisit, Customer, Deal, User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format, formatDate } from "date-fns";
@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import Link from 'next/link';
 import { AssignInstallerDialog, SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Eye, Plus, User as UserIcon, Calendar, ChevronDown, Share2, Copy, PlayCircle, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX, Loader2, CloudDownloadIcon, Trash2 } from "lucide-react";
+import { Eye, User as ChevronDown, Share2, Copy, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX, Loader2, CloudDownloadIcon, Trash2, ArrowLeftRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -45,12 +45,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
-import { useRouter } from "next/navigation";
-import { getDealById, getMeasurementById } from "../customers/[customerId]/[dealId]/actions";
-import { getCustomerById } from "../customers/actions";
 import { Separator } from "@/components/ui/separator";
+import CompanyVisitDialog from "@/components/features/customer/CompanyVisitDialog";
 
 
     interface EnrichedDealVisit extends DealVisit {
@@ -648,6 +644,7 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
     installers: User[]
 
 }) {
+    const { toast } = useToast();
     const [dateFrom, setDateFrom] = React.useState<string>("");
     const [dateTo, setDateTo] = React.useState<string>("");
     const [typeFilter, setTypeFilter] = React.useState<string>("all");
@@ -662,6 +659,46 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
     const [confirmDelete, setConfirmDelete] = React.useState<EnrichedDealVisit | null>(null);
     const [confirmUnassign, setConfirmUnassign] = React.useState<EnrichedDealVisit | null>(null);
     const [isActionBusy, setIsActionBusy] = React.useState(false);
+    const [isSyncingSheet, setIsSyncingSheet] = React.useState(false);
+    const [companyVisitDialog, setCompanyVisitDialog] = React.useState(true);
+    const syncingRef = React.useRef(false);
+
+    const handleSyncSheet = React.useCallback(async (options?: { silent?: boolean }) => {
+        if (syncingRef.current) return;
+        syncingRef.current = true;
+        setIsSyncingSheet(true);
+        try {
+            const res = await fetch("/api/visits/syncVisitSheet", { method: "POST" });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data?.message || "Failed to sync visits.");
+            }
+            const synced = typeof data?.rows === "number" ? data.rows : 0;
+            if (!options?.silent) {
+                toast({
+                    title: "Visit sheet updated",
+                    description: synced ? `Synced ${synced} visit rows.` : "Sheet updated successfully.",
+                });
+            }
+        } catch (error: any) {
+            toast({
+                variant: "destructive",
+                title: "Sync failed",
+                description: error?.message || "Unable to sync visits to Google Sheet.",
+            });
+        } finally {
+            syncingRef.current = false;
+            setIsSyncingSheet(false);
+        }
+    }, [toast]);
+
+    React.useEffect(() => {
+        const interval = setInterval(() => {
+            if (document.visibilityState !== "visible") return;
+            handleSyncSheet({ silent: true });
+        }, 60_000);
+        return () => clearInterval(interval);
+    }, [handleSyncSheet]);
 
 
 
@@ -799,8 +836,42 @@ const previewUrl =
         <>
         <Card>
             <CardHeader>
-                <CardTitle>All Visits List</CardTitle>
-                <CardDescription>A comprehensive list of all scheduled visits.</CardDescription>
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                        <CardTitle>All Visits List</CardTitle>
+                        <CardDescription>A comprehensive list of all scheduled visits.</CardDescription>
+                    </div>
+                    <div className="flex gap-2 items-center justify-between">
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={handleSyncSheet}
+                        disabled={isSyncingSheet}
+                    >
+                        {isSyncingSheet ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                            <CalendarSync  className="mr-2 h-4 w-4" />
+                        )}
+                        Sync to Sheet
+                    </Button>
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setCompanyVisitDialog(true)}
+                        disabled={isSyncingSheet}
+                    >
+                        {isSyncingSheet ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                            <ArrowLeftRight className="mr-2 h-4 w-4" />
+                        )}
+                        Company Vist
+                    </Button>
+                    </div>
+                </div>
             </CardHeader>
             <CardContent>
                 <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-5">
@@ -856,6 +927,7 @@ const previewUrl =
                         </option>
                         ))}
                     </select>
+                    
                 </div>
                 <Table>
                     <TableHeader>
@@ -912,8 +984,8 @@ const previewUrl =
                                 </TableCell>
                                 <TableCell className="flex flex-col items-center gap-2">
                                     {renderVisitStatus(visit)}
-                                     {visit.status !== "completed" &&(              
-                                      <Badge variant="Outline" className="text-xs">
+                                     {visit.status !== "completed" && visit.typeOfVisit !== "measurement" &&(              
+                                      <Badge variant="outline" className="text-xs">
                                         { format(new Date(visit.dueDate || 0), 'dd MMM yyyy')}
                                       </Badge>
                                       )}
@@ -939,15 +1011,7 @@ const previewUrl =
                                             </Badge>
                                             </button>
                                         )}
-                                        {visit.status === "completed" && (
-                                            <Badge variant="secondary" className="text-xs items-center justify-center">
-                                            { format(new Date(visit.completedAt || 0), 'dd MMM yyyy')}<br />
-                                            { format(new Date(visit.completedAt || 0), 'HH:mm a')}
-                                            </Badge>
-                                        )}
-
                                         
-
                                     </TableCell>
 
 
@@ -1112,6 +1176,11 @@ const previewUrl =
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+        <CompanyVisitDialog
+                open={companyVisitDialog}
+                onOpenChange={setCompanyVisitDialog}
+                installers={installers}
+            />
         </>
     );
 }
@@ -1866,6 +1935,7 @@ if (loading) {
                 salesmen={users}
                 onSuccess={() => { /* onSnapshot will handle refresh */ }}
             />
+            
         </div>
     );
 }

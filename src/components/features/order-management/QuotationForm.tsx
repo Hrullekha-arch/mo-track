@@ -30,7 +30,6 @@ import { db } from "@/lib/firebase";
 // Re-using schemas and types from CreateQuotationDialog
 import { FormValues, itemDetailSchema, vasDetailSchema, ItemDetailValues } from './CreateQuotationDialog';
 
-
 const formSchema = z.object({
   company: z.string().optional(),
   store: z.string().min(1, "Store is required"),
@@ -72,9 +71,9 @@ export function QuotationForm({ deal, customer, cpds, onSuccess }: QuotationForm
             vasDetails: [],
             customerName: customer.name,
             billingName: customer.name,
-            billingAddress: customer.billingAddress?.line1 || customer.addressPinCode,
-            dealName: deal.title || deal.dealName,
-            representativeId: deal.assignedSalesPerson?.id || deal.representativeId,
+            billingAddress: customer.addressPinCode,
+            dealName: deal.dealName,
+            representativeId: deal.representativeId,
         },
     });
 
@@ -129,7 +128,6 @@ export function QuotationForm({ deal, customer, cpds, onSuccess }: QuotationForm
     };
 
 
-
     return (
         <FormProvider {...form}>
              <form className="space-y-6">
@@ -146,3 +144,4 @@ export function QuotationForm({ deal, customer, cpds, onSuccess }: QuotationForm
         </FormProvider>
     );
 }
+

@@ -13,7 +13,7 @@ import {
   useReactTable,
   RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowLeft, Search, Loader2, Calendar as CalendarIcon, Edit, Trash2 } from "lucide-react";
+import { ArrowLeft, Search, Loader2, Calendar as CalendarIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,13 +26,12 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
 import Link from 'next/link';
-import { getPendingPoItems, createPurchaseOrderAction, PendingPoItem, PoCreationData, getQuotationDialogData } from "./actions";
+import { getPendingPoItems, createPurchaseOrderAction, PendingPoItem, PoCreationData, getQuotationDialogData, deletePurchaseOrderAction } from "./actions";
 import { useToast } from "@/hooks/use-toast";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,6 +40,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
 import { QuotationDetailDialog } from "@/components/features/order-management/QuotationDetailDialog";
 import { getSalesmen } from "@/app/dashboard/customers/actions";
 import { Quotation, Deal, User, Cpd } from "@/lib/types";
@@ -317,12 +317,16 @@ export default function PendingPOPage() {
   const [loading, setLoading] = React.useState(true);
   const [isVerificationOpen, setIsVerificationOpen] = React.useState(false);
   const [isCreatePoOpen, setIsCreatePoOpen] = React.useState(false);
+  const [isDeletePoOpen, setIsDeletePoOpen] = React.useState(false);
   const [isNewVendor, setIsNewVendor] = React.useState(false);
+  const [deletePoNumber, setDeletePoNumber] = React.useState("");
+  const [isDeletingPo, setIsDeletingPo] = React.useState(false);
   const [globalFilter, setGlobalFilter] = React.useState('');
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
   
   const { toast } = useToast();
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const [selectedQuotation, setSelectedQuotation] = React.useState<Quotation | null>(null);
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
@@ -361,6 +365,37 @@ export default function PendingPOPage() {
       setIsVerificationOpen(false);
       setIsCreatePoOpen(true);
   }
+
+  const handleDeletePo = React.useCallback(async () => {
+    const poNumber = deletePoNumber.trim();
+    if (!poNumber) {
+      toast({ variant: "destructive", title: "Missing PO Number", description: "Enter a PO number to delete." });
+      return;
+    }
+    if (!user?.id || !isAdmin) {
+      toast({ variant: "destructive", title: "Unauthorized", description: "Only admin can delete a PO." });
+      return;
+    }
+
+    setIsDeletingPo(true);
+    try {
+      const result = await deletePurchaseOrderAction(poNumber, { id: user.id, name: user.name });
+      if (result.success) {
+        toast({ title: "PO Deleted", description: result.message });
+        setIsDeletePoOpen(false);
+        setDeletePoNumber("");
+        await fetchData();
+        setRowSelection({});
+      } else {
+        toast({ variant: "destructive", title: "Delete Failed", description: result.message });
+      }
+    } catch (error: any) {
+      console.error("Failed to delete PO:", error);
+      toast({ variant: "destructive", title: "Delete Failed", description: error?.message || "Something went wrong." });
+    } finally {
+      setIsDeletingPo(false);
+    }
+  }, [deletePoNumber, fetchData, isAdmin, toast, user]);
 
   const handleQuotationClick = async (dealId: string, quotationNo: string) => {
     if (!dealId || !quotationNo) return;
@@ -494,6 +529,16 @@ export default function PendingPOPage() {
                             </TooltipContent>
                         )}
                     </Tooltip>
+                    {isAdmin && (
+                      <Button
+                        variant="destructive"
+                        className="ml-2"
+                        onClick={() => setIsDeletePoOpen(true)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete PO
+                      </Button>
+                    )}
                 </div>
 
                 <div className="rounded-md border">
@@ -571,6 +616,51 @@ export default function PendingPOPage() {
         salesmen={salesmen}
         cpds={cpds}
     />
+    <Dialog
+      open={isDeletePoOpen}
+      onOpenChange={(open) => {
+        setIsDeletePoOpen(open);
+        if (!open && !isDeletingPo) setDeletePoNumber("");
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete Purchase Order</DialogTitle>
+          <DialogDescription>
+            Admin only. This will remove the PO from linked requests and delete its inbound document.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="delete-po-number">PO Number</Label>
+          <Input
+            id="delete-po-number"
+            value={deletePoNumber}
+            onChange={(e) => setDeletePoNumber(e.target.value)}
+            placeholder="Enter PO number"
+            disabled={isDeletingPo}
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setIsDeletePoOpen(false)}
+            disabled={isDeletingPo}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={handleDeletePo}
+            disabled={isDeletingPo || !deletePoNumber.trim()}
+          >
+            {isDeletingPo && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Confirm Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </TooltipProvider>
     </>
   )

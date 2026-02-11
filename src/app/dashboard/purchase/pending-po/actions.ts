@@ -299,6 +299,125 @@ export async function createPurchaseOrderAction(
     }
 }
 
+export async function deletePurchaseOrderAction(
+  poNumberInput: string,
+  actor: { id: string; name: string }
+): Promise<{ success: boolean; message: string }> {
+  const poNumber = String(poNumberInput || "").trim();
+  if (!poNumber) {
+    return { success: false, message: "PO number is required." };
+  }
+
+  if (!actor?.id) {
+    return { success: false, message: "Missing user context." };
+  }
+
+  try {
+    const actorSnap = await adminDb.collection("users").doc(actor.id).get();
+    const actorRole = String(actorSnap.data()?.role || "").toLowerCase();
+    if (actorRole !== "admin") {
+      return { success: false, message: "Only admin can delete a PO." };
+    }
+
+    const inboundRef = adminDb.collection("inbounds").doc(poNumber);
+    const inboundSnap = await inboundRef.get();
+    const inboundData = inboundSnap.exists ? (inboundSnap.data() as any) : null;
+    const inboundItems = Array.isArray(inboundData?.items) ? inboundData.items : [];
+
+    const hasInboundProgress =
+      inboundData?.status === "Completed" ||
+      inboundItems.some((item: any) => {
+        const receivedQty = Number(item?.receivedQty ?? 0);
+        const milestones = Array.isArray(item?.inboundMilestones) ? item.inboundMilestones : [];
+        const hasCompletedMilestone = milestones.some((m: any) => m?.status === "completed");
+        return receivedQty > 0 || hasCompletedMilestone;
+      });
+
+    if (hasInboundProgress) {
+      return {
+        success: false,
+        message: "Cannot delete this PO because inbound receiving has already started.",
+      };
+    }
+
+    const requestSnap = await adminDb
+      .collection("purchaseRequests")
+      .where("status", "in", ["Approved", "PO Generated", "Completed"])
+      .get();
+
+    const affectedRequests: {
+      ref: any;
+      fabricDetails: any[];
+      status: PurchaseRequest["status"];
+      clearPoMilestones: boolean;
+      clearPoFields: boolean;
+    }[] = [];
+
+    requestSnap.forEach((docSnap) => {
+      const request = docSnap.data() as PurchaseRequest;
+      const originalFabric = Array.isArray(request.fabricDetails) ? request.fabricDetails : [];
+      let touched = false;
+
+      const nextFabric = originalFabric.map((line: any) => {
+        if (String(line?.poNumber || "") !== poNumber) return line;
+        touched = true;
+        const { poNumber: _poNumber, expectedDeliveryDate: _expectedDeliveryDate, ...rest } = line || {};
+        return rest;
+      });
+
+      if (!touched) return;
+
+      const hasPoLeft = nextFabric.some((line: any) => !!line?.poNumber);
+      affectedRequests.push({
+        ref: docSnap.ref,
+        fabricDetails: nextFabric,
+        status: hasPoLeft ? "PO Generated" : "Approved",
+        clearPoMilestones: !hasPoLeft,
+        clearPoFields: !hasPoLeft,
+      });
+    });
+
+    if (affectedRequests.length === 0 && !inboundSnap.exists) {
+      return { success: false, message: `PO ${poNumber} not found.` };
+    }
+
+    const batch = adminDb.batch();
+
+    for (const req of affectedRequests) {
+      const payload: Record<string, any> = {
+        fabricDetails: req.fabricDetails,
+        status: req.status,
+      };
+
+      if (req.clearPoMilestones) {
+        payload.poMilestones = FieldValue.delete();
+      }
+      if (req.clearPoFields) {
+        payload.vendor = FieldValue.delete();
+        payload.courier = FieldValue.delete();
+        payload.mode = FieldValue.delete();
+        payload.promiseDeliveryDate = FieldValue.delete();
+      }
+
+      batch.update(req.ref, payload);
+    }
+
+    if (inboundSnap.exists) {
+      batch.delete(inboundRef);
+    }
+
+    await batch.commit();
+
+    return {
+      success: true,
+      message: `PO ${poNumber} deleted successfully. Updated ${affectedRequests.length} request(s).`,
+    };
+  } catch (error: any) {
+    console.error("Error deleting purchase order:", error);
+    return { success: false, message: error?.message || "Failed to delete PO." };
+  }
+}
+
 
 export async function getQuotationDialogData(
   dealId: string,

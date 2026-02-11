@@ -24,6 +24,7 @@ import Hardwareform from "./Hardwareform";
 import { VasForm } from "./VasForm";
 import { Html5Qrcode } from "html5-qrcode";
 import { Label } from "@/components/ui/label";
+import { getStockSubcategories } from "@/lib/stock-category-rules";
 
 const blindEntrySchema = z.object({
   id: z.string(),
@@ -344,6 +345,7 @@ export function ProductForm({
   const [stagedItems, setStagedItems] = useState<any[]>([]);
   const [activeMainSection, setActiveMainSection] = useState("main");
   const [currentProducts, setCurrentProducts] = useState<DealProduct[]>(initialProducts || []);
+  const [fabricCategoryGroup, setFabricCategoryGroup] = useState("MAIN");
   
   const [internalBlindDialogState, setInternalBlindDialogState] = useState<{ isOpen: boolean; roomName: string | null; }>({ isOpen: false, roomName: null });
 
@@ -511,14 +513,21 @@ const handleStageItem = () => {
       ? "flooring"
       : "other";
 
-  setStagedItems((prev) => [
-    ...prev,
-    {
-      ...newProduct,
-      productSource: sourceTag,
-      flooringType: selectedFlooringType || newProduct.Type || null,
-    },
-  ]);
+    const isFabric = activeMainSection === "fabric";
+    setStagedItems((prev) => [
+      ...prev,
+      {
+        ...newProduct,
+        productSource: sourceTag,
+        flooringType: selectedFlooringType || newProduct.Type || null,
+        ...(isFabric
+          ? {
+              productCategory: "FABRIC",
+              subCategory: fabricCategoryGroup,
+            }
+          : {}),
+      },
+    ]);
 
   form.reset({
     ...form.getValues(),
@@ -1020,6 +1029,24 @@ const handleStageItem = () => {
                     <Separator />
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <FormItem>
+                        <FormLabel>Fabric Category</FormLabel>
+                        <Select
+                          value={fabricCategoryGroup}
+                          onValueChange={(value) => setFabricCategoryGroup(value)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getStockSubcategories("FABRIC").map((option) => (
+                              <SelectItem key={option} value={option}>
+                                {option}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
                       <FormField
                         control={form.control}
                         name="newProduct.collectionBrand"

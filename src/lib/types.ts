@@ -632,13 +632,15 @@ export interface StockTransaction {
   stockId: string; // BCN
   lengthId?: string; // The specific length/roll document ID
   bcn: string;
-  type: 'addition' | 'deduction';
+  type: 'addition' | 'deduction' | 'reservation' | 'release';
   quantityChange: number;
   poNumber?: string;
   batchNo?: string;
   warehouseId?: string;
   rack?: string;
   orderId?: string;
+  customerName?: string;
+  notes?: string;
   lengths?: number[];
   lastLength?: number;
   createdAt: string; // ISO string

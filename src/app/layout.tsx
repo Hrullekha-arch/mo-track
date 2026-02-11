@@ -8,6 +8,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from 'next-themes';
 import { initializeFirebase, FirebaseClientProvider } from '@/firebase';
 import { FcmProvider } from '@/components/FcmProvider';
+import { ReduxProvider } from '@/store/ReduxProvider';
 
 export default function RootLayout({
   children,
@@ -27,19 +28,21 @@ export default function RootLayout({
      crossorigin="anonymous"></script>
       </head>
       <body className="font-body antialiased">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="light"
-          disableTransitionOnChange
-        >
-          <FirebaseClientProvider firebaseApp={app} auth={auth} firestore={firestore}>
-            <AuthProvider>
-              <FcmProvider />
-              {children}
-              <Toaster />
-            </AuthProvider>
-          </FirebaseClientProvider>
-        </ThemeProvider>
+        <ReduxProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="light"
+            disableTransitionOnChange
+          >
+            <FirebaseClientProvider firebaseApp={app} auth={auth} firestore={firestore}>
+              <AuthProvider>
+                <FcmProvider />
+                {children}
+                <Toaster />
+              </AuthProvider>
+            </FirebaseClientProvider>
+          </ThemeProvider>
+        </ReduxProvider>
       </body>
     </html>
   );

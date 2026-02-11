@@ -19,58 +19,43 @@ import { Label } from "@/components/ui/label";
 import { FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { roomOptions } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { getStockSubcategories } from "@/lib/stock-category-rules";
 
 const normalizeText = (value: unknown) => String(value ?? "").toLowerCase();
 
-const matchesStockSection = (stock: any, section: string) => {
-  if (!stock || !section) return true;
-  const category = normalizeText(stock.category);
-  const type = normalizeText(stock.type);
-  const group = normalizeText(stock.categoryGroup);
-  const name = normalizeText(stock.name || stock.itemName);
+const matchesStockSelection = (stock: any, category?: string, subCategory?: string) => {
+  if (!stock || !category) return true;
+  const categoryKey = normalizeText(category);
+  const subKey = normalizeText(subCategory || "");
+  const fields = [
+    normalizeText(stock.category),
+    normalizeText(stock.type),
+    normalizeText(stock.categoryGroup),
+    normalizeText(stock.name || stock.itemName),
+  ];
 
-  const matchesAny = (value: string, terms: string[]) =>
-    terms.some((term) => value === term || value.includes(term));
+  const matches = (token: string) =>
+    token && fields.some((value) => value === token || value.includes(token));
 
-  if (section === "accessories") {
-    const terms = ["accessory", "accessories"];
-    return (
-      matchesAny(category, terms) ||
-      matchesAny(type, terms) ||
-      matchesAny(group, terms) ||
-      matchesAny(name, terms)
-    );
-  }
-  if (section === "hardware") {
-    const terms = ["hardware", "channel", "rod", "foam", "lilan", "loose"];
-    return (
-      matchesAny(category, terms) ||
-      matchesAny(type, terms) ||
-      matchesAny(group, terms) ||
-      matchesAny(name, terms)
-    );
-  }
-  return true;
+  return matches(categoryKey) || matches(subKey);
 };
 
 export default function HardwareTopLevel({ onSaveHardware, form }) {
   const { control } = form;
 
   const mainCategories = [
-    { id: 1, name: "Foam" },
-    { id: 2, name: "Loose Material" },
-    { id: 3, name: "Rod & Channel" },
-    { id: 4, name: "Lilan" },
-    { id: 5, name: "carpet" },
-    { id: 6, name: "Accessories" },
+    "HARDWARE",
+    "HARDWARE_ACCESSORIES",
+    "LINEN",
+    "FOAM & LOOSE MATERIAL",
   ];
 
   const [open, setOpen] = useState(false);
   const [bcnOptions, setBcnOptions] = useState<ComboboxOption[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
   const [dialogTitle, setDialogTitle] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [stockFilterSection, setStockFilterSection] = useState("hardware");
   const [selectedItemValue, setSelectedItemValue] = useState<string | null>(null);
   const [selectedItemName, setSelectedItemName] = useState<string | null>(null);
   const [rate, setRate] = useState("");
@@ -89,8 +74,8 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
 
   const resetFlowState = () => {
     setSelectedCategory(null);
+    setSelectedSubCategory(null);
     setDialogTitle("");
-    setStockFilterSection("hardware");
     resetItemFields();
   };
 
@@ -104,7 +89,7 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
       try {
         const results = await searchStockByBcn(query);
         const filtered = results.filter((stock) =>
-          matchesStockSection(stock, stockFilterSection)
+          matchesStockSelection(stock, selectedCategory || undefined, selectedSubCategory || undefined)
         );
         const options = filtered.map((stock) => ({
           value: stock.bcn || stock.id,
@@ -119,7 +104,7 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
         setIsSearching(false);
       }
     },
-    [toast, stockFilterSection]
+    [toast, selectedCategory, selectedSubCategory]
   );
 
   const handleBcnSelect = (value: string) => {
@@ -173,7 +158,7 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
     const payload = {
       productType: "Hardware",
       productCategory: selectedCategory || "",
-      subCategory: selectedItemName || selectedCategory || "",
+      subCategory: selectedSubCategory || selectedItemName || selectedCategory || "",
       bcn: selectedItemValue || null,
       itemName: selectedItemName || null,
       salesDescription:
@@ -208,11 +193,10 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
   };
 
   const handleCategoryClick = (category: string) => {
+    const subCategories = getStockSubcategories(category);
     setSelectedCategory(category);
+    setSelectedSubCategory(subCategories[0] || null);
     setDialogTitle(`${category} Details`);
-    setStockFilterSection(
-      category === "Accessories" ? "accessories" : "hardware"
-    );
     setOpen(true);
   };
 
@@ -233,12 +217,12 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
       <div className="rounded-xl grid grid-cols-2 gap-3">
         {mainCategories.map((cat) => (
           <Button
-            key={cat.id}
+            key={cat}
             variant="outline"
             type="button"
-            onClick={() => handleCategoryClick(cat.name)}
+            onClick={() => handleCategoryClick(cat)}
           >
-            {cat.name}
+            {cat}
           </Button>
         ))}
       </div>
@@ -254,6 +238,24 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
         <DialogContent className="max-w-[400px]">
           <DialogHeader>
             <DialogTitle>{dialogTitle}</DialogTitle>
+            {selectedCategory && getStockSubcategories(selectedCategory).length > 0 && (
+              <div className="space-y-2">
+                <Label>Sub Category</Label>
+                <div className="flex flex-wrap gap-2">
+                  {getStockSubcategories(selectedCategory).map((sub) => (
+                    <Button
+                      key={sub}
+                      type="button"
+                      variant={selectedSubCategory === sub ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedSubCategory(sub)}
+                    >
+                      {sub}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
             <FormField
               control={form.control}
               name="room"

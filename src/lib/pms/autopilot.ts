@@ -1,4 +1,5 @@
 // /src/lib/pms/autopilot.ts
+import { getWorkingSchedule, WorkingHoursConfig } from "./working-hours";
 // ✅ FIXED: No overlapping across orders (machine/person busy seeded from ALL plans)
 // ✅ Chained steps inside group (Step-2 starts after Step-1 ends)
 // ✅ Respects machine/person busy + downtime
@@ -13,14 +14,10 @@ export type AutopilotArgs = {
   downtimes: any[];
   orderPriorityMap?: Record<string, number | undefined>;
   now: string; // ISO
+  workingHours?: WorkingHoursConfig;
 };
 
 const normalize = (v?: string) => String(v ?? "").trim().toLowerCase();
-
-const addMinutes = (iso: string, mins: number) => {
-  const t = new Date(iso).getTime();
-  return new Date(t + mins * 60_000).toISOString();
-};
 
 const maxIso = (...values: Array<string | undefined | null>) => {
   const valid = values.filter(Boolean) as string[];
@@ -28,28 +25,28 @@ const maxIso = (...values: Array<string | undefined | null>) => {
   return new Date(Math.max(...valid.map((d) => new Date(d).getTime()))).toISOString();
 };
 
-function applyDowntime(
+const overlaps = (startIso: string, endIso: string, block: { from: string; to: string }) => {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const from = new Date(block.from);
+  const to = new Date(block.to);
+  return start < to && end > from;
+};
+
+const buildScheduleWithDowntime = (
   startIso: string,
   durationMins: number,
-  blocks: Array<{ from: string; to: string }>
-) {
-  let start = new Date(startIso);
-
+  blocks: Array<{ from: string; to: string }>,
+  workingHours?: WorkingHoursConfig
+) => {
+  let candidate = startIso;
   while (true) {
-    const end = new Date(start.getTime() + durationMins * 60_000);
-
-    const conflict = blocks.find((b) => {
-      const from = new Date(b.from);
-      const to = new Date(b.to);
-      return start < to && end > from; // overlap
-    });
-
-    if (!conflict) break;
-    start = new Date(conflict.to); // push start to downtime end
+    const schedule = getWorkingSchedule(candidate, durationMins, workingHours);
+    const conflict = blocks.find((b) => overlaps(schedule.start, schedule.end, b));
+    if (!conflict) return schedule;
+    candidate = conflict.to;
   }
-
-  return start.toISOString();
-}
+};
 
 function pickLatestPlanByJobId(plans: any[]) {
   const map = new Map<string, any>();
@@ -116,6 +113,7 @@ export function runAutopilot(args: AutopilotArgs) {
     downtimes,
     orderPriorityMap = {},
     now,
+    workingHours,
   } = args;
 
   const productById = new Map((products || []).map((p: any) => [p.id, p]));
@@ -234,23 +232,29 @@ export function runAutopilot(args: AutopilotArgs) {
         | { machineId: string; personId: string; start: string; end: string }
         | null = null;
 
-      for (const pair of eligiblePairs) {
-        const busyM = machineBusyUntil.get(pair.machineId);
-        const busyP = personBusyUntil.get(pair.personId);
+        for (const pair of eligiblePairs) {
+          const busyM = machineBusyUntil.get(pair.machineId);
+          const busyP = personBusyUntil.get(pair.personId);
 
-        // ✅ CRITICAL: start must be >= anchor AND >= machine/person availability
-        let start = maxIso(anchor, busyM, busyP);
+          // ✅ CRITICAL: start must be >= anchor AND >= machine/person availability
+          const baseStart = maxIso(anchor, busyM, busyP);
 
-        // ✅ apply downtime
-        const blocks = downtimeByMachine.get(pair.machineId) || [];
-        start = applyDowntime(start, required, blocks);
+          // ✅ apply downtime + working hours window
+          const blocks = downtimeByMachine.get(pair.machineId) || [];
+          const schedule = buildScheduleWithDowntime(
+            baseStart,
+            required,
+            blocks,
+            workingHours
+          );
 
-        const end = addMinutes(start, required);
+          const start = schedule.start;
+          const end = schedule.end;
 
-        if (!best || new Date(start).getTime() < new Date(best.start).getTime()) {
-          best = { ...pair, start, end };
+          if (!best || new Date(start).getTime() < new Date(best.start).getTime()) {
+            best = { ...pair, start, end };
+          }
         }
-      }
 
       if (!best) continue;
 

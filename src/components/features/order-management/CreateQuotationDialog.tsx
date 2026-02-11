@@ -1005,7 +1005,16 @@ export function CreateQuotationDialog({
           const originalMrp = item.mrp != null ? Number(item.mrp) : effectiveRate;
           
           let description = item.salesDescription || item.collectionBrand;
-          if (item.productType === "Hardware" || item.productType === "VAS") {
+          if (item.productType === "Hardware") {
+            const fallback =
+              item.subCategory ? `${item.productCategory} → ${item.subCategory}` : item.productCategory;
+            description =
+              item.itemName ||
+              stock?.itemName ||
+              item.salesDescription ||
+              fallback ||
+              item.collectionBrand;
+          } else if (item.productType === "VAS") {
             description = item.subCategory ? `${item.productCategory} → ${item.subCategory}` : item.productCategory;
           }
   
