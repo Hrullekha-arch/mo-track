@@ -25,29 +25,6 @@ const stripUndefined = <T extends Record<string, any>>(value: T): T =>
     Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined)
   ) as T;
 
-export async function getStockData(): Promise<Stock[]> {
-    try {
-        const stockSnapshot = await adminDb.collection('stocks').get();
-        if (stockSnapshot.empty) {
-            return [];
-        }
-        const stockData = stockSnapshot.docs.map(doc => {
-            const data = doc.data();
-            // Ensure lastUpdatedAt is a string, defaulting if necessary
-            const lastUpdatedAt = data.lastUpdatedAt ? new Date(data.lastUpdatedAt).toISOString() : new Date().toISOString();
-            return {
-                id: doc.id,
-                ...data,
-                lastUpdatedAt,
-            } as Stock;
-        });
-        return JSON.parse(JSON.stringify(stockData));
-    } catch (error) {
-        console.error("Error fetching stock data from server:", error);
-        return [];
-    }
-}
-
 export async function getStockById(id: string): Promise<Stock | null> {
     try {
         const docRef = adminDb.collection("stocks").doc(id);
@@ -732,81 +709,91 @@ export async function importStockData(
 
 
 export async function searchStockByBcn(query: string): Promise<Stock[]> {
-      const trimmed = String(query ?? "").trim();
-    if (!trimmed || trimmed.length < 2) {
-        return [];
+  const trimmed = String(query ?? "").trim();
+  if (!trimmed || trimmed.length < 2) return [];
+
+  try {
+    const stockRef = adminDb.collection("stocks");
+
+    const normalizedQuery = normalizeBcn(trimmed);
+    const digitQuery = extractBcnDigits(trimmed);
+
+    const hasLetters = /[a-zA-Z]/.test(trimmed);
+    const hasNumbers = /\d/.test(trimmed);
+
+    const resultsMap = new Map<string, Stock>();
+
+    const addDocs = (docs: any[]) => {
+      docs.forEach((doc) => {
+        if (!resultsMap.has(doc.id)) {
+          resultsMap.set(doc.id, {
+            id: doc.id,
+            ...doc.data(),
+          } as Stock);
+        }
+      });
+    };
+
+    console.log(
+      `Search: "${trimmed}" | Letters: ${hasLetters} | Numbers: ${hasNumbers}`
+    );
+
+    // 🔥 CASE 1: Alphabet → Search itemNameTokens FIRST
+    if (hasLetters) {
+      const tokenQuery = trimmed
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "")
+        .trim();
+
+      if (tokenQuery.length >= 2) {
+        const nameSnap = await stockRef
+          .where("itemNameTokens", "array-contains", tokenQuery)
+          .limit(20)
+          .get();
+
+        addDocs(nameSnap.docs);
+
+        // If we already have results, return immediately
+        if (resultsMap.size >= 20) {
+          return Array.from(resultsMap.values()).slice(0, 20);
+        }
+      }
     }
 
-    try {
-        const stockRef = adminDb.collection('stocks');
-        const normalizedQuery = normalizeBcn(trimmed);
-        const digitQuery = extractBcnDigits(trimmed);
-        const resultsMap = new Map<string, Stock>();
+    // 🔥 CASE 2: Numbers → Search BCN FIRST
+    if (hasNumbers) {
+      if (digitQuery.length >= 2) {
+        const digitsSnap = await stockRef
+          .where("bcnDigits", ">=", digitQuery)
+          .where("bcnDigits", "<=", digitQuery + "\uf8ff")
+          .limit(20)
+          .get();
 
-        console.log(`Searching stock by BCN: "${query}" (normalized: "${normalizedQuery}", digits: "${digitQuery}")`);
+        addDocs(digitsSnap.docs);
 
-        const addDocs = (docs: any[]) => {
-          docs.forEach(doc => {
-            resultsMap.set(doc.id, { id: doc.id, ...doc.data() } as Stock);
-          });
-        };
-
-        const bcnSnap = await stockRef
-            .where('bcn', '>=', trimmed)
-            .where('bcn', '<=', trimmed + '\uf8ff')
-            .limit(20)
-            .get();
-        addDocs(bcnSnap.docs);
-
-        if (digitQuery.length >= 2) {
-            const digitsSnap = await stockRef
-                .where('bcnDigits', '>=', digitQuery)
-                .where('bcnDigits', '<=', digitQuery + '\uf8ff')
-                .limit(20)
-                .get();
-            addDocs(digitsSnap.docs);
+        if (resultsMap.size >= 20) {
+          return Array.from(resultsMap.values()).slice(0, 20);
         }
-
-        if (trimmed.length >= 2) {
-          const tokenQuery = trimmed
-          .toLowerCase()
-          .replace(/[^a-z0-9]/g, '')
-          .trim();
-          console.log(`Searching by itemName token: "${tokenQuery}"`);
-
-          const nameSnap = await stockRef
-            .where("itemNameTokens", "array-contains", tokenQuery)
-            .limit(20)
-            .get();
-
-          console.log(`Found ${nameSnap.size} results for token query.`);
-          addDocs(nameSnap.docs);
-        }
-
-
-        if (resultsMap.size === 0 && normalizedQuery.length >= 4) {
-            const scanSnap = await stockRef.get();
-            scanSnap.docs.forEach(doc => {
-                const data = doc.data();
-                const bcnValue = String(data.bcn || doc.id || "");
-                const nameValue = String(data.name || data.itemName || "");
-                const bcnNormalized = normalizeBcn(bcnValue);
-                const bcnDigits = extractBcnDigits(bcnValue);
-                const matchesNormalized = normalizedQuery && bcnNormalized.includes(normalizedQuery);
-                const matchesDigits = digitQuery && bcnDigits.includes(digitQuery);
-                const matchesName = normalizedQuery && normalizeBcn(nameValue).includes(normalizedQuery);
-                if (matchesNormalized || matchesDigits || matchesName) {
-                    resultsMap.set(doc.id, { id: doc.id, ...data } as Stock);
-                }
-            });
-        }
-
-        return JSON.parse(JSON.stringify(Array.from(resultsMap.values()).slice(0, 20)));
-    } catch (error) {
-        console.error("Error searching stock by BCN:", error);
-        return [];
+      }
     }
+
+    // 🔥 Fallback: BCN Prefix search
+    const bcnSnap = await stockRef
+      .where("bcn", ">=", trimmed)
+      .where("bcn", "<=", trimmed + "\uf8ff")
+      .limit(20)
+      .get();
+
+    addDocs(bcnSnap.docs);
+
+    return Array.from(resultsMap.values()).slice(0, 20);
+
+  } catch (error) {
+    console.error("Error searching stock:", error);
+    return [];
+  }
 }
+
 
 //=======================single stock search
 export async function getStockDetailsForPendingItem(bcnOrId: string) {

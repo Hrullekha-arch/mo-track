@@ -3,13 +3,8 @@
 import * as React from "react";
 import {
   ColumnDef,
-  ColumnFiltersState,
-  SortingState,
   flexRender,
   getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { ArrowUpDown, Download, Loader2, Upload } from "lucide-react";
@@ -31,38 +26,23 @@ import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { importStockData } from "@/app/dashboard/inventory/actions";
 
-/**
- * Updated Inventory Row Type (matches latest headers)
- * If you already updated Stock type in "@/lib/types", you can remove this and use Stock.
- */
 export type InventoryItem = {
   id?: string;
   bcn: string;
-  productId?: string;
-  bcnDigits?: string;
   name?: string;
-  itemName?: string;
   category?: string;
   categoryGroup?: string;
-  isService?: boolean;
   unit?: string;
-  verticalRepeatCms?: number | string;
-  horizontalRepeatCms?: number | string;
-  costPriceRs?: number;
-  rrpWithGstRs?: number;
-  hsnOrSac?: string;
-  gstPercent?: number;
-  supplierCompanyName?: string;
-  supplierCollectionName?: string;
-  supplierCollectionCode?: string;
   totalQty?: number;
   availableQty?: number;
   reservedQty?: number;
   damagedQty?: number;
   cutQty?: number;
+  supplierCompanyName?: string;
+  rrpWithGstRs?: number;
+  gstPercent?: number;
+  hsnOrSac?: string;
   isActive?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
 };
 
 const money = (v: any) => {
@@ -77,14 +57,19 @@ const num = (v: any) => {
   return n.toLocaleString("en-IN");
 };
 
-export function StockTableClient({ initialData }: { initialData: InventoryItem[] }) {
-  const withNames = initialData.map((item) => ({
-    ...item,
-    name: item.name || item.itemName || "",
-  }));
-  const [stock, setStock] = React.useState<InventoryItem[]>(withNames);
-  const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
+export function StockTableClient({
+  initialData,
+  initialLastDocId,
+  totalCount,
+}: {
+  initialData: InventoryItem[];
+  initialLastDocId: string | null;
+  totalCount: number;
+}) {
+  const [data, setData] = React.useState(initialData);
+  const [lastDocId, setLastDocId] =
+    React.useState<string | null>(initialLastDocId);
+  const [loadingMore, setLoadingMore] = React.useState(false);
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [isImporting, setIsImporting] = React.useState(false);
 
@@ -94,15 +79,108 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
 
   const isAuthorized = role === "admin";
 
-  React.useEffect(() => {
-    setStock(
-      initialData.map((item) => ({
-        ...item,
-        name: item.name || item.itemName || "",
-      }))
+  // 🔎 simple client filter (optional small filtering)
+  const filteredData = React.useMemo(() => {
+    if (!globalFilter) return data;
+    return data.filter(
+      (item) =>
+        item.bcn?.toLowerCase().includes(globalFilter.toLowerCase()) ||
+        item.name?.toLowerCase().includes(globalFilter.toLowerCase())
     );
-  }, [initialData]);
+  }, [data, globalFilter]);
 
+  const columns: ColumnDef<InventoryItem>[] = [
+    { accessorKey: "bcn", header: "BCN" },
+    {
+      accessorKey: "name",
+      header: "Item Name",
+      cell: ({ row }) => (
+        <div className="font-medium">{row.getValue("name") || "-"}</div>
+      ),
+    },
+    {
+      accessorKey: "category",
+      header: "Category",
+      cell: ({ row }) => {
+        const v = row.getValue("category") as string;
+        return v ? (
+          <Badge variant="secondary" className="uppercase">
+            {v}
+          </Badge>
+        ) : (
+          "-"
+        );
+      },
+    },
+    { accessorKey: "unit", header: "Unit" },
+    { accessorKey: "totalQty", header: "Total Qty", cell: ({ row }) => num(row.getValue("totalQty")) },
+    { accessorKey: "availableQty", header: "Available", cell: ({ row }) => num(row.getValue("availableQty")) },
+    { accessorKey: "reservedQty", header: "Reserved", cell: ({ row }) => num(row.getValue("reservedQty")) },
+    { accessorKey: "damagedQty", header: "Damaged", cell: ({ row }) => num(row.getValue("damagedQty")) },
+    { accessorKey: "cutQty", header: "Cut", cell: ({ row }) => num(row.getValue("cutQty")) },
+    { accessorKey: "supplierCompanyName", header: "Supplier" },
+    { accessorKey: "rrpWithGstRs", header: "RRP (Rs)", cell: ({ row }) => money(row.getValue("rrpWithGstRs")) },
+    { accessorKey: "gstPercent", header: "GST %", cell: ({ row }) => num(row.getValue("gstPercent")) },
+    { accessorKey: "hsnOrSac", header: "HSN/SAC" },
+    {
+      accessorKey: "isActive",
+      header: "Active",
+      cell: ({ row }) => {
+        const active = row.getValue("isActive");
+        return (
+          <Badge variant={active ? "default" : "secondary"}>
+            {active ? "Active" : "Inactive"}
+          </Badge>
+        );
+      },
+    },
+  ];
+
+  const table = useReactTable({
+    data: filteredData,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  // 📥 LOAD MORE (Server Pagination)
+  const loadMore = async () => {
+    if (!lastDocId) return;
+
+    setLoadingMore(true);
+
+    try {
+      const res = await fetch(`/api/stocks?lastDocId=${lastDocId}`);
+      const result = await res.json();
+
+      setData((prev) => [...prev, ...result.items]);
+      setLastDocId(result.lastDocId);
+    } catch (error) {
+      console.error("Load more error:", error);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // 📤 EXPORT
+  const handleExport = () => {
+    if (filteredData.length === 0) {
+      toast({ variant: "destructive", title: "No data to export" });
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(filteredData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Inventory");
+
+    XLSX.writeFile(
+      workbook,
+      `motrack_inventory_${new Date().toISOString().split("T")[0]}.xlsx`
+    );
+
+    toast({ title: "Export Complete!" });
+  };
+
+  // 📥 IMPORT
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -113,41 +191,23 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
     reader.onload = async (e) => {
       try {
         const dataUrl = e.target?.result as string;
-        if (!dataUrl) {
-          toast({
-            variant: "destructive",
-            title: "File Read Error",
-            description: "Could not read the selected file.",
-          });
-          return;
-        }
-
         const base64Data = dataUrl.split(",")[1];
         const result = await importStockData(base64Data);
 
         if (result.success) {
           toast({
             title: "Import Successful",
-            description: `${result.count ?? 0} items have been added/updated. Refreshing...`,
+            description: `${result.count ?? 0} items updated`,
           });
-          setTimeout(() => window.location.reload(), 1500);
+          window.location.reload();
         } else {
           toast({
             variant: "destructive",
             title: "Import Failed",
             description: result.message,
-            duration: 7000,
           });
         }
-      } catch (error) {
-        console.error("Error importing stock:", error);
-        toast({
-          variant: "destructive",
-          title: "Import Failed",
-          description: `Import error: ${(error as Error).message}`,
-        });
       } finally {
-        if (fileInputRef.current) fileInputRef.current.value = "";
         setIsImporting(false);
       }
     };
@@ -155,130 +215,19 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
     reader.readAsDataURL(file);
   };
 
-  const columns: ColumnDef<InventoryItem>[] = [
-    { accessorKey: "bcn", header: "BCN" },
-    {
-      accessorKey: "name",
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          className="px-0"
-        >
-          Item Name
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-      cell: ({ row }) => <div className="font-medium">{row.getValue("name") || "-"}</div>,
-    },
-    {
-      accessorKey: "category",
-      header: "Category",
-      cell: ({ row }) => {
-        const v = row.getValue("category") as string;
-        return v ? <Badge variant="secondary" className="uppercase">{v}</Badge> : "-";
-      },
-    },
-    {
-      accessorKey: "categoryGroup",
-      header: "Category Group",
-      cell: ({ row }) => {
-        const v = row.getValue("categoryGroup") as string;
-        return v ? <Badge variant="outline" className="uppercase">{v}</Badge> : "-";
-      },
-    },
-    { accessorKey: "unit", header: "Unit", cell: ({ row }) => row.getValue("unit") || "-" },
-    { accessorKey: "totalQty", header: "Total Qty", cell: ({ row }) => num(row.getValue("totalQty")) },
-    { accessorKey: "availableQty", header: "Available", cell: ({ row }) => num(row.getValue("availableQty")) },
-    { accessorKey: "reservedQty", header: "Reserved", cell: ({ row }) => num(row.getValue("reservedQty")) },
-    { accessorKey: "damagedQty", header: "Damaged", cell: ({ row }) => num(row.getValue("damagedQty")) },
-    { accessorKey: "cutQty", header: "Cut", cell: ({ row }) => num(row.getValue("cutQty")) },
-    { accessorKey: "supplierCompanyName", header: "Supplier", cell: ({ row }) => row.getValue("supplierCompanyName") || "-" },
-    { accessorKey: "supplierCollectionName", header: "Collection", cell: ({ row }) => row.getValue("supplierCollectionName") || "-" },
-    { accessorKey: "supplierCollectionCode", header: "Collection Code", cell: ({ row }) => row.getValue("supplierCollectionCode") || "-" },
-    { accessorKey: "horizontalRepeatCms", header: "H Repeat (cms)", cell: ({ row }) => num(row.getValue("horizontalRepeatCms")) },
-    { accessorKey: "verticalRepeatCms", header: "V Repeat (cms)", cell: ({ row }) => num(row.getValue("verticalRepeatCms")) },
-    { accessorKey: "costPriceRs", header: "Cost Price (Rs)", cell: ({ row }) => money(row.getValue("costPriceRs")) },
-    { accessorKey: "rrpWithGstRs", header: "RRP w/ GST (Rs)", cell: ({ row }) => money(row.getValue("rrpWithGstRs")) },
-    { accessorKey: "gstPercent", header: "GST %", cell: ({ row }) => num(row.getValue("gstPercent")) },
-    { accessorKey: "hsnOrSac", header: "HSN/SAC", cell: ({ row }) => row.getValue("hsnOrSac") || "-" },
-    { accessorKey: "productId", header: "Product ID", cell: ({ row }) => row.getValue("productId") || "-" },
-    {
-      accessorKey: "isActive",
-      header: "Active",
-      cell: ({ row }) => {
-        const active = row.getValue("isActive");
-        return <Badge variant={active ? "default" : "secondary"}>{active ? "Active" : "Inactive"}</Badge>;
-      },
-    },
-  ];
-
-  const table = useReactTable({
-    data: stock,
-    columns,
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
-    onGlobalFilterChange: setGlobalFilter,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    state: { sorting, columnFilters, globalFilter },
-  });
-
-  const handleExport = () => {
-    const dataToExport = table.getFilteredRowModel().rows.map((row) => row.original);
-    if (dataToExport.length === 0) {
-      toast({ variant: "destructive", title: "No data to export" });
-      return;
-    }
-
-    // Export with nice column names
-    const mapped = dataToExport.map((r) => ({
-      id: r.id ?? "",
-      bcn: r.bcn ?? "",
-      name: r.name ?? "",
-      productId: r.productId ?? "",
-      "Category group": r.categoryGroup ?? "",
-      category: r.category ?? "",
-      Unit: r.unit ?? "",
-      totalQty: r.totalQty ?? "",
-      availableQty: r.availableQty ?? "",
-      reservedQty: r.reservedQty ?? "",
-      damagedQty: r.damagedQty ?? "",
-      cutQty: r.cutQty ?? "",
-      "supplier company name": r.supplierCompanyName ?? "",
-      "supplier collection name": r.supplierCollectionName ?? "",
-      "supplier collection code": r.supplierCollectionCode ?? "",
-      "Horizontal Repeat (cms)": r.horizontalRepeatCms ?? "",
-      "Vertical Repeat (cms)": r.verticalRepeatCms ?? "",
-      "Cost Price (Rs)": r.costPriceRs ?? "",
-      "RRP with GST (Rs)": r.rrpWithGstRs ?? "",
-      "GST %": r.gstPercent ?? "",
-      "HSN/SAC": r.hsnOrSac ?? "",
-      isActive: r.isActive ?? "",
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(mapped);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Inventory");
-
-    XLSX.writeFile(workbook, `motrack_inventory_${new Date().toISOString().split("T")[0]}.xlsx`);
-    toast({ title: "Export Complete!" });
-  };
-
   return (
     <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center py-4 gap-4">
+      <CardContent className="p-4 space-y-4">
+        {/* SEARCH + ACTIONS */}
+        <div className="flex items-center gap-4">
           <Input
             placeholder="Search by BCN or item name..."
             value={globalFilter}
-            onChange={(event) => setGlobalFilter(event.target.value)}
+            onChange={(e) => setGlobalFilter(e.target.value)}
             className="max-w-sm"
           />
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex gap-2">
             <Button
               onClick={() => fileInputRef.current?.click()}
               variant="outline"
@@ -289,7 +238,7 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
               ) : (
                 <Upload className="mr-2 h-4 w-4" />
               )}
-              {isImporting ? "Importing..." : "Import from XLS"}
+              Import
             </Button>
 
             <input
@@ -307,14 +256,18 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
           </div>
         </div>
 
+        {/* TABLE */}
         <div className="rounded-md border overflow-auto">
           <Table>
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id} className="whitespace-nowrap">
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                    <TableHead key={header.id}>
+                      {flexRender(
+                        header.column.columnDef.header,
+                        header.getContext()
+                      )}
                     </TableHead>
                   ))}
                 </TableRow>
@@ -322,35 +275,37 @@ export function StockTableClient({ initialData }: { initialData: InventoryItem[]
             </TableHeader>
 
             <TableBody>
-              {table.getRowModel().rows?.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="whitespace-nowrap">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={columns.length} className="h-24 text-center">
-                    No results.
-                  </TableCell>
+              {table.getRowModel().rows.map((row) => (
+                <TableRow key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </TableCell>
+                  ))}
                 </TableRow>
-              )}
+              ))}
             </TableBody>
           </Table>
         </div>
 
-        <div className="flex items-center justify-end space-x-2 py-4">
-          <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
-            Previous
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
-            Next
-          </Button>
-        </div>
+        {/* LOAD MORE */}
+        {data.length < totalCount && (
+          <div className="flex justify-center">
+            <Button
+              onClick={loadMore}
+              disabled={loadingMore}
+              variant="outline"
+            >
+              {loadingMore && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Load More
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

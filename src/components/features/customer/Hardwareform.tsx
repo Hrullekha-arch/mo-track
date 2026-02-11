@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,6 +20,7 @@ import { FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/for
 import { roomOptions } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { getStockSubcategories } from "@/lib/stock-category-rules";
+import { useDebounce, useDebouncedCallback } from "use-debounce";
 
 const normalizeText = (value: unknown) => String(value ?? "").toLowerCase();
 
@@ -79,33 +80,43 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
     resetItemFields();
   };
 
-  const handleBcnSearch = useCallback(
-    async (query: string) => {
-      if (query.length < 2) {
-        setBcnOptions([]);
-        return;
-      }
-      setIsSearching(true);
-      try {
-        const results = await searchStockByBcn(query);
-        const filtered = results.filter((stock) =>
-          matchesStockSelection(stock, selectedCategory || undefined, selectedSubCategory || undefined)
-        );
-        const options = filtered.map((stock) => ({
-          value: stock.bcn || stock.id,
-          label: `${stock.bcn}`,
-          stockItem: stock,
-        }));
-        setBcnOptions(options as any);
-      } catch (error) {
-        console.error("Error searching BCN:", error);
-        Toast({ variant: "destructive", title: "Search failed" });
-      } finally {
-        setIsSearching(false);
-      }
-    },
-    [toast, selectedCategory, selectedSubCategory]
-  );
+
+
+
+const handleBcnSearch = useCallback(async (rawQuery: string) => {
+  const query = rawQuery?.trim().toLowerCase();
+  if (!query || query.length < 2) return;
+
+  setIsSearching(true);
+
+  try {
+    const results = await searchStockByBcn(query);
+
+    const filtered = results.filter((stock) =>
+      matchesStockSelection(
+        stock,
+        selectedCategory || undefined,
+        selectedSubCategory || undefined
+      )
+    );
+
+    const options = filtered.map((stock) => ({
+      value: stock.id || stock.bcn,
+      label: `${stock.bcn} - ${stock.name || stock.itemName || ""}`,
+      stockItem: stock,
+    }));
+
+    setBcnOptions(options as any);
+
+  } catch (error) {
+    toast({ variant: "destructive", title: "Search failed" });
+  } finally {
+    setIsSearching(false);
+  }
+}, [selectedCategory, selectedSubCategory, toast]);
+
+const debouncedSearch = useDebouncedCallback(handleBcnSearch, 300);
+
 
   const handleBcnSelect = (value: string) => {
     const selectedOption = bcnOptions.find((opt) => opt.value === value) as any;
@@ -291,7 +302,7 @@ export default function HardwareTopLevel({ onSaveHardware, form }) {
                   setSelectedItemValue(value);
                   handleBcnSelect(value);
                 }}
-                onSearch={handleBcnSearch}
+                onSearch={debouncedSearch}
                 placeholder="Search item..."
               />
             </div>
