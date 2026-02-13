@@ -6,7 +6,6 @@ import {
   ColumnDef,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   getFilteredRowModel,
   useReactTable,
@@ -32,9 +31,25 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Link from 'next/link';
-import { collection, doc, getDoc, getDocs, query, where, writeBatch, arrayUnion, limit } from "firebase/firestore";
+import {
+  arrayUnion,
+  collection,
+  doc,
+  DocumentData,
+  documentId,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  QueryConstraint,
+  QueryDocumentSnapshot,
+  startAfter,
+  where,
+  writeBatch,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { INBOUND_PROCESS_CONFIG } from "@/lib/constants";
 import { format } from "date-fns";
@@ -87,8 +102,18 @@ const buildMissingMilestones = (existing: InboundItem["inboundMilestones"], comp
 
 const STICKER_WIDTH_PX = 288;
 const STICKER_HEIGHT_PX = 192;
+const PAGE_SIZE = 20;
+type InboundTableMode = "pending" | "completed";
 
-function InboundSticker({ bcn, length }: { bcn: string; length: number }) {
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+function InboundSticker({ bcn, length, name, code }: { bcn: string; length: number; name?: string; code?: string }) {
   const barcodeRef = React.useRef<SVGSVGElement>(null);
   const barcodeValue = `${bcn}|${length.toFixed(2)}`;
 
@@ -114,11 +139,12 @@ function InboundSticker({ bcn, length }: { bcn: string; length: number }) {
       style={{ width: `${STICKER_WIDTH_PX}px`, height: `${STICKER_HEIGHT_PX}px`, fontFamily: "Arial, sans-serif" }}
     >
       <div className="w-full flex justify-center">
-        <div className="flex items-center justify-center rounded-md border border-slate-200 bg-slate-700 px-6 py-4">
+        <div className="flex items-center justify-center rounded-md border border-slate-200 px-6 py-4">
           <Image src="/logo.png" alt="MO Logo" width={80} height={40} />
         </div>
       </div>
       <div className="text-center">
+        <p className="text-xs font-bold">{name} | {code}</p>
         <p className="text-xs uppercase text-slate-500">BCN</p>
         <p className="text-sm font-semibold">{bcn}</p>
       </div>
@@ -128,96 +154,193 @@ function InboundSticker({ bcn, length }: { bcn: string; length: number }) {
   );
 }
 
-export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
+export function InboundTable({ mode }: { mode: InboundTableMode }) {
   const [requests, setRequests] = React.useState<FlattenedInboundItem[]>([]);
   const [globalFilter, setGlobalFilter] = React.useState('');
   const [receiveDialogOpen, setReceiveDialogOpen] = React.useState(false);
   const [activePoNumber, setActivePoNumber] = React.useState<string | null>(null);
   const [inboundRequest, setInboundRequest] = React.useState<InboundRequest | null>(null);
   const [receiveItems, setReceiveItems] = React.useState<ReceiveItem[]>([]);
-  const [previewItems, setPreviewItems] = React.useState<ReceiveItem[]>([]);
   const [isLoadingInbound, setIsLoadingInbound] = React.useState(false);
   const [isReceiving, setIsReceiving] = React.useState(false);
+  const [isPageLoading, setIsPageLoading] = React.useState(false);
+  const [pageIndex, setPageIndex] = React.useState(0);
+  const [hasNextPage, setHasNextPage] = React.useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
-  
 
-  React.useEffect(() => {
-    const processData = async () => {
-        const allBcns = tableData.flatMap(req => (req.fabricDetails || []).map(item => item.fabricName));
-        const uniqueBcns = [...new Set(allBcns)];
-        const stockDataMap = new Map<string, Stock>();
+  const pageRowsCacheRef = React.useRef<Map<number, FlattenedInboundItem[]>>(new Map());
+  const pageLastDocRef = React.useRef<Map<number, QueryDocumentSnapshot<DocumentData> | null>>(new Map());
+  const pageHasNextRef = React.useRef<Map<number, boolean>>(new Map());
+  const stockCacheRef = React.useRef<Map<string, Stock>>(new Map());
+  const inboundCacheRef = React.useRef<Map<string, InboundRequest>>(new Map());
 
-        if (uniqueBcns.length > 0) {
-            const chunks: string[][] = [];
-            for (let i = 0; i < uniqueBcns.length; i += 30) {
-                chunks.push(uniqueBcns.slice(i, i + 30));
-            }
-            for (const chunk of chunks) {
-                const stockQuery = query(collection(db, 'stocks'), where('bcn', 'in', chunk));
-                const stockSnapshot = await getDocs(stockQuery);
-                stockSnapshot.forEach(doc => {
-                    stockDataMap.set(doc.data().bcn, doc.data() as Stock);
-                });
-            }
+  const chunkArray = React.useCallback(<T,>(arr: T[], size: number): T[][] => {
+    const chunks: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) {
+      chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
+  }, []);
+
+  const buildRowsForPage = React.useCallback(
+    async (requestPage: PurchaseRequest[]): Promise<FlattenedInboundItem[]> => {
+      const poRows = requestPage.flatMap((req) =>
+        (req.fabricDetails || [])
+          .filter((item) => !!item.poNumber)
+          .map((item) => ({ req, item }))
+      );
+
+      const uniqueBcns = Array.from(
+        new Set(poRows.map(({ item }) => item.fabricName).filter(Boolean))
+      ) as string[];
+      const uniquePoNumbers = Array.from(
+        new Set(poRows.map(({ item }) => String(item.poNumber)).filter(Boolean))
+      );
+
+      const missingBcns = uniqueBcns.filter((bcn) => !stockCacheRef.current.has(bcn));
+      const missingPoNumbers = uniquePoNumbers.filter((poNo) => !inboundCacheRef.current.has(poNo));
+
+      if (missingBcns.length) {
+        const stockChunks = chunkArray(missingBcns, 30);
+        for (const chunk of stockChunks) {
+          const stockQuery = query(collection(db, "stocks"), where("bcn", "in", chunk));
+          const stockSnapshot = await getDocs(stockQuery);
+          stockSnapshot.forEach((docSnap) => {
+            const data = docSnap.data() as Stock;
+            stockCacheRef.current.set(data.bcn, data);
+          });
+        }
+      }
+
+      if (missingPoNumbers.length) {
+        const inboundChunks = chunkArray(missingPoNumbers, 30);
+        for (const chunk of inboundChunks) {
+          const inboundQuery = query(collection(db, "inbounds"), where(documentId(), "in", chunk));
+          const inboundSnapshot = await getDocs(inboundQuery);
+          inboundSnapshot.forEach((docSnap) => {
+            inboundCacheRef.current.set(docSnap.id, docSnap.data() as InboundRequest);
+          });
+        }
+      }
+
+      const rows: FlattenedInboundItem[] = poRows.map(({ req, item }) => {
+        const stockData = stockCacheRef.current.get(item.fabricName);
+        const inboundData = inboundCacheRef.current.get(String(item.poNumber));
+        const inboundItem = inboundData?.items?.find((i) => i.itemName === item.fabricName);
+        const completedMilestones = inboundItem?.inboundMilestones || [];
+
+        let statusText = "Pending Receiving";
+        if (completedMilestones.length === INBOUND_PROCESS_CONFIG.length) {
+          statusText = "Received";
+        } else if (completedMilestones.length > 0) {
+          const lastCompletedMilestone = [...completedMilestones].sort(
+            (a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+          )[0];
+          const lastStepConfig = INBOUND_PROCESS_CONFIG.find((step) => step.id === lastCompletedMilestone.stepId);
+          statusText = lastStepConfig?.name || "In Progress";
+        } else if (INBOUND_PROCESS_CONFIG[0]?.name) {
+          statusText = `Pending: ${INBOUND_PROCESS_CONFIG[0].name}`;
         }
 
-        const flattenedDataPromises = tableData.flatMap(req => {
-            const itemsWithPo = (req.fabricDetails || []).filter(item => !!item.poNumber);
+        return {
+          id: `${req.id}-${item.fabricName}`,
+          dealId: req.dealId,
+          poNumber: item.poNumber,
+          customerName: req.customerName,
+          salesman: req.salesman,
+          status: statusText,
+          createdAt: req.createdAt,
+          itemName: item.fabricName,
+          supplierCollectionName: stockData?.supplierCollectionName || "",
+          supplierCollectionCode: stockData?.supplierCollectionCode || "",
+          quantity: item.quantity,
+          vendorName: item.vendorName,
+          type: "fabric",
+          originalRequest: req,
+        };
+      });
 
-            return itemsWithPo.map(async item => {
-                let statusText = 'Pending Receiving'; // Default status
-                const stockData = stockDataMap.get(item.fabricName);
+      return rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    },
+    [chunkArray]
+  );
 
-                if (item.poNumber) {
-                    const inboundRef = doc(db, 'inbounds', item.poNumber);
-                    try {
-                        const inboundSnap = await getDoc(inboundRef);
-                        if (inboundSnap.exists()) {
-                            const inboundData = inboundSnap.data() as InboundRequest;
-                            const inboundItem = inboundData.items.find(i => i.itemName === item.fabricName);
-                            const completedMilestones = (inboundItem?.inboundMilestones || []);
-                            const completedStepsCount = completedMilestones.length;
+  const loadPage = React.useCallback(
+    async (targetPage: number) => {
+      if (targetPage < 0) return;
 
-                            if (completedStepsCount === INBOUND_PROCESS_CONFIG.length) {
-                                statusText = 'Received';
-                            } else if (completedStepsCount > 0) {
-                                const lastCompletedMilestone = completedMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.createdAt).getTime())[0];
-                                const lastStepConfig = INBOUND_PROCESS_CONFIG.find(step => step.id === lastCompletedMilestone.stepId);
-                                statusText = lastStepConfig?.name || "In Progress";
-                            } else {
-                                statusText = INBOUND_PROCESS_CONFIG[0]?.name ? `Pending: ${INBOUND_PROCESS_CONFIG[0].name}` : "Pending Receiving";
-                            }
-                        }
-                    } catch (e) {
-                        statusText = "Error fetching status";
-                    }
-                }
-                
-                return {
-                    id: `${req.id}-${item.fabricName}`,
-                    dealId: req.dealId,
-                    poNumber: item.poNumber,
-                    customerName: req.customerName,
-                    salesman: req.salesman,
-                    status: statusText,
-                    createdAt: req.createdAt,
-                    itemName: item.fabricName,
-                    supplierCollectionName: stockData?.supplierCollectionName || '',
-                    supplierCollectionCode: stockData?.supplierCollectionCode || '',
-                    quantity: item.quantity,
-                    vendorName: item.vendorName,
-                    type: 'fabric' as const,
-                    originalRequest: req,
-                };
-            });
+      const cachedRows = pageRowsCacheRef.current.get(targetPage);
+      if (cachedRows) {
+        setRequests(cachedRows);
+        setPageIndex(targetPage);
+        setHasNextPage(pageHasNextRef.current.get(targetPage) ?? false);
+        return;
+      }
+
+      const previousPageCursor =
+        targetPage === 0 ? null : pageLastDocRef.current.get(targetPage - 1) ?? null;
+
+      if (targetPage > 0 && !previousPageCursor) return;
+
+      setIsPageLoading(true);
+
+      try {
+        const constraints: QueryConstraint[] = [orderBy("createdAt", "desc"), limit(PAGE_SIZE)];
+        if (previousPageCursor) {
+          constraints.push(startAfter(previousPageCursor));
+        }
+
+        const pageQuery = query(collection(db, "purchaseRequests"), ...constraints);
+        const pageSnapshot = await getDocs(pageQuery);
+
+        const requestPage = pageSnapshot.docs.map(
+          (docSnap) => ({ id: docSnap.id, ...docSnap.data() } as PurchaseRequest)
+        );
+
+        const rows = await buildRowsForPage(requestPage);
+        const filteredRows = rows.filter((row) =>
+          mode === "pending" ? row.status !== "Received" : row.status === "Received"
+        );
+        const lastDoc = pageSnapshot.docs.length
+          ? pageSnapshot.docs[pageSnapshot.docs.length - 1]
+          : null;
+        const canLoadNext = pageSnapshot.docs.length === PAGE_SIZE;
+
+        pageRowsCacheRef.current.set(targetPage, filteredRows);
+        pageLastDocRef.current.set(targetPage, lastDoc);
+        pageHasNextRef.current.set(targetPage, canLoadNext);
+
+        setRequests(filteredRows);
+        setPageIndex(targetPage);
+        setHasNextPage(canLoadNext);
+      } catch (error) {
+        console.error("Failed to fetch inbound page", error);
+        if (targetPage === 0) {
+          setRequests([]);
+        }
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Could not load inbound data.",
         });
-        const flattenedData = await Promise.all(flattenedDataPromises);
-        setRequests(flattenedData.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-    };
-    
-    processData();
-  }, [tableData]);
+      } finally {
+        setIsPageLoading(false);
+      }
+    },
+    [buildRowsForPage, mode, toast]
+  );
+
+  React.useEffect(() => {
+    pageRowsCacheRef.current.clear();
+    pageLastDocRef.current.clear();
+    pageHasNextRef.current.clear();
+    setRequests([]);
+    setPageIndex(0);
+    setHasNextPage(false);
+    void loadPage(0);
+  }, [loadPage, mode]);
+
 
   const openReceiveDialog = (poNumber?: string) => {
     if (!poNumber) return;
@@ -270,7 +393,6 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
           };
         });
         setReceiveItems(items);
-        setPreviewItems([]);
       } catch (error) {
         console.error("Failed to load inbound request", error);
         toast({ variant: "destructive", title: "Error", description: "Failed to load inbound request." });
@@ -294,37 +416,227 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
     );
   };
 
+  const selectedReceiveItems = React.useMemo(
+    () => receiveItems.filter((item) => item.checked),
+    [receiveItems]
+  );
+
+  const getBarcodeSvgMarkup = (barcodeValue: string) => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    JsBarcode(svg, barcodeValue, {
+      format: "CODE128",
+      width: 1.6,
+      height: 40,
+      displayValue: false,
+      margin: 0,
+    });
+    svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    svg.setAttribute("preserveAspectRatio", "none");
+    return svg.outerHTML;
+  };
+
   const handlePrintStickers = () => {
-    const printContent = document.getElementById('inbound-sticker-print-area');
-    if (!printContent) return;
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
+    if (!selectedReceiveItems.length) {
+      toast({
+        variant: "destructive",
+        title: "No items selected",
+        description: "Check at least one item to print stickers.",
+      });
+      return;
+    }
 
-    const styles = `
-      <style>
-        @media print {
-          @page { size: 3in 2in; margin: 0; }
-          body { margin: 0; font-family: Arial, sans-serif; -webkit-print-color-adjust: exact; }
-          .sticker-grid {
-            display: grid !important;
-            grid-template-columns: repeat(auto-fit, minmax(288px, 1fr));
-            gap: 12px;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast({
+        variant: "destructive",
+        title: "Popup blocked",
+        description: "Allow popups for this site to print stickers.",
+      });
+      return;
+    }
+
+    try {
+      const logoSrc = `${window.location.origin}/logo.png`;
+      const stickersHtml = selectedReceiveItems
+        .map((item) => {
+          const lengthValue = Number(item.actualQty) || 0;
+          const collectionText = [item.supplierCollectionName, item.supplierCollectionCode]
+            .filter(Boolean)
+            .join(" | ");
+          const barcodeValue = `${item.itemName}|${lengthValue.toFixed(2)}`;
+
+          let barcodeMarkup = "";
+          try {
+            barcodeMarkup = getBarcodeSvgMarkup(barcodeValue);
+          } catch (error) {
+            console.error("Failed to generate barcode for sticker print:", error);
+            barcodeMarkup = `<div class="barcode-fallback">${escapeHtml(barcodeValue)}</div>`;
           }
-        }
-      </style>
-    `;
 
-    printWindow.document.write('<html><head><title>Inbound Stickers</title>');
-    printWindow.document.write(styles);
-    printWindow.document.write('</head><body>');
-    printWindow.document.write(printContent.innerHTML);
-    printWindow.document.write('</body></html>');
-    printWindow.document.close();
-    setTimeout(() => {
-      printWindow.focus();
-      printWindow.print();
-      printWindow.close();
-    }, 250);
+          return `
+            <section class="sheet">
+              <article class="sticker">
+                <div class="sticker-header">
+                  <img src="${logoSrc}" alt="MO Logo" class="logo" />
+                </div>
+                <div class="sticker-body">
+                  <p class="name">${escapeHtml(collectionText || "Collection -")}</p>
+                  <p class="label">BCN</p>
+                  <p class="bcn">${escapeHtml(item.itemName)}</p>
+                </div>
+                <div class="barcode-wrap">
+                  ${barcodeMarkup}
+                </div>
+                <p class="length">Length: ${lengthValue.toFixed(2)} ${escapeHtml(item.unit || "Mtr")}</p>
+              </article>
+            </section>
+          `;
+        })
+        .join("");
+
+      const html = `
+        <html>
+          <head>
+            <title>Inbound Stickers</title>
+            <style>
+              * { box-sizing: border-box; }
+              html, body {
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                background: #ffffff;
+                font-family: Arial, sans-serif;
+              }
+              @page {
+                size: 3in 2in;
+                margin: 0;
+              }
+              .sheet {
+                width: 3in;
+                height: 2in;
+                page-break-after: always;
+                break-after: page;
+              }
+              .sheet:last-child {
+                page-break-after: auto;
+                break-after: auto;
+              }
+              .sticker {
+                width: 3in;
+                height: 2in;
+                border: 1px solid #111827;
+                padding: 0.08in;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+              }
+              .sticker-header {
+                display: flex;
+                justify-content: center;
+              }
+              .logo {
+                width: 58px;
+                height: 24px;
+                object-fit: contain;
+              }
+              .sticker-body {
+                text-align: center;
+                margin-top: 0.02in;
+              }
+              .name {
+                margin: 0;
+                font-size: 9px;
+                line-height: 1.15;
+                font-weight: 700;
+                min-height: 20px;
+                overflow: hidden;
+              }
+              .label {
+                margin: 0.03in 0 0;
+                font-size: 8px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                color: #4b5563;
+              }
+              .bcn {
+                margin: 0.015in 0 0;
+                font-size: 13px;
+                line-height: 1.15;
+                font-weight: 700;
+                word-break: break-word;
+              }
+              .barcode-wrap {
+                width: 100%;
+                height: 0.42in;
+                margin-top: 0.04in;
+              }
+              .barcode-wrap svg {
+                width: 100%;
+                height: 100%;
+                display: block;
+              }
+              .barcode-fallback {
+                width: 100%;
+                height: 100%;
+                border: 1px dashed #6b7280;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 10px;
+                font-weight: 700;
+                color: #111827;
+                word-break: break-all;
+                padding: 2px 4px;
+              }
+              .length {
+                margin: 0.02in 0 0;
+                font-size: 11px;
+                line-height: 1.1;
+                font-weight: 700;
+                text-align: center;
+              }
+              @media print {
+                html, body {
+                  -webkit-print-color-adjust: exact;
+                  print-color-adjust: exact;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            ${stickersHtml}
+          </body>
+        </html>
+      `;
+
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+
+      const runPrint = () => {
+        printWindow.focus();
+        printWindow.print();
+        setTimeout(() => printWindow.close(), 200);
+      };
+
+      if (printWindow.document.readyState === "complete") {
+        setTimeout(runPrint, 300);
+      } else {
+        printWindow.onload = () => setTimeout(runPrint, 300);
+      }
+    } catch (error: any) {
+      console.error("Print generation failed", error);
+      toast({
+        variant: "destructive",
+        title: "Print failed",
+        description: error?.message || "Could not prepare stickers for print.",
+      });
+      try {
+        printWindow.close();
+      } catch {
+        // ignore
+      }
+    }
   };
 
   const handlePreviewAndReceive = async () => {
@@ -333,7 +645,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
       return;
     }
 
-    const selectedItems = receiveItems.filter((item) => item.checked);
+    const selectedItems = selectedReceiveItems;
     if (!selectedItems.length) {
       toast({ variant: "destructive", title: "Select items", description: "Choose at least one item to receive." });
       return;
@@ -479,9 +791,9 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
           }
         }
       }
-
+      
       await batch.commit();
-      setPreviewItems(selectedItems);
+      
       toast({ title: "Received", description: "Inbound items received successfully." });
     } catch (error: any) {
       console.error("Receive failed", error);
@@ -565,7 +877,6 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
     data: requests,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     onGlobalFilterChange: setGlobalFilter,
@@ -600,7 +911,16 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
               ))}
             </TableHeader>
             <TableBody>
-              {table.getRowModel().rows?.length ? (
+              {isPageLoading && requests.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="h-24 text-center">
+                    <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading inbound data...
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : table.getRowModel().rows?.length ? (
                 table.getRowModel().rows.map((row) => (
                   <TableRow key={row.id}>
                     {row.getVisibleCells().map((cell) => (
@@ -620,9 +940,33 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
             </TableBody>
           </Table>
         </div>
-        <div className="flex items-center justify-end space-x-2 py-4">
-          <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>Previous</Button>
-          <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next</Button>
+        <div className="flex items-center justify-between py-4">
+          <p className="text-sm text-muted-foreground">Page {pageIndex + 1}</p>
+          <div className="flex items-center space-x-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadPage(pageIndex - 1)}
+            disabled={isPageLoading || pageIndex === 0}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadPage(pageIndex + 1)}
+            disabled={isPageLoading || !hasNextPage}
+          >
+            {isPageLoading ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading
+              </span>
+            ) : (
+              "Next"
+            )}
+          </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -635,7 +979,6 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
           setActivePoNumber(null);
           setInboundRequest(null);
           setReceiveItems([]);
-          setPreviewItems([]);
         }
       }}
     >
@@ -692,15 +1035,15 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
               </Button>
               <Button onClick={handlePreviewAndReceive} disabled={isReceiving}>
                 {isReceiving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Preview and receive
+                Receive selected items
               </Button>
             </div>
 
-            {previewItems.length > 0 && (
+            {selectedReceiveItems.length > 0 && (
               <div className="space-y-4 border-t pt-4">
                 <div>
                   <h3 className="text-sm font-semibold">Preview</h3>
-                  <p className="text-xs text-muted-foreground">Checked items received in this batch.</p>
+                  <p className="text-xs text-muted-foreground">Checked items will be received in this batch.</p>
                 </div>
                 <div className="rounded-lg border">
                   <Table>
@@ -712,7 +1055,7 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {previewItems.map((item) => (
+                      {selectedReceiveItems.map((item) => (
                         <TableRow key={`preview-${item.itemName}`}>
                           <TableCell>{item.itemName}</TableCell>
                           <TableCell>{item.expectedQty}</TableCell>
@@ -723,15 +1066,17 @@ export function InboundTable({ tableData }: { tableData: PurchaseRequest[] }) {
                   </Table>
                 </div>
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold">Barcode Stickers (3 × 2 in)</h4>
+                  <h4 className="text-sm font-semibold">Barcode Stickers (3 x 2 in)</h4>
                   <Button variant="outline" onClick={handlePrintStickers}>Print Stickers</Button>
                 </div>
-                <div id="inbound-sticker-print-area" className="sticker-grid grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {previewItems.map((item) => (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 rounded-lg border bg-muted/20 p-4">
+                  {selectedReceiveItems.map((item) => (
                     <InboundSticker
                       key={`sticker-${item.itemName}`}
                       bcn={item.itemName}
                       length={Number(item.actualQty) || 0}
+                      code={item.supplierCollectionCode || "-"}
+                      name={item.supplierCollectionName || "-"}
                     />
                   ))}
                 </div>

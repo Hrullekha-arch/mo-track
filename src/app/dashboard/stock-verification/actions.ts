@@ -89,6 +89,8 @@ export async function createPurchaseRequestFromOutOfStockAction(
       createdBy,
     } = payload;
 
+    console.log("payload",payload)
+
     await adminDb.runTransaction(async (tx) => {
       const approvedStockRef = adminDb
         .collection('approvedStock')

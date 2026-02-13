@@ -47,6 +47,8 @@ export async function approveOrderAndCreatePurchaseRequest(
                     rate: Number(item.exclusiveRate ?? item.rate) || 0,
                     discountPercent: 0,
                 }));
+            console.log(orderData.sections?.NORMAL?.items)
+            console.log(derivedFabricDetails);
 
         // 2️⃣ Create items in 'approvedStock' collection
         const approvedStockRef = adminDb.collection('approvedStock');

@@ -57,6 +57,7 @@ export default function StockVerificationPage() {
     };
 
     const handleCreatePr = async (item: ApprovedStockItem) => {
+        console.log("Item Details:",item)
         if (!item.dealId) {
             toast({ variant: 'destructive', title: 'Error', description: "Cannot create PR: Deal ID is missing."});
             return;
@@ -75,6 +76,8 @@ export default function StockVerificationPage() {
                 itemDetail: item.itemDetail,
                 createdBy: item.createdBy,
             });
+
+            
 
             if (result.success) {
                 toast({ title: 'Success', description: `Purchase Request created for ${item.fabricName}.` });

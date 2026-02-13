@@ -9,7 +9,6 @@ import {
   VisibilityState,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   getFilteredRowModel,
   useReactTable,
@@ -38,7 +37,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, doc, deleteDoc, query, where, getDocs, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  DocumentData,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  QueryConstraint,
+  QueryDocumentSnapshot,
+  startAfter,
+  where,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PurchaseRequest, PurchaseStatus, Stock } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -71,8 +83,25 @@ interface FlattenedPurchaseItem {
   supplierCollectionCode?: string;
 }
 
+const PAGE_SIZE = 20;
+const ACTIVE_PURCHASE_STATUSES: PurchaseRequest["status"][] = [
+  "Pending Approval",
+  "Approved",
+  "PO Generated",
+  "Cancelled",
+];
+const HISTORY_PURCHASE_STATUSES = ["Completed", "completed", "Received", "received"] as const;
+type PurchaseTableMode = "active" | "history";
 
-export function PurchaseRequestTable({ tableData, view = "default", timelineType }: { tableData: PurchaseRequest[], view?: "default" | "all" | "po-tracking", timelineType?: 'purchase' | 'po-tracking' }) {
+export function PurchaseRequestTable({
+  mode,
+  view = "default",
+  timelineType,
+}: {
+  mode: PurchaseTableMode;
+  view?: "default" | "all" | "po-tracking";
+  timelineType?: "purchase" | "po-tracking";
+}) {
   const [requests, setRequests] = React.useState<FlattenedPurchaseItem[]>([]);
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
@@ -86,83 +115,263 @@ const [detailsOpen, setDetailsOpen] = React.useState(false);
 const [detailsLoading, setDetailsLoading] = React.useState(false);
 const [detailsRow, setDetailsRow] = React.useState<FlattenedPurchaseItem | null>(null);
 const [detailsData, setDetailsData] = React.useState<any>(null);
-
-
+const [isPageLoading, setIsPageLoading] = React.useState(false);
+const [pageIndex, setPageIndex] = React.useState(0);
+const [hasNextPage, setHasNextPage] = React.useState(false);
 
   const { toast } = useToast();
   const { role } = useAuth();
   
   const isAuthorized = role === 'admin' || role === 'Accounts';
 
-    React.useEffect(() => {
-    const processData = async () => {
-        const allBcns = tableData.flatMap(req => (req.fabricDetails || []).map(item => item.fabricName));
-        const uniqueBcns = [...new Set(allBcns)];
-        const stockDataMap = new Map<string, Stock>();
+  const pageRowsCacheRef = React.useRef<Map<number, FlattenedPurchaseItem[]>>(new Map());
+  const pageLastDocRef = React.useRef<Map<number, QueryDocumentSnapshot<DocumentData> | null>>(new Map());
+  const pageHasNextRef = React.useRef<Map<number, boolean>>(new Map());
+  const stockCacheRef = React.useRef<Map<string, Stock>>(new Map());
 
-        if (uniqueBcns.length > 0) {
-            const chunks: string[][] = [];
-            for (let i = 0; i < uniqueBcns.length; i += 30) {
-                chunks.push(uniqueBcns.slice(i, i + 30));
-            }
-            for (const chunk of chunks) {
-                const stockQuery = query(collection(db, 'stocks'), where('bcn', 'in', chunk));
-                const stockSnapshot = await getDocs(stockQuery);
-                stockSnapshot.forEach(doc => {
-                    stockDataMap.set(doc.data().bcn, doc.data() as Stock);
-                });
-            }
+  const normalizeStatus = React.useCallback((status?: string) => {
+    return String(status || "").trim().toLowerCase();
+  }, []);
+
+  const isHistoryStatus = React.useCallback(
+    (status?: string) => {
+      const normalized = normalizeStatus(status);
+      return normalized === "completed" || normalized === "received";
+    },
+    [normalizeStatus]
+  );
+
+  const isActiveStatus = React.useCallback(
+    (status?: string) => {
+      const normalized = normalizeStatus(status);
+      return ACTIVE_PURCHASE_STATUSES.some((s) => normalizeStatus(s) === normalized);
+    },
+    [normalizeStatus]
+  );
+
+  const resetPaginationState = React.useCallback(() => {
+    pageRowsCacheRef.current.clear();
+    pageLastDocRef.current.clear();
+    pageHasNextRef.current.clear();
+    setRequests([]);
+    setRowSelection({});
+    setPageIndex(0);
+    setHasNextPage(false);
+  }, []);
+
+  const chunkArray = React.useCallback(<T,>(arr: T[], size: number): T[][] => {
+    const chunks: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) {
+      chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
+  }, []);
+
+  const buildRowsForPage = React.useCallback(
+    async (requestPage: PurchaseRequest[]): Promise<FlattenedPurchaseItem[]> => {
+      const fabricBcns = requestPage.flatMap((req) =>
+        (req.fabricDetails || []).map((item) => item.fabricName).filter(Boolean)
+      ) as string[];
+      const uniqueBcns = Array.from(new Set(fabricBcns));
+      const missingBcns = uniqueBcns.filter((bcn) => !stockCacheRef.current.has(bcn));
+
+      if (missingBcns.length) {
+        const chunks = chunkArray(missingBcns, 30);
+        for (const chunk of chunks) {
+          const stockQuery = query(collection(db, "stocks"), where("bcn", "in", chunk));
+          const stockSnapshot = await getDocs(stockQuery);
+          stockSnapshot.forEach((docSnap) => {
+            const stock = docSnap.data() as Stock;
+            stockCacheRef.current.set(stock.bcn, stock);
+          });
         }
-        
-        let flattenedData: FlattenedPurchaseItem[] = tableData.flatMap(req => {
-            const fabricItems = (req.fabricDetails || []).map(item => {
-                 const stockData = stockDataMap.get(item.fabricName);
-                 return {
-                    id: `${req.id}-${item.fabricName}`,
-                    dealId: req.dealId,
-                    customerName: req.customerName,
-                    salesman: req.salesman,
-                    status: req.status || 'Pending Approval',
-                    createdAt: req.createdAt,
-                    itemName: item.fabricName,
-                    quantity: item.quantity,
-                    poNumber: item.poNumber,
-                    vendorName: item.vendorName,
-                    type: 'fabric' as const,
-                    originalRequest: req,
-                    supplierCollectionName: stockData?.supplierCollectionName || '',
-                    supplierCollectionCode: stockData?.supplierCollectionCode || '',
-                }
-            });
+      }
 
-            const furnitureItems = (req.furnitureDetails || []).map(item => ({
-                id: `${req.id}-${item.furnitureName}`,
-                dealId: req.dealId,
-                customerName: req.customerName,
-                salesman: req.salesman,
-                status: req.status || 'Pending Approval',
-                createdAt: req.createdAt,
-                itemName: item.furnitureName,
-                quantity: item.quantity,
-                poNumber: item.poNumber,
-                vendorName: item.vendorName,
-                type: 'furniture' as const,
-                originalRequest: req,
-                supplierCollectionName: '',
-                supplierCollectionCode: '',
-            }));
-
-            return [...fabricItems, ...furnitureItems];
+      let flattenedData: FlattenedPurchaseItem[] = requestPage.flatMap((req) => {
+        const fabricItems = (req.fabricDetails || []).map((item) => {
+          const stockData = stockCacheRef.current.get(item.fabricName);
+          return {
+            id: `${req.id}-${item.fabricName}`,
+            dealId: req.dealId,
+            customerName: req.customerName,
+            salesman: req.salesman,
+            status: req.status || "Pending Approval",
+            createdAt: req.createdAt,
+            itemName: item.fabricName,
+            quantity: item.quantity,
+            poNumber: item.poNumber,
+            vendorName: item.vendorName,
+            type: "fabric" as const,
+            originalRequest: req,
+            supplierCollectionName: stockData?.supplierCollectionName || "",
+            supplierCollectionCode: stockData?.supplierCollectionCode || "",
+          };
         });
 
-        if (view === 'po-tracking') {
-            flattenedData = flattenedData.filter(item => !!item.poNumber);
+        const furnitureItems = (req.furnitureDetails || []).map((item) => ({
+          id: `${req.id}-${item.furnitureName}`,
+          dealId: req.dealId,
+          customerName: req.customerName,
+          salesman: req.salesman,
+          status: req.status || "Pending Approval",
+          createdAt: req.createdAt,
+          itemName: item.furnitureName,
+          quantity: item.quantity,
+          poNumber: item.poNumber,
+          vendorName: item.vendorName,
+          type: "furniture" as const,
+          originalRequest: req,
+          supplierCollectionName: "",
+          supplierCollectionCode: "",
+        }));
+
+        return [...fabricItems, ...furnitureItems];
+      });
+
+      if (view === "po-tracking") {
+        flattenedData = flattenedData.filter((item) => !!item.poNumber);
+      }
+
+      return flattenedData;
+    },
+    [chunkArray, view]
+  );
+
+  const loadPage = React.useCallback(
+    async (targetPage: number) => {
+      if (targetPage < 0) return;
+
+      const cachedRows = pageRowsCacheRef.current.get(targetPage);
+      if (cachedRows) {
+        setRequests(cachedRows);
+        setRowSelection({});
+        setPageIndex(targetPage);
+        setHasNextPage(pageHasNextRef.current.get(targetPage) ?? false);
+        return;
+      }
+
+      const previousPageCursor =
+        targetPage === 0 ? null : pageLastDocRef.current.get(targetPage - 1) ?? null;
+
+      if (targetPage > 0 && !previousPageCursor) return;
+
+      setIsPageLoading(true);
+
+      try {
+        const constraints: QueryConstraint[] = [];
+        if (mode === "active") {
+          constraints.push(where("status", "in", ACTIVE_PURCHASE_STATUSES));
+        } else {
+          constraints.push(where("status", "in", HISTORY_PURCHASE_STATUSES));
         }
-        setRequests(flattenedData);
-    };
-    
-    processData();
-  }, [tableData, view]);
+
+        constraints.push(orderBy("createdAt", "desc"), limit(PAGE_SIZE));
+        if (previousPageCursor) {
+          constraints.push(startAfter(previousPageCursor));
+        }
+
+        let sourceDocs: QueryDocumentSnapshot<DocumentData>[] = [];
+        let canLoadNext = false;
+        let needsClientStatusFilter = false;
+        try {
+          const pageQuery = query(collection(db, "purchaseRequests"), ...constraints);
+          const pageSnapshot = await getDocs(pageQuery);
+          sourceDocs = pageSnapshot.docs;
+          canLoadNext = pageSnapshot.docs.length === PAGE_SIZE;
+        } catch (queryError: any) {
+          const message = String(queryError?.message || "").toLowerCase();
+          const missingIndex =
+            queryError?.code === "failed-precondition" || message.includes("index");
+
+          if (missingIndex) {
+            const FALLBACK_BATCH_SIZE = 100;
+            const matchedDocs: QueryDocumentSnapshot<DocumentData>[] = [];
+            let scanCursor = previousPageCursor;
+            let exhausted = false;
+
+            while (matchedDocs.length < PAGE_SIZE + 1 && !exhausted) {
+              const fallbackConstraints: QueryConstraint[] = [
+                orderBy("createdAt", "desc"),
+                limit(FALLBACK_BATCH_SIZE),
+              ];
+              if (scanCursor) {
+                fallbackConstraints.push(startAfter(scanCursor));
+              }
+
+              const fallbackQuery = query(collection(db, "purchaseRequests"), ...fallbackConstraints);
+              const fallbackSnapshot = await getDocs(fallbackQuery);
+
+              if (fallbackSnapshot.empty) {
+                exhausted = true;
+                break;
+              }
+
+              const filtered = fallbackSnapshot.docs.filter((docSnap) => {
+                const data = docSnap.data() as PurchaseRequest;
+                return mode === "active" ? isActiveStatus(data.status) : isHistoryStatus(data.status);
+              });
+              matchedDocs.push(...filtered);
+
+              scanCursor = fallbackSnapshot.docs[fallbackSnapshot.docs.length - 1];
+              if (fallbackSnapshot.docs.length < FALLBACK_BATCH_SIZE) {
+                exhausted = true;
+              }
+            }
+
+            sourceDocs = matchedDocs.slice(0, PAGE_SIZE);
+            canLoadNext = matchedDocs.length > PAGE_SIZE;
+            needsClientStatusFilter = true;
+          } else {
+            throw queryError;
+          }
+        }
+
+        let requestPage = sourceDocs.map(
+          (docSnap) => ({ id: docSnap.id, ...docSnap.data() } as PurchaseRequest)
+        );
+
+        if (needsClientStatusFilter) {
+          requestPage = requestPage.filter((req) =>
+            mode === "active"
+              ? isActiveStatus(req.status)
+              : isHistoryStatus(req.status)
+          );
+        }
+
+        const rows = await buildRowsForPage(requestPage);
+        const lastDoc = sourceDocs.length
+          ? sourceDocs[sourceDocs.length - 1]
+          : null;
+
+        pageRowsCacheRef.current.set(targetPage, rows);
+        pageLastDocRef.current.set(targetPage, lastDoc);
+        pageHasNextRef.current.set(targetPage, canLoadNext);
+
+        setRequests(rows);
+        setRowSelection({});
+        setPageIndex(targetPage);
+        setHasNextPage(canLoadNext);
+      } catch (error) {
+        console.error("Failed to fetch purchase page", error);
+        if (targetPage === 0) {
+          setRequests([]);
+        }
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Could not load purchase requests.",
+        });
+      } finally {
+        setIsPageLoading(false);
+      }
+    },
+    [buildRowsForPage, isActiveStatus, isHistoryStatus, mode, toast]
+  );
+
+  React.useEffect(() => {
+    resetPaginationState();
+    void loadPage(0);
+  }, [loadPage, mode, resetPaginationState, view]);
   
   const handleDeleteRequest = async () => {
     if (!deletingRequest) return;
@@ -170,6 +379,8 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
       await deleteDoc(doc(db, "purchaseRequests", deletingRequest.id));
       toast({ title: "Purchase Request Deleted", description: `Request ${deletingRequest.id} has been removed.` });
       setDeletingRequest(null);
+      resetPaginationState();
+      await loadPage(0);
     } catch (error) {
       console.error("Error deleting request: ", error);
       toast({ variant: "destructive", title: "Error", description: "Failed to delete request." });
@@ -320,8 +531,9 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
                     setDetailsLoading(true);
                     try {
                     const res = await getPurchaseViewDetails(rowItem.originalRequest.id);
-                    if (!res.success) {
-                        toast({ variant: "destructive", title: "Error", description: res.message });
+                    if (!res.success || !("data" in res)) {
+                        const message = "message" in res ? res.message : "Could not load purchase details.";
+                        toast({ variant: "destructive", title: "Error", description: message });
                         return;
                     }
                     setDetailsData(res.data);
@@ -347,7 +559,6 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
@@ -530,7 +741,19 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
                         ))}
                     </TableHeader>
                     <TableBody>
-                        {table.getRowModel().rows?.length ? (
+                        {isPageLoading && requests.length === 0 ? (
+                        <TableRow>
+                            <TableCell
+                            colSpan={columns.length}
+                            className="h-24 text-center"
+                            >
+                              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Loading purchase requests...
+                              </div>
+                            </TableCell>
+                        </TableRow>
+                        ) : table.getRowModel().rows?.length ? (
                         table.getRowModel().rows.map((row) => (
                             <TableRow
                             key={row.id}
@@ -559,27 +782,37 @@ const [detailsData, setDetailsData] = React.useState<any>(null);
                     </TableBody>
                     </Table>
                 </div>
-                 <div className="flex items-center justify-end space-x-2 py-4">
+                 <div className="flex items-center justify-between space-x-2 py-4">
                     <div className="flex-1 text-sm text-muted-foreground">
                     {table.getFilteredSelectedRowModel().rows.length} of{" "}
                     {table.getFilteredRowModel().rows.length} row(s) selected.
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      Page {pageIndex + 1}
                     </div>
                     <div className="space-x-2">
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => table.previousPage()}
-                        disabled={!table.getCanPreviousPage()}
+                        onClick={() => void loadPage(pageIndex - 1)}
+                        disabled={isPageLoading || pageIndex === 0}
                     >
                         Previous
                     </Button>
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => table.nextPage()}
-                        disabled={!table.getCanNextPage()}
+                        onClick={() => void loadPage(pageIndex + 1)}
+                        disabled={isPageLoading || !hasNextPage}
                     >
-                        Next
+                        {isPageLoading ? (
+                          <span className="flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Loading
+                          </span>
+                        ) : (
+                          "Next"
+                        )}
                     </Button>
                     </div>
                 </div>
