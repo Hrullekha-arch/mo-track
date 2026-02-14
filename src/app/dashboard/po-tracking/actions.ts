@@ -84,8 +84,10 @@ export async function updateFollowUpStatus(
     requestId: string,
     itemName: string,
     newDate: string | null,
+    DocketNo:string | null,
     userName: string
 ): Promise<{ success: boolean; message: string }> {
+    console.log("DocketNo",DocketNo , requestId);
     try {
         const requestRef = adminDb.collection('purchaseRequests').doc(requestId);
         
@@ -115,6 +117,7 @@ export async function updateFollowUpStatus(
                 completedAt: new Date().toISOString(),
                 completedBy: userName,
                 itemName: itemName,
+                docketNo:DocketNo,
                 remarks: newDate ? `Delivery date updated to ${new Date(newDate).toLocaleDateString()}` : "Follow-up confirmed."
             };
 

@@ -45,6 +45,7 @@ export default function CustomersPage() {
       phone: "",
       quotationNo: "",
       orderNo: "",
+      dealId: "",
       salesSupport: "all",
     }
   });
@@ -59,6 +60,7 @@ export default function CustomersPage() {
         salesSupport: data.salesSupport,
         quotationNo: data.quotationNo,
         orderNo: data.orderNo,
+        dealId: data.dealId,
       });
       setSearchResults(results);
     } catch (error) {
@@ -113,10 +115,14 @@ export default function CustomersPage() {
                     <Input id="phone" {...form.register("phone")} />
                 </div>
                 <div className="space-y-2">
+                <div className="space-y-2">
                     <Label htmlFor="quotationNo">Quotation No</Label>
                     <Input id="quotationNo" {...form.register("quotationNo")} />
                 </div>
                 <div className="space-y-2">
+                    <Label htmlFor="quotationNo">Deal ID</Label>
+                    <Input id="dealId" {...form.register("dealId")} />
+                </div>
                     <Label htmlFor="orderNo">Order No</Label>
                     <Input id="orderNo" {...form.register("orderNo")} />
                 </div>

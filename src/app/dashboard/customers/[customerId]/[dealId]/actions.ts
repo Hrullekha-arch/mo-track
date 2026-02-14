@@ -326,7 +326,7 @@ export async function createQuotationAction(customerId: string, dealId: string, 
         quotationNo: Math.floor(1000 + Math.random() * 9000).toString(),
         ...values,
         createdAt: new Date().toISOString(),
-        status: 'approved', // Initially pending
+        status: 'Pending Approval', // Initially pending
         totalAmount: totalAmount,
         cpdId: values.selectedCpdId || "No CPD ID",
     };

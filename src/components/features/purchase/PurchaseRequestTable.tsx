@@ -1014,6 +1014,12 @@ const [hasNextPage, setHasNextPage] = React.useState(false);
                 </span>
               </div>
               <div>
+                <span className="text-muted-foreground">Tally PO Number:</span>{" "}
+                <span className="font-medium">
+                  {detailsData.purchaseRequest?.tallyPoNumber || "N/A"}
+                </span>
+              </div>
+              <div>
                 <span className="text-muted-foreground">Promise Date:</span>{" "}
                 <span className="font-medium">
                   {detailsData.purchaseRequest?.promiseDeliveryDate 

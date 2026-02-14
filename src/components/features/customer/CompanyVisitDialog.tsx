@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import React from "react";
+import { toast } from "sonner";
 
 type Props ={
   open:boolean;
@@ -26,6 +28,22 @@ type Props ={
 
 
 export default function CompanyVisitDialog( {open,onOpenChange }:Props) {
+
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+  const [visitDate, setVisitDate] = React.useState("");
+  const [visitType, setVisitType] = React.useState("");
+  const [remark, setRemark] = React.useState("");
+  const [createing, setCreating] = React.useState(false);
+
+   const handleSubmit = () => {
+    if (!from || !to || !visitDate || !visitType) {
+      toast("Please fill in all required fields.");
+      return;
+    }
+    setCreating(true);
+   }
+
 
   
   return (

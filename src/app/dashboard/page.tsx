@@ -2,21 +2,48 @@
 "use client";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { FileSignature, ShoppingCart, Truck, Archive, Scissors, CalendarCheck, FileText, CheckCircle, PhoneCall, Bell, ListOrdered, UserCheck, Dot, GitCommitHorizontal, CheckCheckIcon, UserPlus, X, Briefcase } from "lucide-react";
+import {
+  FileSignature,
+  ShoppingCart,
+  Truck,
+  Archive,
+  Scissors,
+  CalendarCheck,
+  FileText,
+  CheckCircle,
+  PhoneCall,
+  Bell,
+  ListOrdered,
+  UserPlus,
+  Briefcase,
+  ArrowRight,
+  Search,
+  ClipboardList,
+  PackageCheck,
+} from "lucide-react";
 import { useEffect, useState, useMemo, useRef } from "react";
-import { collection, onSnapshot, query, where, collectionGroup, getDocs, orderBy, doc, updateDoc, getDoc } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  query,
+  where,
+  collectionGroup,
+  getDocs,
+  orderBy,
+  doc,
+  updateDoc,
+  limit,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Order, Quotation, PurchaseRequest, User, PurchaseStatus, Walkin_Customer } from "@/lib/types";
+import { InboundRequest, Order, Quotation, PurchaseRequest, Walkin_Customer } from "@/lib/types";
 import Image from 'next/image';
 import { getFollowUpItems } from "./po-tracking/actions";
 import { useAuth } from "@/context/AuthContext";
 import { format, formatDistanceToNow } from "date-fns";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { PO_PROCESS_CONFIG } from "@/lib/constants";
 import CrmDashboard from "@/components/features/dashboard/CrmDashboard";
 import { AccountsDashboard } from "@/components/features/dashboard/AccountsDashboard";
 import { Button } from "@/components/ui/button";
@@ -28,6 +55,91 @@ import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { addCustomerAction, addDealAction } from "./customers/actions";
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+
+type DashboardOrderRisk = "critical" | "watch" | "stable";
+
+interface DashboardOrderRow {
+  order: Order;
+  progress: number;
+  completedMilestones: number;
+  totalMilestones: number;
+  currentStep: string;
+  nextStep: string;
+  ageDays: number;
+  risk: DashboardOrderRisk;
+}
+
+const normalizeText = (value?: string) => String(value || "").trim().toLowerCase();
+
+const toDateSafe = (value: unknown): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value === "object" && value !== null && "toDate" in value) {
+    const date = (value as { toDate?: () => Date }).toDate?.();
+    if (date instanceof Date && !Number.isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  return null;
+};
+
+const deriveDashboardOrderRow = (order: Order): DashboardOrderRow => {
+  const milestones = order.milestones || [];
+  const totalMilestones = milestones.length;
+  const completedMilestones = milestones.filter((step) => step.completed).length;
+  const progress = totalMilestones ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
+
+  const currentStep = [...milestones].reverse().find((step) => step.completed)?.name || "Order Created";
+  const nextStep =
+    milestones.find((step) => !step.completed)?.name ||
+    (totalMilestones ? "Completed" : "Milestone Planning Pending");
+
+  const createdAt = toDateSafe(order.createdAt) || new Date();
+  const ageDays = Math.max(0, Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)));
+
+  let risk: DashboardOrderRisk = "stable";
+  if (progress < 100 && (ageDays >= 14 || (ageDays >= 10 && progress < 60))) {
+    risk = "critical";
+  } else if (progress < 100 && (ageDays >= 7 || progress < 75)) {
+    risk = "watch";
+  }
+
+  return {
+    order,
+    progress,
+    completedMilestones,
+    totalMilestones,
+    currentStep,
+    nextStep,
+    ageDays,
+    risk,
+  };
+};
+
+const riskBadgeClassMap: Record<DashboardOrderRisk, string> = {
+  critical: "border-red-200 bg-red-50 text-red-700",
+  watch: "border-amber-200 bg-amber-50 text-amber-700",
+  stable: "border-emerald-200 bg-emerald-50 text-emerald-700",
+};
+
+const riskContainerClassMap: Record<DashboardOrderRisk, string> = {
+  critical: "border-red-200 bg-red-50/50",
+  watch: "border-amber-200 bg-amber-50/40",
+  stable: "border-slate-200 bg-white",
+};
+
+const riskLabelMap: Record<DashboardOrderRisk, string> = {
+  critical: "Critical",
+  watch: "Watch",
+  stable: "Stable",
+};
 
 
 const SalesmanDashboard = () => {
@@ -273,6 +385,719 @@ const SalesmanDashboard = () => {
     )
 }
 
+const SalesmanDashboardV2 = () => {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const router = useRouter();
+
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [walkinLeads, setWalkinLeads] = useState<Walkin_Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [leadSearch, setLeadSearch] = useState("");
+
+  const [closingLead, setClosingLead] = useState<Walkin_Customer | null>(null);
+  const [closeRemark, setCloseRemark] = useState("");
+  const [isClosing, setIsClosing] = useState(false);
+  const [dealCreationLead, setDealCreationLead] = useState<Walkin_Customer | null>(null);
+  const [isCreatingDeal, setIsCreatingDeal] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setLoading(true);
+    const salesmanName = user.name;
+
+    let loadedOrders = false;
+    let loadedLeads = false;
+    const markLoaded = () => {
+      if (loadedOrders && loadedLeads) setLoading(false);
+    };
+
+    const ordersQuery = query(collection(db, "orders"), where("salesPerson", "==", salesmanName));
+    const quotationsQuery = query(collectionGroup(db, "quotations"), where("representativeId", "==", user.id));
+    const purchaseRequestsQuery = query(collection(db, "purchaseRequests"), where("salesman", "==", salesmanName));
+    const leadsQuery = query(
+      collection(db, "Walkin_Customer"),
+      where("salesmanId", "==", user.id),
+      where("status", "==", "Handed Over")
+    );
+    const notificationsQuery = query(
+      collection(db, "users", user.id, "notifications"),
+      orderBy("createdAt", "desc"),
+      limit(50)
+    );
+
+    const unsubOrders = onSnapshot(
+      ordersQuery,
+      (snapshot) => {
+        setOrders(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as Order)));
+        loadedOrders = true;
+        markLoaded();
+      },
+      () => {
+        loadedOrders = true;
+        markLoaded();
+      }
+    );
+    const unsubQuotations = onSnapshot(
+      quotationsQuery,
+      (snapshot) => setQuotations(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as Quotation))),
+      () => setQuotations([])
+    );
+    const unsubPurchase = onSnapshot(
+      purchaseRequestsQuery,
+      (snapshot) =>
+        setPurchaseRequests(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as PurchaseRequest))),
+      () => setPurchaseRequests([])
+    );
+    const unsubLeads = onSnapshot(
+      leadsQuery,
+      (snapshot) => {
+        setWalkinLeads(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as Walkin_Customer)));
+        loadedLeads = true;
+        markLoaded();
+      },
+      () => {
+        loadedLeads = true;
+        markLoaded();
+      }
+    );
+    const unsubNotifications = onSnapshot(
+      notificationsQuery,
+      (snapshot) => setNotifications(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }))),
+      () => setNotifications([])
+    );
+
+    return () => {
+      unsubOrders();
+      unsubQuotations();
+      unsubPurchase();
+      unsubLeads();
+      unsubNotifications();
+    };
+  }, [user]);
+
+  const handleCreateDeal = async (lead: Walkin_Customer) => {
+    if (!user) return;
+    setIsCreatingDeal(true);
+    setDealCreationLead(lead);
+    try {
+      const customersRef = collection(db, "customers");
+      const customerQuery = query(customersRef, where("phone", "==", lead.mobile));
+      const customerSnapshot = await getDocs(customerQuery);
+      let customerId: string;
+      if (customerSnapshot.empty) {
+        const customerResult = await addCustomerAction({
+          name: `${lead.firstName} ${lead.familyName}`,
+          phone: lead.mobile,
+          email: lead.email || "",
+          createdBy: user.name,
+        });
+        if (!customerResult.success || !customerResult.customer) {
+          throw new Error(customerResult.message || "Failed to create customer.");
+        }
+        customerId = customerResult.customer.id;
+      } else {
+        customerId = customerSnapshot.docs[0].id;
+      }
+
+      const dealResult = await addDealAction({
+        customerId,
+        dealName: "WalkIn",
+        dealAmount: 1,
+        representativeId: user.id,
+        description: `Deal created from walk-in lead for ${lead.firstName} ${lead.familyName}.`,
+        advanceForMeasurement: "No" as const,
+      });
+
+      if (!dealResult.success || !dealResult.deal) {
+        throw new Error(dealResult.message || "Failed to create deal.");
+      }
+
+      await updateDoc(doc(db, "Walkin_Customer", lead.id), { status: "Deal Created" });
+      toast({ title: "Deal Created", description: `Redirecting to deal #${dealResult.deal.dealId}` });
+      router.push(`/dashboard/customers/${customerId}/${dealResult.deal.id}?tab=products`);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Deal Creation Failed", description: error?.message || "Try again." });
+    } finally {
+      setIsCreatingDeal(false);
+      setDealCreationLead(null);
+    }
+  };
+
+  const handleCloseLead = async () => {
+    if (!closingLead) return;
+    setIsClosing(true);
+    try {
+      await updateDoc(doc(db, "Walkin_Customer", closingLead.id), {
+        status: "Closed",
+        action: "Close",
+        remarks: closeRemark,
+      });
+      toast({ title: "Lead Closed", description: "Lead has been marked as closed." });
+      setClosingLead(null);
+      setCloseRemark("");
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Failed to close lead." });
+    } finally {
+      setIsClosing(false);
+    }
+  };
+
+  const orderRows = useMemo(() => orders.map(deriveDashboardOrderRow), [orders]);
+  const activeOrderRows = useMemo(() => orderRows.filter((row) => row.progress < 100), [orderRows]);
+  const filteredOrderRows = useMemo(() => {
+    const normalized = orderSearch.trim().toLowerCase();
+    if (!normalized) return activeOrderRows;
+    return activeOrderRows.filter((row) => {
+      return (
+        String(row.order.customerName || "")
+          .toLowerCase()
+          .includes(normalized) ||
+        String(row.order.crmOrderNo || "")
+          .toLowerCase()
+          .includes(normalized) ||
+        String(row.order.dealId || "")
+          .toLowerCase()
+          .includes(normalized) ||
+        row.nextStep.toLowerCase().includes(normalized)
+      );
+    });
+  }, [activeOrderRows, orderSearch]);
+
+  const filteredLeads = useMemo(() => {
+    const normalized = leadSearch.trim().toLowerCase();
+    if (!normalized) return walkinLeads;
+    return walkinLeads.filter((lead) => {
+      return (
+        `${lead.firstName || ""} ${lead.familyName || ""}`.toLowerCase().includes(normalized) ||
+        String(lead.mobile || "")
+          .toLowerCase()
+          .includes(normalized) ||
+        String(lead.lookingFor || "")
+          .toLowerCase()
+          .includes(normalized)
+      );
+    });
+  }, [walkinLeads, leadSearch]);
+
+  const criticalCount = activeOrderRows.filter((row) => row.risk === "critical").length;
+  const completedCount = Math.max(0, orderRows.length - activeOrderRows.length);
+  const avgProgress = activeOrderRows.length
+    ? Math.round(activeOrderRows.reduce((sum, row) => sum + row.progress, 0) / activeOrderRows.length)
+    : 0;
+  const poGeneratedCount = purchaseRequests.filter((item) => normalizeText(item.status) === "po generated").length;
+
+  const quickActions = [
+    { title: "My Customers", href: "/dashboard/customers", icon: Briefcase },
+    { title: "Walk-in Desk", href: "/dashboard/walk-in", icon: UserPlus },
+    { title: "My Orders", href: "/dashboard/orders", icon: ListOrdered },
+    { title: "Visits", href: "/dashboard/visits", icon: CalendarCheck },
+  ] as const;
+
+  return (
+    <>
+      <div className="space-y-6 p-4 md:p-6 lg:p-8">
+        <Card className="overflow-hidden border-orange-200 bg-gradient-to-r from-orange-50 via-white to-amber-50">
+          <CardContent className="flex flex-col gap-6 p-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">Salesman Command Desk</p>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
+                Salesman Dashboard
+              </h1>
+              <p className="max-w-3xl text-sm text-slate-600 md:text-base">
+                Convert walk-ins fast, track risky orders, and keep your deal movement consistent every day.
+              </p>
+            </div>
+            <div className="grid w-full grid-cols-2 gap-3 lg:w-auto lg:min-w-[22rem]">
+              <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
+                <p className="text-xs text-muted-foreground">Assigned Leads</p>
+                <p className="mt-1 text-2xl font-bold">{loading ? "..." : walkinLeads.length}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
+                <p className="text-xs text-muted-foreground">Active Orders</p>
+                <p className="mt-1 text-2xl font-bold">{loading ? "..." : activeOrderRows.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {quickActions.map((action) => (
+            <Link key={action.href} href={action.href} className="group block">
+              <Card className="h-full border-slate-200 transition-all hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md">
+                <CardContent className="flex h-full items-center justify-between p-4">
+                  <div className="flex items-center gap-2">
+                    <action.icon className="h-4 w-4 text-orange-700" />
+                    <p className="text-sm font-semibold">{action.title}</p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-slate-500 transition-transform group-hover:translate-x-0.5" />
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Critical</p><p className="text-2xl font-bold text-red-700">{loading ? "..." : criticalCount}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Avg Progress</p><p className="text-2xl font-bold">{loading ? "..." : `${avgProgress}%`}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Completed</p><p className="text-2xl font-bold text-emerald-700">{loading ? "..." : completedCount}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">PO Generated</p><p className="text-2xl font-bold">{loading ? "..." : poGeneratedCount}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Quotations</p><p className="text-2xl font-bold">{loading ? "..." : quotations.length}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Unread Alerts</p><p className="text-2xl font-bold">{loading ? "..." : notifications.filter((item) => !item.read).length}</p></CardContent></Card>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <Card className="xl:col-span-2">
+            <CardHeader className="space-y-3">
+              <CardTitle>Order Queue</CardTitle>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="Search order, customer, deal..." className="pl-8" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="h-[32rem]">
+                <div className="space-y-3">
+                  {loading ? (
+                    Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-24 w-full" />)
+                  ) : filteredOrderRows.length ? (
+                    filteredOrderRows.map((row) => (
+                      <div key={row.order.id} className={`rounded-xl border p-4 ${riskContainerClassMap[row.risk]}`}>
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold">{row.order.customerName || "-"}</p>
+                              <Badge variant="secondary">{row.order.orderType || "-"}</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Order #{row.order.crmOrderNo || row.order.id} | Deal #{row.order.dealId || "-"}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className={riskBadgeClassMap[row.risk]}>{riskLabelMap[row.risk]}</Badge>
+                        </div>
+                        <Progress value={row.progress} className="mt-3 h-2" />
+                        <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground md:grid-cols-3">
+                          <p>Current: <span className="font-semibold text-slate-900">{row.currentStep}</span></p>
+                          <p>Next: <span className="font-semibold text-slate-900">{row.nextStep}</span></p>
+                          <p>Age: <span className="font-semibold text-slate-900">{row.ageDays} day(s)</span></p>
+                        </div>
+                        <div className="mt-3 flex justify-end">
+                          <Button asChild size="sm" variant="outline">
+                            <Link href={`/dashboard/orders/${row.order.id}`}>Open Order</Link>
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="py-8 text-center text-sm text-muted-foreground">No active orders in queue.</p>
+                  )}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="space-y-3">
+              <CardTitle>Recent Alerts</CardTitle>
+              <CardDescription>Latest notifications assigned to you.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="h-[32rem]">
+                <div className="space-y-2">
+                  {loading ? (
+                    Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-16 w-full" />)
+                  ) : notifications.length ? (
+                    notifications.map((notification) => {
+                      const createdAt = toDateSafe(notification.createdAt || notification.date);
+                      return (
+                        <div key={notification.id} className="rounded-lg border p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm font-semibold">{notification.type || "Update"}</p>
+                            {!notification.read ? <Badge variant="outline">New</Badge> : null}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">{notification.message || "No message"}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {createdAt ? formatDistanceToNow(createdAt, { addSuffix: true }) : "Unknown time"}
+                          </p>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="py-8 text-center text-sm text-muted-foreground">No notifications yet.</p>
+                  )}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader className="space-y-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <CardTitle>Active Leads</CardTitle>
+                <CardDescription>Create deal or close with remarks for your lead handovers.</CardDescription>
+              </div>
+              <div className="relative w-full lg:w-80">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input value={leadSearch} onChange={(event) => setLeadSearch(event.target.value)} placeholder="Search name, phone, looking for..." className="pl-8" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : filteredLeads.length ? (
+              <div className="space-y-3">
+                {filteredLeads.map((lead) => (
+                  <div key={lead.id} className="rounded-xl border p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="font-semibold">{lead.firstName} {lead.familyName}</p>
+                      <p className="text-sm text-muted-foreground">{lead.mobile}</p>
+                      {lead.lookingFor ? <p className="text-xs text-muted-foreground mt-1">Looking for: {lead.lookingFor}</p> : null}
+                    </div>
+                    <div className="flex gap-2">
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm">Create Deal</Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Create a New Deal?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This creates a new deal named &quot;WalkIn&quot; for {lead.firstName} {lead.familyName}.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => void handleCreateDeal(lead)} disabled={isCreatingDeal && dealCreationLead?.id === lead.id}>
+                              {isCreatingDeal && dealCreationLead?.id === lead.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                              Yes, Create Deal
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                      <Button size="sm" variant="outline" onClick={() => setClosingLead(lead)}>Close</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="py-8 text-center text-sm text-muted-foreground">No leads assigned.</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog open={!!closingLead} onOpenChange={() => setClosingLead(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Close Lead: {closingLead?.firstName} {closingLead?.familyName}</DialogTitle>
+            <DialogDescription>Please provide a reason for closing this lead.</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="close-remark">Remark</Label>
+            <Textarea id="close-remark" value={closeRemark} onChange={(event) => setCloseRemark(event.target.value)} placeholder="e.g., customer postponed, not interested, duplicate..." />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setClosingLead(null)}>Cancel</Button>
+            <Button onClick={() => void handleCloseLead()} disabled={isClosing || !closeRemark}>
+              {isClosing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Confirm And Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+};
+
+const AllocatorDashboard = () => {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [inbounds, setInbounds] = useState<InboundRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [queueSearch, setQueueSearch] = useState("");
+  const [inboundSearch, setInboundSearch] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    let loadedOrders = false;
+    let loadedInbounds = false;
+    const markLoaded = () => {
+      if (loadedOrders && loadedInbounds) setLoading(false);
+    };
+
+    const ordersQuery = query(
+      collection(db, "orders"),
+      where("isAcknowledged", "==", true),
+      where("status", "==", "Approved")
+    );
+    const inboundQuery = query(collection(db, "inbounds"), orderBy("createdAt", "desc"), limit(300));
+
+    const unsubOrders = onSnapshot(
+      ordersQuery,
+      (snapshot) => {
+        setOrders(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as Order)));
+        loadedOrders = true;
+        markLoaded();
+      },
+      () => {
+        setOrders([]);
+        loadedOrders = true;
+        markLoaded();
+      }
+    );
+    const unsubInbounds = onSnapshot(
+      inboundQuery,
+      (snapshot) => {
+        setInbounds(snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as InboundRequest)));
+        loadedInbounds = true;
+        markLoaded();
+      },
+      () => {
+        setInbounds([]);
+        loadedInbounds = true;
+        markLoaded();
+      }
+    );
+
+    return () => {
+      unsubOrders();
+      unsubInbounds();
+    };
+  }, []);
+
+  const orderRows = useMemo(
+    () => orders.map(deriveDashboardOrderRow).filter((row) => row.progress < 100),
+    [orders]
+  );
+
+  const allocationRows = useMemo(() => {
+    return orderRows.map((row) => {
+      const statuses = (row.order.fabricDetails || []).map((item) => normalizeText(item.status));
+      const hasLines = statuses.length > 0;
+      const allInStock = hasLines && statuses.every((status) => status === "in stock" || status === "allocated");
+      const someInStock = hasLines && statuses.some((status) => status === "in stock" || status === "allocated");
+      const waitingMaterial = hasLines && !someInStock;
+      return { ...row, hasLines, allInStock, someInStock, waitingMaterial };
+    });
+  }, [orderRows]);
+
+  const readyForAllocation = allocationRows.filter((row) => row.allInStock);
+  const partialStock = allocationRows.filter((row) => !row.allInStock && row.someInStock);
+  const waitingMaterial = allocationRows.filter((row) => row.waitingMaterial);
+
+  const queueRows = useMemo(() => {
+    const baseRows = [...readyForAllocation, ...partialStock];
+    const normalized = queueSearch.trim().toLowerCase();
+    const filteredRows = normalized
+      ? baseRows.filter((row) => {
+          return (
+            String(row.order.customerName || "")
+              .toLowerCase()
+              .includes(normalized) ||
+            String(row.order.crmOrderNo || "")
+              .toLowerCase()
+              .includes(normalized) ||
+            String(row.order.dealId || "")
+              .toLowerCase()
+              .includes(normalized) ||
+            String(row.order.salesPerson || "")
+              .toLowerCase()
+              .includes(normalized)
+          );
+        })
+      : baseRows;
+    const riskWeight: Record<DashboardOrderRisk, number> = { critical: 3, watch: 2, stable: 1 };
+    return filteredRows.sort((a, b) => {
+      if (riskWeight[b.risk] !== riskWeight[a.risk]) return riskWeight[b.risk] - riskWeight[a.risk];
+      if (a.progress !== b.progress) return a.progress - b.progress;
+      return b.ageDays - a.ageDays;
+    });
+  }, [partialStock, queueSearch, readyForAllocation]);
+
+  const inboundFeed = useMemo(() => {
+    const rows = inbounds
+      .map((inbound) => {
+        const items = inbound.items || [];
+        const receivedLines = items.filter((item: any) => {
+          if (Number(item?.receivedQty || 0) > 0) return true;
+          const milestones = Array.isArray(item?.inboundMilestones) ? item.inboundMilestones : [];
+          return milestones.some((milestone: any) => normalizeText(milestone?.status) === "completed");
+        }).length;
+        const isReceived = normalizeText(inbound.status) === "completed" || receivedLines > 0;
+        const timestamp = toDateSafe(inbound.completedAt || inbound.createdAt);
+        return { inbound, receivedLines, totalLines: items.length, isReceived, timestamp };
+      })
+      .filter((row) => row.isReceived)
+      .sort((a, b) => (b.timestamp?.getTime() || 0) - (a.timestamp?.getTime() || 0));
+
+    const normalized = inboundSearch.trim().toLowerCase();
+    if (!normalized) return rows;
+    return rows.filter((row) => {
+      return (
+        String(row.inbound.customerName || "")
+          .toLowerCase()
+          .includes(normalized) ||
+        String(row.inbound.vendor || "")
+          .toLowerCase()
+          .includes(normalized) ||
+        String(row.inbound.id || "")
+          .toLowerCase()
+          .includes(normalized) ||
+        String(row.inbound.dealId || "")
+          .toLowerCase()
+          .includes(normalized)
+      );
+    });
+  }, [inboundSearch, inbounds]);
+
+  const quickActions = [
+    { title: "Open Allocation", href: "/dashboard/orders", icon: ClipboardList },
+    { title: "Receive Material", href: "/dashboard/inbound", icon: PackageCheck },
+    { title: "Inventory", href: "/dashboard/inventory", icon: Archive },
+    { title: "Stock Verification", href: "/dashboard/stock-verification", icon: CheckCircle },
+  ] as const;
+
+  return (
+    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+      <Card className="overflow-hidden border-cyan-200 bg-gradient-to-r from-cyan-50 via-white to-teal-50">
+        <CardContent className="flex flex-col gap-6 p-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700">Allocator Control Tower</p>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">Allocator Home Dashboard</h1>
+            <p className="max-w-3xl text-sm text-slate-600 md:text-base">
+              Track stock-ready orders and inbound receipts. Allocator can also receive material from inbound desk.
+            </p>
+          </div>
+          <div className="grid w-full grid-cols-2 gap-3 lg:w-auto lg:min-w-[22rem]">
+            <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
+              <p className="text-xs text-muted-foreground">Ready For Allocation</p>
+              <p className="mt-1 text-2xl font-bold">{loading ? "..." : readyForAllocation.length}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
+              <p className="text-xs text-muted-foreground">Received Batches</p>
+              <p className="mt-1 text-2xl font-bold">{loading ? "..." : inboundFeed.length}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {quickActions.map((action) => (
+          <Link key={action.href} href={action.href} className="group block">
+            <Card className="h-full border-slate-200 transition-all hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-md">
+              <CardContent className="flex h-full items-center justify-between p-4">
+                <div className="flex items-center gap-2">
+                  <action.icon className="h-4 w-4 text-cyan-700" />
+                  <p className="text-sm font-semibold">{action.title}</p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-slate-500 transition-transform group-hover:translate-x-0.5" />
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Ready Orders</p><p className="text-2xl font-bold text-emerald-700">{loading ? "..." : readyForAllocation.length}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Partial Stock</p><p className="text-2xl font-bold text-amber-700">{loading ? "..." : partialStock.length}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Waiting Material</p><p className="text-2xl font-bold text-red-700">{loading ? "..." : waitingMaterial.length}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Active Inbound</p><p className="text-2xl font-bold">{loading ? "..." : inbounds.filter((i) => normalizeText(i.status) === "active").length}</p></CardContent></Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Card className="xl:col-span-2">
+          <CardHeader className="space-y-3">
+            <CardTitle>Allocation Queue</CardTitle>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input value={queueSearch} onChange={(event) => setQueueSearch(event.target.value)} placeholder="Search order, customer, deal..." className="pl-8" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-[34rem]">
+              <div className="space-y-3">
+                {loading ? (
+                  Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-24 w-full" />)
+                ) : queueRows.length ? (
+                  queueRows.map((row) => (
+                    <div key={row.order.id} className={`rounded-xl border p-4 ${riskContainerClassMap[row.risk]}`}>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold">{row.order.customerName || "-"}</p>
+                            <Badge variant={row.allInStock ? "default" : "secondary"}>{row.allInStock ? "Stock Ready" : "Partial Stock"}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Order #{row.order.crmOrderNo || row.order.id} | Deal #{row.order.dealId || "-"}</p>
+                        </div>
+                        <Badge variant="outline" className={riskBadgeClassMap[row.risk]}>{riskLabelMap[row.risk]}</Badge>
+                      </div>
+                      <Progress value={row.progress} className="mt-3 h-2" />
+                      <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-muted-foreground md:grid-cols-3">
+                        <p>Current: <span className="font-semibold text-slate-900">{row.currentStep}</span></p>
+                        <p>Next: <span className="font-semibold text-slate-900">{row.nextStep}</span></p>
+                        <p>Age: <span className="font-semibold text-slate-900">{row.ageDays} day(s)</span></p>
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/dashboard/orders/${row.order.id}`}>Open Order</Link>
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="py-8 text-center text-sm text-muted-foreground">No allocation items found.</p>
+                )}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="space-y-3">
+            <CardTitle>Material Receiving Feed</CardTitle>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input value={inboundSearch} onChange={(event) => setInboundSearch(event.target.value)} placeholder="Search PO, vendor, customer..." className="pl-8" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-[34rem]">
+              <div className="space-y-2">
+                {loading ? (
+                  Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-20 w-full" />)
+                ) : inboundFeed.length ? (
+                  inboundFeed.map((row) => (
+                    <div key={row.inbound.id} className="rounded-lg border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold">PO #{row.inbound.id}</p>
+                        <Badge variant={normalizeText(row.inbound.status) === "completed" ? "default" : "secondary"}>
+                          {row.inbound.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">{row.inbound.customerName || "-"} | Deal #{row.inbound.dealId || "-"}</p>
+                      <p className="text-xs text-muted-foreground">{row.inbound.vendor || "-"}</p>
+                      <p className="text-xs mt-1">Received lines: <span className="font-semibold">{row.receivedLines}</span> / {row.totalLines}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{row.timestamp ? formatDistanceToNow(row.timestamp, { addSuffix: true }) : "Unknown time"}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="py-8 text-center text-sm text-muted-foreground">No received material updates yet.</p>
+                )}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
 const AdminDashboard = () => {
     const [counts, setCounts] = useState<Record<string, number | null>>({
         readyForDelivery: null,
@@ -326,8 +1151,8 @@ const AdminDashboard = () => {
         };
 
         const unsubscribes = Object.entries(queries).map(([key, q]) => 
-            onSnapshot(q, (snapshot) => {
-                const docsData = snapshot.docs.map(doc => doc.data());
+            onSnapshot(q, (snapshot: any) => {
+                const docsData = snapshot.docs.map((doc: any) => doc.data());
                 
                 if (key === 'orders') {
                     const orders = docsData as Order[];
@@ -340,12 +1165,12 @@ const AdminDashboard = () => {
                     }));
                 }
                  if (key === 'quotations') {
-                    setCounts(prev => ({ ...prev, pendingQuotationApproval: docsData.filter(q => (q as Quotation).status === 'Pending Approval').length }));
+                    setCounts(prev => ({ ...prev, pendingQuotationApproval: docsData.filter((q: any) => (q as Quotation).status === 'Pending Approval').length }));
                 }
                 if (key === 'purchaseRequests') {
                      setCounts(prev => ({
                         ...prev,
-                        pendingPurchase: docsData.filter(pr => (pr as PurchaseRequest).status === 'Approved').length,
+                        pendingPurchase: docsData.filter((pr: any) => (pr as PurchaseRequest).status === 'Approved').length,
                     }));
                 }
                 if (key === 'inbounds') {
@@ -447,6 +1272,13 @@ function SummaryCard({ title, count, href, icon: Icon, loading }: SummaryCardPro
 
 export default function DashboardPage() {
     const { user, loading } = useAuth();
+    const router = useRouter();
+
+    useEffect(() => {
+        if (!loading && user?.role === 'Purchase') {
+            router.replace('/dashboard/purchase');
+        }
+    }, [loading, router, user]);
     
     if (loading) {
         return (
@@ -470,12 +1302,31 @@ export default function DashboardPage() {
         return <CrmDashboard dashboardType="PC" />;
     }
 
+    const normalizedDesignation = String(user?.designation || "").trim().toLowerCase();
+    if (normalizedDesignation === "allocators" || normalizedDesignation === "allocator") {
+        return <AllocatorDashboard />;
+    }
+
     if (user?.role === 'salesman') {
-        return <SalesmanDashboard />;
+        return <SalesmanDashboardV2 />;
     }
 
     if (user?.role === 'Accounts') {
         return <AccountsDashboard />;
+    }
+
+    if (user?.role === 'Purchase') {
+        return (
+             <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-4">
+                <Skeleton className="h-9 w-1/2 mb-2" />
+                <Skeleton className="h-5 w-3/4" />
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                     <Skeleton className="h-24 w-full" />
+                     <Skeleton className="h-24 w-full" />
+                     <Skeleton className="h-24 w-full" />
+                </div>
+            </div>
+        );
     }
 
     return <AdminDashboard />;

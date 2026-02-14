@@ -32,6 +32,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 
 function FollowUpDialog({ 
     isOpen, 
@@ -42,12 +43,12 @@ function FollowUpDialog({
     isOpen: boolean; 
     onClose: () => void; 
     item: PoFollowUpItem | null; 
-    onConfirm: (newDate: string | null, setIsSubmitting: React.Dispatch<React.SetStateAction<boolean>>) => void;
+    onConfirm: (newDate: string | null, DocketNo:string, setIsSubmitting: React.Dispatch<React.SetStateAction<boolean>>) => void;
 }) {
     const [newDate, setNewDate] = React.useState<Date | undefined>();
     const [sameAsOld, setSameAsOld] = React.useState(false);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
-
+    const  [docket,setDocket]=React.useState("");
     React.useEffect(() => {
         if (!isOpen) {
             setNewDate(undefined);
@@ -58,7 +59,9 @@ function FollowUpDialog({
     const handleConfirm = () => {
         setIsSubmitting(true);
         const dateToSubmit = sameAsOld ? null : (newDate ? newDate.toISOString() : null);
-        onConfirm(dateToSubmit, setIsSubmitting);
+        const DockentNo = docket;
+        console.log("DocketNo",DockentNo);
+        onConfirm(dateToSubmit,DockentNo, setIsSubmitting);
     };
     
     if (!item) return null;
@@ -92,6 +95,10 @@ function FollowUpDialog({
                             <Calendar mode="single" selected={newDate} onSelect={setNewDate} initialFocus />
                         </PopoverContent>
                     </Popover>
+                </div>
+                <div className="flex flex-col gap-5">
+                    <Label>Doc No if Available *</Label>
+                    <Input type="text" onChange={(e)=>setDocket(e.target.value)}  />
                 </div>
                 <DialogFooter>
                     <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -129,10 +136,10 @@ export default function FollowUpPage() {
       fetchData();
   }, [fetchData]);
 
-  const handleConfirmFollowUp = async (newDate: string | null, setIsSubmitting: React.Dispatch<React.SetStateAction<boolean>>) => {
+  const handleConfirmFollowUp = async (newDate: string | null, DocketNo:string|null, setIsSubmitting: React.Dispatch<React.SetStateAction<boolean>>) => {
     if (!selectedItem || !user) return;
     try {
-        const result = await updateFollowUpStatus(selectedItem.requestId, selectedItem.itemName, newDate, user.name);
+        const result = await updateFollowUpStatus(selectedItem.requestId, selectedItem.itemName,  newDate, DocketNo, user.name);
         if (result.success) {
             toast({ title: "Follow-up Confirmed", description: result.message });
             setSelectedItem(null);

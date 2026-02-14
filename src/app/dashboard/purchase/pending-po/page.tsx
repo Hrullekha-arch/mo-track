@@ -51,6 +51,7 @@ const createPoSchema = z.object({
   vendor: z.string().min(1, "Vendor name is required."),
   courier: z.string().min(1, "Courier is required."),
   mode: z.enum(['AIR', 'SURFACE'], { required_error: "Mode is required." }),
+  tallyPoNumber: z.string().optional(),
   items: z.array(z.object({
     id: z.string(),
     purchaseQty: z.number().min(0.01, "Quantity must be > 0."),
@@ -80,7 +81,7 @@ function CreatePoDialog({
 
     const form = useForm<CreatePoFormValues>({
         resolver: zodResolver(createPoSchema),
-        defaultValues: { vendor: '', courier: '', mode: 'SURFACE', items: [] }
+        defaultValues: { vendor: '', courier: '', mode: 'SURFACE', tallyPoNumber: '', items: [] }
     });
     
     const { control, handleSubmit, register } = form;
@@ -91,6 +92,7 @@ function CreatePoDialog({
                 vendor: items[0].vendorName || '',
                 courier: '',
                 mode: 'SURFACE',
+                tallyPoNumber: items[0]?.originalRequest?.tallyPoNumber || '',
                 items: items.map(item => ({ id: item.id, purchaseQty: item.neededQty })),
                 promiseDeliveryDate: undefined,
             });
@@ -117,6 +119,7 @@ function CreatePoDialog({
                 }),
                 isNewVendor,
                 promiseDeliveryDate: values.promiseDeliveryDate?.toISOString(),
+                tallyPoNumber: values.tallyPoNumber?.trim() || undefined,
             };
             const result = await createPurchaseOrderAction(poData, creator);
 
@@ -145,7 +148,7 @@ function CreatePoDialog({
                 </DialogHeader>
                  <Form {...form}>
                     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                             <FormField name="vendor" control={control} render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Vendor</FormLabel>
@@ -179,6 +182,19 @@ function CreatePoDialog({
                                     <FormMessage />
                                 </FormItem>
                             )}/>
+                            <FormField
+                                name="tallyPoNumber"
+                                control={control}
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Tally PO Number</FormLabel>
+                                        <FormControl>
+                                            <Input {...field} placeholder="Enter Tally PO Number" />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
                             <FormField
                                 control={control}
                                 name="promiseDeliveryDate"

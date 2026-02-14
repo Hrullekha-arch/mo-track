@@ -33,23 +33,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Link from 'next/link';
-import {
-  arrayUnion,
-  collection,
-  doc,
-  DocumentData,
-  documentId,
-  getDoc,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  QueryConstraint,
-  QueryDocumentSnapshot,
-  startAfter,
-  where,
-  writeBatch,
-} from "firebase/firestore";
+import { collection, doc, documentId, getDoc, getDocs, query, where, writeBatch, arrayUnion, limit, orderBy, startAfter } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { INBOUND_PROCESS_CONFIG } from "@/lib/constants";
 import { format } from "date-fns";
@@ -73,7 +57,7 @@ interface FlattenedInboundItem {
   quantity: string;
   vendorName?: string;
   type: 'fabric' | 'furniture';
-  originalRequest: PurchaseRequest;
+  originalRequest?: PurchaseRequest;
 }
 
 type ReceiveItem = {
@@ -85,6 +69,15 @@ type ReceiveItem = {
   supplierCollectionName?: string;
   supplierCollectionCode?: string;
   checked: boolean;
+};
+
+const parseQty = (value: string) => {
+  const parsed = Number(String(value).trim());
+  return Number.isFinite(parsed) ? parsed : NaN;
+};
+
+const isQtyMatchingExpected = (actual: number, expected: number) => {
+  return Math.abs(actual - expected) < 0.0001;
 };
 
 const buildMissingMilestones = (existing: InboundItem["inboundMilestones"], completedBy: string) => {
@@ -102,8 +95,6 @@ const buildMissingMilestones = (existing: InboundItem["inboundMilestones"], comp
 
 const STICKER_WIDTH_PX = 288;
 const STICKER_HEIGHT_PX = 192;
-const PAGE_SIZE = 20;
-type InboundTableMode = "pending" | "completed";
 
 const escapeHtml = (value: string) =>
   value
@@ -154,197 +145,192 @@ function InboundSticker({ bcn, length, name, code }: { bcn: string; length: numb
   );
 }
 
-export function InboundTable({ mode }: { mode: InboundTableMode }) {
+export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
   const [requests, setRequests] = React.useState<FlattenedInboundItem[]>([]);
   const [globalFilter, setGlobalFilter] = React.useState('');
   const [receiveDialogOpen, setReceiveDialogOpen] = React.useState(false);
   const [activePoNumber, setActivePoNumber] = React.useState<string | null>(null);
   const [inboundRequest, setInboundRequest] = React.useState<InboundRequest | null>(null);
   const [receiveItems, setReceiveItems] = React.useState<ReceiveItem[]>([]);
+  const [receiveQtyErrors, setReceiveQtyErrors] = React.useState<Record<string, string>>({});
   const [isLoadingInbound, setIsLoadingInbound] = React.useState(false);
   const [isReceiving, setIsReceiving] = React.useState(false);
-  const [isPageLoading, setIsPageLoading] = React.useState(false);
-  const [pageIndex, setPageIndex] = React.useState(0);
-  const [hasNextPage, setHasNextPage] = React.useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
+  const PAGE_SIZE = 20;
+  const [lastDoc, setLastDoc] =React.useState<any>(null);
+  const[hasMore, setHasMore] = React.useState(true);
+  const [loading, setLoading] = React.useState(false);
 
-  const pageRowsCacheRef = React.useRef<Map<number, FlattenedInboundItem[]>>(new Map());
-  const pageLastDocRef = React.useRef<Map<number, QueryDocumentSnapshot<DocumentData> | null>>(new Map());
-  const pageHasNextRef = React.useRef<Map<number, boolean>>(new Map());
-  const stockCacheRef = React.useRef<Map<string, Stock>>(new Map());
-  const inboundCacheRef = React.useRef<Map<string, InboundRequest>>(new Map());
 
-  const chunkArray = React.useCallback(<T,>(arr: T[], size: number): T[][] => {
-    const chunks: T[][] = [];
-    for (let i = 0; i < arr.length; i += size) {
-      chunks.push(arr.slice(i, i + size));
+
+  const fetchPage = async (force = false, resetCursor = false) => {
+    if (loading || (!hasMore && !force)) return;
+    setLoading(true);
+
+    const statusFilter = mode === "completed" ? "Completed" : "Active";
+    let q;
+    if (lastDoc && !resetCursor) {
+      q = query(
+        collection(db,"inbounds"),
+        where("status", "==", statusFilter),
+        orderBy("createdAt", "desc"),
+        startAfter(lastDoc),
+        limit(PAGE_SIZE)
+      );
+    } else{
+      q = query(
+        collection(db ,"inbounds"),
+        where("status", "==", statusFilter),
+        orderBy("createdAt","desc"),
+        limit(PAGE_SIZE)
+      )
     }
-    return chunks;
-  }, []);
 
-  const buildRowsForPage = React.useCallback(
-    async (requestPage: PurchaseRequest[]): Promise<FlattenedInboundItem[]> => {
-      const poRows = requestPage.flatMap((req) =>
-        (req.fabricDetails || [])
-          .filter((item) => !!item.poNumber)
-          .map((item) => ({ req, item }))
-      );
+    const snapshort = await getDocs(q);
 
-      const uniqueBcns = Array.from(
-        new Set(poRows.map(({ item }) => item.fabricName).filter(Boolean))
-      ) as string[];
-      const uniquePoNumbers = Array.from(
-        new Set(poRows.map(({ item }) => String(item.poNumber)).filter(Boolean))
-      );
+    if (snapshort.empty){
+      setLoading(false);
+      setHasMore(false);
+      return;
+    }
+    const newLastDoc = snapshort.docs[snapshort.docs.length -1];
+    setLastDoc(newLastDoc);
 
-      const missingBcns = uniqueBcns.filter((bcn) => !stockCacheRef.current.has(bcn));
-      const missingPoNumbers = uniquePoNumbers.filter((poNo) => !inboundCacheRef.current.has(poNo));
+    const pageData = snapshort.docs.map(doc =>({
+      id: doc.id,
+      ...doc.data(),
 
-      if (missingBcns.length) {
-        const stockChunks = chunkArray(missingBcns, 30);
-        for (const chunk of stockChunks) {
-          const stockQuery = query(collection(db, "stocks"), where("bcn", "in", chunk));
-          const stockSnapshot = await getDocs(stockQuery);
-          stockSnapshot.forEach((docSnap) => {
-            const data = docSnap.data() as Stock;
-            stockCacheRef.current.set(data.bcn, data);
-          });
-        }
-      }
+    }));
 
-      if (missingPoNumbers.length) {
-        const inboundChunks = chunkArray(missingPoNumbers, 30);
-        for (const chunk of inboundChunks) {
-          const inboundQuery = query(collection(db, "inbounds"), where(documentId(), "in", chunk));
-          const inboundSnapshot = await getDocs(inboundQuery);
-          inboundSnapshot.forEach((docSnap) => {
-            inboundCacheRef.current.set(docSnap.id, docSnap.data() as InboundRequest);
-          });
-        }
-      }
+    await processPageData(pageData);
+    setLoading(false);
+  }
 
-      const rows: FlattenedInboundItem[] = poRows.map(({ req, item }) => {
-        const stockData = stockCacheRef.current.get(item.fabricName);
-        const inboundData = inboundCacheRef.current.get(String(item.poNumber));
-        const inboundItem = inboundData?.items?.find((i) => i.itemName === item.fabricName);
-        const completedMilestones = inboundItem?.inboundMilestones || [];
+  // utlity Function helper
+  function chunkArray(arr: any[], size: number) {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
 
-        let statusText = "Pending Receiving";
-        if (completedMilestones.length === INBOUND_PROCESS_CONFIG.length) {
-          statusText = "Received";
-        } else if (completedMilestones.length > 0) {
-          const lastCompletedMilestone = [...completedMilestones].sort(
-            (a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
-          )[0];
-          const lastStepConfig = INBOUND_PROCESS_CONFIG.find((step) => step.id === lastCompletedMilestone.stepId);
-          statusText = lastStepConfig?.name || "In Progress";
-        } else if (INBOUND_PROCESS_CONFIG[0]?.name) {
-          statusText = `Pending: ${INBOUND_PROCESS_CONFIG[0].name}`;
-        }
 
-        return {
-          id: `${req.id}-${item.fabricName}`,
-          dealId: req.dealId,
-          poNumber: item.poNumber,
-          customerName: req.customerName,
-          salesman: req.salesman,
-          status: statusText,
-          createdAt: req.createdAt,
-          itemName: item.fabricName,
-          supplierCollectionName: stockData?.supplierCollectionName || "",
-          supplierCollectionCode: stockData?.supplierCollectionCode || "",
-          quantity: item.quantity,
-          vendorName: item.vendorName,
-          type: "fabric",
-          originalRequest: req,
-        };
-      });
+  const processPageData = async (pageData: any[]) => {
+    const filteredInbounds = pageData.filter((inbound) => {
+      const status = String(inbound?.status || "").toLowerCase();
+      if (mode === "completed") return status === "completed";
+      return status !== "completed";
+    });
 
-      return rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    },
-    [chunkArray]
-  );
+    const allBcns = filteredInbounds.flatMap((inbound) =>
+      (Array.isArray(inbound?.items) ? inbound.items : [])
+        .map((item: any) => item?.itemName)
+        .filter(Boolean)
+    );
 
-  const loadPage = React.useCallback(
-    async (targetPage: number) => {
-      if (targetPage < 0) return;
+    const allPurchaseRequestIds = filteredInbounds
+      .map((inbound) => inbound?.purchaseRequestId)
+      .filter(Boolean);
 
-      const cachedRows = pageRowsCacheRef.current.get(targetPage);
-      if (cachedRows) {
-        setRequests(cachedRows);
-        setPageIndex(targetPage);
-        setHasNextPage(pageHasNextRef.current.get(targetPage) ?? false);
-        return;
-      }
+    const uniqueBcns = [...new Set(allBcns)];
+    const uniquePurchaseRequestIds = [...new Set(allPurchaseRequestIds)];
 
-      const previousPageCursor =
-        targetPage === 0 ? null : pageLastDocRef.current.get(targetPage - 1) ?? null;
+    const stockDataMap = new Map<string, Stock>();
+    const purchaseRequestById = new Map<string, PurchaseRequest>();
 
-      if (targetPage > 0 && !previousPageCursor) return;
-
-      setIsPageLoading(true);
-
-      try {
-        const constraints: QueryConstraint[] = [orderBy("createdAt", "desc"), limit(PAGE_SIZE)];
-        if (previousPageCursor) {
-          constraints.push(startAfter(previousPageCursor));
-        }
-
-        const pageQuery = query(collection(db, "purchaseRequests"), ...constraints);
-        const pageSnapshot = await getDocs(pageQuery);
-
-        const requestPage = pageSnapshot.docs.map(
-          (docSnap) => ({ id: docSnap.id, ...docSnap.data() } as PurchaseRequest)
-        );
-
-        const rows = await buildRowsForPage(requestPage);
-        const filteredRows = rows.filter((row) =>
-          mode === "pending" ? row.status !== "Received" : row.status === "Received"
-        );
-        const lastDoc = pageSnapshot.docs.length
-          ? pageSnapshot.docs[pageSnapshot.docs.length - 1]
-          : null;
-        const canLoadNext = pageSnapshot.docs.length === PAGE_SIZE;
-
-        pageRowsCacheRef.current.set(targetPage, filteredRows);
-        pageLastDocRef.current.set(targetPage, lastDoc);
-        pageHasNextRef.current.set(targetPage, canLoadNext);
-
-        setRequests(filteredRows);
-        setPageIndex(targetPage);
-        setHasNextPage(canLoadNext);
-      } catch (error) {
-        console.error("Failed to fetch inbound page", error);
-        if (targetPage === 0) {
-          setRequests([]);
-        }
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Could not load inbound data.",
+    if (uniqueBcns.length > 0) {
+      const stockChunks = chunkArray(uniqueBcns, 30);
+      for (const chunk of stockChunks) {
+        const stockQuery = query(collection(db, "stocks"), where("bcn", "in", chunk));
+        const snap = await getDocs(stockQuery);
+        snap.forEach((docSnap) => {
+          const stockData = docSnap.data() as Stock;
+          if (stockData?.bcn) stockDataMap.set(stockData.bcn, stockData);
         });
-      } finally {
-        setIsPageLoading(false);
       }
-    },
-    [buildRowsForPage, mode, toast]
-  );
+    }
+
+    if (uniquePurchaseRequestIds.length > 0) {
+      const prChunks = chunkArray(uniquePurchaseRequestIds, 30);
+      for (const chunk of prChunks) {
+        const prQuery = query(
+          collection(db, "purchaseRequests"),
+          where(documentId(), "in", chunk)
+        );
+        const snap = await getDocs(prQuery);
+        snap.forEach((docSnap) => {
+          purchaseRequestById.set(docSnap.id, { id: docSnap.id, ...docSnap.data() } as PurchaseRequest);
+        });
+      }
+    }
+
+    const flattened: FlattenedInboundItem[] = filteredInbounds.flatMap((inbound: any) => {
+      const poNumber = String(inbound?.id || "");
+      const inboundItems = Array.isArray(inbound?.items) ? inbound.items : [];
+      const purchaseRequestId = String(inbound?.purchaseRequestId || "");
+      const purchaseRequest = purchaseRequestById.get(purchaseRequestId);
+      const salesperson = purchaseRequest?.salesman || "Unknown";
+      const inboundStatus = String(inbound?.status || "").toLowerCase();
+
+      return inboundItems
+        .map((item: any) => {
+          const itemName = String(item?.itemName || "").trim();
+          if (!itemName) return null;
+
+          const stockData = stockDataMap.get(itemName);
+          const completedMilestones = Array.isArray(item?.inboundMilestones)
+            ? item.inboundMilestones
+            : [];
+
+          let statusText = "Pending Receiving";
+          if (
+            inboundStatus === "completed" ||
+            completedMilestones.length >= INBOUND_PROCESS_CONFIG.length
+          ) {
+            statusText = "Received";
+          } else if (completedMilestones.length > 0) {
+            statusText = "In Progress";
+          }
+
+          if (mode === "completed" && statusText !== "Received") return null;
+          if (mode === "pending" && statusText === "Received") return null;
+
+          return {
+            id: `${poNumber}-${itemName}`,
+            dealId: String(inbound?.dealId || purchaseRequest?.dealId || ""),
+            poNumber,
+            customerName: String(inbound?.customerName || purchaseRequest?.customerName || ""),
+            salesman: salesperson,
+            status: statusText,
+            createdAt: String(inbound?.createdAt || purchaseRequest?.createdAt || ""),
+            itemName,
+            supplierCollectionName: stockData?.supplierCollectionName || "",
+            supplierCollectionCode: stockData?.supplierCollectionCode || "",
+            quantity: String(item?.quantity ?? ""),
+            vendorName: String(inbound?.vendor || ""),
+            type: (purchaseRequest?.type || "fabric") as "fabric" | "furniture",
+            originalRequest: purchaseRequest,
+          } as FlattenedInboundItem;
+        })
+        .filter(Boolean) as FlattenedInboundItem[];
+    });
+
+    setRequests((prev) => [...prev, ...flattened]);
+  };
 
   React.useEffect(() => {
-    pageRowsCacheRef.current.clear();
-    pageLastDocRef.current.clear();
-    pageHasNextRef.current.clear();
     setRequests([]);
-    setPageIndex(0);
-    setHasNextPage(false);
-    void loadPage(0);
-  }, [loadPage, mode]);
-
-
+    setLastDoc(null);
+    setHasMore(true);
+    setLoading(false);
+    fetchPage(true, true);
+  }, [mode]);
   const openReceiveDialog = (poNumber?: string) => {
     if (!poNumber) return;
     setActivePoNumber(poNumber);
+    setReceiveQtyErrors({});
     setReceiveDialogOpen(true);
   };
 
@@ -384,7 +370,7 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
           return {
             itemName: item.itemName,
             expectedQty: item.quantity,
-            actualQty: item.receivedQty || item.quantity,
+            actualQty: "",
             unit: item.unit || "Mtr",
             vendorName: inboundData.vendor,
             supplierCollectionName: stock?.supplierCollectionName,
@@ -393,6 +379,7 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
           };
         });
         setReceiveItems(items);
+        setReceiveQtyErrors({});
       } catch (error) {
         console.error("Failed to load inbound request", error);
         toast({ variant: "destructive", title: "Error", description: "Failed to load inbound request." });
@@ -408,18 +395,65 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
     setReceiveItems((prev) =>
       prev.map((item) => (item.itemName === itemName ? { ...item, checked } : item))
     );
+    if (!checked) {
+      setReceiveQtyErrors((prev) => {
+        if (!prev[itemName]) return prev;
+        const { [itemName]: _, ...rest } = prev;
+        return rest;
+      });
+    }
   };
 
   const handleActualQtyChange = (itemName: string, value: string) => {
     setReceiveItems((prev) =>
       prev.map((item) => (item.itemName === itemName ? { ...item, actualQty: value } : item))
     );
+    setReceiveQtyErrors((prev) => {
+      if (!prev[itemName]) return prev;
+      const { [itemName]: _, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const validateReceiveItemQty = (item: ReceiveItem) => {
+    const actual = parseQty(item.actualQty);
+    const expected = parseQty(item.expectedQty);
+
+    if (!Number.isFinite(actual) || actual <= 0) {
+      return "Enter a valid receive qty.";
+    }
+    if (!Number.isFinite(expected) || expected <= 0) {
+      return "Expected qty is invalid for this item.";
+    }
+    if (!isQtyMatchingExpected(actual, expected)) {
+      return `Entered qty must match expected qty (${item.expectedQty}).`;
+    }
+    return "";
   };
 
   const selectedReceiveItems = React.useMemo(
     () => receiveItems.filter((item) => item.checked),
     [receiveItems]
   );
+
+  const validateSelectedReceiveItems = (itemsToValidate: ReceiveItem[]) => {
+    const errors: Record<string, string> = {};
+    const parsedItems: Array<ReceiveItem & { parsedQty: number }> = [];
+
+    itemsToValidate.forEach((item) => {
+      const error = validateReceiveItemQty(item);
+      if (error) {
+        errors[item.itemName] = error;
+        return;
+      }
+      parsedItems.push({
+        ...item,
+        parsedQty: parseQty(item.actualQty),
+      });
+    });
+
+    return { errors, parsedItems };
+  };
 
   const getBarcodeSvgMarkup = (barcodeValue: string) => {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -445,6 +479,18 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
       return;
     }
 
+    const { errors, parsedItems } = validateSelectedReceiveItems(selectedReceiveItems);
+    if (Object.keys(errors).length) {
+      setReceiveQtyErrors((prev) => ({ ...prev, ...errors }));
+      const firstError = Object.values(errors)[0];
+      toast({
+        variant: "destructive",
+        title: "Invalid quantity",
+        description: firstError,
+      });
+      return;
+    }
+
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast({
@@ -457,9 +503,9 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
 
     try {
       const logoSrc = `${window.location.origin}/logo.png`;
-      const stickersHtml = selectedReceiveItems
+      const stickersHtml = parsedItems
         .map((item) => {
-          const lengthValue = Number(item.actualQty) || 0;
+          const lengthValue = item.parsedQty;
           const collectionText = [item.supplierCollectionName, item.supplierCollectionCode]
             .filter(Boolean)
             .join(" | ");
@@ -651,13 +697,17 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
       return;
     }
 
-    const parsedItems = selectedItems.map((item) => ({
-      ...item,
-      parsedQty: Number(item.actualQty),
-    }));
-
-    if (parsedItems.some((item) => !Number.isFinite(item.parsedQty) || item.parsedQty <= 0)) {
-      toast({ variant: "destructive", title: "Invalid quantity", description: "Enter valid actual quantities." });
+    const { errors, parsedItems } = validateSelectedReceiveItems(selectedItems);
+    if (Object.keys(errors).length) {
+      setReceiveQtyErrors((prev) => ({ ...prev, ...errors }));
+      const invalidItems = Object.keys(errors).slice(0, 3).join(", ");
+      toast({
+        variant: "destructive",
+        title: "Invalid quantity",
+        description: invalidItems
+          ? `${invalidItems}: ${errors[Object.keys(errors)[0]]}`
+          : "Enter valid quantities.",
+      });
       return;
     }
 
@@ -911,16 +961,7 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
               ))}
             </TableHeader>
             <TableBody>
-              {isPageLoading && requests.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length} className="h-24 text-center">
-                    <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Loading inbound data...
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : table.getRowModel().rows?.length ? (
+              {table.getRowModel().rows?.length ? (
                 table.getRowModel().rows.map((row) => (
                   <TableRow key={row.id}>
                     {row.getVisibleCells().map((cell) => (
@@ -940,33 +981,16 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
             </TableBody>
           </Table>
         </div>
-        <div className="flex items-center justify-between py-4">
-          <p className="text-sm text-muted-foreground">Page {pageIndex + 1}</p>
-          <div className="flex items-center space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void loadPage(pageIndex - 1)}
-            disabled={isPageLoading || pageIndex === 0}
+        <div className="flex items-center justify-end space-x-2 py-4">
+          {hasMore && (
+          <button
+            onClick={() => fetchPage()}
+            disabled={loading}
           >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void loadPage(pageIndex + 1)}
-            disabled={isPageLoading || !hasNextPage}
-          >
-            {isPageLoading ? (
-              <span className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading
-              </span>
-            ) : (
-              "Next"
-            )}
-          </Button>
-          </div>
+            {loading ? "Loading..." : "Load More"}
+          </button>
+        )}
+
         </div>
       </CardContent>
     </Card>
@@ -979,6 +1003,7 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
           setActivePoNumber(null);
           setInboundRequest(null);
           setReceiveItems([]);
+          setReceiveQtyErrors({});
         }
       }}
     >
@@ -1002,28 +1027,51 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
             </div>
 
             <div className="rounded-lg border">
-              <div className="grid grid-cols-[32px_1.2fr_1fr_1.3fr_120px_120px] gap-3 px-4 py-2 text-xs font-semibold text-muted-foreground border-b">
+              <div className="grid grid-cols-[32px_1.3fr_1fr_1.4fr_150px] gap-3 px-4 py-2 text-xs font-semibold text-muted-foreground border-b">
                 <span />
                 <span>Item Name</span>
                 <span>Vendor Name</span>
                 <span>Supplier code and name</span>
-                <span>Expected qty</span>
-                <span>Actual qty</span>
+                <span>Receive Qty</span>
               </div>
               <div className="max-h-64 overflow-y-auto">
                 {receiveItems.map((item) => (
-                  <div key={item.itemName} className="grid grid-cols-[32px_1.2fr_1fr_1.3fr_120px_120px] items-center gap-3 px-4 py-2 border-b last:border-b-0 text-sm">
+                  <div key={item.itemName} className="grid grid-cols-[32px_1.3fr_1fr_1.4fr_150px] items-center gap-3 px-4 py-2 border-b last:border-b-0 text-sm">
                     <Checkbox checked={item.checked} onCheckedChange={(value) => handleToggleItem(item.itemName, !!value)} />
                     <span>{item.itemName}</span>
                     <span>{item.vendorName || inboundRequest.vendor || "-"}</span>
                     <span>{[item.supplierCollectionCode, item.supplierCollectionName].filter(Boolean).join(" ") || "-"}</span>
-                    <span>{item.expectedQty}</span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={item.actualQty}
-                      onChange={(e) => handleActualQtyChange(item.itemName, e.target.value)}
-                    />
+                    <div className="space-y-1">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={item.actualQty}
+                        onChange={(e) => handleActualQtyChange(item.itemName, e.target.value)}
+                        onBlur={() => {
+                          if (!item.checked) return;
+                          const error = validateReceiveItemQty(item);
+                          setReceiveQtyErrors((prev) => {
+                            if (!error) {
+                              const { [item.itemName]: _, ...rest } = prev;
+                              return rest;
+                            }
+                            return { ...prev, [item.itemName]: error };
+                          });
+                          if (error) {
+                            toast({
+                              variant: "destructive",
+                              title: "Wrong quantity",
+                              description: `${item.itemName}: ${error}`,
+                            });
+                          }
+                        }}
+                        className={receiveQtyErrors[item.itemName] ? "border-red-500 focus-visible:ring-red-500" : ""}
+                        placeholder="Enter qty"
+                      />
+                      {receiveQtyErrors[item.itemName] && (
+                        <p className="text-xs text-red-600">{receiveQtyErrors[item.itemName]}</p>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1050,16 +1098,15 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Item</TableHead>
-                        <TableHead>Expected</TableHead>
-                        <TableHead>Actual</TableHead>
+                        {/* <TableHead>Expected</TableHead> */}
+                        <TableHead>Receive Qty</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {selectedReceiveItems.map((item) => (
                         <TableRow key={`preview-${item.itemName}`}>
                           <TableCell>{item.itemName}</TableCell>
-                          <TableCell>{item.expectedQty}</TableCell>
-                          <TableCell>{item.actualQty}</TableCell>
+                          <TableCell>{item.actualQty || "-"}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1074,7 +1121,7 @@ export function InboundTable({ mode }: { mode: InboundTableMode }) {
                     <InboundSticker
                       key={`sticker-${item.itemName}`}
                       bcn={item.itemName}
-                      length={Number(item.actualQty) || 0}
+                      length={parseQty(item.actualQty) || 0}
                       code={item.supplierCollectionCode || "-"}
                       name={item.supplierCollectionName || "-"}
                     />

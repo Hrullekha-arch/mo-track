@@ -3,7 +3,7 @@
 import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp as AdminTimestamp } from "firebase-admin/firestore";
 
-export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr';
+export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr' | 'Purchase';
 
 export interface PmsProduct {
   id: string;
@@ -191,6 +191,7 @@ export interface FabricDetail {
     fabricName: string;
     quantity: string;
     poNumber?: string;
+    tallyPoNumber?: string;
     vendorName?: string;
     expectedDeliveryDate?: string;
     hasPanels?: boolean;
@@ -456,6 +457,7 @@ export interface PurchaseRequest {
   vendor?: string;
   courier?: string;
   mode?: string;
+  tallyPoNumber?: string;
 
   // Completion fields
   completedAt?: string;
@@ -478,6 +480,7 @@ export interface InboundRequest {
     dealId: string;
     customerName: string;
     vendor: string;
+    tallyPoNumber?: string;
     createdAt: string;
     status: 'Active' | 'Completed';
     completedAt?: string;

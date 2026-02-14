@@ -87,6 +87,7 @@ export async function searchCustomersAction(filters: {
   salesSupport?: string;
   quotationNo?: string;
   orderNo?: string;
+  dealId?: string;
 }): Promise<Customer[]> {
   try {
     const customersRef = adminDb.collection('customers');
@@ -115,6 +116,23 @@ export async function searchCustomersAction(filters: {
         if (!quotationSnapshot.empty) {
             const quotationDoc = quotationSnapshot.docs[0];
             const pathParts = quotationDoc.ref.path.split('/');
+            const customerId = pathParts[1]; // Path: customers/{customerId}/...
+            if (customerId) {
+                 const customerDoc = await customersRef.doc(customerId).get();
+                 if (customerDoc.exists) {
+                    return JSON.parse(JSON.stringify([{ id: customerDoc.id, ...customerDoc.data() }]));
+                }
+            }
+        }
+        return []; // Not found
+    }
+    if (filters.dealId) {
+        const dealQuery = adminDb.collectionGroup('deals').where('dealId', '==', filters.dealId.trim()).limit(1);
+        const dealSnapshot = await dealQuery.get();
+        if (!dealSnapshot.empty) {
+            const dealDoc = dealSnapshot.docs[0];
+            const pathParts = dealDoc.ref.path.split('/');
+
             const customerId = pathParts[1]; // Path: customers/{customerId}/...
             if (customerId) {
                  const customerDoc = await customersRef.doc(customerId).get();

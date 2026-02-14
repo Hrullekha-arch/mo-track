@@ -1179,7 +1179,6 @@ const previewUrl =
         <CompanyVisitDialog
                 open={companyVisitDialog}
                 onOpenChange={setCompanyVisitDialog}
-                installers={installers}
             />
         </>
     );

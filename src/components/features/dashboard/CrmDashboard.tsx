@@ -16,7 +16,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Customer, Deal, DealVisit, Milestone, Order, PurchaseRequest } from "@/lib/types";
+import { Customer, Deal, DealVisit, InboundRequest, Milestone, Order, PurchaseRequest } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
 import { differenceInCalendarDays, format, formatDistanceToNow, isToday } from "date-fns";
@@ -76,6 +76,34 @@ interface OrderMovementEvent {
   link: string;
 }
 
+interface DetailTimelineItem {
+  id: string;
+  title: string;
+  source: string;
+  by?: string;
+  note?: string;
+  at?: Date | null;
+}
+
+interface OrderSearchDetails {
+  order: Order;
+  customer: Customer | null;
+  deal: Deal | null;
+  quotations: any[];
+  purchaseRequests: PurchaseRequest[];
+  inbounds: InboundRequest[];
+  approvedStockItems: any[];
+  o2d: any | null;
+  timeline: DetailTimelineItem[];
+}
+
+interface CrmOrderDetailsDialogData {
+  order: Order;
+  purchaseRequests: PurchaseRequest[];
+  inbounds: InboundRequest[];
+  approvedStockItems: any[];
+}
+
 const PURCHASE_PENDING_STATUSES = new Set(["pending approval", "approved"]);
 const PURCHASE_INBOUND_STATUSES = new Set(["po generated"]);
 const PURCHASE_COMPLETED_STATUSES = new Set(["completed", "received"]);
@@ -99,12 +127,67 @@ const toDateSafe = (value: unknown): Date | null => {
 
 const normalizeStatus = (value?: string) => String(value || "").trim().toLowerCase();
 
+const formatDateTimeLabel = (value: unknown) => {
+  const date = toDateSafe(value);
+  if (!date) return "N/A";
+  return format(date, "dd MMM yyyy, hh:mm a");
+};
+
+const formatDaysBetween = (start: unknown, end: unknown) => {
+  const startDate = toDateSafe(start);
+  const endDate = toDateSafe(end);
+  if (!startDate || !endDate) return "N/A";
+  const days = differenceInCalendarDays(endDate, startDate);
+  return `${days} day${Math.abs(days) === 1 ? "" : "s"}`;
+};
+
+const timelineSort = (a: DetailTimelineItem, b: DetailTimelineItem) =>
+  (b.at?.getTime() || 0) - (a.at?.getTime() || 0);
+
+const parseQtySafe = (value: unknown) => {
+  const parsed = Number(String(value ?? "").trim());
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const matchTextLoose = (left: unknown, right: unknown) => {
+  const a = normalizeStatus(String(left || ""));
+  const b = normalizeStatus(String(right || ""));
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
+};
+
+const PURCHASE_STEP_LABELS: Record<number, string> = {
+  1: "Verify Authorization",
+  2: "Payment Verification",
+  3: "Vendor Type",
+  4: "Place Order",
+};
+
+const PO_STEP_LABELS: Record<number, string> = {
+  1: "PO Confirmation",
+  2: "Delivery Follow Up",
+  3: "Receiving And Sent To Location",
+};
+
+const INBOUND_STEP_LABELS: Record<number, string> = {
+  1: "QNQ as per PO",
+  2: "Weight",
+  3: "Barcode",
+  4: "Stock Update in Tally/CRM/Excel",
+  5: "Assign Rack/Location",
+};
+
+const DetailField = ({ label, value }: { label: string; value: unknown }) => (
+  <div className="space-y-1">
+    <p className="text-xs text-muted-foreground">{label}</p>
+    <p className="text-sm font-medium break-words">{String(value ?? "N/A") || "N/A"}</p>
+  </div>
+);
+
 const deriveOrderMonitor = (order: Order): OrderMonitorRow => {
-  console.log("Order Data:", order); 
   const milestones = order.milestones || [];
   const totalMilestones = milestones.length;
   const completedMilestones = milestones.filter((step) => step.completed).length;
-  const orderType= order.orderType || "-";
   const currentStep =
     [...milestones].reverse().find((step) => step.completed)?.name || "Order Created";
   const progress = totalMilestones ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
@@ -151,9 +234,17 @@ const riskLabelMap: Record<OrderRisk, string> = {
   stable: "Stable",
 };
 
-const OrderUpdatesFeed = ({ heightClassName = "h-[26rem]" }: { heightClassName?: string }) => {
+const OrderUpdatesFeed = ({
+  heightClassName = "h-[26rem]",
+  assignedSalesmen = [],
+}: {
+  heightClassName?: string;
+  assignedSalesmen?: string[];
+}) => {
   const [updates, setUpdates] = useState<any[]>([]);
+  const [orderMoments, setOrderMoments] = useState<DetailTimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMoments, setLoadingMoments] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const { user } = useAuth();
 
@@ -173,6 +264,74 @@ const OrderUpdatesFeed = ({ heightClassName = "h-[26rem]" }: { heightClassName?:
     return () => unsubscribe();
   }, [user]);
 
+  useEffect(() => {
+    if (assignedSalesmen.length === 0) {
+      setOrderMoments([]);
+      setLoadingMoments(false);
+      return;
+    }
+
+    setLoadingMoments(true);
+    const ordersQuery = query(
+      collection(db, "orders"),
+      where("salesPerson", "in", assignedSalesmen),
+      orderBy("createdAt", "desc"),
+      limit(200)
+    );
+
+    const unsubscribe = onSnapshot(
+      ordersQuery,
+      (snapshot) => {
+        const orderRows = snapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() } as Order));
+        const moments: DetailTimelineItem[] = [];
+
+        orderRows.forEach((orderItem) => {
+          moments.push({
+            id: `crm-moment-created-${orderItem.id}`,
+            title: `Order #${orderItem.crmOrderNo || orderItem.id} created`,
+            source: "Order",
+            by: orderItem.createdBy?.name,
+            note: orderItem.customerName,
+            at: toDateSafe(orderItem.createdAt),
+          });
+
+          const latestCompletedMilestone = [...(orderItem.milestones || [])]
+            .reverse()
+            .find((milestone) => milestone.completed);
+          if (latestCompletedMilestone) {
+            moments.push({
+              id: `crm-moment-ms-${orderItem.id}-${latestCompletedMilestone.id}`,
+              title: latestCompletedMilestone.name,
+              source: "Order Milestone",
+              by: latestCompletedMilestone.completedBy || undefined,
+              note: `Order #${orderItem.crmOrderNo || orderItem.id}`,
+              at: toDateSafe(latestCompletedMilestone.completedAt),
+            });
+          }
+
+          if ((orderItem as any).approvedAt || normalizeStatus(orderItem.status) === "approved") {
+            moments.push({
+              id: `crm-moment-approved-${orderItem.id}`,
+              title: `Order #${orderItem.crmOrderNo || orderItem.id} approved`,
+              source: "Order",
+              note: orderItem.customerName,
+              at: toDateSafe((orderItem as any).approvedAt || orderItem.createdAt),
+            });
+          }
+        });
+
+        setOrderMoments(moments.sort(timelineSort).slice(0, 20));
+        setLoadingMoments(false);
+      },
+      () => {
+        setOrderMoments([]);
+        setLoadingMoments(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [assignedSalesmen]);
+
   const handleMarkAsRead = async (notificationId: string) => {
     if (!user) return;
     const notifRef = doc(db, "users", user.id, "notifications", notificationId);
@@ -190,6 +349,27 @@ const OrderUpdatesFeed = ({ heightClassName = "h-[26rem]" }: { heightClassName?:
     });
   }, [updates, searchTerm]);
 
+  const filteredMoments = useMemo(() => {
+    if (!searchTerm) return orderMoments;
+    const normalizedSearch = searchTerm.toLowerCase();
+    return orderMoments.filter((momentItem) => {
+      return (
+        momentItem.title.toLowerCase().includes(normalizedSearch) ||
+        String(momentItem.note || "")
+          .toLowerCase()
+          .includes(normalizedSearch) ||
+        String(momentItem.source || "")
+          .toLowerCase()
+          .includes(normalizedSearch)
+      );
+    });
+  }, [orderMoments, searchTerm]);
+
+  const unreadCount = useMemo(
+    () => updates.reduce((count, item) => count + (item.read ? 0 : 1), 0),
+    [updates]
+  );
+
   const renderNotification = (notification: any) => {
     let title = "Update";
     let description = notification.message || "A new update has been posted.";
@@ -202,6 +382,10 @@ const OrderUpdatesFeed = ({ heightClassName = "h-[26rem]" }: { heightClassName?:
       title = "New Walk-in Customer";
       icon = <Activity className="h-4 w-4 text-blue-600" />;
       cardClass = "border-blue-200 bg-blue-50/40";
+    } else if (notification.type === "order_approved") {
+      title = "Order Approved";
+      icon = <CheckCircle className="h-4 w-4 text-emerald-600" />;
+      cardClass = "border-emerald-200 bg-emerald-50/40";
     }
 
     return (
@@ -212,7 +396,7 @@ const OrderUpdatesFeed = ({ heightClassName = "h-[26rem]" }: { heightClassName?:
         onClick={() => void handleMarkAsRead(notification.id)}
       >
         <div
-          className={`rounded-lg border p-3 transition-colors hover:bg-muted/40 ${cardClass} ${
+          className={`rounded-xl border p-3 transition-colors hover:bg-muted/40 ${cardClass} ${
             notification.read ? "opacity-70" : ""
           }`}
         >
@@ -225,6 +409,7 @@ const OrderUpdatesFeed = ({ heightClassName = "h-[26rem]" }: { heightClassName?:
                 {createdAt ? formatDistanceToNow(createdAt, { addSuffix: true }) : "Unknown time"}
               </p>
             </div>
+            {!notification.read ? <Badge className="border-slate-900 bg-slate-900 text-white">New</Badge> : null}
           </div>
         </div>
       </Link>
@@ -232,13 +417,22 @@ const OrderUpdatesFeed = ({ heightClassName = "h-[26rem]" }: { heightClassName?:
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Recent Updates</CardTitle>
-        <div className="relative pt-2">
-          <Search className="absolute left-2.5 top-4.5 h-4 w-4 text-muted-foreground" />
+    <Card className="border-slate-200">
+      <CardHeader className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle>CRM Activity Feed</CardTitle>
+            <CardDescription>Unread updates and movement alerts assigned to you.</CardDescription>
+          </div>
+          <div className="min-w-[8rem] rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs text-muted-foreground">Unread</p>
+            <p className="text-2xl font-bold">{unreadCount}</p>
+          </div>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search updates..."
+            placeholder="Search updates by type or message..."
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
             className="pl-8"
@@ -247,14 +441,52 @@ const OrderUpdatesFeed = ({ heightClassName = "h-[26rem]" }: { heightClassName?:
       </CardHeader>
       <CardContent>
         <ScrollArea className={heightClassName}>
-          <div className="space-y-3">
-            {loading ? (
-              Array.from({ length: 5 }).map((_, index) => <Skeleton key={index} className="h-16 w-full" />)
-            ) : filteredUpdates.length > 0 ? (
-              filteredUpdates.map((update) => renderNotification(update))
-            ) : (
-              <p className="py-8 text-center text-sm text-muted-foreground">No recent updates.</p>
-            )}
+          <div className="space-y-5">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Notifications
+                </p>
+                <Badge variant="outline">{filteredUpdates.length}</Badge>
+              </div>
+              {loading ? (
+                Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-16 w-full" />)
+              ) : filteredUpdates.length > 0 ? (
+                filteredUpdates.map((update) => renderNotification(update))
+              ) : (
+                <p className="py-5 text-center text-sm text-muted-foreground">No recent notifications.</p>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Order Moments
+                </p>
+                <Badge variant="outline">{filteredMoments.length}</Badge>
+              </div>
+              {loadingMoments ? (
+                Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-14 w-full" />)
+              ) : filteredMoments.length > 0 ? (
+                filteredMoments.map((momentItem) => (
+                  <div key={momentItem.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900">{momentItem.title}</p>
+                      <Badge variant="secondary">{momentItem.source}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {momentItem.note ? `${momentItem.note} | ` : ""}
+                      {momentItem.by ? `By ${momentItem.by} | ` : ""}
+                      {momentItem.at ? formatDistanceToNow(momentItem.at, { addSuffix: true }) : "Unknown time"}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="py-5 text-center text-sm text-muted-foreground">
+                  No order movement moments yet.
+                </p>
+              )}
+            </div>
           </div>
         </ScrollArea>
       </CardContent>
@@ -313,33 +545,57 @@ const TodayVisits = ({ heightClassName = "h-[20rem]" }: { heightClassName?: stri
     return () => unsubscribe();
   }, []);
 
+  const sortedVisits = useMemo(() => {
+    return [...visits].sort((a, b) => {
+      const timeA = toDateSafe(a.dueDate)?.getTime() || 0;
+      const timeB = toDateSafe(b.dueDate)?.getTime() || 0;
+      return timeA - timeB;
+    });
+  }, [visits]);
+
   return (
-    <Card>
+    <Card className="border-slate-200">
       <CardHeader>
-        <CardTitle>Today's Visit Plan</CardTitle>
-        <CardDescription>Approved customer visits scheduled for today.</CardDescription>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle>Today&apos;s Visit Plan</CardTitle>
+            <CardDescription>Approved customer visits scheduled for today.</CardDescription>
+          </div>
+          <div className="min-w-[8rem] rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs text-muted-foreground">Scheduled</p>
+            <p className="text-2xl font-bold">{loading ? "..." : sortedVisits.length}</p>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <ScrollArea className={heightClassName}>
           <div className="space-y-3">
             {loading ? (
               Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-20 w-full" />)
-            ) : visits.length > 0 ? (
-              visits.map((visit) => {
+            ) : sortedVisits.length > 0 ? (
+              sortedVisits.map((visit) => {
                 const dueDate = toDateSafe(visit.dueDate);
                 return (
-                  <div key={visit.id} className="rounded-lg border border-slate-200 bg-white p-3">
-                    <p className="font-semibold">{visit.customerName}</p>
-                    <p className="text-sm text-muted-foreground">{visit.dealName}</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Clock3 className="h-3 w-3" />
-                        {dueDate ? format(dueDate, "h:mm a") : "Time N/A"}
-                      </span>
-                      <span>{visit.customerPhone}</span>
+                  <div key={visit.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-slate-900">{visit.customerName}</p>
+                        <p className="text-sm text-muted-foreground">{visit.dealName}</p>
+                      </div>
                       <Badge variant="outline" className="capitalize">
                         {visit.typeOfVisit || "visit"}
                       </Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1">
+                        <Clock3 className="h-3 w-3" />
+                        {dueDate ? format(dueDate, "h:mm a") : "Time N/A"}
+                      </span>
+                      <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1">
+                        <Calendar className="h-3 w-3" />
+                        {dueDate ? format(dueDate, "dd MMM yyyy") : "Date N/A"}
+                      </span>
+                      <span>{visit.customerPhone}</span>
                     </div>
                   </div>
                 );
@@ -360,6 +616,11 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
+  const [detailsData, setDetailsData] = useState<CrmOrderDetailsDialogData | null>(null);
 
   useEffect(() => {
     if (assignedSalesmen.length === 0) {
@@ -383,54 +644,461 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
     return () => unsubscribe();
   }, [assignedSalesmen]);
 
+  const openOrderDetails = async (orderItem: Order) => {
+    setSelectedOrder(orderItem);
+    setDetailsDialogOpen(true);
+    setDetailsLoading(true);
+    setDetailsError("");
+    setDetailsData(null);
+
+    const dealId = String(orderItem.dealId || "").trim();
+    try {
+      const purchasePromise = dealId
+        ? getDocs(query(collection(db, "purchaseRequests"), where("dealId", "==", dealId), limit(80)))
+        : Promise.resolve(null as any);
+      const inboundPromise = dealId
+        ? getDocs(query(collection(db, "inbounds"), where("dealId", "==", dealId), limit(80)))
+        : Promise.resolve(null as any);
+      const stockPromise = dealId
+        ? getDocs(query(collection(db, "approvedStock"), where("dealId", "==", dealId), limit(200)))
+        : Promise.resolve(null as any);
+
+      const [purchaseSnap, inboundSnap, stockSnap] = await Promise.all([
+        purchasePromise,
+        inboundPromise,
+        stockPromise,
+      ]);
+
+      const purchaseRequests =
+        purchaseSnap && !purchaseSnap.empty
+          ? purchaseSnap.docs.map((docItem: any) => ({ id: docItem.id, ...docItem.data() } as PurchaseRequest))
+          : [];
+      const inbounds =
+        inboundSnap && !inboundSnap.empty
+          ? inboundSnap.docs.map((docItem: any) => ({ id: docItem.id, ...docItem.data() } as InboundRequest))
+          : [];
+      const approvedStockItems =
+        stockSnap && !stockSnap.empty
+          ? stockSnap.docs.map((docItem: any) => ({ id: docItem.id, ...docItem.data() }))
+          : [];
+
+      setDetailsData({
+        order: orderItem,
+        purchaseRequests,
+        inbounds,
+        approvedStockItems,
+      });
+    } catch (error) {
+      console.error("Failed to load CRM order detail dialog data:", error);
+      setDetailsError("Unable to load order details right now.");
+    } finally {
+      setDetailsLoading(false);
+    }
+  };
+
+  const monitoredOrders = useMemo(() => orders.map((orderItem) => deriveOrderMonitor(orderItem)), [orders]);
+
+  const filteredOrders = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    if (!normalizedSearch) {
+      return monitoredOrders;
+    }
+
+    return monitoredOrders.filter((row) => {
+      return (
+        String(row.order.customerName || "")
+          .toLowerCase()
+          .includes(normalizedSearch) ||
+        String(row.order.crmOrderNo || "")
+          .toLowerCase()
+          .includes(normalizedSearch) ||
+        String(row.order.salesPerson || "")
+          .toLowerCase()
+          .includes(normalizedSearch) ||
+        String(row.order.dealId || "")
+          .toLowerCase()
+          .includes(normalizedSearch) ||
+        String(row.order.orderType || "")
+          .toLowerCase()
+          .includes(normalizedSearch) ||
+        row.nextStep.toLowerCase().includes(normalizedSearch)
+      );
+    });
+  }, [monitoredOrders, searchTerm]);
+
+  const sortedQueue = useMemo(() => {
+    return [...filteredOrders].sort((a, b) => {
+      const riskWeight: Record<OrderRisk, number> = { critical: 3, watch: 2, stable: 1 };
+      if (riskWeight[b.risk] !== riskWeight[a.risk]) {
+        return riskWeight[b.risk] - riskWeight[a.risk];
+      }
+      if (a.progress !== b.progress) {
+        return a.progress - b.progress;
+      }
+      return b.ageDays - a.ageDays;
+    });
+  }, [filteredOrders]);
+
+  const kpis = useMemo(() => {
+    const live = monitoredOrders.filter((row) => row.progress < 100).length;
+    const critical = monitoredOrders.filter((row) => row.risk === "critical" && row.progress < 100).length;
+    const watch = monitoredOrders.filter((row) => row.risk === "watch" && row.progress < 100).length;
+    const avgProgress = monitoredOrders.length
+      ? Math.round(monitoredOrders.reduce((acc, row) => acc + row.progress, 0) / monitoredOrders.length)
+      : 0;
+
+    return { live, critical, watch, avgProgress };
+  }, [monitoredOrders]);
+
+  const selectedMonitor = useMemo(
+    () => (selectedOrder ? deriveOrderMonitor(selectedOrder) : null),
+    [selectedOrder]
+  );
+
+  const purchaseRequests = detailsData?.purchaseRequests || [];
+  const inbounds = detailsData?.inbounds || [];
+  const stockItems = detailsData?.approvedStockItems || [];
+
+  const poGeneratedCount = purchaseRequests.filter((requestItem) => {
+    if (PURCHASE_COMPLETED_STATUSES.has(normalizeStatus(requestItem.status))) return true;
+    if (PURCHASE_INBOUND_STATUSES.has(normalizeStatus(requestItem.status))) return true;
+    if ((requestItem.poMilestones || []).some((milestone) => normalizeStatus(milestone.status) === "completed")) {
+      return true;
+    }
+    return false;
+  }).length;
+  const receivedInboundCount = inbounds.filter((inboundItem) => {
+    if (normalizeStatus(inboundItem.status) === "completed") return true;
+    return (inboundItem.items || []).some((lineItem: any) => parseQtySafe(lineItem.receivedQty) > 0);
+  }).length;
+
+  const inStockCount = stockItems.filter((stockItem: any) =>
+    normalizeStatus(stockItem.status).includes("in stock")
+  ).length;
+  const outStockCount = stockItems.filter((stockItem: any) =>
+    normalizeStatus(stockItem.status).includes("out stock")
+  ).length;
+  const stockPendingCount = Math.max(0, stockItems.length - inStockCount - outStockCount);
+
+  const expectedDates = [
+    ...(selectedOrder?.fabricDetails || []).map((item) => item.expectedDeliveryDate),
+    ...purchaseRequests.map((item) => item.poDeliveryDate),
+  ]
+    .map((value) => toDateSafe(value))
+    .filter((value): value is Date => !!value)
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  const expectedDeliveryLabel = expectedDates.length ? format(expectedDates[0], "dd MMM yyyy") : "N/A";
+
+  const purchaseStatusLabel = purchaseRequests.length
+    ? Array.from(new Set(purchaseRequests.map((requestItem) => String(requestItem.status || "N/A"))))
+        .slice(0, 3)
+        .join(", ")
+    : "No PR";
+
+  const receiveStatusLabel = !inbounds.length
+    ? "Not Received"
+    : receivedInboundCount === inbounds.length
+    ? "Received"
+    : "Partially Received";
+
+  const stockFlowLabel =
+    inStockCount > 0
+      ? "In Stock"
+      : outStockCount > 0
+      ? "Out Stock"
+      : stockPendingCount > 0
+      ? "PR Created"
+      : "PR Pending";
+
+  const fabricRows = useMemo(() => {
+    return (selectedOrder?.fabricDetails || []).map((fabricItem) => {
+      const matchingPr = purchaseRequests.find((requestItem) => {
+        const hasFabric = (requestItem.fabricDetails || []).some((lineItem) =>
+          matchTextLoose(lineItem.fabricName, fabricItem.fabricName)
+        );
+        const hasPoMilestone = (requestItem.poMilestones || []).some((milestone) =>
+          matchTextLoose(milestone.itemName, fabricItem.fabricName)
+        );
+        return hasFabric || hasPoMilestone;
+      });
+
+      const matchingInbound = inbounds.find((inboundItem) =>
+        (inboundItem.items || []).some((lineItem: any) => matchTextLoose(lineItem.itemName, fabricItem.fabricName))
+      );
+
+      const matchingStock = stockItems.find((stockItem: any) =>
+        matchTextLoose(stockItem.fabricName || stockItem.itemName, fabricItem.fabricName)
+      );
+
+      const poStatus =
+        !!fabricItem.poNumber ||
+        !!matchingPr?.poMilestones?.some((milestone) => normalizeStatus(milestone.status) === "completed") ||
+        PURCHASE_INBOUND_STATUSES.has(normalizeStatus(matchingPr?.status))
+          ? "PO Generated"
+          : "PO Pending";
+
+      const receivedStatus = matchingInbound
+        ? normalizeStatus(matchingInbound.status) === "completed" ||
+          (matchingInbound.items || []).some(
+            (lineItem: any) =>
+              matchTextLoose(lineItem.itemName, fabricItem.fabricName) && parseQtySafe(lineItem.receivedQty) > 0
+          )
+          ? "Received"
+          : "Pending Receive"
+        : "Not Received";
+
+      const stockMode = matchingStock
+        ? normalizeStatus(matchingStock.status).includes("in stock")
+          ? "In Stock"
+          : normalizeStatus(matchingStock.status).includes("out stock")
+          ? "Out Stock"
+          : "PR Created"
+        : "PR Created";
+
+      return {
+        fabricName: fabricItem.fabricName || "-",
+        qty: `${fabricItem.quantity || "-"} ${String((fabricItem as any)?.unit || "")}`.trim(),
+        type: fabricItem.type || "-",
+        poStatus,
+        expectedDelivery: fabricItem.expectedDeliveryDate || matchingPr?.poDeliveryDate || "N/A",
+        receivedStatus,
+        stockMode,
+        prStatus: matchingPr?.status || "No PR",
+      };
+    });
+  }, [selectedOrder, purchaseRequests, inbounds, stockItems]);
+
   return (
     <>
-      <Card className="h-full">
-        <CardHeader>
-          <CardTitle>All Orders And Updates</CardTitle>
+      <Card className="h-full border-slate-200">
+        <CardHeader className="space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <CardTitle>Order Execution Queue</CardTitle>
+              <CardDescription>
+                Priority-first queue for all assigned CRM orders and pending milestones.
+              </CardDescription>
+            </div>
+            <div className="relative w-full lg:w-72">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search order, customer, stage..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                className="pl-8"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-xs text-muted-foreground">Live Orders</p>
+              <p className="text-2xl font-bold">{kpis.live}</p>
+            </div>
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+              <p className="text-xs text-red-700">Critical</p>
+              <p className="text-2xl font-bold text-red-700">{kpis.critical}</p>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs text-amber-700">Watchlist</p>
+              <p className="text-2xl font-bold text-amber-700">{kpis.watch}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+              <p className="text-xs text-emerald-700">Avg Progress</p>
+              <p className="text-2xl font-bold text-emerald-700">{kpis.avgProgress}%</p>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-[calc(50vh-8rem)]">
+          <ScrollArea className="h-[36rem]">
             <div className="space-y-3">
               {loading ? (
-                Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-16 w-full" />)
-              ) : orders.length > 0 ? (
-                orders.map((order) => (
+                Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-32 w-full" />)
+              ) : sortedQueue.length > 0 ? (
+                sortedQueue.map((row) => (
                   <div
-                    key={order.id}
-                    className="flex items-center justify-between rounded-lg border border-slate-200 p-3"
+                    key={row.order.id}
+                    className={`rounded-xl border p-4 ${riskContainerClassMap[row.risk]}`}
                   >
-                    <div>
-                      <div className="flex justify-between items-start">
-                      <p className="font-semibold">{order.customerName}</p>
-                      <Badge variant="secondary" className="ml-2">{order.orderType || "-"}</Badge>
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold text-slate-900">{row.order.customerName || "-"}</p>
+                            <Badge variant="secondary">{row.order.orderType || "-"}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Order #{row.order.crmOrderNo || "-"} | Deal #{row.order.dealId || "-"} |{" "}
+                            {row.order.salesPerson || "-"}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className={riskBadgeClassMap[row.risk]}>
+                          {riskLabelMap[row.risk]}
+                        </Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {order.crmOrderNo} - {order.salesPerson}
-                      </p>
+                      <Progress value={row.progress} className="h-2" />
+                      <div className="grid grid-cols-1 gap-2 text-xs text-muted-foreground md:grid-cols-4">
+                        <p>
+                          Progress: <span className="font-semibold text-slate-900">{row.progress}%</span>
+                        </p>
+                        <p>
+                          Current: <span className="font-semibold text-slate-900">{row.currentStep}</span>
+                        </p>
+                        <p>
+                          Next: <span className="font-semibold text-slate-900">{row.nextStep}</span>
+                        </p>
+                        <p>
+                          Aging: <span className="font-semibold text-slate-900">{row.ageDays} day(s)</span>
+                        </p>
+                      </div>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={() => setSelectedOrder(order)}>
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
+                    <div className="mt-3 flex justify-end">
+                      <Button variant="outline" size="sm" onClick={() => void openOrderDetails(row.order)}>
+                        View Details
+                        <ArrowRight className="ml-1 h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 ))
               ) : (
-                <p className="py-8 text-center text-sm text-muted-foreground">No orders assigned.</p>
+                <p className="py-10 text-center text-sm text-muted-foreground">
+                  No orders found for the current CRM assignment/search.
+                </p>
               )}
             </div>
           </ScrollArea>
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
-        <DialogContent>
+      <Dialog
+        open={detailsDialogOpen}
+        onOpenChange={(open) => {
+          setDetailsDialogOpen(open);
+          if (!open) {
+            setSelectedOrder(null);
+            setDetailsData(null);
+            setDetailsError("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-5xl overflow-hidden p-0">
           <DialogHeader>
-            <DialogTitle>Milestone Progress</DialogTitle>
-            <DialogDescription>Current status for order #{selectedOrder?.crmOrderNo}</DialogDescription>
+            <div className="border-b p-6 pb-4">
+              <DialogTitle>Order Details</DialogTitle>
+              <DialogDescription>
+                Simplified CRM view for order #{selectedOrder?.crmOrderNo || selectedOrder?.id || "-"}.
+              </DialogDescription>
+            </div>
           </DialogHeader>
-          <div className="py-4">
-            {selectedOrder && <MilestoneProgress milestones={selectedOrder.milestones} />}
-          </div>
+          <ScrollArea className="max-h-[78vh] px-6 pb-6">
+            <div className="space-y-4 pt-4">
+              {detailsLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-32 w-full" />
+                  <Skeleton className="h-40 w-full" />
+                </div>
+              ) : detailsError ? (
+                <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{detailsError}</p>
+              ) : selectedOrder ? (
+                <>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Order And Customer</CardTitle>
+                      <CardDescription>Basic order, customer, and running milestone status.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <DetailField label="Order ID" value={selectedOrder.crmOrderNo || selectedOrder.id} />
+                      <DetailField label="Deal ID" value={selectedOrder.dealId || "N/A"} />
+                      <DetailField label="Quotation No" value={selectedOrder.quotationNo || "N/A"} />
+                      <DetailField label="Order Type" value={selectedOrder.orderType || "N/A"} />
+                      <DetailField label="Customer Name" value={selectedOrder.customerName || "N/A"} />
+                      <DetailField label="Customer Phone" value={selectedOrder.customerPhone || "N/A"} />
+                      <DetailField label="Customer Address" value={selectedOrder.customerAddress || "N/A"} />
+                      <DetailField label="Sales Person" value={selectedOrder.salesPerson || "N/A"} />
+                      <DetailField label="Current Step" value={selectedMonitor?.currentStep || "N/A"} />
+                      <DetailField label="Next Step" value={selectedMonitor?.nextStep || "N/A"} />
+                      <DetailField label="Progress" value={`${selectedMonitor?.progress || 0}%`} />
+                      <DetailField label="Created At" value={formatDateTimeLabel(selectedOrder.createdAt)} />
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>PO And Material Snapshot</CardTitle>
+                      <CardDescription>PO generation, expected delivery, receive, and PR/In-stock flow.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs text-muted-foreground">PO Generated</p>
+                        <p className="text-lg font-semibold">
+                          {purchaseRequests.length ? `${poGeneratedCount}/${purchaseRequests.length}` : "0"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs text-muted-foreground">Current PR Status</p>
+                        <p className="text-lg font-semibold">{purchaseStatusLabel}</p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs text-muted-foreground">Expected Delivery</p>
+                        <p className="text-lg font-semibold">{expectedDeliveryLabel}</p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs text-muted-foreground">Receiving Status</p>
+                        <p className="text-lg font-semibold">{receiveStatusLabel}</p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs text-muted-foreground">PR / Stock Mode</p>
+                        <p className="text-lg font-semibold">{stockFlowLabel}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Fabric Status (Simplified)</CardTitle>
+                      <CardDescription>
+                        PO status, expected delivery, receiving, and PR/In-stock flow per fabric.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {fabricRows.length ? (
+                        <div className="space-y-2">
+                          <div className="hidden rounded-md border bg-slate-50 p-2 text-xs font-semibold text-slate-600 md:grid md:grid-cols-8 md:gap-2">
+                            <p className="md:col-span-2">Fabric</p>
+                            <p>Qty</p>
+                            <p>Type</p>
+                            <p>PO</p>
+                            <p>Expected</p>
+                            <p>Receive</p>
+                            <p>PR / Stock</p>
+                          </div>
+                          {fabricRows.map((row, idx) => (
+                            <div key={`${row.fabricName}-${idx}`} className="rounded-md border p-3">
+                              <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-8">
+                                <p className="md:col-span-2 font-medium">{row.fabricName}</p>
+                                <p>{row.qty}</p>
+                                <p>{row.type}</p>
+                                <p>{row.poStatus}</p>
+                                <p>{row.expectedDelivery}</p>
+                                <p>{row.receivedStatus}</p>
+                                <p>{row.stockMode}</p>
+                                <p className="text-muted-foreground">PR: {row.prStatus}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No fabric details found on this order.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">Select an order to see details.</p>
+              )}
+            </div>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </>
@@ -578,6 +1246,439 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
   const [loadingStockVerification, setLoadingStockVerification] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [queueSearch, setQueueSearch] = useState("");
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [detailsQuery, setDetailsQuery] = useState("");
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
+  const [detailsData, setDetailsData] = useState<OrderSearchDetails | null>(null);
+  const [detailsMatches, setDetailsMatches] = useState<Order[]>([]);
+
+  const scoreOrderMatch = (orderItem: Order, normalizedTerm: string) => {
+    const crmOrderNo = String(orderItem.crmOrderNo || "").toLowerCase();
+    const orderDocId = String(orderItem.id || "").toLowerCase();
+    const orderNo = String(orderItem.orderNo || "").toLowerCase();
+    const dealId = String(orderItem.dealId || "").toLowerCase();
+    const quotationNo = String(orderItem.quotationNo || "").toLowerCase();
+    const customerName = String(orderItem.customerName || "").toLowerCase();
+    const salesman = String(orderItem.salesPerson || "").toLowerCase();
+
+    if (
+      crmOrderNo === normalizedTerm ||
+      orderDocId === normalizedTerm ||
+      orderNo === normalizedTerm
+    ) {
+      return 100;
+    }
+    if (dealId === normalizedTerm) return 90;
+    if (quotationNo === normalizedTerm) return 85;
+    if (customerName === normalizedTerm) return 80;
+    if (customerName.includes(normalizedTerm)) return 65;
+    if (salesman.includes(normalizedTerm)) return 30;
+    if (
+      crmOrderNo.includes(normalizedTerm) ||
+      orderDocId.includes(normalizedTerm) ||
+      orderNo.includes(normalizedTerm) ||
+      dealId.includes(normalizedTerm) ||
+      quotationNo.includes(normalizedTerm)
+    ) {
+      return 55;
+    }
+    return 0;
+  };
+
+  const buildOrderSearchDetails = async (targetOrder: Order): Promise<OrderSearchDetails> => {
+    const dealId = String(targetOrder.dealId || "").trim();
+    const customerId = String(targetOrder.customerId || "").trim();
+    const quotationNo = String(targetOrder.quotationNo || "").trim();
+
+    const customerPromise = customerId
+      ? getDoc(doc(db, "customers", customerId))
+      : Promise.resolve(null as any);
+    const dealGroupPromise = dealId
+      ? getDocs(query(collectionGroup(db, "deals"), where("dealId", "==", dealId), limit(1)))
+      : Promise.resolve(null as any);
+    const purchasePromise = dealId
+      ? getDocs(query(collection(db, "purchaseRequests"), where("dealId", "==", dealId), limit(80)))
+      : Promise.resolve(null as any);
+    const inboundPromise = dealId
+      ? getDocs(query(collection(db, "inbounds"), where("dealId", "==", dealId), limit(80)))
+      : Promise.resolve(null as any);
+    const approvedStockPromise = dealId
+      ? getDocs(query(collection(db, "approvedStock"), where("dealId", "==", dealId), limit(200)))
+      : Promise.resolve(null as any);
+    const o2dPromise = dealId
+      ? getDocs(query(collection(db, "o2d"), where("dealId", "==", dealId), limit(1)))
+      : Promise.resolve(null as any);
+    const quotationByNoPromise = quotationNo
+      ? getDocs(query(collectionGroup(db, "quotations"), where("quotationNo", "==", quotationNo), limit(20)))
+      : Promise.resolve(null as any);
+
+    const [
+      customerSnap,
+      dealGroupSnap,
+      purchaseSnap,
+      inboundSnap,
+      approvedStockSnap,
+      o2dSnap,
+      quotationByNoSnap,
+    ] = await Promise.all([
+      customerPromise,
+      dealGroupPromise,
+      purchasePromise,
+      inboundPromise,
+      approvedStockPromise,
+      o2dPromise,
+      quotationByNoPromise,
+    ]);
+
+    let customerData: Customer | null =
+      customerSnap && customerSnap.exists()
+        ? ({ id: customerSnap.id, ...customerSnap.data() } as Customer)
+        : null;
+
+    let dealDoc: any = null;
+    if (dealGroupSnap && !dealGroupSnap.empty) {
+      dealDoc = dealGroupSnap.docs[0];
+    }
+
+    if (!dealDoc && customerId && dealId) {
+      const directDealSnap = await getDoc(doc(db, "customers", customerId, "deals", dealId));
+      if (directDealSnap.exists()) {
+        dealDoc = directDealSnap;
+      }
+    }
+
+    const dealData: Deal | null = dealDoc
+      ? ({ id: dealDoc.id, ...dealDoc.data() } as Deal)
+      : null;
+
+    if (!customerData && dealDoc?.ref?.parent?.parent) {
+      const parentCustomerRef = dealDoc.ref.parent.parent;
+      const parentCustomerSnap = await getDoc(parentCustomerRef);
+      if (parentCustomerSnap.exists()) {
+        customerData = {
+          id: parentCustomerSnap.id,
+          ...(parentCustomerSnap.data() as Record<string, unknown>),
+        } as Customer;
+      }
+    }
+
+    const quotationMap = new Map<string, any>();
+    const addQuotation = (quoteDoc: any) => {
+      const quoteData = quoteDoc.data() || {};
+      const key = `${quoteDoc.ref.path}`;
+      if (!quotationMap.has(key)) {
+        quotationMap.set(key, { id: quoteDoc.id, ...quoteData });
+      }
+    };
+
+    if (dealDoc) {
+      const dealQuotesSnap = await getDocs(query(collection(dealDoc.ref, "quotations"), limit(120)));
+      dealQuotesSnap.docs.forEach(addQuotation);
+    }
+
+    if (quotationByNoSnap && !quotationByNoSnap.empty) {
+      quotationByNoSnap.docs.forEach(addQuotation);
+    }
+
+    const quotations = Array.from(quotationMap.values()).sort((a, b) => {
+      const aTime = toDateSafe(a.createdAt)?.getTime() || 0;
+      const bTime = toDateSafe(b.createdAt)?.getTime() || 0;
+      return bTime - aTime;
+    });
+
+    const purchaseData: PurchaseRequest[] =
+      purchaseSnap && !purchaseSnap.empty
+        ? purchaseSnap.docs.map((docItem: any) => ({ id: docItem.id, ...docItem.data() } as PurchaseRequest))
+        : [];
+
+    const inboundsData: InboundRequest[] =
+      inboundSnap && !inboundSnap.empty
+        ? inboundSnap.docs.map((docItem: any) => ({ id: docItem.id, ...docItem.data() } as InboundRequest))
+        : [];
+
+    const approvedStockItems =
+      approvedStockSnap && !approvedStockSnap.empty
+        ? approvedStockSnap.docs.map((docItem: any) => ({ id: docItem.id, ...docItem.data() }))
+        : [];
+
+    const o2dData = o2dSnap && !o2dSnap.empty ? { id: o2dSnap.docs[0].id, ...o2dSnap.docs[0].data() } : null;
+
+    const timeline: DetailTimelineItem[] = [];
+    timeline.push({
+      id: `order-created-${targetOrder.id}`,
+      title: `Order #${targetOrder.crmOrderNo || targetOrder.id} created`,
+      source: "Order",
+      by: targetOrder.createdBy?.name,
+      at: toDateSafe(targetOrder.createdAt),
+    });
+
+    if ((targetOrder as any).approvedAt) {
+      timeline.push({
+        id: `order-approved-${targetOrder.id}`,
+        title: `Order approved`,
+        source: "Order",
+        at: toDateSafe((targetOrder as any).approvedAt),
+      });
+    }
+
+    (targetOrder.milestones || [])
+      .filter((milestone) => milestone.completed)
+      .forEach((milestone) => {
+        timeline.push({
+          id: `order-ms-${targetOrder.id}-${milestone.id}`,
+          title: `Order milestone: ${milestone.name}`,
+          source: "Order Milestone",
+          by: milestone.completedBy || undefined,
+          at: toDateSafe(milestone.completedAt),
+        });
+      });
+
+    (targetOrder.o2dMilestones || [])
+      .filter((milestone) => normalizeStatus(milestone.status) === "completed")
+      .forEach((milestone, idx) => {
+        timeline.push({
+          id: `o2d-ms-${targetOrder.id}-${milestone.stepId}-${idx}`,
+          title: `O2D step ${milestone.stepId} completed`,
+          source: "O2D",
+          by: milestone.completedBy,
+          note: milestone.remarks,
+          at: toDateSafe(milestone.completedAt),
+        });
+      });
+
+    purchaseData.forEach((requestItem) => {
+      timeline.push({
+        id: `pr-created-${requestItem.id}`,
+        title: `Purchase request created (${requestItem.id})`,
+        source: "Purchase",
+        by: requestItem.createdBy?.name,
+        at: toDateSafe(requestItem.createdAt),
+      });
+
+      (requestItem.milestones || [])
+        .filter((milestone) => normalizeStatus(milestone.status) === "completed")
+        .forEach((milestone, idx) => {
+          timeline.push({
+            id: `pr-ms-${requestItem.id}-${milestone.stepId}-${idx}`,
+            title: `Purchase step: ${PURCHASE_STEP_LABELS[milestone.stepId] || `Step ${milestone.stepId}`}`,
+            source: "Purchase Milestone",
+            by: milestone.completedBy,
+            note: milestone.remarks,
+            at: toDateSafe(milestone.completedAt),
+          });
+        });
+
+      (requestItem.poMilestones || [])
+        .filter((milestone) => normalizeStatus(milestone.status) === "completed")
+        .forEach((milestone, idx) => {
+          timeline.push({
+            id: `po-ms-${requestItem.id}-${milestone.stepId}-${idx}`,
+            title: `PO step: ${PO_STEP_LABELS[milestone.stepId] || `Step ${milestone.stepId}`}${
+              milestone.itemName ? ` (${milestone.itemName})` : ""
+            }`,
+            source: "PO Milestone",
+            by: milestone.completedBy,
+            note: milestone.remarks,
+            at: toDateSafe(milestone.completedAt),
+          });
+        });
+    });
+
+    inboundsData.forEach((inboundItem) => {
+      timeline.push({
+        id: `inbound-created-${inboundItem.id}`,
+        title: `Inbound created (${inboundItem.id})`,
+        source: "Inbound",
+        at: toDateSafe(inboundItem.createdAt),
+      });
+      if (inboundItem.completedAt) {
+        timeline.push({
+          id: `inbound-complete-${inboundItem.id}`,
+          title: `Inbound completed (${inboundItem.id})`,
+          source: "Inbound",
+          by: inboundItem.completedBy,
+          at: toDateSafe(inboundItem.completedAt),
+        });
+      }
+      (inboundItem.items || []).forEach((material: any, mIdx: number) => {
+        (material?.inboundMilestones || [])
+          .filter((milestone: any) => normalizeStatus(milestone.status) === "completed")
+          .forEach((milestone: any, idx: number) => {
+            timeline.push({
+              id: `inbound-ms-${inboundItem.id}-${mIdx}-${milestone.stepId}-${idx}`,
+              title: `Inbound step: ${INBOUND_STEP_LABELS[milestone.stepId] || `Step ${milestone.stepId}`} (${
+                material.itemName || "Item"
+              })`,
+              source: "Inbound Milestone",
+              by: milestone.completedBy,
+              at: toDateSafe(milestone.completedAt),
+            });
+          });
+      });
+    });
+
+    approvedStockItems.forEach((stockItem: any) => {
+      timeline.push({
+        id: `stock-created-${stockItem.id}`,
+        title: `Stock verification created (${stockItem.fabricName || stockItem.id})`,
+        source: "Stock Verification",
+        by: stockItem.createdBy?.name,
+        note: stockItem.status,
+        at: toDateSafe(stockItem.createdAt),
+      });
+      if (stockItem.updatedAt) {
+        timeline.push({
+          id: `stock-updated-${stockItem.id}`,
+          title: `Stock verification updated (${stockItem.fabricName || stockItem.id})`,
+          source: "Stock Verification",
+          note: stockItem.status,
+          at: toDateSafe(stockItem.updatedAt),
+        });
+      }
+    });
+
+    return {
+      order: targetOrder,
+      customer: customerData,
+      deal: dealData,
+      quotations,
+      purchaseRequests: purchaseData,
+      inbounds: inboundsData,
+      approvedStockItems,
+      o2d: o2dData,
+      timeline: timeline.sort(timelineSort),
+    };
+  };
+
+  const handleOrderDetailsSearch = async (overrideQuery?: string) => {
+    const queryText = String(overrideQuery ?? detailsQuery).trim();
+    if (!queryText) {
+      setDetailsError("Enter customer name, deal id, quotation no, or order id.");
+      setDetailsData(null);
+      setDetailsMatches([]);
+      return;
+    }
+
+    setDetailsLoading(true);
+    setDetailsError("");
+    setDetailsData(null);
+    try {
+      const normalizedTerm = queryText.toLowerCase();
+
+      const localMatches = orders
+        .map((orderItem) => ({ orderItem, score: scoreOrderMatch(orderItem, normalizedTerm) }))
+        .filter((row) => row.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .map((row) => row.orderItem);
+
+      let mergedMatches = [...localMatches];
+
+      const additionalOrderLookups: Promise<any>[] = [];
+      additionalOrderLookups.push(getDoc(doc(db, "orders", queryText)));
+      additionalOrderLookups.push(getDocs(query(collection(db, "orders"), where("crmOrderNo", "==", queryText), limit(10))));
+      additionalOrderLookups.push(getDocs(query(collection(db, "orders"), where("dealId", "==", queryText), limit(10))));
+      additionalOrderLookups.push(getDocs(query(collection(db, "orders"), where("orderNo", "==", queryText), limit(10))));
+      additionalOrderLookups.push(
+        getDocs(query(collection(db, "orders"), where("customerName", "==", queryText), limit(10)))
+      );
+      additionalOrderLookups.push(
+        getDocs(query(collectionGroup(db, "quotations"), where("quotationNo", "==", queryText), limit(10)))
+      );
+      additionalOrderLookups.push(
+        getDocs(query(collection(db, "purchaseRequests"), where("quotationNo", "==", queryText), limit(10)))
+      );
+
+      const [
+        directOrderSnap,
+        orderByCrmSnap,
+        orderByDealSnap,
+        orderByOrderNoSnap,
+        orderByCustomerNameSnap,
+        quotationByNoSnap,
+        purchaseByQuoteSnap,
+      ] = await Promise.all(additionalOrderLookups);
+
+      const addOrder = (orderItem?: Order | null) => {
+        if (!orderItem?.id) return;
+        if (!mergedMatches.some((existing) => existing.id === orderItem.id)) {
+          mergedMatches.push(orderItem);
+        }
+      };
+
+      if (directOrderSnap && directOrderSnap.exists()) {
+        addOrder({ id: directOrderSnap.id, ...directOrderSnap.data() } as Order);
+      }
+
+      orderByCrmSnap?.docs?.forEach((docItem: any) =>
+        addOrder({ id: docItem.id, ...docItem.data() } as Order)
+      );
+      orderByDealSnap?.docs?.forEach((docItem: any) =>
+        addOrder({ id: docItem.id, ...docItem.data() } as Order)
+      );
+      orderByOrderNoSnap?.docs?.forEach((docItem: any) =>
+        addOrder({ id: docItem.id, ...docItem.data() } as Order)
+      );
+      orderByCustomerNameSnap?.docs?.forEach((docItem: any) =>
+        addOrder({ id: docItem.id, ...docItem.data() } as Order)
+      );
+
+      const tryResolveByDeal = async (dealId: string) => {
+        if (!dealId) return;
+        const existing = mergedMatches.find((orderItem) => String(orderItem.dealId || "") === String(dealId));
+        if (existing) return;
+        const byDealSnap = await getDocs(query(collection(db, "orders"), where("dealId", "==", dealId), limit(1)));
+        if (!byDealSnap.empty) {
+          addOrder({ id: byDealSnap.docs[0].id, ...byDealSnap.docs[0].data() } as Order);
+        }
+      };
+
+      for (const quoteDoc of quotationByNoSnap?.docs || []) {
+        const dealIdFromPath = quoteDoc.ref.parent.parent?.id || "";
+        await tryResolveByDeal(String(dealIdFromPath));
+      }
+
+      for (const prDoc of purchaseByQuoteSnap?.docs || []) {
+        const dealIdFromPr = String(prDoc.data()?.dealId || "");
+        await tryResolveByDeal(dealIdFromPr);
+      }
+
+      mergedMatches = mergedMatches.sort((a, b) => {
+        const aScore = scoreOrderMatch(a, normalizedTerm);
+        const bScore = scoreOrderMatch(b, normalizedTerm);
+        return bScore - aScore;
+      });
+      setDetailsMatches(mergedMatches.slice(0, 20));
+
+      const selected = mergedMatches[0];
+      if (!selected) {
+        setDetailsError("No matching order found.");
+        return;
+      }
+
+      const detailResult = await buildOrderSearchDetails(selected);
+      setDetailsData(detailResult);
+    } catch (error) {
+      console.error("Order detail search failed:", error);
+      setDetailsError("Failed to load order details.");
+    } finally {
+      setDetailsLoading(false);
+    }
+  };
+
+  const handleSelectMatchedOrder = async (orderItem: Order) => {
+    setDetailsLoading(true);
+    setDetailsError("");
+    try {
+      const detailResult = await buildOrderSearchDetails(orderItem);
+      setDetailsData(detailResult);
+    } catch (error) {
+      console.error("Loading selected match failed:", error);
+      setDetailsError("Failed to load selected order details.");
+    } finally {
+      setDetailsLoading(false);
+    }
+  };
 
   useEffect(() => {
     const ordersQuery = query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(300));
@@ -780,11 +1881,24 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
       <div className="space-y-6">
         <Card className="border-slate-200 bg-gradient-to-r from-slate-50 via-white to-emerald-50">
           <CardHeader>
-            <CardTitle className="text-2xl">PC Control Room</CardTitle>
-            <CardDescription>
-              Monitor process flow, catch bottlenecks early, and drive order completion across purchase,
-              inbound, and delivery milestones.
-            </CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-2xl">PC Control Room</CardTitle>
+                <CardDescription>
+                  Monitor process flow, catch bottlenecks early, and drive order completion across purchase,
+                  inbound, and delivery milestones.
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDetailsDialogOpen(true);
+                  setDetailsError("");
+                }}
+              >
+                Get Order Details
+              </Button>
+            </div>
           </CardHeader>
         </Card>
 
@@ -1033,6 +2147,499 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
         </div>
       </div>
 
+      <Dialog
+        open={detailsDialogOpen}
+        onOpenChange={(open) => {
+          setDetailsDialogOpen(open);
+          if (!open) {
+            setDetailsLoading(false);
+            setDetailsError("");
+          }
+        }}
+      >
+        <DialogContent className="h-[96vh] w-[96vw] max-w-[96vw] p-0 overflow-auto">
+          <div className="flex h-full flex-col">
+            <DialogHeader className="border-b px-6 py-4">
+              <DialogTitle>Get Order Details</DialogTitle>
+              <DialogDescription>
+                Search using customer name, deal id, quotation no, or order id.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="border-b px-6 py-4">
+              <div className="flex flex-col gap-2 md:flex-row">
+                <Input
+                  value={detailsQuery}
+                  onChange={(event) => setDetailsQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleOrderDetailsSearch();
+                    }
+                  }}
+                  placeholder="Customer name / Deal ID / Quotation No / Order ID"
+                />
+                <Button onClick={() => void handleOrderDetailsSearch()} disabled={detailsLoading}>
+                  Search
+                </Button>
+              </div>
+              {detailsError && <p className="mt-2 text-sm text-red-600">{detailsError}</p>}
+            </div>
+
+            <ScrollArea className="flex-1">
+              <div className="space-y-4 p-6">
+                {detailsLoading ? (
+                  Array.from({ length: 6 }).map((_, idx) => <Skeleton key={idx} className="h-24 w-full" />)
+                ) : detailsData ? (
+                  <>
+                    {detailsMatches.length > 1 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Matching Orders ({detailsMatches.length})</CardTitle>
+                          <CardDescription>Select another match to view full details.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                            {detailsMatches.map((orderItem) => (
+                              <Button
+                                key={orderItem.id}
+                                variant={orderItem.id === detailsData.order.id ? "default" : "outline"}
+                                className="justify-start"
+                                onClick={() => void handleSelectMatchedOrder(orderItem)}
+                              >
+                                #{orderItem.crmOrderNo || orderItem.id} | Deal #{orderItem.dealId || "N/A"} |{" "}
+                                {orderItem.customerName || "Unknown"}
+                              </Button>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Order Summary</CardTitle>
+                      </CardHeader>
+                      <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-4">
+                        <DetailField label="Order ID" value={detailsData.order.id} />
+                        <DetailField label="CRM Order No" value={detailsData.order.crmOrderNo} />
+                        <DetailField label="Deal ID" value={detailsData.order.dealId} />
+                        <DetailField label="Quotation No" value={detailsData.order.quotationNo} />
+                        <DetailField label="Order Type" value={detailsData.order.orderType} />
+                        <DetailField label="Order Status" value={detailsData.order.status} />
+                        <DetailField label="Salesman" value={detailsData.order.salesPerson} />
+                        <DetailField label="Created At" value={formatDateTimeLabel(detailsData.order.createdAt)} />
+                      </CardContent>
+                    </Card>
+
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Customer Details</CardTitle>
+                        </CardHeader>
+                        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <DetailField label="Name" value={detailsData.customer?.name || detailsData.order.customerName} />
+                          <DetailField
+                            label="Phone"
+                            value={detailsData.customer?.phone || detailsData.customer?.mobileNo || detailsData.order.customerPhone}
+                          />
+                          <DetailField label="Email" value={detailsData.customer?.email} />
+                          <DetailField
+                            label="Address"
+                            value={
+                              detailsData.customer?.billingAddress?.line1 ||
+                              detailsData.customer?.shippingAddress?.line1 ||
+                              detailsData.order.customerAddress
+                            }
+                          />
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Deal Details</CardTitle>
+                        </CardHeader>
+                        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <DetailField label="Deal ID" value={detailsData.deal?.dealId || detailsData.order.dealId} />
+                          <DetailField label="Deal Code" value={detailsData.deal?.dealCode} />
+                          <DetailField label="Title" value={detailsData.deal?.title || detailsData.deal?.dealName} />
+                          <DetailField label="Status" value={detailsData.deal?.status} />
+                          <DetailField label="Source" value={detailsData.deal?.dealSource} />
+                          <DetailField label="Assigned Sales Person" value={detailsData.deal?.assignedSalesPerson?.name} />
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Quotation Details</CardTitle>
+                        <CardDescription>
+                          {detailsData.quotations.length} quotation(s) linked with this order/deal.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {detailsData.quotations.length ? (
+                          detailsData.quotations.map((quotationItem) => (
+                            <div key={quotationItem.id} className="rounded-md border p-3">
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-5">
+                                <DetailField label="Quotation No" value={quotationItem.quotationNo || quotationItem.id} />
+                                <DetailField label="Status" value={quotationItem.status} />
+                                <DetailField label="Created At" value={formatDateTimeLabel(quotationItem.createdAt)} />
+                                <DetailField label="Approved At" value={formatDateTimeLabel(quotationItem.approvedAt)} />
+                                <DetailField label="Total Amount" value={quotationItem.totalAmount} />
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No quotation details found.</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Purchase / PO Details</CardTitle>
+                        <CardDescription>
+                          Fabric type, PO generated, expected delivery dates, and purchase milestones.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {detailsData.purchaseRequests.length ? (
+                          detailsData.purchaseRequests.map((requestItem) => {
+                            const poGeneratedMilestone = (requestItem.poMilestones || []).find(
+                              (milestone) =>
+                                milestone.stepId === 1 && normalizeStatus(milestone.status) === "completed"
+                            );
+                            const poFollowUpMilestone = (requestItem.poMilestones || []).find(
+                              (milestone) =>
+                                milestone.stepId === 2 && normalizeStatus(milestone.status) === "completed"
+                            );
+                            const poReceivedMilestone = (requestItem.poMilestones || []).find(
+                              (milestone) =>
+                                milestone.stepId === 3 && normalizeStatus(milestone.status) === "completed"
+                            );
+
+                            return (
+                              <div key={requestItem.id} className="rounded-md border p-3 space-y-3">
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-5">
+                                  <DetailField label="Purchase Request" value={requestItem.id} />
+                                  <DetailField label="Status" value={requestItem.status} />
+                                  <DetailField label="Vendor" value={requestItem.vendor} />
+                                  <DetailField label="Created At" value={formatDateTimeLabel(requestItem.createdAt)} />
+                                  <DetailField
+                                    label="Promise Delivery Date"
+                                    value={formatDateTimeLabel(requestItem.promiseDeliveryDate)}
+                                  />
+                                  <DetailField
+                                    label="PO Generated Time"
+                                    value={formatDateTimeLabel(poGeneratedMilestone?.completedAt)}
+                                  />
+                                  <DetailField
+                                    label="PO Follow Up Time"
+                                    value={formatDateTimeLabel(poFollowUpMilestone?.completedAt)}
+                                  />
+                                  <DetailField
+                                    label="PO Receiving Time"
+                                    value={formatDateTimeLabel(poReceivedMilestone?.completedAt)}
+                                  />
+                                  <DetailField
+                                    label="Expected Delivery In"
+                                    value={formatDaysBetween(requestItem.createdAt, requestItem.promiseDeliveryDate)}
+                                  />
+                                </div>
+
+                                <div className="rounded-md border p-3">
+                                  <p className="mb-2 text-sm font-semibold">Fabric Details</p>
+                                  <div className="space-y-2">
+                                    {(requestItem.fabricDetails || []).length ? (
+                                      (requestItem.fabricDetails || []).map((fabricItem, idx) => (
+                                        <div
+                                          key={`${requestItem.id}-fabric-${idx}`}
+                                          className="grid grid-cols-1 gap-2 md:grid-cols-3 xl:grid-cols-7 text-sm"
+                                        >
+                                          <DetailField label="Item" value={fabricItem.fabricName} />
+                                          <DetailField label="Type" value={fabricItem.type} />
+                                          <DetailField label="Qty" value={fabricItem.quantity} />
+                                          <DetailField label="PO No" value={fabricItem.poNumber} />
+                                          <DetailField label="Vendor" value={fabricItem.vendorName} />
+                                          <DetailField
+                                            label="Expected Delivery"
+                                            value={formatDateTimeLabel(fabricItem.expectedDeliveryDate)}
+                                          />
+                                          <DetailField
+                                            label="Expected In"
+                                            value={formatDaysBetween(
+                                              requestItem.createdAt,
+                                              fabricItem.expectedDeliveryDate || requestItem.promiseDeliveryDate
+                                            )}
+                                          />
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <p className="text-sm text-muted-foreground">No fabric lines found.</p>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="rounded-md border p-3">
+                                  <p className="mb-2 text-sm font-semibold">PO Milestones</p>
+                                  <div className="space-y-2">
+                                    {(requestItem.poMilestones || []).length ? (
+                                      (requestItem.poMilestones || []).map((milestone, idx) => (
+                                        <div
+                                          key={`${requestItem.id}-po-ms-${idx}`}
+                                          className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-sm"
+                                        >
+                                          <DetailField
+                                            label="Step"
+                                            value={PO_STEP_LABELS[milestone.stepId] || `Step ${milestone.stepId}`}
+                                          />
+                                          <DetailField label="Item" value={milestone.itemName} />
+                                          <DetailField
+                                            label="Done By / At"
+                                            value={`${milestone.completedBy || "N/A"} / ${formatDateTimeLabel(
+                                              milestone.completedAt
+                                            )}`}
+                                          />
+                                          <DetailField label="Remarks" value={milestone.remarks} />
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <p className="text-sm text-muted-foreground">No PO milestones yet.</p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No purchase request linked to this deal yet.</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Order Milestones</CardTitle>
+                        <CardDescription>Who completed each milestone and when.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {(detailsData.order.milestones || []).length ? (
+                          (detailsData.order.milestones || []).map((milestone) => (
+                            <div key={`order-ms-row-${milestone.id}`} className="rounded-md border p-3">
+                              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-sm">
+                                <DetailField label="Milestone" value={milestone.name} />
+                                <DetailField label="Status" value={milestone.completed ? "Completed" : "Pending"} />
+                                <DetailField label="Done By" value={milestone.completedBy || "N/A"} />
+                                <DetailField label="Done At" value={formatDateTimeLabel(milestone.completedAt)} />
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No order milestones found.</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Inbound Details</CardTitle>
+                          <CardDescription>
+                            {detailsData.inbounds.length} inbound request(s) linked with this deal.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {detailsData.inbounds.length ? (
+                            detailsData.inbounds.map((inboundItem) => (
+                              <div key={inboundItem.id} className="rounded-md border p-3 space-y-3">
+                                <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 text-sm">
+                                  <DetailField label="Inbound ID" value={inboundItem.id} />
+                                  <DetailField label="Status" value={inboundItem.status} />
+                                  <DetailField label="Vendor" value={inboundItem.vendor} />
+                                  <DetailField label="Created At" value={formatDateTimeLabel(inboundItem.createdAt)} />
+                                  <DetailField
+                                    label="Completed By"
+                                    value={inboundItem.completedBy || "N/A"}
+                                  />
+                                  <DetailField
+                                    label="Completed At"
+                                    value={formatDateTimeLabel(inboundItem.completedAt)}
+                                  />
+                                </div>
+
+                                <div className="rounded-md border p-3">
+                                  <p className="mb-2 text-sm font-semibold">Inbound Items</p>
+                                  <div className="space-y-2">
+                                    {(inboundItem.items || []).length ? (
+                                      (inboundItem.items || []).map((materialItem, idx) => (
+                                        <div
+                                          key={`${inboundItem.id}-item-${idx}`}
+                                          className="rounded-md border p-2 space-y-2"
+                                        >
+                                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-sm">
+                                            <DetailField label="Item" value={materialItem.itemName} />
+                                            <DetailField label="Qty" value={materialItem.quantity} />
+                                            <DetailField label="Received Qty" value={materialItem.receivedQty} />
+                                            <DetailField label="PO No" value={materialItem.poNumber} />
+                                          </div>
+                                          <div className="space-y-1">
+                                            {(materialItem.inboundMilestones || []).length ? (
+                                              (materialItem.inboundMilestones || []).map((milestone, msIdx) => (
+                                                <div
+                                                  key={`${inboundItem.id}-item-${idx}-ms-${msIdx}`}
+                                                  className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-xs"
+                                                >
+                                                  <DetailField
+                                                    label="Step"
+                                                    value={
+                                                      INBOUND_STEP_LABELS[milestone.stepId] ||
+                                                      `Step ${milestone.stepId}`
+                                                    }
+                                                  />
+                                                  <DetailField label="Status" value={milestone.status} />
+                                                  <DetailField label="Done By" value={milestone.completedBy} />
+                                                  <DetailField
+                                                    label="Done At"
+                                                    value={formatDateTimeLabel(milestone.completedAt)}
+                                                  />
+                                                </div>
+                                              ))
+                                            ) : (
+                                              <p className="text-xs text-muted-foreground">No inbound milestones.</p>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <p className="text-sm text-muted-foreground">No inbound line items found.</p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No inbound requests found.</p>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Stock Verification</CardTitle>
+                          <CardDescription>
+                            Current in-stock/out-stock verification updates for this deal.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          {detailsData.approvedStockItems.length ? (
+                            detailsData.approvedStockItems.map((stockItem: any) => (
+                              <div key={stockItem.id} className="rounded-md border p-3">
+                                <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 text-sm">
+                                  <DetailField label="Item" value={stockItem.fabricName || stockItem.itemName} />
+                                  <DetailField label="Qty" value={stockItem.quantity} />
+                                  <DetailField label="Status" value={stockItem.status} />
+                                  <DetailField
+                                    label="Verified By"
+                                    value={stockItem.updatedBy?.name || stockItem.createdBy?.name || "N/A"}
+                                  />
+                                  <DetailField
+                                    label="Verification Time"
+                                    value={formatDateTimeLabel(stockItem.updatedAt || stockItem.createdAt)}
+                                  />
+                                  <DetailField
+                                    label="Created At"
+                                    value={formatDateTimeLabel(stockItem.createdAt)}
+                                  />
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No stock verification updates found.</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>O2D Milestones</CardTitle>
+                        <CardDescription>Delivery flow milestones and completion trail.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {(detailsData.order.o2dMilestones || []).length ? (
+                          (detailsData.order.o2dMilestones || []).map((milestone, idx) => (
+                            <div key={`o2d-${milestone.stepId}-${idx}`} className="rounded-md border p-3">
+                              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-sm">
+                                <DetailField label="Step" value={`Step ${milestone.stepId}`} />
+                                <DetailField label="Status" value={milestone.status} />
+                                <DetailField label="Done By" value={milestone.completedBy || "N/A"} />
+                                <DetailField label="Done At" value={formatDateTimeLabel(milestone.completedAt)} />
+                              </div>
+                              {milestone.remarks && (
+                                <p className="mt-2 text-xs text-muted-foreground">{milestone.remarks}</p>
+                              )}
+                            </div>
+                          ))
+                        ) : detailsData.o2d?.milestones?.length ? (
+                          detailsData.o2d.milestones.map((milestone: any, idx: number) => (
+                            <div key={`o2d-collection-${milestone.stepId}-${idx}`} className="rounded-md border p-3">
+                              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-sm">
+                                <DetailField label="Step" value={`Step ${milestone.stepId}`} />
+                                <DetailField label="Status" value={milestone.status} />
+                                <DetailField label="Done By" value={milestone.completedBy || "N/A"} />
+                                <DetailField label="Done At" value={formatDateTimeLabel(milestone.completedAt)} />
+                              </div>
+                              {milestone.remarks && (
+                                <p className="mt-2 text-xs text-muted-foreground">{milestone.remarks}</p>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No O2D milestones found.</p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Moment Updates</CardTitle>
+                        <CardDescription>Latest movement with who did it and when it happened.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {detailsData.timeline.length ? (
+                          detailsData.timeline.map((timelineItem) => (
+                            <div key={timelineItem.id} className="rounded-md border p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="font-semibold text-sm">{timelineItem.title}</p>
+                                <Badge variant="outline">{timelineItem.source}</Badge>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {timelineItem.by ? `By ${timelineItem.by}` : "By System"} |{" "}
+                                {timelineItem.at ? formatDateTimeLabel(timelineItem.at) : "Time N/A"}
+                              </p>
+                              {timelineItem.note && (
+                                <p className="text-xs text-muted-foreground mt-1">{timelineItem.note}</p>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No movement updates available.</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </>
+                ) : (
+                  <p className="py-10 text-center text-sm text-muted-foreground">
+                    Enter a value and click search to load full order details.
+                  </p>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
         <DialogContent>
           <DialogHeader>
@@ -1093,21 +2700,89 @@ export default function CrmDashboard({ dashboardType }: { dashboardType: "CRM" |
     );
   }
 
+  const crmQuickActions = [
+    {
+      title: "Order Desk",
+      description: "Track order status and milestone completion.",
+      href: "/dashboard/orders",
+      icon: ListOrdered,
+    },
+    {
+      title: "Visit Planner",
+      description: "Manage approved visits and daily schedule.",
+      href: "/dashboard/visits",
+      icon: Calendar,
+    },
+    {
+      title: "Walk-in Leads",
+      description: "Review newly captured walk-in customers.",
+      href: "/dashboard/walk-in",
+      icon: Activity,
+    },
+    {
+      title: "Customer Hub",
+      description: "Open customer records, deals, and communication data.",
+      href: "/dashboard/customers",
+      icon: FileSignature,
+    },
+  ] as const;
+
   return (
-    <div className="h-full p-4 md:p-6 lg:p-8">
-      <div className="grid h-full grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="flex flex-col gap-6 lg:col-span-2">
-          <div className="flex-1">
-            <AllOrdersAndUpdates assignedSalesmen={assignedSalesmen} />
+    <div className="space-y-6 p-4 md:p-6 lg:p-8">
+      <Card className="overflow-hidden border-sky-200 bg-gradient-to-r from-sky-50 via-white to-cyan-50">
+        <CardContent className="flex flex-col gap-6 p-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">CRM Command Center</p>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">CRM Home Dashboard</h1>
+            <p className="max-w-3xl text-sm text-slate-600 md:text-base">
+              Monitor assigned pipelines, follow priority milestones, and keep customer movement updates visible in
+              one operational view.
+            </p>
           </div>
-          <div className="flex-1">
-            <TodayVisits />
+          <div className="grid w-full grid-cols-2 gap-3 lg:w-auto lg:min-w-[22rem]">
+            <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
+              <p className="text-xs text-muted-foreground">Assigned Salesmen</p>
+              <p className="mt-1 text-2xl font-bold">{assignedSalesmen.length}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
+              <p className="text-xs text-muted-foreground">Coverage</p>
+              <p className="mt-1 text-2xl font-bold">
+                {assignedSalesmen.length ? "Active" : "No Assignment"}
+              </p>
+            </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {crmQuickActions.map((action) => (
+          <Link key={action.href} href={action.href} className="group block">
+            <Card className="h-full border-slate-200 transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md">
+              <CardContent className="flex h-full flex-col gap-3 p-4">
+                <div className="flex items-center justify-between">
+                  <action.icon className="h-5 w-5 text-sky-700" />
+                  <ArrowRight className="h-4 w-4 text-slate-500 transition-transform group-hover:translate-x-0.5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{action.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{action.description}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <AllOrdersAndUpdates assignedSalesmen={assignedSalesmen} />
         </div>
-        <div className="h-full lg:col-span-1">
-          <OrderUpdatesFeed heightClassName="h-[calc(100vh-16rem)]" />
+        <div>
+          <OrderUpdatesFeed heightClassName="h-[42rem]" assignedSalesmen={assignedSalesmen} />
         </div>
       </div>
+
+      <TodayVisits heightClassName="h-[22rem]" />
     </div>
   );
 }

@@ -269,7 +269,6 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             const stockId = bcn.replace(/\//g, '-');
             console.log('Fetching stock for BCN:', bcn, 'with stock ID:', stockId);
             const stockPromise = getStockById(stockId);
-            getStockById("w 10001"); // Test log for stock fetching
             
             const stockRef = doc(db, 'stocks', stockId);
             console.log('Stock document reference:', stockRef);

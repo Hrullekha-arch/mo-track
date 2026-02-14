@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit, Check } from "lucide-react";
+import { ArrowLeft, PlusCircle, Trash2, Loader2, Calculator, Edit, Check, TriangleAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Quotation, Customer, Deal, DealProduct, Stock, QuotationItem, VasDetail, OrderType, Order } from "@/lib/types";
 import React, { useEffect, useState, useMemo } from "react";
@@ -463,6 +463,22 @@ function convertQuotationToTemporaryOrder(q: Quotation): Order {
 
   if (loading) {
     return <Skeleton className="h-96 w-full" />;
+  }if (quotation?.status !== "Approved") {
+    return (
+      <div className="flex justify-center items-center w-full h-screen">
+        <Card className="border border-amber-800">
+          <CardHeader >
+            <div className="flex items-center justify-start gap-3">
+              <TriangleAlert className=" h-8 w-8 text-red-500" />
+              <CardTitle className="text-xl text-red-500">Cannot Convert Quotation !!</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <p className="text-amber-800">The selected quotation is not approved and cannot be converted to an order. Please ensure the quotation is approved From Account Department.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (

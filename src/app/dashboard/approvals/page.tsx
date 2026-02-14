@@ -456,6 +456,7 @@ export default function ApprovalsPage() {
             </header>
             <Tabs defaultValue="orders" className="w-full">
                 <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="quotations">Approve Quotations</TabsTrigger>
                     <TabsTrigger value="orders">Approve Orders</TabsTrigger>
                     <TabsTrigger value="payment-confirmation">Payment Confirmation</TabsTrigger>
                 </TabsList>

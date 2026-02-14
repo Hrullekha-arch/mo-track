@@ -1136,7 +1136,7 @@ async function handleCreateQuotation() {
         if (quotationResult.success) {
             toast({ 
               title: "✓ Quotation Created", 
-              description: "The quotation has been sent for approval." 
+              description: "The quotation has been created successfully." 
             });
             form.reset();
             onSuccess();

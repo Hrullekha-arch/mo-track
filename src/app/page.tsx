@@ -37,6 +37,8 @@ export default function LoginPage() {
     if (!authLoading && user) {
       if (role === 'installer') {
         router.push('/mobile');
+      } else if (role === 'Purchase') {
+        router.push('/dashboard/purchase');
       } else {
         router.push('/dashboard');
       }

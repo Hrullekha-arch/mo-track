@@ -150,6 +150,7 @@ export interface PoCreationData {
     vendor: string;
     courier: string;
     mode: string;
+    tallyPoNumber?: string;
     isNewVendor: boolean;
     items: PendingPoItem[];
     promiseDeliveryDate?: string;
@@ -166,7 +167,8 @@ export async function createPurchaseOrderAction(
     try {
         const batch = adminDb.batch();
         const poNumber = Math.floor(1000 + Math.random() * 9000).toString();
-        const { items, vendor, courier, mode, isNewVendor, promiseDeliveryDate } = poData;
+        const { items, vendor, courier, mode, tallyPoNumber, isNewVendor, promiseDeliveryDate } = poData;
+        const cleanTallyPoNumber = String(tallyPoNumber || "").trim();
 
         // Group items by their original purchaseRequestId
         const requestsToUpdate = new Map<string, PendingPoItem[]>();
@@ -213,6 +215,7 @@ export async function createPurchaseOrderAction(
                     vendorName: vendor,
                     expectedDeliveryDate: promiseDeliveryDate,
                     quantity: updatedItemData.neededQty.toString(),
+                    ...(cleanTallyPoNumber ? { tallyPoNumber: cleanTallyPoNumber } : {}),
                 };
             }
             const bcnMatches = itemsByBcn.get(originalItem.fabricName) || [];
@@ -224,6 +227,7 @@ export async function createPurchaseOrderAction(
                     vendorName: vendor,
                     expectedDeliveryDate: promiseDeliveryDate,
                     quantity: updatedItemData.neededQty.toString(),
+                    ...(cleanTallyPoNumber ? { tallyPoNumber: cleanTallyPoNumber } : {}),
                 };
             }
             return originalItem;
@@ -253,7 +257,7 @@ export async function createPurchaseOrderAction(
                 remarks: `Automatically confirmed upon PO generation.`
             };
 
-            batch.update(requestRef, {
+            const requestUpdatePayload: Record<string, any> = {
                 status: allItemsInRequestHavePo ? 'PO Generated' : 'Approved',
                 vendor: vendor, 
                 courier: courier,
@@ -262,7 +266,11 @@ export async function createPurchaseOrderAction(
                 milestones: FieldValue.arrayUnion(vendorTypeMilestone, placeOrderMilestone),
                 poMilestones: FieldValue.arrayUnion(poConfirmationMilestone),
                 promiseDeliveryDate: promiseDeliveryDate,
-            });
+            };
+            if (cleanTallyPoNumber) {
+              requestUpdatePayload.tallyPoNumber = cleanTallyPoNumber;
+            }
+            batch.update(requestRef, requestUpdatePayload);
         }
         
         const firstItem = items[0];
@@ -279,10 +287,11 @@ export async function createPurchaseOrderAction(
 
         const newInboundRequest = {
             id: poNumber,
-            purchaseRequestId: primaryRequest.id || primaryRequest.purchaseRequestId || firstItem.purchaseRequestId || poNumber,
+            purchaseRequestId: firstItem.purchaseRequestId || primaryRequest.id || poNumber,
             dealId: primaryRequest.dealId,
             customerName: primaryRequest.customerName,
             vendor: vendor,
+            ...(cleanTallyPoNumber ? { tallyPoNumber: cleanTallyPoNumber } : {}),
             createdAt: new Date().toISOString(),
             status: 'Active',
             items: inboundItems,
@@ -361,7 +370,12 @@ export async function deletePurchaseOrderAction(
       const nextFabric = originalFabric.map((line: any) => {
         if (String(line?.poNumber || "") !== poNumber) return line;
         touched = true;
-        const { poNumber: _poNumber, expectedDeliveryDate: _expectedDeliveryDate, ...rest } = line || {};
+        const {
+          poNumber: _poNumber,
+          expectedDeliveryDate: _expectedDeliveryDate,
+          tallyPoNumber: _tallyPoNumber,
+          ...rest
+        } = line || {};
         return rest;
       });
 
@@ -397,6 +411,7 @@ export async function deletePurchaseOrderAction(
         payload.courier = FieldValue.delete();
         payload.mode = FieldValue.delete();
         payload.promiseDeliveryDate = FieldValue.delete();
+        payload.tallyPoNumber = FieldValue.delete();
       }
 
       batch.update(req.ref, payload);
