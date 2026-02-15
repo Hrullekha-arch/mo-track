@@ -37,7 +37,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { deleteVisitAction, unassignVisitAction, updateVisitDetailsAction } from "./actions";
+import {
+  deleteVisitAction,
+  getFreshMeasurementPdfUrlAction,
+  unassignVisitAction,
+  updateVisitDetailsAction,
+} from "./actions";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -656,11 +661,13 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
     fileName: string;
     dealId?: string;
     } | null>(null);
+    const [resolvedPreviewUrl, setResolvedPreviewUrl] = React.useState<string>("");
+    const [resolvingPreviewUrl, setResolvingPreviewUrl] = React.useState(false);
     const [confirmDelete, setConfirmDelete] = React.useState<EnrichedDealVisit | null>(null);
     const [confirmUnassign, setConfirmUnassign] = React.useState<EnrichedDealVisit | null>(null);
     const [isActionBusy, setIsActionBusy] = React.useState(false);
     const [isSyncingSheet, setIsSyncingSheet] = React.useState(false);
-    const [companyVisitDialog, setCompanyVisitDialog] = React.useState(true);
+    const [companyVisitDialog, setCompanyVisitDialog] = React.useState(false);
     const syncingRef = React.useRef(false);
 
     const handleSyncSheet = React.useCallback(async (options?: { silent?: boolean }) => {
@@ -699,6 +706,41 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
         }, 60_000);
         return () => clearInterval(interval);
     }, [handleSyncSheet]);
+
+    React.useEffect(() => {
+      let cancelled = false;
+
+      const resolvePreviewUrl = async () => {
+        if (!previewPdf?.url) {
+          setResolvedPreviewUrl("");
+          setResolvingPreviewUrl(false);
+          return;
+        }
+
+        setResolvingPreviewUrl(true);
+        try {
+          const freshUrl = await getFreshMeasurementPdfUrlAction(previewPdf.url);
+          if (!cancelled) {
+            setResolvedPreviewUrl(freshUrl || previewPdf.url);
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setResolvedPreviewUrl(previewPdf.url);
+          }
+          console.warn("Failed to refresh preview URL:", error);
+        } finally {
+          if (!cancelled) {
+            setResolvingPreviewUrl(false);
+          }
+        }
+      };
+
+      resolvePreviewUrl();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [previewPdf?.url]);
 
 
 
@@ -828,8 +870,8 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDeta
 }
 
 const previewUrl =
-  previewPdf?.url
-    ? `${previewPdf.url}#toolbar=0&navpanes=0&scrollbar=0`
+  (resolvedPreviewUrl || previewPdf?.url)
+    ? `${resolvedPreviewUrl || previewPdf?.url}#toolbar=0&navpanes=0&scrollbar=0`
     : "";
 
     return (
@@ -868,7 +910,7 @@ const previewUrl =
                         ) : (
                             <ArrowLeftRight className="mr-2 h-4 w-4" />
                         )}
-                        Company Vist
+                        Company Visit Tracker
                     </Button>
                     </div>
                 </div>
@@ -1072,7 +1114,16 @@ const previewUrl =
             </CardContent>
         </Card>
         {/* //============================measurement Dialog Header */}
-        <Dialog open={!!previewPdf} onOpenChange={() => setPreviewPdf(null)}>
+        <Dialog
+            open={!!previewPdf}
+            onOpenChange={(open) => {
+                if (!open) {
+                    setPreviewPdf(null);
+                    setResolvedPreviewUrl("");
+                    setResolvingPreviewUrl(false);
+                }
+            }}
+        >
             <DialogContent className="max-w-6xl h-[95vh]">
                 <DialogHeader>
                 <DialogTitle>Measurement PDF</DialogTitle>
@@ -1084,7 +1135,9 @@ const previewUrl =
                 <div className="">
                     {/* ✅ Preview (inline open is OK here) */}
                     <div className="flex-1 overflow-auto rounded-md border bg-muted/10 p-3">
-                      {previewUrl ? (
+                      {resolvingPreviewUrl ? (
+                        <p className="text-center text-sm text-muted-foreground">Refreshing PDF link...</p>
+                      ) : previewUrl ? (
                         <iframe
                           title="Measurement PDF Preview"
                           src={previewUrl}
@@ -1096,14 +1149,23 @@ const previewUrl =
                     </div>
                     {/* ✅ Actions */}
                     <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setPreviewPdf(null)}>
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            setPreviewPdf(null);
+                            setResolvedPreviewUrl("");
+                            setResolvingPreviewUrl(false);
+                        }}
+                    >
                         Close
                     </Button>
 
                     <Button
+                        disabled={resolvingPreviewUrl || !(resolvedPreviewUrl || previewPdf.url)}
                         onClick={async () => {
                         try {
-                            await downloadPdf(previewPdf.url, previewPdf.fileName);
+                            const activeUrl = resolvedPreviewUrl || previewPdf.url;
+                            await downloadPdf(activeUrl, previewPdf.fileName);
                         } catch (err: any) {
                             console.error(err);
                             // optional toast here

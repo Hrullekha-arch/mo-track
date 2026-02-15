@@ -146,6 +146,7 @@ export async function approveQuotationAction(
 ): Promise<{ success: boolean; message: string }> {
   try {
     const batch = adminDb.batch();
+    const approvedAt = new Date().toISOString();
 
     const quotationRef = adminDb
       .collection('customers')
@@ -156,13 +157,15 @@ export async function approveQuotationAction(
       .doc(quotation.id);
     batch.update(quotationRef, {
       status: 'Approved',
+      approvedAt,
+      approvedBy: approver,
     });
 
     const approvedQuotationRef = adminDb.collection('approvedQuotations').doc(quotation.id);
     batch.set(approvedQuotationRef, {
       ...quotation,
       status: 'Approved',
-      approvedAt: new Date().toISOString(),
+      approvedAt,
       approvedBy: approver,
     });
     

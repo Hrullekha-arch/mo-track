@@ -139,6 +139,11 @@ type ApprovedStockRecord = {
   updatedAt?: string;
 };
 
+const getIsoTimeScore = (value?: string) => {
+  const time = new Date(String(value || "")).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
 const getColumnLetter = (columnNumber: number) => {
   let dividend = columnNumber;
   let columnName = "";
@@ -361,10 +366,7 @@ const getDaysBetween = (from?: string, to?: string) => {
 const getPurchaseRowKey = (row: string[]) =>
   [row[0], row[1], row[2], row[3], row[4], row[6], row[7]].map(normalize).join("|");
 
-const getDateTimeScore = (value?: string) => {
-  const time = new Date(String(value || "")).getTime();
-  return Number.isNaN(time) ? 0 : time;
-};
+const getDateTimeScore = (value?: string) => getIsoTimeScore(value);
 
 const mergeDuplicatePurchaseRows = (rows: string[][]) => {
   const byKey = new Map<string, string[]>();
@@ -439,6 +441,28 @@ export async function POST() {
       o2dByDealId.set(key, data);
     });
 
+    const approvedQuotationsSnapshot = await adminDb.collection("approvedQuotations").get();
+    const approvedQuotationAtById = new Map<string, string>();
+    const approvedQuotationAtByNo = new Map<string, string>();
+    const approvedQuotationAtByDealId = new Map<string, string>();
+    const setLatestApprovalTime = (map: Map<string, string>, key: string | undefined, value?: string) => {
+      const safeKey = String(key || "").trim();
+      const safeValue = String(value || "").trim();
+      if (!safeKey || !safeValue) return;
+      const existing = map.get(safeKey);
+      if (!existing || getIsoTimeScore(safeValue) > getIsoTimeScore(existing)) {
+        map.set(safeKey, safeValue);
+      }
+    };
+    approvedQuotationsSnapshot.docs.forEach((doc) => {
+      const data = doc.data() as any;
+      const approvedAt = data?.approvedAt || data?.updatedAt || data?.createdAt;
+      if (!approvedAt) return;
+      setLatestApprovalTime(approvedQuotationAtById, String(data?.id || doc.id), approvedAt);
+      setLatestApprovalTime(approvedQuotationAtByNo, data?.quotationNo ? String(data.quotationNo) : undefined, approvedAt);
+      setLatestApprovalTime(approvedQuotationAtByDealId, data?.dealId ? String(data.dealId) : undefined, approvedAt);
+    });
+
     const quotationsSnapshot = await adminDb.collectionGroup("quotations").get();
     const quotationCreatedAtByDealId = new Map<string, string>();
     const quotationsByDealId = new Map<string, QuotationRecord[]>();
@@ -456,13 +480,26 @@ export async function POST() {
         }
       }
 
+      const approvedAtFromApprovedCollection =
+        approvedQuotationAtById.get(String(data?.id || doc.id)) ||
+        (data?.quotationNo ? approvedQuotationAtByNo.get(String(data.quotationNo)) : undefined) ||
+        (data?.dealId ? approvedQuotationAtByDealId.get(String(data.dealId)) : undefined) ||
+        approvedQuotationAtByDealId.get(dealId);
+      const statusKey = normalize(data?.status);
+      const fallbackApprovedAtFromStatus =
+        statusKey === "approved" || statusKey === "converted to order"
+          ? data?.updatedAt || data?.createdAt
+          : undefined;
+      const resolvedApprovedAt =
+        data?.approvedAt || approvedAtFromApprovedCollection || fallbackApprovedAtFromStatus;
+
       const record: QuotationRecord = {
         id: doc.id,
         dealId,
         quotationNo: data?.quotationNo,
         createdAt,
         status: data?.status,
-        approvedAt: data?.approvedAt,
+        approvedAt: resolvedApprovedAt,
         convertedAt: data?.convertedAt,
         updatedAt: data?.updatedAt,
         items: getQuotationItemLabels(data),
@@ -582,7 +619,16 @@ export async function POST() {
       const measurementAt = measurementMilestone?.completedAt || measurementByDealId.get(dealId) || "";
       const quotationAt = quotationCreatedAtByDealId.get(dealId) || "";
       const approvalAt = order?.approvedAt || "";
-      const quotationApprovalAt = quotationForItems?.approvedAt || "";
+      const latestQuotationApprovalAtFromList = (quotationsByDealId.get(dealId) || []).reduce(
+        (latest, current) =>
+          getIsoTimeScore(current?.approvedAt) > getIsoTimeScore(latest) ? current?.approvedAt || "" : latest,
+        ""
+      );
+      const quotationApprovalAt =
+        quotationForItems?.approvedAt ||
+        latestQuotationApprovalAtFromList ||
+        approvedQuotationAtByDealId.get(dealId) ||
+        "";
       const quotationToOrderAt =
         order?.createdAt ||
         quotationForItems?.convertedAt ||

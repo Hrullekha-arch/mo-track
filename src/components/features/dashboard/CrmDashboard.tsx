@@ -104,6 +104,19 @@ interface CrmOrderDetailsDialogData {
   approvedStockItems: any[];
 }
 
+interface ProcurementDetailRow {
+  itemName: string;
+  qtyLabel: string;
+  stockState: "In Stock" | "Need PR";
+  prStatus: string;
+  receiveStatus: "In Stock" | "Received" | "Pending Receive" | "PR Not Created";
+  expectedReceiveAt: Date | null;
+  expectedReceiveLabel: string;
+  hasPr: boolean;
+  isInStock: boolean;
+  isReceived: boolean;
+}
+
 const PURCHASE_PENDING_STATUSES = new Set(["pending approval", "approved"]);
 const PURCHASE_INBOUND_STATUSES = new Set(["po generated"]);
 const PURCHASE_COMPLETED_STATUSES = new Set(["completed", "received"]);
@@ -131,14 +144,6 @@ const formatDateTimeLabel = (value: unknown) => {
   const date = toDateSafe(value);
   if (!date) return "N/A";
   return format(date, "dd MMM yyyy, hh:mm a");
-};
-
-const formatDaysBetween = (start: unknown, end: unknown) => {
-  const startDate = toDateSafe(start);
-  const endDate = toDateSafe(end);
-  if (!startDate || !endDate) return "N/A";
-  const days = differenceInCalendarDays(endDate, startDate);
-  return `${days} day${Math.abs(days) === 1 ? "" : "s"}`;
 };
 
 const timelineSort = (a: DetailTimelineItem, b: DetailTimelineItem) =>
@@ -1875,6 +1880,174 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
 
   const loading = loadingOrders || loadingPurchase || loadingStockVerification;
   const stageMax = stageSnapshot[0]?.count || 1;
+  const procurementSummary = useMemo(() => {
+    const fallback = {
+      rows: [] as ProcurementDetailRow[],
+      totalItems: 0,
+      inStockCount: 0,
+      prRequiredCount: 0,
+      prCreatedCount: 0,
+      prReceivedCount: 0,
+      prPendingCount: 0,
+      prNotCreatedCount: 0,
+      pendingRows: [] as ProcurementDetailRow[],
+      nextReceiveAt: null as Date | null,
+      nextReceiveLabel: "N/A",
+    };
+
+    if (!detailsData) {
+      return fallback;
+    }
+
+    const orderFabrics = detailsData.order.fabricDetails || [];
+    const purchaseData = detailsData.purchaseRequests || [];
+    const inboundData = detailsData.inbounds || [];
+    const stockData = detailsData.approvedStockItems || [];
+    const itemMap = new Map<string, string>();
+
+    const registerItem = (value: unknown) => {
+      const label = String(value || "").trim();
+      if (!label) return;
+      const normalized = normalizeStatus(label);
+      if (!normalized || itemMap.has(normalized)) return;
+      itemMap.set(normalized, label);
+    };
+
+    orderFabrics.forEach((fabricItem) => registerItem(fabricItem.fabricName));
+    purchaseData.forEach((requestItem) => {
+      (requestItem.fabricDetails || []).forEach((fabricItem) => registerItem(fabricItem.fabricName));
+      (requestItem.poMilestones || []).forEach((milestone) => registerItem(milestone.itemName));
+    });
+    inboundData.forEach((inboundItem) => {
+      (inboundItem.items || []).forEach((lineItem: any) => registerItem(lineItem.itemName));
+    });
+    stockData.forEach((stockItem: any) => registerItem(stockItem.fabricName || stockItem.itemName));
+
+    const rows = Array.from(itemMap.values())
+      .map((itemName) => {
+        const matchingOrderFabrics = orderFabrics.filter((fabricItem) =>
+          matchTextLoose(fabricItem.fabricName, itemName)
+        );
+        const matchingRequests = purchaseData.filter((requestItem) => {
+          const hasFabricMatch = (requestItem.fabricDetails || []).some((fabricItem) =>
+            matchTextLoose(fabricItem.fabricName, itemName)
+          );
+          const hasMilestoneMatch = (requestItem.poMilestones || []).some((milestone) =>
+            matchTextLoose(milestone.itemName, itemName)
+          );
+          return hasFabricMatch || hasMilestoneMatch;
+        });
+        const matchingInboundItems = inboundData.flatMap((inboundItem) =>
+          (inboundItem.items || [])
+            .filter((lineItem: any) => matchTextLoose(lineItem.itemName, itemName))
+            .map((lineItem: any) => ({ inboundItem, lineItem }))
+        );
+        const matchingStocks = stockData.filter((stockItem: any) =>
+          matchTextLoose(stockItem.fabricName || stockItem.itemName, itemName)
+        );
+
+        const orderQty = matchingOrderFabrics.reduce(
+          (sum, fabricItem) => sum + parseQtySafe(fabricItem.quantity),
+          0
+        );
+        const purchaseQty = matchingRequests.reduce((sum, requestItem) => {
+          const lineQty = (requestItem.fabricDetails || [])
+            .filter((fabricItem) => matchTextLoose(fabricItem.fabricName, itemName))
+            .reduce((innerSum, fabricItem) => innerSum + parseQtySafe(fabricItem.quantity), 0);
+          return sum + lineQty;
+        }, 0);
+        const finalQty = orderQty > 0 ? orderQty : purchaseQty;
+        const qtyLabel =
+          finalQty > 0
+            ? `${Number.isInteger(finalQty) ? finalQty : finalQty.toFixed(2)}`
+            : matchingOrderFabrics[0]?.quantity || "-";
+
+        const isInStock =
+          matchingStocks.some((stockItem: any) => normalizeStatus(stockItem.status).includes("in stock")) ||
+          matchingOrderFabrics.some((fabricItem: any) => normalizeStatus(fabricItem?.status).includes("in stock"));
+        const hasPr =
+          matchingRequests.length > 0 || matchingOrderFabrics.some((fabricItem) => !!fabricItem.poNumber);
+        const hasInboundReceive = matchingInboundItems.some(
+          ({ inboundItem, lineItem }) =>
+            normalizeStatus(inboundItem.status) === "completed" || parseQtySafe(lineItem.receivedQty) > 0
+        );
+        const isReceived = isInStock ? true : hasInboundReceive;
+
+        const expectedDates = [
+          ...matchingOrderFabrics.map((fabricItem) => fabricItem.expectedDeliveryDate),
+          ...matchingRequests.map((requestItem) => requestItem.poDeliveryDate),
+          ...matchingRequests.map((requestItem) => requestItem.promiseDeliveryDate),
+          ...matchingRequests.flatMap((requestItem) =>
+            (requestItem.fabricDetails || [])
+              .filter((fabricItem) => matchTextLoose(fabricItem.fabricName, itemName))
+              .map((fabricItem) => fabricItem.expectedDeliveryDate)
+          ),
+        ]
+          .map((value) => toDateSafe(value))
+          .filter((value): value is Date => !!value)
+          .sort((a, b) => a.getTime() - b.getTime());
+
+        const expectedReceiveAt = expectedDates[0] || null;
+        const expectedReceiveLabel = expectedReceiveAt ? formatDateTimeLabel(expectedReceiveAt) : "Pending date";
+        const prStatus = matchingRequests.length
+          ? Array.from(new Set(matchingRequests.map((requestItem) => String(requestItem.status || "PR Created"))))
+              .slice(0, 2)
+              .join(", ")
+          : hasPr
+          ? "PO Linked"
+          : "PR Needed";
+
+        let receiveStatus: ProcurementDetailRow["receiveStatus"] = "PR Not Created";
+        if (isInStock) {
+          receiveStatus = "In Stock";
+        } else if (hasPr && isReceived) {
+          receiveStatus = "Received";
+        } else if (hasPr) {
+          receiveStatus = "Pending Receive";
+        }
+
+        return {
+          itemName,
+          qtyLabel,
+          stockState: isInStock ? "In Stock" : "Need PR",
+          prStatus,
+          receiveStatus,
+          expectedReceiveAt,
+          expectedReceiveLabel,
+          hasPr,
+          isInStock,
+          isReceived,
+        } as ProcurementDetailRow;
+      })
+      .sort((a, b) => a.itemName.localeCompare(b.itemName));
+
+    const inStockCount = rows.filter((row) => row.isInStock).length;
+    const prRequiredCount = rows.filter((row) => !row.isInStock).length;
+    const prCreatedCount = rows.filter((row) => !row.isInStock && row.hasPr).length;
+    const prReceivedCount = rows.filter((row) => !row.isInStock && row.hasPr && row.isReceived).length;
+    const pendingRows = rows.filter((row) => !row.isInStock && row.hasPr && !row.isReceived);
+    const prPendingCount = pendingRows.length;
+    const prNotCreatedCount = rows.filter((row) => !row.isInStock && !row.hasPr).length;
+    const nextReceiveAt =
+      pendingRows
+        .map((row) => row.expectedReceiveAt)
+        .filter((value): value is Date => !!value)
+        .sort((a, b) => a.getTime() - b.getTime())[0] || null;
+
+    return {
+      rows,
+      totalItems: rows.length,
+      inStockCount,
+      prRequiredCount,
+      prCreatedCount,
+      prReceivedCount,
+      prPendingCount,
+      prNotCreatedCount,
+      pendingRows,
+      nextReceiveAt,
+      nextReceiveLabel: nextReceiveAt ? formatDateTimeLabel(nextReceiveAt) : "N/A",
+    };
+  }, [detailsData]);
 
   return (
     <>
@@ -2300,120 +2473,62 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
                       <CardHeader>
                         <CardTitle>Purchase / PO Details</CardTitle>
                         <CardDescription>
-                          Fabric type, PO generated, expected delivery dates, and purchase milestones.
+                          Simplified view: in stock vs PR required, PR status, and pending receive ETA.
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        {detailsData.purchaseRequests.length ? (
-                          detailsData.purchaseRequests.map((requestItem) => {
-                            const poGeneratedMilestone = (requestItem.poMilestones || []).find(
-                              (milestone) =>
-                                milestone.stepId === 1 && normalizeStatus(milestone.status) === "completed"
-                            );
-                            const poFollowUpMilestone = (requestItem.poMilestones || []).find(
-                              (milestone) =>
-                                milestone.stepId === 2 && normalizeStatus(milestone.status) === "completed"
-                            );
-                            const poReceivedMilestone = (requestItem.poMilestones || []).find(
-                              (milestone) =>
-                                milestone.stepId === 3 && normalizeStatus(milestone.status) === "completed"
-                            );
+                        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-xs text-muted-foreground">Total Fabrics</p>
+                            <p className="text-lg font-semibold">{procurementSummary.totalItems}</p>
+                          </div>
+                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                            <p className="text-xs text-emerald-700">In Stock</p>
+                            <p className="text-lg font-semibold text-emerald-700">{procurementSummary.inStockCount}</p>
+                          </div>
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                            <p className="text-xs text-amber-700">Need PR</p>
+                            <p className="text-lg font-semibold text-amber-700">{procurementSummary.prRequiredCount}</p>
+                          </div>
+                          <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+                            <p className="text-xs text-sky-700">PR Created</p>
+                            <p className="text-lg font-semibold text-sky-700">{procurementSummary.prCreatedCount}</p>
+                          </div>
+                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                            <p className="text-xs text-emerald-700">PR Received</p>
+                            <p className="text-lg font-semibold text-emerald-700">{procurementSummary.prReceivedCount}</p>
+                          </div>
+                          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                            <p className="text-xs text-red-700">PR Pending Receive</p>
+                            <p className="text-lg font-semibold text-red-700">{procurementSummary.prPendingCount}</p>
+                          </div>
+                        </div>
 
-                            return (
-                              <div key={requestItem.id} className="rounded-md border p-3 space-y-3">
-                                <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-5">
-                                  <DetailField label="Purchase Request" value={requestItem.id} />
-                                  <DetailField label="Status" value={requestItem.status} />
-                                  <DetailField label="Vendor" value={requestItem.vendor} />
-                                  <DetailField label="Created At" value={formatDateTimeLabel(requestItem.createdAt)} />
-                                  <DetailField
-                                    label="Promise Delivery Date"
-                                    value={formatDateTimeLabel(requestItem.promiseDeliveryDate)}
-                                  />
-                                  <DetailField
-                                    label="PO Generated Time"
-                                    value={formatDateTimeLabel(poGeneratedMilestone?.completedAt)}
-                                  />
-                                  <DetailField
-                                    label="PO Follow Up Time"
-                                    value={formatDateTimeLabel(poFollowUpMilestone?.completedAt)}
-                                  />
-                                  <DetailField
-                                    label="PO Receiving Time"
-                                    value={formatDateTimeLabel(poReceivedMilestone?.completedAt)}
-                                  />
-                                  <DetailField
-                                    label="Expected Delivery In"
-                                    value={formatDaysBetween(requestItem.createdAt, requestItem.promiseDeliveryDate)}
-                                  />
-                                </div>
-
-                                <div className="rounded-md border p-3">
-                                  <p className="mb-2 text-sm font-semibold">Fabric Details</p>
-                                  <div className="space-y-2">
-                                    {(requestItem.fabricDetails || []).length ? (
-                                      (requestItem.fabricDetails || []).map((fabricItem, idx) => (
-                                        <div
-                                          key={`${requestItem.id}-fabric-${idx}`}
-                                          className="grid grid-cols-1 gap-2 md:grid-cols-3 xl:grid-cols-7 text-sm"
-                                        >
-                                          <DetailField label="Item" value={fabricItem.fabricName} />
-                                          <DetailField label="Type" value={fabricItem.type} />
-                                          <DetailField label="Qty" value={fabricItem.quantity} />
-                                          <DetailField label="PO No" value={fabricItem.poNumber} />
-                                          <DetailField label="Vendor" value={fabricItem.vendorName} />
-                                          <DetailField
-                                            label="Expected Delivery"
-                                            value={formatDateTimeLabel(fabricItem.expectedDeliveryDate)}
-                                          />
-                                          <DetailField
-                                            label="Expected In"
-                                            value={formatDaysBetween(
-                                              requestItem.createdAt,
-                                              fabricItem.expectedDeliveryDate || requestItem.promiseDeliveryDate
-                                            )}
-                                          />
-                                        </div>
-                                      ))
-                                    ) : (
-                                      <p className="text-sm text-muted-foreground">No fabric lines found.</p>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="rounded-md border p-3">
-                                  <p className="mb-2 text-sm font-semibold">PO Milestones</p>
-                                  <div className="space-y-2">
-                                    {(requestItem.poMilestones || []).length ? (
-                                      (requestItem.poMilestones || []).map((milestone, idx) => (
-                                        <div
-                                          key={`${requestItem.id}-po-ms-${idx}`}
-                                          className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-sm"
-                                        >
-                                          <DetailField
-                                            label="Step"
-                                            value={PO_STEP_LABELS[milestone.stepId] || `Step ${milestone.stepId}`}
-                                          />
-                                          <DetailField label="Item" value={milestone.itemName} />
-                                          <DetailField
-                                            label="Done By / At"
-                                            value={`${milestone.completedBy || "N/A"} / ${formatDateTimeLabel(
-                                              milestone.completedAt
-                                            )}`}
-                                          />
-                                          <DetailField label="Remarks" value={milestone.remarks} />
-                                        </div>
-                                      ))
-                                    ) : (
-                                      <p className="text-sm text-muted-foreground">No PO milestones yet.</p>
-                                    )}
-                                  </div>
+                        {procurementSummary.rows.length ? (
+                          <div className="space-y-2">
+                            <div className="hidden rounded-md border bg-slate-50 p-2 text-xs font-semibold text-slate-600 md:grid md:grid-cols-7 md:gap-2">
+                              <p className="md:col-span-2">Fabric</p>
+                              <p>Qty</p>
+                              <p>Stock</p>
+                              <p>PR</p>
+                              <p>Receive</p>
+                              <p>Expected Receive</p>
+                            </div>
+                            {procurementSummary.rows.map((row, idx) => (
+                              <div key={`${row.itemName}-${idx}`} className="rounded-md border p-3">
+                                <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-7">
+                                  <p className="md:col-span-2 font-medium">{row.itemName}</p>
+                                  <p>{row.qtyLabel}</p>
+                                  <p>{row.stockState}</p>
+                                  <p>{row.prStatus}</p>
+                                  <p>{row.receiveStatus}</p>
+                                  <p>{row.receiveStatus === "Pending Receive" ? row.expectedReceiveLabel : "N/A"}</p>
                                 </div>
                               </div>
-                            );
-                          })
+                            ))}
+                          </div>
                         ) : (
-                          <p className="text-sm text-muted-foreground">No purchase request linked to this deal yet.</p>
+                          <p className="text-sm text-muted-foreground">No fabric details found for this order.</p>
                         )}
                       </CardContent>
                     </Card>
@@ -2446,80 +2561,47 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
                         <CardHeader>
                           <CardTitle>Inbound Details</CardTitle>
                           <CardDescription>
-                            {detailsData.inbounds.length} inbound request(s) linked with this deal.
+                            PR receive status only: received, pending, and expected receive timeline.
                           </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-3">
-                          {detailsData.inbounds.length ? (
-                            detailsData.inbounds.map((inboundItem) => (
-                              <div key={inboundItem.id} className="rounded-md border p-3 space-y-3">
-                                <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 text-sm">
-                                  <DetailField label="Inbound ID" value={inboundItem.id} />
-                                  <DetailField label="Status" value={inboundItem.status} />
-                                  <DetailField label="Vendor" value={inboundItem.vendor} />
-                                  <DetailField label="Created At" value={formatDateTimeLabel(inboundItem.createdAt)} />
-                                  <DetailField
-                                    label="Completed By"
-                                    value={inboundItem.completedBy || "N/A"}
-                                  />
-                                  <DetailField
-                                    label="Completed At"
-                                    value={formatDateTimeLabel(inboundItem.completedAt)}
-                                  />
-                                </div>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                              <p className="text-xs text-emerald-700">Received</p>
+                              <p className="text-lg font-semibold text-emerald-700">
+                                {procurementSummary.prReceivedCount}/{procurementSummary.prCreatedCount}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                              <p className="text-xs text-amber-700">Pending Receive</p>
+                              <p className="text-lg font-semibold text-amber-700">{procurementSummary.prPendingCount}</p>
+                            </div>
+                            <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+                              <p className="text-xs text-sky-700">Next Expected Receive</p>
+                              <p className="text-sm font-semibold text-sky-800">{procurementSummary.nextReceiveLabel}</p>
+                            </div>
+                          </div>
 
-                                <div className="rounded-md border p-3">
-                                  <p className="mb-2 text-sm font-semibold">Inbound Items</p>
-                                  <div className="space-y-2">
-                                    {(inboundItem.items || []).length ? (
-                                      (inboundItem.items || []).map((materialItem, idx) => (
-                                        <div
-                                          key={`${inboundItem.id}-item-${idx}`}
-                                          className="rounded-md border p-2 space-y-2"
-                                        >
-                                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-sm">
-                                            <DetailField label="Item" value={materialItem.itemName} />
-                                            <DetailField label="Qty" value={materialItem.quantity} />
-                                            <DetailField label="Received Qty" value={materialItem.receivedQty} />
-                                            <DetailField label="PO No" value={materialItem.poNumber} />
-                                          </div>
-                                          <div className="space-y-1">
-                                            {(materialItem.inboundMilestones || []).length ? (
-                                              (materialItem.inboundMilestones || []).map((milestone, msIdx) => (
-                                                <div
-                                                  key={`${inboundItem.id}-item-${idx}-ms-${msIdx}`}
-                                                  className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-xs"
-                                                >
-                                                  <DetailField
-                                                    label="Step"
-                                                    value={
-                                                      INBOUND_STEP_LABELS[milestone.stepId] ||
-                                                      `Step ${milestone.stepId}`
-                                                    }
-                                                  />
-                                                  <DetailField label="Status" value={milestone.status} />
-                                                  <DetailField label="Done By" value={milestone.completedBy} />
-                                                  <DetailField
-                                                    label="Done At"
-                                                    value={formatDateTimeLabel(milestone.completedAt)}
-                                                  />
-                                                </div>
-                                              ))
-                                            ) : (
-                                              <p className="text-xs text-muted-foreground">No inbound milestones.</p>
-                                            )}
-                                          </div>
-                                        </div>
-                                      ))
-                                    ) : (
-                                      <p className="text-sm text-muted-foreground">No inbound line items found.</p>
-                                    )}
-                                  </div>
-                                </div>
+                          {procurementSummary.pendingRows.length ? (
+                            <div className="rounded-md border">
+                              <div className="grid grid-cols-1 gap-2 border-b bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 md:grid-cols-2">
+                                <p>Pending PR Item</p>
+                                <p>Expected Receive</p>
                               </div>
-                            ))
+                              <div className="divide-y">
+                                {procurementSummary.pendingRows.map((row, idx) => (
+                                  <div
+                                    key={`pending-receive-${row.itemName}-${idx}`}
+                                    className="grid grid-cols-1 gap-2 px-3 py-2 text-sm md:grid-cols-2"
+                                  >
+                                    <p className="font-medium">{row.itemName}</p>
+                                    <p>{row.expectedReceiveLabel}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           ) : (
-                            <p className="text-sm text-muted-foreground">No inbound requests found.</p>
+                            <p className="text-sm text-muted-foreground">No PR items pending receive.</p>
                           )}
                         </CardContent>
                       </Card>
@@ -2528,34 +2610,32 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
                         <CardHeader>
                           <CardTitle>Stock Verification</CardTitle>
                           <CardDescription>
-                            Current in-stock/out-stock verification updates for this deal.
+                            Quick stock readiness for this order.
                           </CardDescription>
                         </CardHeader>
-                        <CardContent className="space-y-2">
-                          {detailsData.approvedStockItems.length ? (
-                            detailsData.approvedStockItems.map((stockItem: any) => (
-                              <div key={stockItem.id} className="rounded-md border p-3">
-                                <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3 text-sm">
-                                  <DetailField label="Item" value={stockItem.fabricName || stockItem.itemName} />
-                                  <DetailField label="Qty" value={stockItem.quantity} />
-                                  <DetailField label="Status" value={stockItem.status} />
-                                  <DetailField
-                                    label="Verified By"
-                                    value={stockItem.updatedBy?.name || stockItem.createdBy?.name || "N/A"}
-                                  />
-                                  <DetailField
-                                    label="Verification Time"
-                                    value={formatDateTimeLabel(stockItem.updatedAt || stockItem.createdAt)}
-                                  />
-                                  <DetailField
-                                    label="Created At"
-                                    value={formatDateTimeLabel(stockItem.createdAt)}
-                                  />
-                                </div>
-                              </div>
-                            ))
+                        <CardContent className="space-y-3">
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                              <p className="text-xs text-emerald-700">In Stock</p>
+                              <p className="text-lg font-semibold text-emerald-700">{procurementSummary.inStockCount}</p>
+                            </div>
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                              <p className="text-xs text-amber-700">Need PR</p>
+                              <p className="text-lg font-semibold text-amber-700">{procurementSummary.prRequiredCount}</p>
+                            </div>
+                            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                              <p className="text-xs text-red-700">PR Not Created</p>
+                              <p className="text-lg font-semibold text-red-700">
+                                {procurementSummary.prNotCreatedCount}
+                              </p>
+                            </div>
+                          </div>
+                          {detailsData.inbounds.length ? (
+                            <p className="text-xs text-muted-foreground">
+                              {detailsData.inbounds.length} inbound request(s) are linked with this deal.
+                            </p>
                           ) : (
-                            <p className="text-sm text-muted-foreground">No stock verification updates found.</p>
+                            <p className="text-xs text-muted-foreground">No inbound request linked yet.</p>
                           )}
                         </CardContent>
                       </Card>

@@ -1,9 +1,89 @@
 
 'use server';
 
-import { adminDb } from '@/lib/firebase-admin';
+import { adminDb, adminStorage } from '@/lib/firebase-admin';
 import { DealVisit } from '@/lib/types';
 import admin from "firebase-admin";
+
+const SIGNED_URL_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+
+const parseStorageObjectFromUrl = (rawUrl: string) => {
+    try {
+        const parsed = new URL(rawUrl);
+        const host = parsed.hostname.toLowerCase();
+        const parts = parsed.pathname.split('/').filter(Boolean);
+
+        let bucket = "";
+        let objectPath = "";
+
+        if (host === "firebasestorage.googleapis.com") {
+            // /v0/b/{bucket}/o/{encodedPath}
+            if (parts[0] === "v0" && parts[1] === "b" && parts[3] === "o" && parts.length >= 5) {
+                bucket = parts[2] || "";
+                objectPath = decodeURIComponent(parts.slice(4).join('/'));
+            }
+        } else if (host === "storage.googleapis.com") {
+            // /download/storage/v1/b/{bucket}/o/{encodedPath}
+            if (
+                parts[0] === "download" &&
+                parts[1] === "storage" &&
+                parts[2] === "v1" &&
+                parts[3] === "b" &&
+                parts[5] === "o" &&
+                parts.length >= 7
+            ) {
+                bucket = parts[4] || "";
+                objectPath = decodeURIComponent(parts.slice(6).join('/'));
+            } else if (parts.length >= 2) {
+                // /{bucket}/{objectPath}
+                bucket = parts[0] || "";
+                objectPath = decodeURIComponent(parts.slice(1).join('/'));
+            }
+        } else if (host.endsWith(".storage.googleapis.com")) {
+            // https://{bucket}.storage.googleapis.com/{objectPath}
+            bucket = host.replace(".storage.googleapis.com", "");
+            objectPath = decodeURIComponent(parts.join('/'));
+        }
+
+        if (!objectPath) {
+            const byQuery = parsed.searchParams.get("name");
+            if (byQuery) objectPath = decodeURIComponent(byQuery);
+        }
+
+        return {
+            bucket: bucket || undefined,
+            objectPath: objectPath || undefined,
+        };
+    } catch {
+        return {};
+    }
+};
+
+export async function getFreshMeasurementPdfUrlAction(url: string): Promise<string> {
+    const raw = String(url || "").trim();
+    if (!raw) return "";
+    if (!adminStorage) return raw;
+
+    const parsed = parseStorageObjectFromUrl(raw);
+    if (!parsed.objectPath) return raw;
+
+    const fallbackBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+    const bucketName = parsed.bucket || fallbackBucket;
+    if (!bucketName) return raw;
+
+    try {
+        const bucket = adminStorage.bucket(bucketName);
+        const file = bucket.file(parsed.objectPath);
+        const [freshUrl] = await file.getSignedUrl({
+            action: "read",
+            expires: Date.now() + SIGNED_URL_TTL_MS,
+        });
+        return freshUrl || raw;
+    } catch (error) {
+        console.warn("Failed to refresh measurement PDF URL:", error);
+        return raw;
+    }
+}
 
 export async function unassignVisitAction(visitId: string, customerId: string, dealDocId: string) {
     if (!visitId || !customerId || !dealDocId) {

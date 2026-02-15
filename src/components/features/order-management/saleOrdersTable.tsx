@@ -265,6 +265,70 @@ export function SaleOrdersTable() {
         return <Badge variant="destructive">{order.status}</Badge>;
       },
     },
+    {
+      id: "Salesman",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Status
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const order = row.original;
+        return <Badge variant="destructive">{order.salesPerson}</Badge>;
+      },
+    },
+    {
+      id: "customerName",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Status
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const order = row.original;
+        return <Badge variant="destructive">{order.customerName}</Badge>;
+      },
+    },
+    {
+      id: "customerPhone",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Status
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const order = row.original;
+        return <Badge variant="destructive">{order.customerPhone}</Badge>;
+      },
+    },
+    {
+      id: "dealId",
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        >
+          Status
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const order = row.original;
+        return <Badge variant="destructive">{order.dealId}</Badge>;
+      },
+    },
     // add other necessary columns here...
      {
       id: "actions",

@@ -1,9 +1,21 @@
 "use client";
 
 import * as React from "react";
-import { collection, onSnapshot, query, orderBy, getDocs, doc, writeBatch, limit, increment } from "firebase/firestore";
+import {
+  collection,
+  collectionGroup,
+  onSnapshot,
+  query,
+  orderBy,
+  getDocs,
+  doc,
+  writeBatch,
+  limit,
+  increment,
+  where,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Invoice, Order } from "@/lib/types";
+import { Invoice, Order, Quotation } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +27,16 @@ import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice
 import { InvoiceLogTable } from "@/components/features/invoice/InvoiceLogTable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { FileText, Loader2, Printer } from "lucide-react";
 
 const normalizeKey = (value?: string) =>
@@ -99,6 +121,74 @@ type InvoiceLineItem = {
     lengthId?: string;
     stockItemId?: string;
   };
+};
+
+type InvoiceVerificationResult = {
+  ok: boolean;
+  issues: string[];
+};
+
+const resolveItemLabel = (item: any) =>
+  String(
+    item?.bcn ||
+      item?.description ||
+      item?.salesDescription ||
+      item?.itemName ||
+      item?.name ||
+      item?.vasName ||
+      ""
+  ).trim();
+
+const normalizeItemSet = (items: any[]) => {
+  const keyed = new Map<string, string>();
+  items.forEach((item) => {
+    const raw = resolveItemLabel(item);
+    const key = normalizeKey(raw);
+    if (!key) return;
+    if (!keyed.has(key)) keyed.set(key, raw);
+  });
+  return keyed;
+};
+
+const sumFabricQty = (items: any[]) =>
+  items.reduce((sum, item) => sum + num(item?.qty ?? item?.quantity), 0);
+
+const formatMismatchValues = (values: string[]) => {
+  if (!values.length) return "";
+  const trimmed = values.filter(Boolean);
+  if (!trimmed.length) return "";
+  if (trimmed.length <= 4) return trimmed.join(", ");
+  return `${trimmed.slice(0, 4).join(", ")} +${trimmed.length - 4} more`;
+};
+
+const pickQuotationFromSnapshot = (docs: any[]) => {
+  if (!docs.length) return null;
+  const withPriority = docs.map((docItem: any) => {
+    const data = docItem.data() || {};
+    const status = String(data?.status || "").toLowerCase();
+    const priority = status === "converted to order" ? 3 : status === "approved" ? 2 : 1;
+    const createdTime = new Date(data?.createdAt || data?.updatedAt || 0).getTime();
+    return { data, priority, createdTime };
+  });
+
+  withPriority.sort((a, b) => {
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    return b.createdTime - a.createdTime;
+  });
+
+  return withPriority[0]?.data || null;
+};
+
+const extractQuotationNormalItems = (quotation: any) => {
+  const sectionItems = quotation?.sections?.NORMAL?.items;
+  if (Array.isArray(sectionItems) && sectionItems.length > 0) {
+    return sectionItems;
+  }
+  const items = Array.isArray(quotation?.items) ? quotation.items : [];
+  return items.filter((item: any) => {
+    const type = String(item?.type || item?.productType || "").toLowerCase();
+    return type !== "vas";
+  });
 };
 
 type InvoiceCandidate = {
@@ -503,10 +593,14 @@ const buildPrintablePayload = (candidate: InvoiceCandidate, invoiceNo?: string) 
 function GenerateInvoiceDialog({
   candidate,
   invoices,
+  onValidateBeforeGenerate,
+  allowVerificationBypass,
   onClose,
 }: {
   candidate: InvoiceCandidate | null;
   invoices: Invoice[];
+  onValidateBeforeGenerate: (candidate: InvoiceCandidate) => Promise<InvoiceVerificationResult>;
+  allowVerificationBypass: boolean;
   onClose: () => void;
 }) {
   const { user } = useAuth();
@@ -525,6 +619,16 @@ function GenerateInvoiceDialog({
 
     setIsGenerating(true);
     try {
+      const verification = await onValidateBeforeGenerate(candidate);
+      if (!verification.ok && !allowVerificationBypass) {
+        toast({
+          variant: "destructive",
+          title: "Invoice verification failed",
+          description: "Reopen this order and choose Generate anyway to continue.",
+        });
+        return;
+      }
+
       const batch = writeBatch(db);
       const order = candidate.order;
 
@@ -700,6 +804,12 @@ export default function InvoicePage() {
   const [loading, setLoading] = React.useState(true);
   const [selectedCandidate, setSelectedCandidate] = React.useState<InvoiceCandidate | null>(null);
   const [quickOrderNo, setQuickOrderNo] = React.useState("");
+  const [verifyingOrderId, setVerifyingOrderId] = React.useState<string | null>(null);
+  const [verificationBypassOrderId, setVerificationBypassOrderId] = React.useState<string | null>(null);
+  const [verificationPrompt, setVerificationPrompt] = React.useState<{
+    candidate: InvoiceCandidate;
+    issues: string[];
+  } | null>(null);
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -771,7 +881,110 @@ export default function InvoicePage() {
     [goodsCandidates, vasCandidates]
   );
 
-  const handleQuickGenerate = React.useCallback(() => {
+  const fetchQuotationForOrder = React.useCallback(async (order: Order): Promise<Quotation | null> => {
+    const snapshots: any[] = [];
+
+    const byOrderNo = await getDocs(
+      query(collectionGroup(db, "quotations"), where("orderNo", "==", order.id), limit(5))
+    );
+    snapshots.push(...byOrderNo.docs);
+
+    if (order.quotationNo) {
+      const byQuotationNo = await getDocs(
+        query(collectionGroup(db, "quotations"), where("quotationNo", "==", order.quotationNo), limit(5))
+      );
+      snapshots.push(...byQuotationNo.docs);
+    }
+
+    const quotation = pickQuotationFromSnapshot(snapshots);
+    return (quotation as Quotation) || null;
+  }, []);
+
+  const verifyCandidateBeforeGenerate = React.useCallback(
+    async (candidate: InvoiceCandidate): Promise<InvoiceVerificationResult> => {
+      const quotation = await fetchQuotationForOrder(candidate.order);
+      if (!quotation) {
+        return {
+          ok: false,
+          issues: ["Quotation not found for this order. Please check quotation mapping before invoice."],
+        };
+      }
+
+      const issues: string[] = [];
+      const orderAmount = num(
+        candidate.order.totalAmount ?? (candidate.order as any)?.overallSummary?.grandTotal
+      );
+      const quotationAmount = num((quotation as any)?.totalAmount ?? (quotation as any)?.overallSummary?.grandTotal);
+      if (orderAmount > 0 && quotationAmount > 0) {
+        const diff = Math.abs(orderAmount - quotationAmount);
+        if (diff > 1) {
+          issues.push(
+            `Amount mismatch: Order ${orderAmount.toFixed(2)} vs Quotation ${quotationAmount.toFixed(2)}.`
+          );
+        }
+      }
+
+      const orderNormalItems = candidate.order.sections?.NORMAL?.items || [];
+      const quotationNormalItems = extractQuotationNormalItems(quotation);
+
+      const orderFabricQty = sumFabricQty(orderNormalItems);
+      const quotationFabricQty = sumFabricQty(quotationNormalItems);
+      if (Math.abs(orderFabricQty - quotationFabricQty) > 0.01) {
+        issues.push(
+          `Fabric qty mismatch: Order ${orderFabricQty.toFixed(2)} vs Quotation ${quotationFabricQty.toFixed(2)}.`
+        );
+      }
+
+      const orderSet = normalizeItemSet(orderNormalItems);
+      const quotationSet = normalizeItemSet(quotationNormalItems);
+      const missingInOrder = [...quotationSet.keys()].filter((key) => !orderSet.has(key));
+      const extraInOrder = [...orderSet.keys()].filter((key) => !quotationSet.has(key));
+      if (missingInOrder.length > 0 || extraInOrder.length > 0) {
+        const missingLabels = missingInOrder.map((key) => quotationSet.get(key) || key);
+        const extraLabels = extraInOrder.map((key) => orderSet.get(key) || key);
+        issues.push(
+          `Item mismatch: Missing in order [${formatMismatchValues(
+            missingLabels
+          )}] / Extra in order [${formatMismatchValues(extraLabels)}].`
+        );
+      }
+
+      return { ok: issues.length === 0, issues };
+    },
+    [fetchQuotationForOrder]
+  );
+
+  const openCandidateWithVerification = React.useCallback(
+    async (candidate: InvoiceCandidate) => {
+      setVerifyingOrderId(candidate.order.id);
+      try {
+        const verification = await verifyCandidateBeforeGenerate(candidate);
+        if (!verification.ok) {
+          setVerificationPrompt({
+            candidate,
+            issues: verification.issues,
+          });
+          return false;
+        }
+        setVerificationBypassOrderId(null);
+        setSelectedCandidate(candidate);
+        return true;
+      } catch (error: any) {
+        toast({
+          variant: "destructive",
+          title: "Verification error",
+          description: error?.message || "Unable to verify order against quotation.",
+        });
+        console.log("error",error?.message);
+        return false;
+      } finally {
+        setVerifyingOrderId(null);
+      }
+    },
+    [toast, verifyCandidateBeforeGenerate]
+  );
+
+  const handleQuickGenerate = React.useCallback(async () => {
     const value = quickOrderNo.trim();
     if (!value) {
       toast({ variant: "destructive", title: "Order number required", description: "Enter an order number to generate an invoice." });
@@ -783,16 +996,18 @@ export default function InvoicePage() {
       return;
     }
     if (goods) {
-      setSelectedCandidate(goods);
+      const opened = await openCandidateWithVerification(goods);
       if (vas) {
-        toast({ title: "Goods invoice opened", description: "VAS invoice is also pending for this order." });
+        if (opened) {
+          toast({ title: "Goods invoice opened", description: "VAS invoice is also pending for this order." });
+        }
       }
       return;
     }
     if (vas) {
-      setSelectedCandidate(vas);
+      await openCandidateWithVerification(vas);
     }
-  }, [findCandidateByOrderNo, quickOrderNo, toast]);
+  }, [findCandidateByOrderNo, openCandidateWithVerification, quickOrderNo, toast]);
 
   const renderPendingTable = (pendingCandidates: InvoiceCandidate[], emptyLabel: string) => (
     <Card>
@@ -834,8 +1049,19 @@ export default function InvoicePage() {
                       <Badge variant="secondary">Pending</Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button size="sm" onClick={() => setSelectedCandidate(candidate)}>
-                        <FileText className="mr-2 h-4 w-4" />Generate
+                      <Button
+                        size="sm"
+                        disabled={verifyingOrderId === candidate.order.id}
+                        onClick={() => {
+                          void openCandidateWithVerification(candidate);
+                        }}
+                      >
+                        {verifyingOrderId === candidate.order.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <FileText className="mr-2 h-4 w-4" />
+                        )}
+                        {verifyingOrderId === candidate.order.id ? "Checking..." : "Generate"}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -868,8 +1094,9 @@ export default function InvoicePage() {
             value={quickOrderNo}
             onChange={(event) => setQuickOrderNo(event.target.value)}
           />
-          <Button onClick={handleQuickGenerate}>
-            Generate
+          <Button onClick={() => { void handleQuickGenerate(); }} disabled={!!verifyingOrderId}>
+            {verifyingOrderId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {verifyingOrderId ? "Checking..." : "Generate"}
           </Button>
         </div>
       </header>
@@ -897,8 +1124,51 @@ export default function InvoicePage() {
       <GenerateInvoiceDialog
         candidate={selectedCandidate}
         invoices={invoices}
-        onClose={() => setSelectedCandidate(null)}
+        onValidateBeforeGenerate={verifyCandidateBeforeGenerate}
+        allowVerificationBypass={verificationBypassOrderId === selectedCandidate?.order.id}
+        onClose={() => {
+          setSelectedCandidate(null);
+          setVerificationBypassOrderId(null);
+        }}
       />
+
+      <AlertDialog
+        open={!!verificationPrompt}
+        onOpenChange={(open) => {
+          if (!open) setVerificationPrompt(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Invoice verification mismatch</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  Validation found differences between quotation and order for this invoice.
+                </p>
+                <ul className="list-disc space-y-1 pl-5">
+                  {(verificationPrompt?.issues || []).map((issue, index) => (
+                    <li key={`verify-issue-${index}`}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!verificationPrompt) return;
+                setVerificationBypassOrderId(verificationPrompt.candidate.order.id);
+                setSelectedCandidate(verificationPrompt.candidate);
+                setVerificationPrompt(null);
+              }}
+            >
+              Generate anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
