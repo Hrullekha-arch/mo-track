@@ -689,7 +689,7 @@ function VisitsTab({ customerId, dealId, salesmen, visits, onVisitAdded, orders,
                           {visit.dueDate ? safeFormat(visit.dueDate) : <Badge variant="secondary" className="text-xs">Not Set</Badge>}
                         </TableCell>
                         <TableCell className="max-w-[240px] truncate">
-                          {visit.customerAddress || "—"}
+                          {visit.location?.address || visit.customerSnapshot?.address}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="capitalize">{visit.status || "requested"}</Badge>

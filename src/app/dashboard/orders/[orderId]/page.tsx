@@ -8,7 +8,7 @@ import { db } from "@/lib/firebase";
 import { Order, FabricDetail, FurnitureDetail, Stock, StockTransaction, PurchaseRequest, InvoiceBatch, Invoice } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2 } from "lucide-react";
+import { ArrowLeft, User, Phone, MapPin, Tag, CheckCircle2, Calendar, ShoppingBag, Loader2, PlusCircle, Trash2, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Link from 'next/link';
 import { Separator } from "@/components/ui/separator";
@@ -31,6 +31,99 @@ import { Input } from '@/components/ui/input';
 
 
 type OrderItem = (FabricDetail | FurnitureDetail) & { type: 'Fabric' | 'Furniture' };
+
+type AllocationLabelItem = {
+    bcn: string;
+    itemName: string;
+    qty: number;
+    unit: string;
+};
+
+const parseQtyValue = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const normalizeItemKey = (value: unknown) =>
+    String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+
+const formatLabelQty = (qty: number) => {
+    if (!Number.isFinite(qty)) return "0";
+    return qty.toFixed(2).replace(/\.?0+$/, "");
+};
+
+const escapeHtml = (value: unknown) =>
+    String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+const getAllocatedItemsForLabels = (order: Order): AllocationLabelItem[] => {
+    const itemsByKey = new Map<string, AllocationLabelItem>();
+
+    const normalItems = order.sections?.NORMAL?.items || [];
+    normalItems.forEach((item: any) => {
+        const bcn = String(item?.bcn || "").trim();
+        const itemName = String(item?.description || item?.itemName || bcn || "").trim();
+        const lengths = Array.isArray(item?.allocation?.lengths) ? item.allocation.lengths : [];
+        const lots = Array.isArray(item?.allocation?.lots) ? item.allocation.lots : [];
+        const allocatedQty = [...lengths, ...lots].reduce(
+            (sum: number, entry: any) => sum + parseQtyValue(entry?.allocatedQty),
+            0
+        );
+        if (allocatedQty <= 0) return;
+
+        const key = normalizeItemKey(bcn || itemName);
+        if (!key) return;
+
+        const existing = itemsByKey.get(key);
+        if (existing) {
+            existing.qty += allocatedQty;
+            return;
+        }
+
+        itemsByKey.set(key, {
+            bcn: bcn || itemName.split(" - ")[0] || "N/A",
+            itemName: itemName || bcn || "N/A",
+            qty: allocatedQty,
+            unit: String(item?.unit || "Mtr"),
+        });
+    });
+
+    if (itemsByKey.size > 0) {
+        return Array.from(itemsByKey.values());
+    }
+
+    (order.fabricDetails || []).forEach((fabricItem: any) => {
+        if (String(fabricItem?.status || "").toLowerCase() !== "allocated") return;
+        const rawName = String(fabricItem?.fabricName || "").trim();
+        if (!rawName) return;
+        const bcn = rawName.split(" - ")[0]?.trim() || rawName;
+        const key = normalizeItemKey(bcn);
+        const qty = parseQtyValue(fabricItem?.quantity);
+        if (!key || qty <= 0) return;
+
+        const existing = itemsByKey.get(key);
+        if (existing) {
+            existing.qty += qty;
+            return;
+        }
+
+        itemsByKey.set(key, {
+            bcn,
+            itemName: rawName,
+            qty,
+            unit: "Mtr",
+        });
+    });
+
+    return Array.from(itemsByKey.values());
+};
 
 const allocationSchema = z.object({
   allocations: z.array(z.object({
@@ -411,6 +504,8 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
 
 
 function AllocateOrderTable({ order, onAllocationSuccess, refreshKey }: { order: Order, onAllocationSuccess: () => void, refreshKey: number }) {
+    const { toast } = useToast();
+    const [isPrintingLabels, setIsPrintingLabels] = useState(false);
     
     const aggregatedItems = useMemo(() => {
         const allItems: OrderItem[] = [
@@ -434,11 +529,258 @@ function AllocateOrderTable({ order, onAllocationSuccess, refreshKey }: { order:
         return Array.from(itemMap.values());
     }, [order]);
 
+    const allocatedItemsForLabels = useMemo(() => getAllocatedItemsForLabels(order), [order]);
+
+    const handlePrintAllocationLabels = async () => {
+        if (!allocatedItemsForLabels.length) {
+            toast({
+                variant: "destructive",
+                title: "No allocated items",
+                description: "Allocate at least one item before printing allocation labels.",
+            });
+            return;
+        }
+
+        const printWindow = window.open("", "_blank");
+        if (!printWindow) {
+            toast({
+                variant: "destructive",
+                title: "Popup blocked",
+                description: "Allow popups for this site to print labels.",
+            });
+            return;
+        }
+
+        try {
+            setIsPrintingLabels(true);
+            const customerName = escapeHtml(order.customerName || order.customerSnapshot?.name || "-");
+            const phone = escapeHtml(order.customerPhone || order.customerSnapshot?.phone || "-");
+            const salesman = escapeHtml(order.salesPerson || "-");
+            const logoUrl = `${window.location.origin}/logo.png`;
+
+            const stockMetaByBcn = new Map<string, { collectionName?: string; collectionCode?: string }>();
+            const uniqueBcns = Array.from(
+                new Set(allocatedItemsForLabels.map((item) => String(item.bcn || "").trim()).filter(Boolean))
+            );
+
+            await Promise.all(
+                uniqueBcns.map(async (bcn) => {
+                    const stockId = bcn.replace(/\//g, "-");
+                    const stock = await getStockById(stockId);
+                    if (!stock) return;
+                    const key = normalizeItemKey(stock.bcn || bcn);
+                    stockMetaByBcn.set(key, {
+                        collectionName: String((stock as any).supplierCollectionName || "").trim(),
+                        collectionCode: String((stock as any).supplierCollectionCode || "").trim(),
+                    });
+                })
+            );
+
+            const labelsHtml = allocatedItemsForLabels
+                .map((item, index) => {
+                    const bcn = escapeHtml(item.bcn);
+                    const stockMeta = stockMetaByBcn.get(normalizeItemKey(item.bcn));
+                    const fabricNameValue = escapeHtml(
+                        `${stockMeta?.collectionName || item.itemName || "N/A"} | ${stockMeta?.collectionCode || item.bcn || "N/A"}`
+                    );
+                    const qtyText = `${formatLabelQty(item.qty)} ${escapeHtml(item.unit || "Mtr")}`;
+                    const itemCounter = `${index + 1}/${allocatedItemsForLabels.length}`;
+                    return `
+                        <article class="label">
+                            <div class="label-head">
+                                <div class="brand">
+                                    <img src="${logoUrl}" alt="MO Track" />
+                                </div>
+                                <div class="label-counter">Item ${itemCounter}</div>
+                            </div>
+                            <div class="label-body">
+                                <div class="line"><span class="k">Customer Name</span><span class="v">${customerName}</span></div>
+                                <div class="line"><span class="k">Phone Number</span><span class="v">${phone}</span></div>
+                                <div class="line"><span class="k">Salesman Name</span><span class="v">${salesman}</span></div>
+                                <div class="line line-item"><span class="k">Fabric Name</span><span class="v">${fabricNameValue}</span></div>
+                                <div class="line line-qty"><span class="k">Qty</span><span class="v qty-value">${qtyText}</span></div>
+                            </div>
+                            <div class="label-foot">${bcn}</div>
+                        </article>
+                    `;
+                })
+                .join("");
+
+            const html = `
+                <!doctype html>
+                <html>
+                    <head>
+                        <meta charset="utf-8" />
+                        <title>Allocation Labels</title>
+                        <style>
+                            * { box-sizing: border-box; }
+                            body {
+                                margin: 0;
+                                padding: 0.12in;
+                                background: #fff;
+                                font-family: "Poppins", "Segoe UI", Arial, sans-serif;
+                                color: #111;
+                                -webkit-print-color-adjust: exact;
+                                print-color-adjust: exact;
+                            }
+                            .sheet {
+                                display: flex;
+                                flex-wrap: wrap;
+                                gap: 0.08in;
+                                align-items: flex-start;
+                            }
+                            .label {
+                                width: 3in;
+                                height: 2in;
+                                border: 2px solid #0f374d;
+                                border-radius: 14px;
+                                background: linear-gradient(180deg, #f7fbff 0%, #ffffff 100%);
+                                padding: 0.08in 0.11in 0.06in;
+                                display: grid;
+                                grid-template-rows: auto 1fr auto;
+                                gap: 0.05in;
+                                break-inside: avoid;
+                                page-break-inside: avoid;
+                                overflow: hidden;
+                            }
+                            .label-head {
+                                display: flex;
+                                align-items: center;
+                                justify-content: space-between;
+                                gap: 0.08in;
+                            }
+                            .brand {
+                                height: 0.34in;
+                                width: 0.9in;
+                                display: flex;
+                                align-items: center;
+                            }
+                            .brand img {
+                                max-width: 100%;
+                                max-height: 100%;
+                                object-fit: contain;
+                            }
+                            .label-counter {
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #12384c;
+                                letter-spacing: 0.2px;
+                            }
+                            .label-body {
+                                display: grid;
+                                gap: 0.02in;
+                                align-content: start;
+                                font-size: 11px;
+                                line-height: 1.15;
+                            }
+                            .line {
+                                display: flex;
+                                justify-content: space-between;
+                                gap: 0.08in;
+                                min-width: 0;
+                                border-bottom: 1px dashed rgba(15, 55, 77, 0.18);
+                                padding-bottom: 1px;
+                            }
+                            .line .k {
+                                flex: 0 0 40%;
+                                font-weight: 600;
+                                color: #284758;
+                            }
+                            .line .v {
+                                flex: 1;
+                                overflow: hidden;
+                                white-space: nowrap;
+                                text-overflow: ellipsis;
+                                text-align: right;
+                                color: #101317;
+                            }
+                            .line-item .v {
+                                font-weight: 600;
+                            }
+                            .line-qty {
+                                border-bottom: 0;
+                                padding-bottom: 0;
+                            }
+                            .qty-value {
+                                font-weight: 600;
+                                color: #0f374d;
+                            }
+                            .label-foot {
+                                text-align: center;
+                                font-size: 17px;
+                                font-weight: 700;
+                                letter-spacing: 0.7px;
+                                color: #0c3145;
+                                border-top: 1px solid rgba(15, 55, 77, 0.3);
+                                padding-top: 0.03in;
+                            }
+                            @page {
+                                size: auto;
+                                margin: 0.1in;
+                            }
+                            @media print {
+                                body {
+                                    margin: 0;
+                                    padding: 0.08in;
+                                }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <section class="sheet">
+                            ${labelsHtml}
+                        </section>
+                    </body>
+                </html>
+            `;
+
+            printWindow.document.open();
+            printWindow.document.write(html);
+            printWindow.document.close();
+
+            const runPrint = () => {
+                printWindow.focus();
+                printWindow.print();
+                setTimeout(() => printWindow.close(), 200);
+            };
+
+            if (printWindow.document.readyState === "complete") {
+                setTimeout(runPrint, 600);
+            } else {
+                printWindow.onload = () => setTimeout(runPrint, 700);
+            }
+        } catch (error: any) {
+            console.error("Failed to generate allocation labels:", error);
+            toast({
+                variant: "destructive",
+                title: "Print failed",
+                description: error?.message || "Could not prepare allocation labels.",
+            });
+            printWindow.close();
+        } finally {
+            setIsPrintingLabels(false);
+        }
+    };
+
     return (
         <Card>
-            <CardHeader>
-                <CardTitle>Allocate Order</CardTitle>
-                <CardDescription>List of items in this order.</CardDescription>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    <CardTitle>Allocate Order</CardTitle>
+                    <CardDescription>List of items in this order.</CardDescription>
+                </div>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    onClick={() => {
+                        void handlePrintAllocationLabels();
+                    }}
+                    disabled={!allocatedItemsForLabels.length || isPrintingLabels}
+                >
+                    {isPrintingLabels ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
+                    {isPrintingLabels ? "Preparing..." : "Print Allocation Label"}
+                </Button>
             </CardHeader>
             <CardContent>
                 <div className="border rounded-md">

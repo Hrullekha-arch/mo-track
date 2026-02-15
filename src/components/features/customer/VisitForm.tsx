@@ -34,7 +34,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { addVisitAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
 import {
-  deliveryInstallationItems,
   subDeliveryInstallationItems,
   FittingInstallationItems,
 } from "@/lib/visit-options";
@@ -49,6 +48,8 @@ import {
 import { Loader2, Plus } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { db } from "@/lib/firebase";
+import { collection, doc as docRef, getDoc, getDocs, limit, query, where } from "firebase/firestore";
 
 /* ================= SCHEMA ================= */
 
@@ -145,7 +146,6 @@ export const sampleShowingCategories = [
   { id: "other-samples", label: "Other Samples" },
 ];
 
-const deliveryInstallationOptions = deliveryInstallationItems;
 const subDeliveryInstallationOptions = subDeliveryInstallationItems;
 const fittingInstallationOptions = FittingInstallationItems;
 
@@ -160,6 +160,49 @@ const VISIT_TYPES = [
 ] as const;
 
 const NO_ORDER_VALUE = "__none__";
+
+const extractDeliveryItemsFromOrder = (order: any) => {
+  if (!order) return [] as Array<{ id: string; label: string; qty: number }>;
+
+  const rawItems = [
+    ...(Array.isArray(order?.items) ? order.items : []),
+    ...(Array.isArray(order?.sections?.NORMAL?.items) ? order.sections.NORMAL.items : []),
+    ...(Array.isArray(order?.sections?.VAS?.items) ? order.sections.VAS.items : []),
+    ...(Array.isArray(order?.fabricDetails) ? order.fabricDetails : []),
+    ...(Array.isArray(order?.furnitureDetails) ? order.furnitureDetails : []),
+  ];
+
+  const byKey = new Map<string, { id: string; label: string; qty: number }>();
+  rawItems.forEach((item: any, index: number) => {
+    const label = String(
+      item?.salesDescription ||
+        item?.description ||
+        item?.itemName ||
+        item?.collectionBrand ||
+        item?.serialNo ||
+        item?.bcn ||
+        item?.fabricName ||
+        item?.furnitureName ||
+        item?.name ||
+        item?.id ||
+        `Item ${index + 1}`
+    ).trim();
+    if (!label) return;
+
+    const qtyRaw = Number(item?.quantity ?? item?.qty ?? item?.noOfPcs ?? item?.fabricQty ?? 1);
+    const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1;
+
+    const key = label.toLowerCase();
+    const existing = byKey.get(key);
+    if (existing) {
+      byKey.set(key, { ...existing, qty: existing.qty + qty });
+      return;
+    }
+    byKey.set(key, { id: label, label, qty });
+  });
+
+  return Array.from(byKey.values());
+};
 
 /* ================= COMPONENT ================= */
 
@@ -242,8 +285,8 @@ export function VisitForm({
       blinds: [],
       curtain: [],
       otherCurtain: "",
-      deliveryInstallations: deliveryInstallationOptions.map(() => null),
-      subDeliveryInstallations: subDeliveryInstallationOptions.map(() => null),
+      deliveryInstallations: [],
+      subDeliveryInstallations: [],
       otherDelivery: "",
       fittingInstallations: fittingInstallationOptions.map(() => null),
       subFittingInstallations: subDeliveryInstallationOptions.map(() => null),
@@ -262,8 +305,167 @@ export function VisitForm({
   });
 
   const watchedMeasurements = form.watch("measurements");
-  const watchedDeliveryInstallations = form.watch("deliveryInstallations");
   const watchedFittingInstallations = form.watch("fittingInstallations");
+  const watchedDeliveryInstallationsRaw = form.watch("deliveryInstallations");
+  const selectedOrderNo = form.watch("orderId");
+  const [resolvedOrderForDelivery, setResolvedOrderForDelivery] = useState<any | null>(null);
+  const [deliveryItemsLoading, setDeliveryItemsLoading] = useState(false);
+
+  const selectedOrderForDelivery = useMemo(
+    () => orders.find((order) => order.orderNo === selectedOrderNo),
+    [orders, selectedOrderNo]
+  );
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const fetchFallbackOrder = async () => {
+      if (activeTab !== "delivery") return;
+      const selected = String(selectedOrderNo || "").trim();
+      if (!selected) {
+        setResolvedOrderForDelivery(null);
+        setDeliveryItemsLoading(false);
+        return;
+      }
+
+      const localItems = extractDeliveryItemsFromOrder(selectedOrderForDelivery);
+      if (localItems.length > 0) {
+        setResolvedOrderForDelivery(selectedOrderForDelivery || null);
+        setDeliveryItemsLoading(false);
+        return;
+      }
+
+      setDeliveryItemsLoading(true);
+      try {
+        const withPrefix = /^MOTRACK-/i.test(selected) ? selected : `MOTRACK-${selected}`;
+        const compact = withPrefix.replace(/^MOTRACK-/i, "");
+        const candidates: any[] = [];
+
+        const tryPushDoc = (snap: any) => {
+          if (!snap?.exists()) return;
+          const data = { id: snap.id, ...snap.data() };
+          if (!candidates.some((c) => c.id === data.id)) {
+            candidates.push(data);
+          }
+        };
+
+        const byDocIdPrefixed = await getDoc(docRef(db, "orders", withPrefix));
+        tryPushDoc(byDocIdPrefixed);
+
+        if (candidates.length === 0) {
+          const byDocIdRaw = await getDoc(docRef(db, "orders", selected));
+          tryPushDoc(byDocIdRaw);
+        }
+
+        const pushQueryResult = async (field: string, value: string) => {
+          if (candidates.length > 0 || !value) return;
+          const snapshot = await getDocs(
+            query(collection(db, "orders"), where(field, "==", value), limit(1))
+          );
+          snapshot.docs.forEach((docSnap) => {
+            const data = { id: docSnap.id, ...docSnap.data() };
+            if (!candidates.some((c) => c.id === data.id)) {
+              candidates.push(data);
+            }
+          });
+        };
+
+        await pushQueryResult("orderNo", withPrefix);
+        await pushQueryResult("orderNo", selected);
+        await pushQueryResult("crmOrderNo", withPrefix);
+        await pushQueryResult("crmOrderNo", compact);
+
+        if (!cancelled) {
+          setResolvedOrderForDelivery(candidates[0] || selectedOrderForDelivery || null);
+        }
+      } catch (error) {
+        console.error("Failed to fetch full order items for delivery:", error);
+        if (!cancelled) setResolvedOrderForDelivery(selectedOrderForDelivery || null);
+      } finally {
+        if (!cancelled) setDeliveryItemsLoading(false);
+      }
+    };
+
+    void fetchFallbackOrder();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, selectedOrderNo, selectedOrderForDelivery]);
+
+  const deliveryOrderItems = useMemo(() => {
+    return extractDeliveryItemsFromOrder(resolvedOrderForDelivery || selectedOrderForDelivery);
+  }, [resolvedOrderForDelivery, selectedOrderForDelivery]);
+
+  const selectedDeliveryRows = useMemo(
+    () =>
+      ((watchedDeliveryInstallationsRaw || []).filter(Boolean) as Array<{
+        id: string;
+        noOfPcs?: string;
+      }>),
+    [watchedDeliveryInstallationsRaw]
+  );
+
+  const selectedDeliveryMap = useMemo(() => {
+    const map = new Map<string, { id: string; noOfPcs?: string }>();
+    selectedDeliveryRows.forEach((row) => {
+      if (!row?.id) return;
+      map.set(String(row.id), row);
+    });
+    return map;
+  }, [selectedDeliveryRows]);
+
+  React.useEffect(() => {
+    if (activeTab !== "delivery") return;
+    const allowedIds = new Set(deliveryOrderItems.map((item) => item.id));
+    const current = (form.getValues("deliveryInstallations") || []).filter(Boolean) as Array<{
+      id: string;
+      noOfPcs?: string;
+    }>;
+    const pruned = current.filter((row) => allowedIds.has(String(row.id || "")));
+    if (pruned.length !== current.length) {
+      form.setValue("deliveryInstallations", pruned, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+    if (!selectedOrderNo && current.length > 0) {
+      form.setValue("deliveryInstallations", [], {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [activeTab, deliveryOrderItems, form, selectedOrderNo]);
+
+  const toggleDeliveryItem = (
+    itemId: string,
+    defaultQty: number,
+    checked: boolean
+  ) => {
+    const current = (form.getValues("deliveryInstallations") || []).filter(
+      Boolean
+    ) as Array<{ id: string; noOfPcs?: string }>;
+    const next = current.filter((row) => String(row.id) !== itemId);
+    if (checked) {
+      next.push({ id: itemId, noOfPcs: String(defaultQty) });
+    }
+    form.setValue("deliveryInstallations", next, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  };
+
+  const updateDeliveryItemQty = (itemId: string, qty: string) => {
+    const current = (form.getValues("deliveryInstallations") || []).filter(
+      Boolean
+    ) as Array<{ id: string; noOfPcs?: string }>;
+    const next = current.map((row) =>
+      String(row.id) === itemId ? { ...row, noOfPcs: qty } : row
+    );
+    form.setValue("deliveryInstallations", next, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  };
 
   async function onSubmit(data: VisitFormValues) {
     console.log("🟢 SUBMIT CLICKED", data);
@@ -306,7 +508,7 @@ export function VisitForm({
       const visitDataForDb = {
         ...data,
         typeOfVisit: activeTab,
-        selectionId: data.selectionId === "none" ? null : data.selectionId,
+        selectionId: data.selectionId === "none" ? undefined : data.selectionId,
         deliveryInstallations: clean(data.deliveryInstallations),
         subDeliveryInstallations: clean(data.subDeliveryInstallations),
         fittingInstallations: clean(data.fittingInstallations),
@@ -477,7 +679,16 @@ export function VisitForm({
         render={({ field }) => (
           <FormItem>
             <FormLabel>Select Order Number</FormLabel>
-            <Select onValueChange={field.onChange} value={field.value || ""}>
+            <Select
+              onValueChange={(value) => {
+                field.onChange(value);
+                form.setValue("deliveryInstallations", [], {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                });
+              }}
+              value={field.value || ""}
+            >
               <FormControl>
                 <SelectTrigger>
                   <SelectValue placeholder="Select an order to associate with this visit" />
@@ -501,110 +712,88 @@ export function VisitForm({
         name="deliveryInstallations"
         render={() => (
           <FormItem>
-            <FormLabel>Type of Delivery/Installation</FormLabel>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {deliveryInstallationOptions.map((opt, index) => (
-                <Controller
-                  key={opt.id}
-                  control={form.control}
-                  name={`deliveryInstallations.${index}`}
-                  render={({ field }) => (
-                    <div className="flex items-center gap-2 p-2 border rounded-md">
+            <FormLabel>Delivery Items</FormLabel>
+            {!selectedOrderNo ? (
+              <p className="text-sm text-muted-foreground">
+                Select an order number to load item list.
+              </p>
+            ) : deliveryItemsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading order items...</p>
+            ) : deliveryOrderItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No items found in selected order.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {deliveryOrderItems.map((item) => {
+                  const selected = selectedDeliveryMap.get(item.id);
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 rounded-md border p-3"
+                    >
                       <Checkbox
-                        checked={!!field.value}
-                        onCheckedChange={(checked) => {
-                          field.onChange(
-                            checked ? { id: opt.id, noOfPcs: "1" } : null
-                          );
-                        }}
+                        checked={!!selected}
+                        onCheckedChange={(checked) =>
+                          toggleDeliveryItem(item.id, item.qty, !!checked)
+                        }
                       />
-                      <Label className="flex-grow">{opt.label}</Label>
-
-                      {field.value && (
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{item.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Order Qty: {item.qty}
+                        </p>
+                      </div>
+                      {selected ? (
                         <Input
                           type="number"
-                          className="w-16 h-8"
-                          placeholder="Pcs"
-                          value={field.value.noOfPcs || "1"}
+                          min="1"
+                          className="h-8 w-20"
+                          value={selected.noOfPcs || String(item.qty)}
                           onChange={(e) =>
-                            field.onChange({
-                              ...field.value,
-                              noOfPcs: e.target.value,
-                            })
+                            updateDeliveryItemQty(item.id, e.target.value)
                           }
                         />
-                      )}
+                      ) : null}
                     </div>
-                  )}
-                />
-              ))}
-
-              <FormField
-                control={form.control}
-                name="otherDelivery"
-                render={({ field }) => (
-                  <FormItem className="col-span-full">
-                    <FormControl>
-                      <Input placeholder="Other..." {...field} />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            </div>
+                  );
+                })}
+              </div>
+            )}
+            <FormMessage />
           </FormItem>
         )}
       />
 
-      {watchedDeliveryInstallations?.some(
-        (d) => d?.id === "blind-installation"
-      ) && (
-        <FormField
-          control={form.control}
-          name="subDeliveryInstallations"
-          render={() => (
-            <FormItem>
-              <FormLabel>Select Sub Delivery/Installation</FormLabel>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {subDeliveryInstallationOptions.map((opt, index) => (
-                  <Controller
-                    key={opt.id}
-                    control={form.control}
-                    name={`subDeliveryInstallations.${index}`}
-                    render={({ field }) => (
-                      <div className="flex items-center gap-2 p-2 border rounded-md">
-                        <Checkbox
-                          checked={!!field.value}
-                          onCheckedChange={(checked) =>
-                            field.onChange(
-                              checked ? { id: opt.id, noOfPcs: "1" } : null
-                            )
-                          }
-                        />
-                        <Label className="flex-grow">{opt.label}</Label>
-
-                        {field.value && (
-                          <Input
-                            type="number"
-                            className="w-16 h-8"
-                            placeholder="Pcs"
-                            value={field.value.noOfPcs || "1"}
-                            onChange={(e) =>
-                              field.onChange({
-                                ...field.value,
-                                noOfPcs: e.target.value,
-                              })
-                            }
-                          />
-                        )}
-                      </div>
-                    )}
-                  />
-                ))}
+      {selectedDeliveryRows.length > 0 ? (
+        <div className="rounded-md border bg-muted/20 p-3">
+          <p className="mb-2 text-sm font-semibold">Selected Delivery Items</p>
+          <div className="space-y-1">
+            {selectedDeliveryRows.map((row, index) => (
+              <div
+                key={`${row.id}-${index}`}
+                className="flex items-center justify-between text-sm"
+              >
+                <span className="truncate pr-2">{row.id}</span>
+                <span className="font-medium">{row.noOfPcs || "1"} pcs</span>
               </div>
-            </FormItem>
-          )}
-        />
-      )}
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <FormField
+        control={form.control}
+        name="otherDelivery"
+        render={({ field }) => (
+          <FormItem>
+            <FormControl>
+              <Input placeholder="Other delivery item..." {...field} />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
     </div>
   );
 

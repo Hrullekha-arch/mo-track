@@ -5,6 +5,7 @@ import { adminDb } from "@/lib/firebase-admin";
 const DEFAULT_SHEET_ID = "11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA";
 const DEFAULT_SHEET_NAME = "Sheet2";
 const DEFAULT_PURCHASE_SHEET_NAME = "Purchase";
+const DEFAULT_INSTALLER_SHEET_NAME = "Installer";
 
 const getSheetsClient = async () => {
   const serviceAccountKey =
@@ -24,7 +25,7 @@ const getSheetsClient = async () => {
   });
 
   const authClient = await auth.getClient();
-  return google.sheets({ version: "v4", auth: authClient });
+  return google.sheets({ version: "v4", auth: authClient as any });
 };
 
 const canonicalHeader = [
@@ -58,6 +59,16 @@ const purchaseCanonicalHeader = [
   "PO Follow Up Time",
   "Expected Delivery (Days)",
   "PO Receiving Time",
+];
+
+const installerCanonicalHeader = [
+  "DealId",
+  "CustomerName",
+  "Phone",
+  "Address",
+  "VisitType",
+  "InstallerName",
+  "Photo",
 ];
 
 const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase();
@@ -117,6 +128,16 @@ const normalizeStockVerificationStatus = (value?: string) => {
   return String(value ?? "").trim();
 };
 
+const formatVisitTypeLabel = (value?: string) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return "";
+  return normalized
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
+};
+
 type QuotationRecord = {
   id: string;
   dealId: string;
@@ -157,6 +178,7 @@ const getColumnLetter = (columnNumber: number) => {
 
 const SHEET_LAST_COLUMN = getColumnLetter(canonicalHeader.length);
 const PURCHASE_SHEET_LAST_COLUMN = getColumnLetter(purchaseCanonicalHeader.length);
+const INSTALLER_SHEET_LAST_COLUMN = getColumnLetter(installerCanonicalHeader.length);
 
 const formatAddressParts = (address: any) => {
   if (!address) return "";
@@ -366,7 +388,64 @@ const getDaysBetween = (from?: string, to?: string) => {
 const getPurchaseRowKey = (row: string[]) =>
   [row[0], row[1], row[2], row[3], row[4], row[6], row[7]].map(normalize).join("|");
 
+const getInstallerRowKey = (row: string[]) =>
+  [row[0], row[1], row[2], row[3], row[4], row[5], row[6]].map(normalize).join("|");
+
 const getDateTimeScore = (value?: string) => getIsoTimeScore(value);
+
+const extractMeasurementPhotoUrls = (measurement: any) => {
+  const photos: string[] = [];
+  const rooms = Array.isArray(measurement?.rooms) ? measurement.rooms : [];
+  rooms.forEach((room: any) => {
+    const items = Array.isArray(room?.items) ? room.items : [];
+    items.forEach((item: any) => {
+      const itemPhotos = Array.isArray(item?.photos) ? item.photos : [];
+      itemPhotos.forEach((photo: any) => {
+        const url = String(photo || "").trim();
+        if (url) photos.push(url);
+      });
+    });
+  });
+  return Array.from(new Set(photos));
+};
+
+const ensureSheetsExist = async (
+  sheets: any,
+  spreadsheetId: string,
+  sheetNames: string[]
+) => {
+  const wanted = Array.from(
+    new Set(
+      sheetNames
+        .map((name) => String(name || "").trim())
+        .filter(Boolean)
+    )
+  );
+  if (!wanted.length) return;
+
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets.properties.title",
+  });
+
+  const existing = new Set(
+    (metadata.data.sheets || []).map((sheet: any) => String(sheet?.properties?.title || ""))
+  );
+
+  const missing = wanted.filter((title) => !existing.has(title));
+  if (!missing.length) return;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: missing.map((title) => ({
+        addSheet: {
+          properties: { title },
+        },
+      })),
+    },
+  });
+};
 
 const mergeDuplicatePurchaseRows = (rows: string[][]) => {
   const byKey = new Map<string, string[]>();
@@ -405,6 +484,9 @@ export async function POST() {
     const sheetId = process.env.ORDER_SHEET_ID || DEFAULT_SHEET_ID;
     const sheetName = process.env.ORDER_SHEET_NAME || DEFAULT_SHEET_NAME;
     const purchaseSheetName = process.env.PURCHASE_SHEET_NAME || DEFAULT_PURCHASE_SHEET_NAME;
+    const installerSheetName = process.env.INSTALLER_SHEET_NAME || DEFAULT_INSTALLER_SHEET_NAME;
+
+    await ensureSheetsExist(sheets, sheetId, [purchaseSheetName, installerSheetName]);
 
     const dealsSnapshot = await adminDb.collectionGroup("deals").get();
 
@@ -418,6 +500,14 @@ export async function POST() {
         customerId,
         data,
       };
+    });
+
+    const dealMetaByCustomerAndDocId = new Map<string, { id: string; customerId?: string; data: any }>();
+    deals.forEach((deal) => {
+      const key = `${String(deal.customerId || "")}|${String(deal.id || "")}`;
+      if (!dealMetaByCustomerAndDocId.has(key)) {
+        dealMetaByCustomerAndDocId.set(key, deal);
+      }
     });
 
     const customerRefs = Array.from(customerIds).map((id) => adminDb.collection("customers").doc(id));
@@ -514,14 +604,26 @@ export async function POST() {
 
     const measurementsSnapshot = await adminDb.collectionGroup("measurements").get();
     const measurementByDealId = new Map<string, string>();
+    const measurementPhotosByDealAndMeasurementId = new Map<string, string[]>();
+    const latestMeasurementByDealId = new Map<string, { id: string; createdAt?: string; photos: string[] }>();
     measurementsSnapshot.docs.forEach((doc) => {
       const dealId = doc.ref.parent.parent?.id;
       if (!dealId) return;
-      const createdAt = doc.data()?.createdAt;
+      const measurementData = doc.data() as any;
+      const createdAt = measurementData?.createdAt;
       if (!createdAt) return;
       const existing = measurementByDealId.get(dealId);
       if (!existing || new Date(createdAt).getTime() > new Date(existing).getTime()) {
         measurementByDealId.set(dealId, createdAt);
+      }
+
+      const photos = extractMeasurementPhotoUrls(measurementData);
+      const measurementKey = `${dealId}|${doc.id}`;
+      measurementPhotosByDealAndMeasurementId.set(measurementKey, photos);
+
+      const latest = latestMeasurementByDealId.get(dealId);
+      if (!latest || getIsoTimeScore(createdAt) > getIsoTimeScore(latest.createdAt)) {
+        latestMeasurementByDealId.set(dealId, { id: doc.id, createdAt, photos });
       }
     });
 
@@ -964,12 +1066,211 @@ export async function POST() {
       });
     }
 
+    const visitsSnapshot = await adminDb.collectionGroup("visits").get();
+    const visitsForInstallerSheet = visitsSnapshot.docs.map((doc: any) => {
+      const visitData = doc.data() as any;
+      const pathParts = doc.ref.path.split("/");
+      const customerId = pathParts.length > 1 ? pathParts[1] : "";
+      const dealDocId = pathParts.length > 3 ? pathParts[3] : "";
+      return {
+        visitData,
+        customerId,
+        dealDocId,
+      };
+    });
+
+    const installerIds = new Set<string>();
+    visitsForInstallerSheet.forEach(({ visitData }) => {
+      const installerId = String(
+        visitData?.assignedTo || visitData?.assignment?.assignedTo?.id || ""
+      ).trim();
+      if (installerId) installerIds.add(installerId);
+    });
+
+    const installerNameById = new Map<string, string>();
+    const installerRefs = Array.from(installerIds).map((id) => adminDb.collection("users").doc(id));
+    if (installerRefs.length) {
+      const installerDocs = await adminDb.getAll(...installerRefs);
+      installerDocs.forEach((doc) => {
+        if (!doc.exists) return;
+        const data = doc.data() as any;
+        installerNameById.set(doc.id, String(data?.name || data?.displayName || "").trim());
+      });
+    }
+
+    const installerRows: string[][] = [];
+    visitsForInstallerSheet.forEach(({ visitData, customerId, dealDocId }) => {
+      const installerId = String(
+        visitData?.assignedTo || visitData?.assignment?.assignedTo?.id || ""
+      ).trim();
+      const installerName = String(
+        visitData?.assignment?.assignedTo?.name ||
+          visitData?.assignedToName ||
+          (installerId ? installerNameById.get(installerId) : "") ||
+          ""
+      ).trim();
+      if (!installerId && !installerName) return;
+
+      const dealMeta =
+        dealMetaByCustomerAndDocId.get(`${String(customerId || "")}|${String(dealDocId || "")}`) ||
+        undefined;
+      const customerDoc = customersById.get(customerId) || {};
+      const customerName = String(
+        visitData?.customerSnapshot?.name ||
+          customerDoc?.name ||
+          dealMeta?.data?.customerName ||
+          ""
+      ).trim();
+      const phone = String(
+        visitData?.customerSnapshot?.phone ||
+          customerDoc?.phone ||
+          customerDoc?.mobileNo ||
+          dealMeta?.data?.customer?.phone ||
+          dealMeta?.data?.customer?.mobileNo ||
+          ""
+      ).trim();
+      const address = String(
+        visitData?.customerSnapshot?.address ||
+          visitData?.location?.address ||
+          visitData?.customerAddress ||
+          buildAddress(customerDoc) ||
+          dealMeta?.data?.customerAddress ||
+          ""
+      ).trim();
+      const visitType = formatVisitTypeLabel(
+        visitData?.visitType || visitData?.typeOfVisit || visitData?.purpose || ""
+      );
+      const dealId = String(visitData?.dealId || dealMeta?.data?.dealId || dealDocId || "").trim();
+
+      const directPhotos = [
+        ...(Array.isArray(visitData?.imageUrls) ? visitData.imageUrls : []),
+        ...(Array.isArray(visitData?.imageUrl)
+          ? visitData.imageUrl
+          : visitData?.imageUrl
+            ? [visitData.imageUrl]
+            : []),
+      ]
+        .map((photo: any) => String(photo || "").trim())
+        .filter(Boolean);
+
+      const measurementId = String(visitData?.measurementId || "").trim();
+      const measurementPhotoKey = `${dealDocId}|${measurementId}`;
+      const measurementPhotos =
+        (measurementId ? measurementPhotosByDealAndMeasurementId.get(measurementPhotoKey) : undefined) ||
+        (normalize(visitData?.visitType || visitData?.typeOfVisit) === "measurement"
+          ? latestMeasurementByDealId.get(dealDocId)?.photos
+          : undefined) ||
+        [];
+
+      const photoList = Array.from(new Set([...directPhotos, ...measurementPhotos]));
+      const photosForRows = photoList.length > 0 ? photoList : [""];
+      photosForRows.forEach((photo) => {
+        installerRows.push([
+          dealId,
+          customerName,
+          phone,
+          address,
+          visitType,
+          installerName || installerId,
+          String(photo || "").trim(),
+        ]);
+      });
+    });
+
+    const existingInstallerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `${installerSheetName}!A1:${INSTALLER_SHEET_LAST_COLUMN}`,
+    });
+    const existingInstallerValues = existingInstallerResponse.data.values || [];
+    const existingInstallerHeader = existingInstallerValues[0] || [];
+    const installerHeaderNormalized = existingInstallerHeader.map(normalize);
+    const installerHeaderMatchCount = installerCanonicalHeader.filter((label) =>
+      installerHeaderNormalized.includes(normalize(label))
+    ).length;
+    const hasInstallerHeader = installerHeaderMatchCount >= 3;
+    const installerDataRows = hasInstallerHeader
+      ? existingInstallerValues.slice(1)
+      : existingInstallerValues;
+
+    const installerHeaderIndex = new Map<string, number>();
+    (hasInstallerHeader ? existingInstallerHeader : installerCanonicalHeader).forEach(
+      (label: string, index: number) => {
+        const key = normalize(label);
+        if (key && !installerHeaderIndex.has(key)) installerHeaderIndex.set(key, index);
+      }
+    );
+
+    const getInstallerCell = (row: any[], label: string) => {
+      const idx = installerHeaderIndex.get(normalize(label));
+      if (idx === undefined) return "";
+      return row?.[idx] ?? "";
+    };
+
+    const existingInstallerRowMap = new Map<string, { rowIndex: number; row: any[] }>();
+    installerDataRows.forEach((row, idx) => {
+      if (isRowBlank(row)) return;
+      const normalizedRow = installerCanonicalHeader.map((label) => getInstallerCell(row, label));
+      const key = getInstallerRowKey(normalizedRow);
+      if (!key) return;
+      existingInstallerRowMap.set(key, { rowIndex: idx + 2, row });
+    });
+
+    const installerRowsToAppend: any[] = [];
+    const installerRowsToUpdate: { range: string; values: any[][] }[] = [];
+    installerRows.forEach((row) => {
+      if (isRowBlank(row)) return;
+      const key = getInstallerRowKey(row);
+      const existing = existingInstallerRowMap.get(key);
+      if (existing) {
+        const existingRow = installerCanonicalHeader.map((label) => getInstallerCell(existing.row, label));
+        const same =
+          existingRow.length === row.length &&
+          existingRow.every((cell, idx) => String(cell ?? "").trim() === String(row[idx] ?? "").trim());
+        if (!same) {
+          installerRowsToUpdate.push({
+            range: `${installerSheetName}!A${existing.rowIndex}:${INSTALLER_SHEET_LAST_COLUMN}${existing.rowIndex}`,
+            values: [row],
+          });
+        }
+      } else {
+        installerRowsToAppend.push(row);
+      }
+    });
+
+    if (!hasInstallerHeader) {
+      installerRowsToAppend.unshift(installerCanonicalHeader);
+    }
+
+    if (installerRowsToUpdate.length > 0) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          valueInputOption: "USER_ENTERED",
+          data: installerRowsToUpdate,
+        },
+      });
+    }
+
+    if (installerRowsToAppend.length > 0) {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: sheetId,
+        range: `${installerSheetName}!A1`,
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: {
+          values: installerRowsToAppend,
+        },
+      });
+    }
+
     return NextResponse.json({
       success: true,
       appended: rowsToAppend.length,
       updated: rowsToUpdate.length,
       purchaseAppended: purchaseRowsToAppend.length,
       purchaseUpdated: purchaseRowsToUpdate.length,
+      installerAppended: installerRowsToAppend.length,
+      installerUpdated: installerRowsToUpdate.length,
     });
   } catch (error) {
     console.error("Order sheet sync failed:", error);

@@ -57,6 +57,35 @@ import { NewOrderDialog } from "./NewOrderDialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { setFullKittingTime } from "./actions";
 
+type AllocationFilterValue = "all" | "ready" | "partial";
+
+const getOrderAllocationMetrics = (order: Order) => {
+  const totalItems = order.fabricDetails?.length || 0;
+  const allocatedItemsCount = order.fabricDetails?.filter((item) => item.status === "allocated").length || 0;
+  const inStockOrAllocatedItems =
+    order.fabricDetails?.filter((item) => item.status === "in stock" || item.status === "allocated").length || 0;
+  const isFullyAllocated = totalItems > 0 && allocatedItemsCount === totalItems;
+  const isReadyForAllocate = totalItems > 0 && inStockOrAllocatedItems === totalItems && !isFullyAllocated;
+  const isPartialAllocate = totalItems > 0 && inStockOrAllocatedItems > 0 && inStockOrAllocatedItems < totalItems;
+
+  return {
+    totalItems,
+    allocatedItemsCount,
+    inStockOrAllocatedItems,
+    isFullyAllocated,
+    isReadyForAllocate,
+    isPartialAllocate,
+  };
+};
+
+const getOrderStatusLabel = (order: Order) => {
+  const milestones = Array.isArray(order.milestones) ? order.milestones : [];
+  const lastCompleted = [...milestones].reverse().find((milestone) => milestone.completed);
+  if (lastCompleted?.name) return String(lastCompleted.name).toUpperCase();
+  if (order.status === "Pending Approval") return "PENDING APPROVAL";
+  return String(order.status || "NEW").toUpperCase();
+};
+
 function OrderTableComponent({
   data,
   columns,
@@ -81,9 +110,33 @@ function OrderTableComponent({
     const [orderNoFilter, setOrderNoFilter] = React.useState("");
     const [dateRangeFilter, setDateRangeFilter] = React.useState<DateRange | undefined>();
     const [storeFilter, setStoreFilter] = React.useState("all");
+    const [allocationFilter, setAllocationFilter] = React.useState<AllocationFilterValue>("all");
+    const [statusFilter, setStatusFilter] = React.useState("all");
+    const [appliedAllocationFilter, setAppliedAllocationFilter] = React.useState<AllocationFilterValue>("all");
+    const [appliedStatusFilter, setAppliedStatusFilter] = React.useState("all");
+
+    const statusOptions = React.useMemo(
+      () => Array.from(new Set(data.map((order) => getOrderStatusLabel(order)).filter(Boolean))).sort(),
+      [data]
+    );
+
+    const clientFilteredData = React.useMemo(() => {
+      return data.filter((order) => {
+        const allocation = getOrderAllocationMetrics(order);
+        const allocationMatch =
+          appliedAllocationFilter === "all" ||
+          (appliedAllocationFilter === "ready" && allocation.isReadyForAllocate) ||
+          (appliedAllocationFilter === "partial" && allocation.isPartialAllocate);
+
+        const orderStatus = getOrderStatusLabel(order);
+        const statusMatch = appliedStatusFilter === "all" || orderStatus === appliedStatusFilter;
+
+        return allocationMatch && statusMatch;
+      });
+    }, [data, appliedAllocationFilter, appliedStatusFilter]);
 
     const table = useReactTable({
-        data,
+        data: clientFilteredData,
         columns,
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
@@ -107,6 +160,10 @@ function OrderTableComponent({
         setOrderNoFilter("");
         setDateRangeFilter(undefined);
         setStoreFilter("all");
+        setAllocationFilter("all");
+        setStatusFilter("all");
+        setAppliedAllocationFilter("all");
+        setAppliedStatusFilter("all");
         onClear();
     }
 
@@ -193,24 +250,37 @@ function OrderTableComponent({
                             {uniqueStores.map(store => <SelectItem key={store} value={store!}>{store}</SelectItem>)}
                         </SelectContent>
                     </Select>
-                    <Select>
-                        <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
-                        <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
+                    <Select value={allocationFilter} onValueChange={(value) => setAllocationFilter(value as AllocationFilterValue)}>
+                        <SelectTrigger><SelectValue placeholder="Allocation Filter" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Allocation</SelectItem>
+                          <SelectItem value="ready">Ready for Allocate</SelectItem>
+                          <SelectItem value="partial">Partial Allocate</SelectItem>
+                        </SelectContent>
                     </Select>
-                    <Select>
-                        <SelectTrigger><SelectValue placeholder="--SELECT--" /></SelectTrigger>
-                        <SelectContent><SelectItem value="placeholder">--SELECT--</SelectItem></SelectContent>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Status</SelectItem>
+                          {statusOptions.map((status) => (
+                            <SelectItem key={status} value={status}>
+                              {status}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
                     </Select>
                   </div>
                   <div className="flex gap-2">
                     <Button
-                      onClick={() =>
+                      onClick={() => {
+                        setAppliedAllocationFilter(allocationFilter);
+                        setAppliedStatusFilter(statusFilter);
                         onSearch({
                           orderNo: orderNoFilter,
                           dateRange: dateRangeFilter,
                           store: storeFilter,
-                        })
-                      }
+                        });
+                      }}
                       disabled={searching}
                     >
                       {searching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
@@ -517,18 +587,15 @@ export function OrdersTable() {
     {
         id: "allocatedStatus",
         header: "Allocated Status",
-        cell: ({ row }) => {
+      cell: ({ row }) => {
           const order = row.original;
-          const totalItems = order.fabricDetails?.length || 0;
+          const { totalItems, allocatedItemsCount, inStockOrAllocatedItems, isFullyAllocated } =
+            getOrderAllocationMetrics(order);
           if (totalItems === 0) return <Badge variant="outline">N/A</Badge>;
-      
-          const allocatedItemsCount = order.fabricDetails?.filter(item => item.status === 'allocated').length || 0;
-          
-          if (allocatedItemsCount === totalItems) {
+
+          if (isFullyAllocated) {
             return <Badge className="bg-green-600">Allocated</Badge>;
           }
-
-          const inStockOrAllocatedItems = order.fabricDetails?.filter(item => item.status === 'in stock' || item.status === 'allocated').length || 0;
       
           const allAvailable = inStockOrAllocatedItems === totalItems;
           const someAvailable = inStockOrAllocatedItems > 0;
@@ -569,13 +636,7 @@ export function OrdersTable() {
       ),
       cell: ({ row }) => {
         const order = row.original;
-        let status = "NEW";
-        const lastCompleted = order.milestones.slice().reverse().find(m => m.completed);
-        if (lastCompleted) {
-          status = lastCompleted.name.toUpperCase();
-        } else if (order.status === 'Pending Approval') {
-            status = 'PENDING APPROVAL';
-        }
+        const status = getOrderStatusLabel(order);
         
         return <Badge variant={status === 'PENDING APPROVAL' ? 'destructive' : 'secondary'}>{status}</Badge>;
       }

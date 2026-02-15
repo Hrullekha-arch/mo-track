@@ -38,7 +38,6 @@ import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InboundRequest, Order, Quotation, PurchaseRequest, Walkin_Customer } from "@/lib/types";
-import Image from 'next/image';
 import { getFollowUpItems } from "./po-tracking/actions";
 import { useAuth } from "@/context/AuthContext";
 import { format, formatDistanceToNow } from "date-fns";
@@ -1099,174 +1098,500 @@ const AllocatorDashboard = () => {
 };
 
 const AdminDashboard = () => {
-    const [counts, setCounts] = useState<Record<string, number | null>>({
-        readyForDelivery: null,
-        pendingPurchase: null,
-        pendingInbound: null,
-        pendingVisits: null,
-        pendingQuotationApproval: null,
-        pendingOrderApproval: null,
-        pendingInvoice: null,
-        pendingCutting: null,
-        paymentConfirmation: null,
-        deliveryFollowUp: null,
-    });
-    const [loading, setLoading] = useState(true);
-    const syncOrderSheetRef = useRef(false);
+  const [counts, setCounts] = useState<Record<string, number | null>>({
+    readyForDelivery: null,
+    pendingPurchase: null,
+    pendingInbound: null,
+    pendingVisits: null,
+    pendingQuotationApproval: null,
+    pendingOrderApproval: null,
+    pendingInvoice: null,
+    pendingCutting: null,
+    paymentConfirmation: null,
+    deliveryFollowUp: null,
+  });
+  const [loading, setLoading] = useState(true);
+  const [isSheetSyncing, setIsSheetSyncing] = useState(false);
+  const [lastSheetSyncAt, setLastSheetSyncAt] = useState<Date | null>(null);
+  const syncOrderSheetRef = useRef(false);
 
-    useEffect(() => {
-        let intervalId: ReturnType<typeof setInterval> | null = null;
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
 
-        const syncOrderSheet = async () => {
-            if (syncOrderSheetRef.current) return;
-            syncOrderSheetRef.current = true;
-            try {
-                await fetch("/api/orders/syncOrderSheet", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                });
-            } catch (error) {
-                console.error("Order sheet sync failed:", error);
-            } finally {
-                syncOrderSheetRef.current = false;
-            }
-        };
+    const syncOrderSheet = async () => {
+      if (syncOrderSheetRef.current) return;
+      syncOrderSheetRef.current = true;
+      setIsSheetSyncing(true);
+      try {
+        await fetch("/api/orders/syncOrderSheet", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        setLastSheetSyncAt(new Date());
+      } catch (error) {
+        console.error("Order sheet sync failed:", error);
+      } finally {
+        syncOrderSheetRef.current = false;
+        setIsSheetSyncing(false);
+      }
+    };
 
-        syncOrderSheet();
-        intervalId = setInterval(syncOrderSheet, 60_000);
+    void syncOrderSheet();
+    intervalId = setInterval(syncOrderSheet, 60_000);
 
-        return () => {
-            if (intervalId) clearInterval(intervalId);
-        };
-    }, []);
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, []);
 
-     useEffect(() => {
-        const queries: { [key: string]: any } = {
-            orders: query(collection(db, "orders")),
-            quotations: query(collectionGroup(db, 'quotations')),
-            purchaseRequests: query(collection(db, "purchaseRequests")),
-            inbounds: query(collection(db, "inbounds"), where("status", "==", "Active")),
-            visits: query(collectionGroup(db, 'visits')),
-            cuttingTasks: query(collection(db, "Cutting"), where("status", "!=", "Completed")),
-        };
+  useEffect(() => {
+    const queries: { [key: string]: any } = {
+      orders: query(collection(db, "orders")),
+      quotations: query(collectionGroup(db, "quotations")),
+      purchaseRequests: query(collection(db, "purchaseRequests")),
+      inbounds: query(collection(db, "inbounds"), where("status", "==", "Active")),
+      visits: query(collectionGroup(db, "visits")),
+      cuttingTasks: query(collection(db, "Cutting"), where("status", "!=", "Completed")),
+    };
 
-        const unsubscribes = Object.entries(queries).map(([key, q]) => 
-            onSnapshot(q, (snapshot: any) => {
-                const docsData = snapshot.docs.map((doc: any) => doc.data());
-                
-                if (key === 'orders') {
-                    const orders = docsData as Order[];
-                    setCounts(prev => ({
-                        ...prev,
-                        readyForDelivery: orders.filter(o => o.milestones.find(m => m.id === 5)?.completed && !o.milestones.find(m => m.id === 8)?.completed).length,
-                        pendingOrderApproval: orders.filter(o => o.status === 'Pending Approval').length,
-                        pendingInvoice: orders.filter(o => o.invoicing?.status && o.invoicing.status !== 'INVOICED').length,
-                        paymentConfirmation: orders.filter(o => o.balanceFollowUp === true && !o.paymentConfirmed).length,
-                    }));
-                }
-                 if (key === 'quotations') {
-                    setCounts(prev => ({ ...prev, pendingQuotationApproval: docsData.filter((q: any) => (q as Quotation).status === 'Pending Approval').length }));
-                }
-                if (key === 'purchaseRequests') {
-                     setCounts(prev => ({
-                        ...prev,
-                        pendingPurchase: docsData.filter((pr: any) => (pr as PurchaseRequest).status === 'Approved').length,
-                    }));
-                }
-                if (key === 'inbounds') {
-                    setCounts(prev => ({ ...prev, pendingInbound: snapshot.size }));
-                }
-                if (key === 'visits') {
-                    setCounts(prev => ({ ...prev, pendingVisits: snapshot.size }));
-                }
-                if (key === 'cuttingTasks') {
-                    setCounts(prev => ({ ...prev, pendingCutting: snapshot.size }));
-                }
-            })
-        );
-        
-        const fetchFollowUpCount = async () => {
-            try {
-                const followUpItems = await getFollowUpItems();
-                setCounts(prev => ({...prev, deliveryFollowUp: followUpItems.length}));
-            } catch (e) {
-                console.error("Failed to fetch follow-up count:", e);
-                setCounts(prev => ({...prev, deliveryFollowUp: 0}));
-            }
-        };
+    const unsubscribes = Object.entries(queries).map(([key, q]) =>
+      onSnapshot(q, (snapshot: any) => {
+        const docsData = snapshot.docs.map((doc: any) => doc.data());
 
-        fetchFollowUpCount();
-        
-        Promise.all(Object.values(queries).map(q => getDocs(q))).finally(() => setLoading(false));
-
-        return () => unsubscribes.forEach(unsub => unsub());
-    }, []);
-
-     const dashboardItems = [
-        { title: "Pending Quotation Approvals", count: counts.pendingQuotationApproval, href: "/dashboard/approvals", icon: FileSignature },
-        { title: "Pending Order Approvals", count: counts.pendingOrderApproval, href: "/dashboard/approvals?tab=orders", icon: FileSignature },
-        { title: "Payment Confirmation", count: counts.paymentConfirmation, href: "/dashboard/approvals?tab=payment-confirmation", icon: CheckCircle },
-        { title: "Ready for Delivery", count: counts.readyForDelivery, href: "/dashboard/orders", icon: Truck },
-        { title: "Pending Purchase", count: counts.pendingPurchase, href: "/dashboard/purchase/pending-po", icon: ShoppingCart },
-        { title: "Delivery Follow Up", count: counts.deliveryFollowUp, href: "/dashboard/po-tracking", icon: PhoneCall },
-        { title: "Pending Inbound", count: counts.pendingInbound, href: "/dashboard/inbound", icon: Archive },
-        { title: "All Visits", count: counts.pendingVisits, href: "/dashboard/visits", icon: CalendarCheck },
-        { title: "Pending Invoice", count: counts.pendingInvoice, href: "/dashboard/invoice", icon: FileText },
-        { title: "Pending Cutting", count: counts.pendingCutting, href: "/dashboard/cutting", icon: Scissors },
-      ];
-
-    return (
-        <div className="container mx-auto p-4 md:p-6 lg:p-8 relative">
-            <div className="absolute inset-0 flex items-center justify-center -z-10">
-                <Image src="/logo.png" alt="MoTrack Watermark" width={500} height={250} className="opacity-5" data-ai-hint="logo watermark" />
-            </div>
-            <header className="mb-8">
-                <h1 className="text-3xl font-bold tracking-tight">Home Dashboard</h1>
-                <p className="text-muted-foreground">Welcome! Here's a summary of your operations.</p>
-            </header>
-
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {dashboardItems.map(item => (
-                    <SummaryCard 
-                        key={item.title}
-                        title={item.title}
-                        count={item.count}
-                        href={item.href}
-                        icon={item.icon}
-                        loading={loading}
-                    />
-                ))}
-            </div>
-        </div>
+        if (key === "orders") {
+          const orders = docsData as Order[];
+          setCounts((prev) => ({
+            ...prev,
+            readyForDelivery: orders.filter(
+              (o) =>
+                o.milestones.find((m) => m.id === 5)?.completed &&
+                !o.milestones.find((m) => m.id === 8)?.completed
+            ).length,
+            pendingOrderApproval: orders.filter((o) => o.status === "Pending Approval").length,
+            pendingInvoice: orders.filter(
+              (o) => o.invoicing?.status && o.invoicing.status !== "INVOICED"
+            ).length,
+            paymentConfirmation: orders.filter(
+              (o) => o.balanceFollowUp === true && !o.paymentConfirmed
+            ).length,
+          }));
+        }
+        if (key === "quotations") {
+          setCounts((prev) => ({
+            ...prev,
+            pendingQuotationApproval: docsData.filter(
+              (q: any) => (q as Quotation).status === "Pending Approval"
+            ).length,
+          }));
+        }
+        if (key === "purchaseRequests") {
+          setCounts((prev) => ({
+            ...prev,
+            pendingPurchase: docsData.filter(
+              (pr: any) => (pr as PurchaseRequest).status === "Approved"
+            ).length,
+          }));
+        }
+        if (key === "inbounds") {
+          setCounts((prev) => ({ ...prev, pendingInbound: snapshot.size }));
+        }
+        if (key === "visits") {
+          setCounts((prev) => ({ ...prev, pendingVisits: snapshot.size }));
+        }
+        if (key === "cuttingTasks") {
+          setCounts((prev) => ({ ...prev, pendingCutting: snapshot.size }));
+        }
+      })
     );
-};
 
-interface SummaryCardProps {
+    const fetchFollowUpCount = async () => {
+      try {
+        const followUpItems = await getFollowUpItems();
+        setCounts((prev) => ({ ...prev, deliveryFollowUp: followUpItems.length }));
+      } catch (e) {
+        console.error("Failed to fetch follow-up count:", e);
+        setCounts((prev) => ({ ...prev, deliveryFollowUp: 0 }));
+      }
+    };
+
+    void fetchFollowUpCount();
+    void Promise.all(Object.values(queries).map((q) => getDocs(q))).finally(() => setLoading(false));
+
+    return () => unsubscribes.forEach((unsub) => unsub());
+  }, []);
+
+  type AdminPriority = "critical" | "high" | "normal";
+  type DashboardItem = {
+    key: string;
     title: string;
     count: number | null;
     href: string;
     icon: React.ElementType;
-    loading: boolean;
+    description: string;
+    priority: AdminPriority;
+    section: "approvals" | "operations";
+  };
+
+  const dashboardItems: DashboardItem[] = [
+    {
+      key: "quotation",
+      title: "Quotation Approvals",
+      count: counts.pendingQuotationApproval,
+      href: "/dashboard/approvals",
+      icon: FileSignature,
+      description: "Quotations waiting for approval action.",
+      priority: "critical",
+      section: "approvals",
+    },
+    {
+      key: "orders",
+      title: "Order Approvals",
+      count: counts.pendingOrderApproval,
+      href: "/dashboard/approvals?tab=orders",
+      icon: FileSignature,
+      description: "Orders still blocked in approval stage.",
+      priority: "critical",
+      section: "approvals",
+    },
+    {
+      key: "payments",
+      title: "Payment Confirmation",
+      count: counts.paymentConfirmation,
+      href: "/dashboard/approvals?tab=payment-confirmation",
+      icon: CheckCircle,
+      description: "Pending payment checks from Accounts.",
+      priority: "high",
+      section: "approvals",
+    },
+    {
+      key: "purchase",
+      title: "Purchase Pending",
+      count: counts.pendingPurchase,
+      href: "/dashboard/purchase/pending-po",
+      icon: ShoppingCart,
+      description: "Approved requests not converted to PO.",
+      priority: "high",
+      section: "operations",
+    },
+    {
+      key: "inbound",
+      title: "Inbound Active",
+      count: counts.pendingInbound,
+      href: "/dashboard/inbound",
+      icon: Archive,
+      description: "Material inbound batches still active.",
+      priority: "high",
+      section: "operations",
+    },
+    {
+      key: "invoice",
+      title: "Invoice Pending",
+      count: counts.pendingInvoice,
+      href: "/dashboard/invoice",
+      icon: FileText,
+      description: "Orders not fully invoiced yet.",
+      priority: "high",
+      section: "operations",
+    },
+    {
+      key: "cutting",
+      title: "Cutting Pending",
+      count: counts.pendingCutting,
+      href: "/dashboard/cutting",
+      icon: Scissors,
+      description: "Cutting tasks open in production queue.",
+      priority: "normal",
+      section: "operations",
+    },
+    {
+      key: "delivery",
+      title: "Delivery Follow Up",
+      count: counts.deliveryFollowUp,
+      href: "/dashboard/po-tracking",
+      icon: PhoneCall,
+      description: "Orders requiring delivery follow-up.",
+      priority: "normal",
+      section: "operations",
+    },
+    {
+      key: "ready",
+      title: "Ready for Delivery",
+      count: counts.readyForDelivery,
+      href: "/dashboard/orders",
+      icon: Truck,
+      description: "Orders ready to move to delivery execution.",
+      priority: "normal",
+      section: "operations",
+    },
+    {
+      key: "visits",
+      title: "Visits Pipeline",
+      count: counts.pendingVisits,
+      href: "/dashboard/visits",
+      icon: CalendarCheck,
+      description: "All active and scheduled visits.",
+      priority: "normal",
+      section: "operations",
+    },
+  ];
+
+  const approvals = dashboardItems.filter((item) => item.section === "approvals");
+  const operations = dashboardItems.filter((item) => item.section === "operations");
+  const actionableTotal = dashboardItems.reduce((sum, item) => sum + (item.count ?? 0), 0);
+  const criticalTotal = dashboardItems
+    .filter((item) => item.priority === "critical")
+    .reduce((sum, item) => sum + (item.count ?? 0), 0);
+  const highTotal = dashboardItems
+    .filter((item) => item.priority === "high")
+    .reduce((sum, item) => sum + (item.count ?? 0), 0);
+  const urgentQueues = [...dashboardItems]
+    .filter((item) => (item.count ?? 0) > 0)
+    .sort((a, b) => {
+      const pA = a.priority === "critical" ? 3 : a.priority === "high" ? 2 : 1;
+      const pB = b.priority === "critical" ? 3 : b.priority === "high" ? 2 : 1;
+      if (pB !== pA) return pB - pA;
+      return (b.count ?? 0) - (a.count ?? 0);
+    })
+    .slice(0, 5);
+
+  return (
+    <div className="container mx-auto space-y-6 p-4 md:p-6 lg:p-8">
+      <Card className="overflow-hidden border-slate-200 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 text-white">
+        <CardContent className="relative p-6 md:p-8">
+          <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-cyan-500/20 blur-3xl" />
+          <div className="absolute -bottom-12 left-24 h-32 w-32 rounded-full bg-blue-400/20 blur-3xl" />
+          <div className="relative z-10 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl space-y-2">
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-300">Admin Control Room</p>
+              <h1 className="text-3xl font-bold tracking-tight md:text-4xl">Operations Command Dashboard</h1>
+              <p className="text-sm text-slate-200 md:text-base">
+                Track approvals, production movement, inbound flow, and delivery readiness from one place.
+              </p>
+            </div>
+            <div className="grid w-full max-w-md grid-cols-2 gap-3 text-sm">
+              <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-3">
+                <p className="text-slate-300">Sheet Sync</p>
+                <p className="mt-1 flex items-center gap-2 font-semibold">
+                  {isSheetSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
+                  {isSheetSyncing ? "Syncing..." : "Healthy"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-3">
+                <p className="text-slate-300">Last Sync</p>
+                <p className="mt-1 font-semibold">
+                  {lastSheetSyncAt ? formatDistanceToNow(lastSheetSyncAt, { addSuffix: true }) : "Waiting..."}
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Actionable</p>
+            <p className="mt-1 text-3xl font-bold">{loading ? "..." : actionableTotal}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Critical</p>
+            <p className="mt-1 text-3xl font-bold text-red-700">{loading ? "..." : criticalTotal}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">High Priority</p>
+            <p className="mt-1 text-3xl font-bold text-amber-700">{loading ? "..." : highTotal}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Ready to Dispatch</p>
+            <p className="mt-1 text-3xl font-bold text-emerald-700">{loading ? "..." : counts.readyForDelivery ?? 0}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-3">
+        <div className="space-y-6 xl:col-span-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Approvals and Finance</CardTitle>
+              <CardDescription>Queues that block commercial movement.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2">
+              {approvals.map((item) => (
+                <AdminSummaryCard
+                  key={item.key}
+                  title={item.title}
+                  count={item.count}
+                  href={item.href}
+                  icon={item.icon}
+                  description={item.description}
+                  priority={item.priority}
+                  loading={loading}
+                />
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Operations Pipeline</CardTitle>
+              <CardDescription>Execution queues from purchase to delivery.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2">
+              {operations.map((item) => (
+                <AdminSummaryCard
+                  key={item.key}
+                  title={item.title}
+                  count={item.count}
+                  href={item.href}
+                  icon={item.icon}
+                  description={item.description}
+                  priority={item.priority}
+                  loading={loading}
+                />
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Urgency Board</CardTitle>
+              <CardDescription>Highest impact queues to clear first.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              ) : urgentQueues.length > 0 ? (
+                <div className="space-y-3">
+                  {urgentQueues.map((item) => (
+                    <Link key={`urgent-${item.key}`} href={item.href} className="block rounded-lg border p-3 transition hover:bg-muted/50">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold">{item.title}</p>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "capitalize",
+                            item.priority === "critical"
+                              ? "border-red-200 bg-red-50 text-red-700"
+                              : item.priority === "high"
+                                ? "border-amber-200 bg-amber-50 text-amber-700"
+                                : "border-slate-200 bg-slate-50 text-slate-700"
+                          )}
+                        >
+                          {item.priority}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-2xl font-bold">{item.count ?? 0}</p>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No active queues right now.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Quick Controls</CardTitle>
+              <CardDescription>Frequently used admin routes.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Button asChild className="w-full justify-between" variant="outline">
+                <Link href="/dashboard/approvals">
+                  Open Approval Center
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild className="w-full justify-between" variant="outline">
+                <Link href="/dashboard/orders">
+                  View Order Command
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button asChild className="w-full justify-between" variant="outline">
+                <Link href="/dashboard/visits">
+                  Monitor Visits
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface AdminSummaryCardProps {
+  title: string;
+  count: number | null;
+  href: string;
+  icon: React.ElementType;
+  loading: boolean;
+  description: string;
+  priority: "critical" | "high" | "normal";
 }
 
-function SummaryCard({ title, count, href, icon: Icon, loading }: SummaryCardProps) {
-    return (
-        <Link href={href} className="block group">
-            <Card className="hover:bg-muted/50 hover:shadow-lg transition-all h-full">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium">{title}</CardTitle>
-                    <Icon className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                    {loading ? (
-                         <Skeleton className="h-7 w-12" />
-                    ) : (
-                        <div className="text-2xl font-bold">{count}</div>
-                    )}
-                </CardContent>
-            </Card>
-        </Link>
-    )
+function AdminSummaryCard({
+  title,
+  count,
+  href,
+  icon: Icon,
+  loading,
+  description,
+  priority,
+}: AdminSummaryCardProps) {
+  return (
+    <Link href={href} className="block group">
+      <Card
+        className={cn(
+          "h-full border transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md",
+          priority === "critical" && "border-red-200 bg-red-50/40 hover:border-red-300",
+          priority === "high" && "border-amber-200 bg-amber-50/40 hover:border-amber-300",
+          priority === "normal" && "border-slate-200 bg-white hover:border-slate-300"
+        )}
+      >
+        <CardHeader className="space-y-3 pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">{title}</CardTitle>
+            <div className="rounded-md border border-slate-200 bg-white p-2 text-slate-700">
+              <Icon className="h-4 w-4" />
+            </div>
+          </div>
+          <Badge
+            variant="outline"
+            className={cn(
+              "w-fit capitalize",
+              priority === "critical" && "border-red-200 bg-red-100 text-red-700",
+              priority === "high" && "border-amber-200 bg-amber-100 text-amber-700",
+              priority === "normal" && "border-slate-200 bg-slate-100 text-slate-700"
+            )}
+          >
+            {priority}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end justify-between">
+            {loading ? <Skeleton className="h-9 w-16" /> : <p className="text-3xl font-bold">{count ?? 0}</p>}
+            <span className="text-xs text-muted-foreground group-hover:text-foreground">Open Queue</span>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{description}</p>
+        </CardContent>
+      </Card>
+    </Link>
+  );
 }
 
 

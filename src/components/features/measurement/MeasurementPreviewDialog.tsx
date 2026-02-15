@@ -2,9 +2,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MeasurementSaveLoader } from "../saving/MeasurementSaveLoader";
 import { useAuth } from "@/context/AuthContext";
+import { getFreshStorageReadUrlAction, getFreshStorageReadUrlsAction } from "@/app/dashboard/visits/actions";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CloudDownload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -20,6 +21,8 @@ export function MeasurementPreviewDialog({
   const { user } = useAuth();
   const [pdfLoading, setPdfLoading] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const photoRefreshAttemptedRef = useRef<Set<string>>(new Set());
+  const [refreshedPhotoUrls, setRefreshedPhotoUrls] = useState<Record<string, string>>({});
 
   const handleClose = () => {
     if (onClose) {
@@ -28,6 +31,80 @@ export function MeasurementPreviewDialog({
     }
     if (onOpenChange) {
       onOpenChange(false);
+    }
+  };
+
+  const collectPhotoUrls = (payload: any): string[] => {
+    const rooms = Array.isArray(payload?.rooms) ? payload.rooms : [];
+    const urls: string[] = [];
+    rooms.forEach((room: any) => {
+      const items = Array.isArray(room?.items) ? room.items : [];
+      items.forEach((item: any) => {
+        const photos = Array.isArray(item?.photos) ? item.photos : [];
+        photos.forEach((photo: any) => {
+          const url = String(photo || "").trim();
+          if (!url) return;
+          if (!/^https?:\/\//i.test(url)) return;
+          urls.push(url);
+        });
+      });
+    });
+    return Array.from(new Set(urls));
+  };
+
+  useEffect(() => {
+    let active = true;
+    if (!open || !data) {
+      setRefreshedPhotoUrls({});
+      photoRefreshAttemptedRef.current.clear();
+      return;
+    }
+
+    const uniquePhotoUrls = collectPhotoUrls(data);
+    if (uniquePhotoUrls.length === 0) {
+      setRefreshedPhotoUrls({});
+      photoRefreshAttemptedRef.current.clear();
+      return;
+    }
+
+    const refreshUrls = async () => {
+      try {
+        const refreshed = await getFreshStorageReadUrlsAction(uniquePhotoUrls);
+        if (!active) return;
+        setRefreshedPhotoUrls(refreshed || {});
+      } catch (error) {
+        console.warn("Failed to refresh measurement photo URLs:", error);
+        if (active) setRefreshedPhotoUrls({});
+      }
+    };
+
+    void refreshUrls();
+
+    return () => {
+      active = false;
+    };
+  }, [open, data]);
+
+  const resolvePhotoUrl = (url: string) => {
+    const raw = String(url || "").trim();
+    if (!raw) return "";
+    return refreshedPhotoUrls[raw] || raw;
+  };
+
+  const handlePhotoLoadError = async (originalUrl: string) => {
+    const raw = String(originalUrl || "").trim();
+    if (!raw) return;
+    if (!/^https?:\/\//i.test(raw)) return;
+    if (photoRefreshAttemptedRef.current.has(raw)) return;
+    photoRefreshAttemptedRef.current.add(raw);
+
+    try {
+      const refreshed = await getFreshStorageReadUrlAction(raw);
+      if (refreshed && refreshed !== raw) {
+        setRefreshedPhotoUrls((prev) => ({ ...prev, [raw]: refreshed }));
+      }
+    } catch (error) {
+      console.warn("Unable to refresh photo URL:", error);
     }
   };
 
@@ -55,9 +132,9 @@ const handleDownloadPdf = async () => {
     await Promise.all(
       Array.from(images).map((img) => {
         if (img.complete) return Promise.resolve();
-        return new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = reject;
+        return new Promise((resolve) => {
+          img.onload = () => resolve(true);
+          img.onerror = () => resolve(false);
           // Add crossOrigin if not already set
           if (!img.crossOrigin) {
             img.crossOrigin = "anonymous";
@@ -424,10 +501,12 @@ const handleDownloadPdf = async () => {
                                         {item.photos.map((img: string, idx: number) => (
                                           <img
                                             key={idx}
-                                            src={img}
+                                            src={resolvePhotoUrl(img)}
                                             className="h-14 w-14 object-cover border border-gray-300 rounded"
                                             alt={`${item.type} ${idx + 1}`}
-                                            crossOrigin="anonymous"
+                                            onError={() => {
+                                              void handlePhotoLoadError(img);
+                                            }}
                                           />
                                         ))}
                                       </div>
@@ -490,10 +569,12 @@ const handleDownloadPdf = async () => {
                                         {item.photos.map((img: string, idx: number) => (
                                           <img
                                             key={idx}
-                                            src={img}
+                                            src={resolvePhotoUrl(img)}
                                             className="h-14 w-14 object-cover border border-gray-300 rounded"
                                             alt={`${item.type} ${idx + 1}`}
-                                            crossOrigin="anonymous"
+                                            onError={() => {
+                                              void handlePhotoLoadError(img);
+                                            }}
                                           />
                                         ))}
                                       </div>
@@ -568,10 +649,12 @@ const handleDownloadPdf = async () => {
                                         {item.photos.map((img: string, idx: number) => (
                                           <img
                                             key={idx}
-                                            src={img}
+                                            src={resolvePhotoUrl(img)}
                                             className="h-14 w-14 object-cover border border-gray-300 rounded"
                                             alt={`${item.type} ${idx + 1}`}
-                                            crossOrigin="anonymous"
+                                            onError={() => {
+                                              void handlePhotoLoadError(img);
+                                            }}
                                           />
                                         ))}
                                       </div>
@@ -738,10 +821,12 @@ const handleDownloadPdf = async () => {
                                         {item.photos.map((img: string, idx: number) => (
                                           <img
                                             key={idx}
-                                            src={img}
+                                            src={resolvePhotoUrl(img)}
                                             className="h-14 w-14 object-cover border border-gray-300 rounded"
                                             alt={`${item.type} ${idx + 1}`}
-                                            crossOrigin="anonymous"
+                                            onError={() => {
+                                              void handlePhotoLoadError(img);
+                                            }}
                                           />
                                         ))}
                                       </div>

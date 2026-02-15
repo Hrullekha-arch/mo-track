@@ -41,9 +41,12 @@ import { FileText, Loader2, Printer } from "lucide-react";
 
 const normalizeKey = (value?: string) =>
   String(value || "")
-    .split(" - ")[0]
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[^a-z0-9\s/-]/g, "")
+    .trim();
 
 const num = (value: unknown) => {
   const parsed = Number(value);
@@ -128,26 +131,88 @@ type InvoiceVerificationResult = {
   issues: string[];
 };
 
-const resolveItemLabel = (item: any) =>
-  String(
-    item?.bcn ||
-      item?.description ||
-      item?.salesDescription ||
-      item?.itemName ||
-      item?.name ||
-      item?.vasName ||
-      ""
+const resolveItemLabel = (item: any) => {
+  const bcn = String(item?.bcn || "").trim();
+  const name = String(
+    item?.description || item?.salesDescription || item?.itemName || item?.name || item?.vasName || ""
   ).trim();
 
-const normalizeItemSet = (items: any[]) => {
-  const keyed = new Map<string, string>();
-  items.forEach((item) => {
-    const raw = resolveItemLabel(item);
-    const key = normalizeKey(raw);
-    if (!key) return;
-    if (!keyed.has(key)) keyed.set(key, raw);
+  if (bcn && name && normalizeKey(bcn) !== normalizeKey(name)) {
+    return `${bcn} / ${name}`;
+  }
+
+  return bcn || name;
+};
+
+const extractItemAliases = (item: any) => {
+  const aliases = new Set<string>();
+  const rawValues = [
+    item?.bcn,
+    item?.description,
+    item?.salesDescription,
+    item?.itemName,
+    item?.name,
+    item?.vasName,
+    item?.serialNo,
+  ];
+
+  rawValues.forEach((raw) => {
+    const value = String(raw || "").trim();
+    if (!value) return;
+    const fragments = [value];
+    if (value.includes("\n")) {
+      fragments.push(...value.split(/\n+/));
+    }
+    fragments.forEach((fragment) => {
+      fragment
+        .split(/\s+-\s+/)
+        .map((part) => normalizeKey(part))
+        .filter(Boolean)
+        .forEach((part) => aliases.add(part));
+    });
   });
-  return keyed;
+
+  const labelKey = normalizeKey(resolveItemLabel(item));
+  if (labelKey) aliases.add(labelKey);
+  return aliases;
+};
+
+const getItemMismatches = (orderItems: any[], quotationItems: any[]) => {
+  const orderMeta = orderItems
+    .map((item) => ({
+      label: resolveItemLabel(item),
+      aliases: extractItemAliases(item),
+    }))
+    .filter((item) => item.aliases.size > 0);
+
+  const quotationMeta = quotationItems
+    .map((item) => ({
+      label: resolveItemLabel(item),
+      aliases: extractItemAliases(item),
+    }))
+    .filter((item) => item.aliases.size > 0);
+
+  const hasAliasOverlap = (left: Set<string>, right: Set<string>) => {
+    for (const alias of left) {
+      if (right.has(alias)) return true;
+    }
+    return false;
+  };
+
+  const unique = (labels: string[]) => Array.from(new Set(labels.filter(Boolean)));
+
+  const missingInOrder = unique(
+    quotationMeta
+      .filter((quotationItem) => !orderMeta.some((orderItem) => hasAliasOverlap(quotationItem.aliases, orderItem.aliases)))
+      .map((item) => item.label)
+  );
+  const extraInOrder = unique(
+    orderMeta
+      .filter((orderItem) => !quotationMeta.some((quotationItem) => hasAliasOverlap(orderItem.aliases, quotationItem.aliases)))
+      .map((item) => item.label)
+  );
+
+  return { missingInOrder, extraInOrder };
 };
 
 const sumFabricQty = (items: any[]) =>
@@ -935,17 +1000,12 @@ export default function InvoicePage() {
         );
       }
 
-      const orderSet = normalizeItemSet(orderNormalItems);
-      const quotationSet = normalizeItemSet(quotationNormalItems);
-      const missingInOrder = [...quotationSet.keys()].filter((key) => !orderSet.has(key));
-      const extraInOrder = [...orderSet.keys()].filter((key) => !quotationSet.has(key));
+      const { missingInOrder, extraInOrder } = getItemMismatches(orderNormalItems, quotationNormalItems);
       if (missingInOrder.length > 0 || extraInOrder.length > 0) {
-        const missingLabels = missingInOrder.map((key) => quotationSet.get(key) || key);
-        const extraLabels = extraInOrder.map((key) => orderSet.get(key) || key);
         issues.push(
           `Item mismatch: Missing in order [${formatMismatchValues(
-            missingLabels
-          )}] / Extra in order [${formatMismatchValues(extraLabels)}].`
+            missingInOrder
+          )}] / Extra in order [${formatMismatchValues(extraInOrder)}].`
         );
       }
 

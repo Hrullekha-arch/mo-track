@@ -39,6 +39,7 @@ import { PrintableInvoice } from "@/components/features/invoice/PrintableInvoice
 import { PrintableOrder } from "../order-management/PrintableOrder";
 import { buildPrintablePayloadFromInvoice } from "@/lib/invoice-utils";
 import { Badge } from "@/components/ui/badge";
+import { useRouter } from "next/navigation";
 
 type CountsState = {
   pendingQuotations: number;
@@ -81,13 +82,17 @@ const MetricCard = ({
   icon: Icon,
   loading,
   tone = "neutral",
+  link,
+  blink = false,
 }: {
   title: string;
   value: number;
   description: string;
   icon: LucideIcon;
   loading: boolean;
+  link: string;
   tone?: "neutral" | "attention" | "critical" | "good";
+  blink?: boolean;
 }) => {
   const toneClass =
     tone === "critical"
@@ -98,8 +103,13 @@ const MetricCard = ({
       ? "border-emerald-200 bg-emerald-50/60"
       : "border-slate-200 bg-white";
 
+  const router = useRouter();
+
   return (
-    <Card className={toneClass}>
+    <Card
+      className={`${toneClass} cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md ${blink ? "animate-pulse ring-1 ring-amber-300" : ""}`}
+      onClick={() => router.push(link)}
+    >
       <CardContent className="p-4">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
@@ -242,9 +252,10 @@ export function AccountsDashboard() {
       title: "Quotation Approvals",
       description: "Review pending quotation approvals.",
       count: counts.pendingQuotations,
-      href: "/dashboard/approvals",
+      href: "/dashboard/approvals?tab=quotations",
       icon: FileSignature,
       tone: "attention" as const,
+      blink: counts.pendingQuotations > 0,
     },
     {
       title: "Order Approvals",
@@ -253,6 +264,7 @@ export function AccountsDashboard() {
       href: "/dashboard/approvals?tab=orders",
       icon: ListOrdered,
       tone: "attention" as const,
+      blink: false,
     },
     {
       title: "Payment Confirmation",
@@ -261,6 +273,7 @@ export function AccountsDashboard() {
       href: "/dashboard/approvals?tab=payment-confirmation",
       icon: HandCoins,
       tone: "critical" as const,
+      blink: false,
     },
     {
       title: "Invoice Generation",
@@ -269,6 +282,7 @@ export function AccountsDashboard() {
       href: "/dashboard/invoice",
       icon: FileText,
       tone: "neutral" as const,
+      blink: false,
     },
   ];
 
@@ -406,6 +420,8 @@ export function AccountsDashboard() {
               icon={item.icon}
               loading={loading}
               tone={item.tone}
+              link={item.href}
+              blink={item.blink}
             />
           ))}
         </div>

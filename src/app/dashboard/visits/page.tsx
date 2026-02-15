@@ -1000,7 +1000,7 @@ const previewUrl =
                                 </TableCell>
                                 <TableCell className="font-medium">{visit.customerName}</TableCell>
                                 <TableCell className="max-w-[220px] whitespace-normal break-words">
-                                {visit.customerSnapshot?.address || "—"}
+                                {visit.location?.address || visit.customerSnapshot?.address}
                                 </TableCell>
                                 <TableCell>
                                     <div className="flex flex-col gap-1 items-center">

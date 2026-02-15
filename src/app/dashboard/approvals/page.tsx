@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { getStockById } from "../inventory/actions";
 import { approveOrderAndCreatePurchaseRequest, confirmPaymentReceived, approveQuotationAction } from "./actions";
+import { useSearchParams } from "next/navigation";
 
 interface EnrichedQuotation extends Quotation {
     dealId: string; // Corrected from dealDocId
@@ -448,13 +449,31 @@ function PaymentConfirmationTab() {
 }
 
 export default function ApprovalsPage() {
+    const searchParams = useSearchParams();
+    const tabParam = searchParams.get("tab");
+
+    const resolveInitialTab = (tab: string | null): "quotations" | "orders" | "payment-confirmation" => {
+        if (tab === "quotations" || tab === "orders" || tab === "payment-confirmation") {
+            return tab;
+        }
+        return "orders";
+    };
+
+    const [activeTab, setActiveTab] = useState<"quotations" | "orders" | "payment-confirmation">(
+        resolveInitialTab(tabParam)
+    );
+
+    useEffect(() => {
+        setActiveTab(resolveInitialTab(tabParam));
+    }, [tabParam]);
+
     return (
         <div className="p-4 md:p-6 lg:p-8">
             <header className="mb-8">
                 <h1 className="text-3xl font-bold tracking-tight">Approvals</h1>
                 <p className="text-muted-foreground">Review and approve quotations, orders, and payments.</p>
             </header>
-            <Tabs defaultValue="orders" className="w-full">
+            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "quotations" | "orders" | "payment-confirmation")} className="w-full">
                 <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="quotations">Approve Quotations</TabsTrigger>
                     <TabsTrigger value="orders">Approve Orders</TabsTrigger>

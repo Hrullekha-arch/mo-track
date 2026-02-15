@@ -85,6 +85,27 @@ export async function getFreshMeasurementPdfUrlAction(url: string): Promise<stri
     }
 }
 
+export async function getFreshStorageReadUrlAction(url: string): Promise<string> {
+    return getFreshMeasurementPdfUrlAction(url);
+}
+
+export async function getFreshStorageReadUrlsAction(urls: string[]): Promise<Record<string, string>> {
+    const cleaned = Array.isArray(urls)
+        ? urls
+            .map((url) => String(url || "").trim())
+            .filter(Boolean)
+        : [];
+
+    const uniqueUrls = Array.from(new Set(cleaned));
+    if (uniqueUrls.length === 0) return {};
+
+    const refreshed = await Promise.all(
+        uniqueUrls.map(async (url) => [url, await getFreshMeasurementPdfUrlAction(url)] as const)
+    );
+
+    return Object.fromEntries(refreshed);
+}
+
 export async function unassignVisitAction(visitId: string, customerId: string, dealDocId: string) {
     if (!visitId || !customerId || !dealDocId) {
         return { success: false, message: 'Missing required IDs to unassign visit.' };
