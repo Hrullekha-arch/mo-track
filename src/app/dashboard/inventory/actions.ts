@@ -1150,6 +1150,232 @@ export async function getAvailableStockLengths(bcn: string): Promise<{ success: 
     }
 }
 
+export type StockHistoryCursor = {
+  additionLastPath?: string | null;
+  deductionLastId?: string | null;
+};
+
+export type StockHistoryPageInput = {
+  pageSize?: number;
+  cursor?: StockHistoryCursor | null;
+  typeFilter?: "all" | "addition" | "deduction";
+  fromDate?: string | null;
+  toDate?: string | null;
+};
+
+export type StockHistoryPageResult = {
+  items: StockTransaction[];
+  cursor: StockHistoryCursor | null;
+  hasMore: boolean;
+};
+
+const DEFAULT_HISTORY_PAGE_SIZE = 60;
+const MAX_HISTORY_PAGE_SIZE = 200;
+
+const toIsoStringSafe = (value: unknown) => {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString();
+};
+
+const toTimeSafe = (value: unknown) => {
+  const date = new Date(String(value || ""));
+  const time = date.getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+
+const normalizeHistoryTypeFilter = (value?: string) => {
+  if (value === "addition" || value === "deduction") return value;
+  return "all";
+};
+
+export async function getStockTransactionHistoryPage(
+  input: StockHistoryPageInput = {}
+): Promise<StockHistoryPageResult> {
+  try {
+    const pageSize = Math.min(
+      MAX_HISTORY_PAGE_SIZE,
+      Math.max(1, Number(input.pageSize) || DEFAULT_HISTORY_PAGE_SIZE)
+    );
+    const sourceLimit = Math.max(pageSize, DEFAULT_HISTORY_PAGE_SIZE);
+    const typeFilter = normalizeHistoryTypeFilter(input.typeFilter);
+    const cursor = input.cursor || {};
+    const fromDateIso = toIsoStringSafe(input.fromDate || undefined);
+    const toDateIso = toIsoStringSafe(input.toDate || undefined);
+
+    const includeAdditions = typeFilter !== "deduction";
+    const includeDeductions = typeFilter !== "addition";
+
+    type GroupRow = {
+      source: "addition" | "deduction";
+      cursor: string;
+      createdAt: string;
+      rows: StockTransaction[];
+    };
+
+    let additionGroups: GroupRow[] = [];
+    let deductionGroups: GroupRow[] = [];
+    let additionFetchedCount = 0;
+    let deductionFetchedCount = 0;
+
+    if (includeAdditions) {
+      let additionsQuery: any = adminDb.collectionGroup("lengths");
+      if (fromDateIso) additionsQuery = additionsQuery.where("lastUpdatedAt", ">=", fromDateIso);
+      if (toDateIso) additionsQuery = additionsQuery.where("lastUpdatedAt", "<=", toDateIso);
+      additionsQuery = additionsQuery.orderBy("lastUpdatedAt", "desc").limit(sourceLimit);
+
+      if (cursor.additionLastPath) {
+        const lastAdditionDoc = await adminDb.doc(cursor.additionLastPath).get();
+        if (lastAdditionDoc.exists) {
+          additionsQuery = additionsQuery.startAfter(lastAdditionDoc);
+        }
+      }
+
+      const additionsSnapshot = await additionsQuery.get();
+      additionFetchedCount = additionsSnapshot.docs.length;
+
+      additionGroups = additionsSnapshot.docs
+        .map((docSnap: any) => {
+          const data = docSnap.data() || {};
+          const parentStockId = docSnap.ref.parent?.parent?.id || String(data?.bcn || "");
+          const bcn = String(data?.bcn || parentStockId || "").trim();
+          const createdAt =
+            toIsoStringSafe(data?.lastUpdatedAt || data?.receivedAt || data?.createdAt) ||
+            new Date(0).toISOString();
+          const quantityRaw = Number(data?.quantity ?? data?.originalLength ?? data?.availableLength ?? 0);
+          const quantity = Number.isFinite(quantityRaw) ? quantityRaw : 0;
+          if (!bcn) return null;
+
+          return {
+            source: "addition" as const,
+            cursor: docSnap.ref.path,
+            createdAt,
+            rows: [
+              {
+                id: docSnap.ref.path,
+                stockId: parentStockId || bcn,
+                lengthId: docSnap.id,
+                bcn,
+                type: "addition",
+                quantityChange: quantity,
+                poNumber: data?.poNumber || "",
+                createdAt,
+                createdBy: data?.salesman || "Inbound Process",
+                salesman: data?.salesman || "N/A",
+                status: data?.status,
+                rack: data?.rack,
+                notes: data?.batchNo,
+                unit: data?.unit,
+              } as StockTransaction,
+            ],
+          };
+        })
+        .filter(Boolean) as GroupRow[];
+    }
+
+    if (includeDeductions) {
+      let deductionsQuery: any = adminDb.collection("Cutting");
+      if (fromDateIso) deductionsQuery = deductionsQuery.where("createdAt", ">=", fromDateIso);
+      if (toDateIso) deductionsQuery = deductionsQuery.where("createdAt", "<=", toDateIso);
+      deductionsQuery = deductionsQuery.orderBy("createdAt", "desc").limit(sourceLimit);
+
+      if (cursor.deductionLastId) {
+        const lastDeductionDoc = await adminDb.collection("Cutting").doc(cursor.deductionLastId).get();
+        if (lastDeductionDoc.exists) {
+          deductionsQuery = deductionsQuery.startAfter(lastDeductionDoc);
+        }
+      }
+
+      const deductionsSnapshot = await deductionsQuery.get();
+      deductionFetchedCount = deductionsSnapshot.docs.length;
+
+      deductionGroups = deductionsSnapshot.docs
+        .map((docSnap: any) => {
+          const task = (docSnap.data() || {}) as CuttingTask;
+          const createdAt = toIsoStringSafe(task?.createdAt) || new Date(0).toISOString();
+          const rows: StockTransaction[] = Array.isArray(task?.items)
+            ? task.items
+                .filter((item) => !!item?.bcn)
+                .map((item, index) => ({
+                  id: `${docSnap.id}-${item.stockAddedId || item.bcn || "item"}-${index}`,
+                  stockId: item.bcn,
+                  bcn: item.bcn,
+                  type: "deduction",
+                  quantityChange: -Math.abs(Number(item.quantityAllocated) || 0),
+                  orderId: task.orderId,
+                  createdAt,
+                  createdBy: (item as any)?.cutBy || "Cutting Module",
+                  status: item.status,
+                  lengthId: item.stockAddedId,
+                  salesman: task.salesPerson || "N/A",
+                } as StockTransaction))
+            : [];
+
+          if (!rows.length) return null;
+          return {
+            source: "deduction" as const,
+            cursor: docSnap.id,
+            createdAt,
+            rows,
+          };
+        })
+        .filter(Boolean) as GroupRow[];
+    }
+
+    const mergedGroups = [...additionGroups, ...deductionGroups].sort(
+      (a, b) => toTimeSafe(b.createdAt) - toTimeSafe(a.createdAt)
+    );
+
+    const consumedAddition = new Set<string>();
+    const consumedDeduction = new Set<string>();
+    const pagedRows: StockTransaction[] = [];
+    let nextAdditionCursor = cursor.additionLastPath || null;
+    let nextDeductionCursor = cursor.deductionLastId || null;
+
+    for (const group of mergedGroups) {
+      if (pagedRows.length >= pageSize && pagedRows.length > 0) break;
+      pagedRows.push(...group.rows);
+      if (group.source === "addition") {
+        consumedAddition.add(group.cursor);
+        nextAdditionCursor = group.cursor;
+      } else {
+        consumedDeduction.add(group.cursor);
+        nextDeductionCursor = group.cursor;
+      }
+    }
+
+    const remainingAdditionInBatch =
+      includeAdditions && additionGroups.some((group) => !consumedAddition.has(group.cursor));
+    const remainingDeductionInBatch =
+      includeDeductions && deductionGroups.some((group) => !consumedDeduction.has(group.cursor));
+
+    const additionHasMore = includeAdditions && (remainingAdditionInBatch || additionFetchedCount === sourceLimit);
+    const deductionHasMore =
+      includeDeductions && (remainingDeductionInBatch || deductionFetchedCount === sourceLimit);
+
+    const items = pagedRows.sort((a, b) => toTimeSafe(b.createdAt) - toTimeSafe(a.createdAt));
+
+    return JSON.parse(
+      JSON.stringify({
+        items,
+        cursor: {
+          additionLastPath: includeAdditions ? nextAdditionCursor : cursor.additionLastPath || null,
+          deductionLastId: includeDeductions ? nextDeductionCursor : cursor.deductionLastId || null,
+        },
+        hasMore: additionHasMore || deductionHasMore,
+      } as StockHistoryPageResult)
+    );
+  } catch (error) {
+    console.error("Error fetching stock transaction history page:", error);
+    return {
+      items: [],
+      cursor: null,
+      hasMore: false,
+    };
+  }
+}
+
 
 export async function getAllStockTransactions(): Promise<StockTransaction[]> {
     try {

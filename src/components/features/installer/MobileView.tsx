@@ -833,7 +833,7 @@ const InstallerVisitCard = ({
 
     const buttonContent = getButtonContent();
     const phone = (visit.customer?.phone || visit.customer?.mobileNo || "").trim();
-    const address = (visit.customer?.billingAddress?.line1 || visit.customer?.addressPinCode || visit.customer?.city || "").trim();
+    const address = (visit.location?.address || visit.customer?.addressPinCode || visit.customer?.city || "").trim();
     
     console.log('Rendering InstallerVisitCard for visit:', visit);
     return (

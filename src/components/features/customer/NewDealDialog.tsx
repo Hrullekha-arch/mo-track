@@ -32,6 +32,7 @@ const dealSchema = z.object({
   ),
   representativeId: z.string().min(1, "A representative must be selected."),
   description: z.string().max(2000, "Description cannot exceed 2000 characters.").optional(),
+  measurementRequired: z.enum(['Yes', 'No'], { required_error: "This field is required." }),
   advanceForMeasurement: z.enum(['Yes', 'No', 'Old'], { required_error: "This field is required." }),
 });
 
@@ -92,7 +93,7 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
         }
 
         const crmSnap = await getDoc(doc(db, "users", assignedCrmId));
-        const crmName = crmSnap.exists ? crmSnap.data()?.name || "Unknown" : "Unknown";
+        const crmName = crmSnap.exists() ? crmSnap.data()?.name || "Unknown" : "Unknown";
 
         setCrmUserId(assignedCrmId);
         setCrmUserName(crmName);
@@ -123,6 +124,7 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
         dealAmount: data.dealAmount || 0,
         representativeId: data.representativeId,
         description: data.description || "",
+        measurementRequired: data.measurementRequired,
         advanceForMeasurement: data.advanceForMeasurement,
       });
 
@@ -205,7 +207,28 @@ export function NewDealDialog({ isOpen, onClose, onSuccess, customerId, salesmen
                 />
               </FormControl>
             </FormItem>
-             <FormField
+            <FormField
+              control={form.control}
+              name="measurementRequired"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Measurement Required <span className="text-destructive">*</span></FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="--SELECT--" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="Yes">Yes</SelectItem>
+                      <SelectItem value="No">No</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
               control={form.control}
               name="advanceForMeasurement"
               render={({ field }) => (

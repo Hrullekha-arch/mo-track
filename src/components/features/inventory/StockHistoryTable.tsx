@@ -33,7 +33,7 @@ import { StockTransaction } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
-import { getAllStockTransactions, deleteStockTransaction, deleteStockTransactions } from "@/app/dashboard/inventory/actions";
+import { getStockTransactionHistoryPage, deleteStockTransaction, deleteStockTransactions } from "@/app/dashboard/inventory/actions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -42,9 +42,19 @@ import { cn } from "@/lib/utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 
+const HISTORY_PAGE_SIZE = 60;
+
+type StockHistoryCursor = {
+  additionLastPath?: string | null;
+  deductionLastId?: string | null;
+};
+
 export function StockHistoryTable() {
   const [transactions, setTransactions] = React.useState<StockTransaction[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  const [hasMoreServer, setHasMoreServer] = React.useState(false);
+  const [historyCursor, setHistoryCursor] = React.useState<StockHistoryCursor | null>(null);
   const [sorting, setSorting] = React.useState<SortingState>([
       { id: 'createdAt', desc: true }
   ]);
@@ -61,29 +71,59 @@ export function StockHistoryTable() {
   
   const isAuthorized = role === 'admin';
 
-  const fetchTransactions = React.useCallback(async () => {
-    setLoading(true);
+  const loadTransactionsPage = React.useCallback(async (options?: { reset?: boolean; cursor?: StockHistoryCursor | null }) => {
+    const reset = !!options?.reset;
+    if (reset) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
+
     try {
-        const data = await getAllStockTransactions();
-        setTransactions(data);
+        const result = await getStockTransactionHistoryPage({
+          pageSize: HISTORY_PAGE_SIZE,
+          cursor: reset ? null : options?.cursor ?? null,
+          typeFilter: typeFilter as "all" | "addition" | "deduction",
+          fromDate: dateRangeFilter?.from ? dateRangeFilter.from.toISOString() : null,
+          toDate: dateRangeFilter?.to ? dateRangeFilter.to.toISOString() : null,
+        });
+
+        setHistoryCursor(result.cursor || null);
+        setHasMoreServer(!!result.hasMore);
+        if (reset) {
+          setTransactions(result.items || []);
+        } else {
+          setTransactions((prev) => {
+            const merged = [...prev, ...(result.items || [])];
+            const seen = new Set<string>();
+            return merged.filter((item) => {
+              const key = `${item.id}|${item.type}|${item.createdAt}|${item.bcn}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+          });
+        }
     } catch (e) {
         toast({variant: 'destructive', title: 'Error fetching history'});
     } finally {
         setLoading(false);
+        setLoadingMore(false);
     }
-  }, [toast]);
+  }, [toast, typeFilter, dateRangeFilter]);
 
   React.useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+    void loadTransactionsPage({ reset: true, cursor: null });
+  }, [typeFilter, dateRangeFilter, loadTransactionsPage]);
   
   const handleDeleteTransaction = async () => {
       if (!deletingTransaction) return;
       try {
-          const result = await deleteStockTransaction(deletingTransaction.stockId, deletingTransaction.id, deletingTransaction.type);
+          const deleteType = deletingTransaction.type === "deduction" ? "deduction" : "addition";
+          const result = await deleteStockTransaction(deletingTransaction.stockId, deletingTransaction.id, deleteType);
           if (result.success) {
               toast({ title: 'Transaction Deleted', description: result.message });
-              fetchTransactions(); // Re-fetch data after deletion
+              await loadTransactionsPage({ reset: true, cursor: null });
           } else {
               toast({ variant: 'destructive', title: 'Error', description: result.message });
           }
@@ -107,7 +147,7 @@ export function StockHistoryTable() {
       const result = await deleteStockTransactions(transactionsToDelete);
       if (result.success) {
         toast({ title: 'Bulk Deletion Successful', description: `${transactionsToDelete.length} transactions have been deleted.` });
-        fetchTransactions(); // Refresh data
+        await loadTransactionsPage({ reset: true, cursor: null });
         table.resetRowSelection(); // Clear selection
       } else {
         toast({ variant: 'destructive', title: 'Bulk Deletion Failed', description: result.message });
@@ -265,6 +305,22 @@ export function StockHistoryTable() {
     setColumnFilters([]);
   };
 
+  const handleNext = async () => {
+    if (table.getCanNextPage()) {
+      table.nextPage();
+      return;
+    }
+    if (!hasMoreServer || loadingMore) return;
+
+    const currentCursor = historyCursor;
+    await loadTransactionsPage({ reset: false, cursor: currentCursor });
+    requestAnimationFrame(() => {
+      if (table.getCanNextPage()) {
+        table.nextPage();
+      }
+    });
+  };
+
   return (
     <>
       <Card>
@@ -369,8 +425,11 @@ export function StockHistoryTable() {
                      </AlertDialogContent>
                  </AlertDialog>
              )}
-            <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>Previous</Button>
-            <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>Next</Button>
+            <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage() || loadingMore}>Previous</Button>
+            <Button variant="outline" size="sm" onClick={() => { void handleNext(); }} disabled={loadingMore || (!table.getCanNextPage() && !hasMoreServer)}>
+              {loadingMore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Next
+            </Button>
           </div>
         </CardContent>
       </Card>

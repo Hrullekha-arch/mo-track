@@ -220,6 +220,7 @@ const SalesmanDashboard = () => {
                 dealAmount: 1, // Default amount
                 representativeId: user.id,
                 description: `Deal created from walk-in lead for ${lead.firstName} ${lead.familyName}.`,
+                measurementRequired: 'No' as const,
                 advanceForMeasurement: 'No' as const,
             };
             
@@ -509,6 +510,7 @@ const SalesmanDashboardV2 = () => {
         dealAmount: 1,
         representativeId: user.id,
         description: `Deal created from walk-in lead for ${lead.firstName} ${lead.familyName}.`,
+        measurementRequired: "No" as const,
         advanceForMeasurement: "No" as const,
       });
 

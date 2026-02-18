@@ -69,6 +69,7 @@ export default function QuotationBuilderPage() {
                 dealAmount: 1,
                 representativeId: user.id,
                 description: "Deal created from Instant Quotation flow.",
+                measurementRequired: 'No' as const,
                 advanceForMeasurement: 'No' as const,
             };
 

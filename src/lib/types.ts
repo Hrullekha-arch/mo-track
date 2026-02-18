@@ -1050,6 +1050,7 @@ export interface Deal {
     products?: DealProduct[];
     visits?: DealVisit[];
     measurements?: DealMeasurement[];
+    measurementRequired?: 'Yes' | 'No';
     advanceForMeasurement?: 'Yes' | 'No' | 'Old';
     isAcknowledged?: boolean; // True if the O2D process is complete.
     latestSelectionId?: string;

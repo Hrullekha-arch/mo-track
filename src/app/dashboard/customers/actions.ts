@@ -426,6 +426,7 @@ type AddDealInput = {
   dealName?: string;
   dealAmount?: number;
   representativeId?: string;
+  measurementRequired?: 'Yes' | 'No';
   advanceForMeasurement?: 'Yes' | 'No' | 'Old';
 };
 
@@ -510,6 +511,7 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
         representativeId: salesmanId,
         createdAt: now,
         customerId: customerId,
+        measurementRequired: dealData.measurementRequired || 'No',
         advanceForMeasurement: dealData.advanceForMeasurement,
         isAcknowledged: false,
     };
