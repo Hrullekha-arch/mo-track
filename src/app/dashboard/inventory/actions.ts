@@ -754,25 +754,28 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
         addDocs(nameSnap.docs);
 
         // If we already have results, return immediately
-        if (resultsMap.size >= 20) {
-          return Array.from(resultsMap.values()).slice(0, 20);
+        if (resultsMap.size >= 50) {
+          return Array.from(resultsMap.values()).slice(0, 30);
         }
       }
     }
 
     // 🔥 CASE 2: Numbers → Search BCN FIRST
     if (hasNumbers) {
+      console.log("didgit qureey",digitQuery);
       if (digitQuery.length >= 2) {
         const digitsSnap = await stockRef
           .where("bcnDigits", ">=", digitQuery)
           .where("bcnDigits", "<=", digitQuery + "\uf8ff")
-          .limit(20)
+          .limit(30)
           .get();
 
         addDocs(digitsSnap.docs);
 
+        console.log("snap",JSON.stringify(digitsSnap.docs), "length", digitsSnap.docs.length);
+
         if (resultsMap.size >= 20) {
-          return Array.from(resultsMap.values()).slice(0, 20);
+          return Array.from(resultsMap.values()).slice(0, 30);
         }
       }
     }
@@ -781,12 +784,12 @@ export async function searchStockByBcn(query: string): Promise<Stock[]> {
     const bcnSnap = await stockRef
       .where("bcn", ">=", trimmed)
       .where("bcn", "<=", trimmed + "\uf8ff")
-      .limit(20)
+      .limit(30)
       .get();
 
     addDocs(bcnSnap.docs);
 
-    return Array.from(resultsMap.values()).slice(0, 20);
+    return Array.from(resultsMap.values()).slice(0, 30);
 
   } catch (error) {
     console.error("Error searching stock:", error);

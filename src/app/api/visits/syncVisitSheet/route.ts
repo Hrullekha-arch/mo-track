@@ -4,6 +4,7 @@ import { adminDb } from "@/lib/firebase-admin";
 
 const DEFAULT_SHEET_ID = "1VDQdBW-Csf_f4IJIMhbhCTHGfswnBkMpFykoIsqT_ag";
 const DEFAULT_SHEET_NAME = "CRM_VISIT_DATA";
+const SYNC_VISIT_ROUTE_VERSION = "2026-02-20-installer-dedupe-v2";
 
 const canonicalHeader = [
   "Deal",
@@ -76,6 +77,8 @@ const formatDateTime = (value?: string) => {
   });
 };
 
+const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase();
+
 export async function POST() {
   try {
     const sheets = await getSheetsClient();
@@ -135,7 +138,8 @@ export async function POST() {
       });
     }
 
-    const rows: string[][] = [];
+    const rowMap = new Map<string, string[]>();
+    const rowScore = (row: string[]) => row.filter((cell) => String(cell ?? "").trim() !== "").length;
     visits.forEach(({ visit, customerId, dealDocId, customerName }) => {
       const customer = customersById.get(customerId) || {};
       const resolvedCustomerName =
@@ -160,16 +164,23 @@ export async function POST() {
 
       const type = visit.typeOfVisit || visit.visitType || "";
 
-      rows.push([
+      const row = [
         dealId,
         resolvedCustomerName,
         slotText,
         formatDateTime(completedAt),
         installerName,
         type,
-      ]);
+      ];
+      const dedupeKey = row.map((cell) => normalize(cell)).join("|");
+      if (!dedupeKey) return;
+      const existing = rowMap.get(dedupeKey);
+      if (!existing || rowScore(row) > rowScore(existing)) {
+        rowMap.set(dedupeKey, row);
+      }
     });
 
+    const rows = Array.from(rowMap.values());
     rows.sort((a, b) => a[0].localeCompare(b[0]));
 
     await sheets.spreadsheets.values.clear({
@@ -186,7 +197,12 @@ export async function POST() {
       },
     });
 
-    return NextResponse.json({ success: true, rows: rows.length });
+    return NextResponse.json({
+      success: true,
+      syncVersion: SYNC_VISIT_ROUTE_VERSION,
+      rows: rows.length,
+      dedupedRows: visits.length - rows.length,
+    });
   } catch (error) {
     console.error("Visit sheet sync failed:", error);
     return NextResponse.json(

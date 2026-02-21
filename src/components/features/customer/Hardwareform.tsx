@@ -92,6 +92,7 @@ const handleBcnSearch = useCallback(async (rawQuery: string) => {
   try {
     const results = await searchStockByBcn(query);
 
+    console.log("resultlabel",results)
     const filtered = results.filter((stock) =>
       matchesStockSelection(
         stock,
@@ -99,6 +100,8 @@ const handleBcnSearch = useCallback(async (rawQuery: string) => {
         selectedSubCategory || undefined
       )
     );
+
+    console.log("filterlabel",filtered)
 
     const options = filtered.map((stock) => ({
       value: stock.id || stock.bcn,

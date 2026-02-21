@@ -7,6 +7,7 @@ import { Customer, Deal, User, Quotation, O2DProcess, CustomerAddress, CustomerS
 import { query, where } from 'firebase/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import { revalidatePath } from 'next/cache';
+import { getNextSequenceValue } from '@/lib/id-sequence';
 
 const normalizeNameForId = (value: string) =>
   String(value || "")
@@ -436,19 +437,26 @@ export async function addDealAction(data: AddDealInput): Promise<{ success: bool
     const customerRef = adminDb.collection('customers').doc(customerId);
     const dealsRef = customerRef.collection('deals');
     const o2dRef = adminDb.collection('o2d');
-    
-    // Generate a unique 4-digit numeric dealId
-    let dealId: string;
-    let isUnique = false;
-    do {
-      dealId = Math.floor(1000 + Math.random() * 9000).toString();
-      const existingDoc = await dealsRef.doc(dealId).get();
-      if (!existingDoc.exists) {
-        isUnique = true;
-      }
-    } while (!isUnique);
 
-    const newDealRef = dealsRef.doc(dealId);
+    let dealId = "";
+    let newDealRef = dealsRef.doc("_pending");
+    for (let attempt = 0; attempt < 1000; attempt++) {
+      const candidate = await getNextSequenceValue("dealId");
+      const candidateRef = dealsRef.doc(candidate);
+      const [existingDoc, existingO2dDoc] = await Promise.all([
+        candidateRef.get(),
+        o2dRef.doc(candidate).get(),
+      ]);
+      if (!existingDoc.exists && !existingO2dDoc.exists) {
+        dealId = candidate;
+        newDealRef = candidateRef;
+        break;
+      }
+    }
+
+    if (!dealId) {
+      throw new Error("Unable to allocate a unique deal ID.");
+    }
 
     // Fetch customer and salesman details for the O2D doc
     const customerDoc = await customerRef.get();

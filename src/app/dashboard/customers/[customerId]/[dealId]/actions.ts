@@ -15,6 +15,7 @@ import { db } from '@/lib/firebase';
 import { firestore } from 'firebase-admin';
 import { VisitFormValues } from '@/components/features/customer/VisitForm';
 import { CpdFormValues } from '@/components/features/customer/CpdForm';
+import { getNextSequenceValue } from '@/lib/id-sequence';
 
 
 // This function sends an SMS using the Fast2SMS API.
@@ -317,13 +318,29 @@ type QuotationFormWithMeta = QuotationFormValues & { createdBy?: string };
 export async function createQuotationAction(customerId: string, dealId: string, values: QuotationFormWithMeta, totalAmount: number): Promise<{ success: boolean; message: string, quotationId?: string, quotation?: Quotation }> {
   try {
     const dealRef = adminDb.collection('customers').doc(customerId).collection('deals').doc(dealId);
-    
-    // Generate a new quotation ID
+ 
     const quotationRef = dealRef.collection('quotations').doc();
+    let quotationNo = "";
+    for (let attempt = 0; attempt < 1000; attempt++) {
+      const candidate = await getNextSequenceValue("quotationNo");
+      const existing = await adminDb
+        .collectionGroup("quotations")
+        .where("quotationNo", "==", candidate)
+        .limit(1)
+        .get();
+      if (existing.empty) {
+        quotationNo = candidate;
+        break;
+      }
+    }
+
+    if (!quotationNo) {
+      throw new Error("Unable to allocate a unique quotation number.");
+    }
 
     const newQuotation: Quotation = {
         id: quotationRef.id,
-        quotationNo: Math.floor(1000 + Math.random() * 9000).toString(),
+        quotationNo,
         ...values,
         createdAt: new Date().toISOString(),
         status: 'Pending Approval', // Initially pending

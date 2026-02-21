@@ -5,7 +5,7 @@ import { adminDb } from "@/lib/firebase-admin";
 const DEFAULT_SHEET_ID = "11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA";
 const DEFAULT_SHEET_NAME = "Sheet2";
 const DEFAULT_PURCHASE_SHEET_NAME = "Purchase";
-const SYNC_ROUTE_VERSION = "2026-02-18-purchase-instock-v2";
+const SYNC_ROUTE_VERSION = "2026-02-20-purchase-bcn-pr-stock-v3";
 
 const getSheetsClient = async () => {
   const serviceAccountKey =
@@ -50,11 +50,14 @@ const canonicalHeader = [
 const purchaseCanonicalHeader = [
   "DealId",
   "OrderId",
+  "Customer Name",
   "ItemName",
   "Vendor Name",
   "Qty",
   "Unit",
   "Salesman",
+  "PO Number",
+  "PR Created",
   "PO Generate Time",
   "PO Follow Up Time",
   "Expected Delivery (Days)",
@@ -65,11 +68,35 @@ const purchaseCanonicalHeader = [
 
 const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase();
 
-const formatSheetDate = (value?: string) => {
+const IST_TIMEZONE = "Asia/Kolkata";
+
+const toDateInstance = (value: unknown): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+  if (typeof value === "object") {
+    const candidate = value as { toDate?: () => Date; seconds?: number; _seconds?: number };
+    if (typeof candidate.toDate === "function") {
+      const date = candidate.toDate();
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const seconds = Number(candidate.seconds ?? candidate._seconds);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      const date = new Date(seconds * 1000);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatSheetDate = (value?: unknown) => {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
+  const date = toDateInstance(value);
+  if (!date) return "";
   return date.toLocaleString("en-IN", {
+    timeZone: IST_TIMEZONE,
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -118,6 +145,23 @@ const normalizeStockVerificationStatus = (value?: string) => {
   }
   if (normalized.includes("pending")) return "Pending";
   return String(value ?? "").trim();
+};
+
+const normalizePrCreatedStatus = (value?: string) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (
+    normalized === "po generated" ||
+    normalized === "pr created" ||
+    normalized === "approved" ||
+    normalized === "completed"
+  ) {
+    return "Yes";
+  }
+  if (normalized === "pending approval" || normalized === "pending for po" || normalized === "cancelled") {
+    return "No";
+  }
+  return "";
 };
 
 type QuotationRecord = {
@@ -302,6 +346,45 @@ const findOrderFabricStatusForItem = (order: any, itemLabel: string) => {
   return normalizeStockVerificationStatus(fuzzyMatch?.status);
 };
 
+const getOrderMaterialLines = (order: any) => {
+  if (!order) return [];
+
+  const lines: Array<{
+    itemName: string;
+    quantity?: string | number;
+    unit?: string;
+    status?: string;
+  }> = [];
+
+  const pushLine = (itemName: unknown, quantity?: unknown, unit?: unknown, status?: unknown) => {
+    const label = String(itemName ?? "").trim();
+    if (!label) return;
+    lines.push({
+      itemName: label,
+      quantity: quantity === undefined || quantity === null ? "" : String(quantity),
+      unit: String(unit ?? "").trim(),
+      status: String(status ?? "").trim(),
+    });
+  };
+
+  (Array.isArray(order.fabricDetails) ? order.fabricDetails : []).forEach((item: any) => {
+    pushLine(item?.fabricName, item?.quantity, item?.unit || "Mtr", item?.status);
+  });
+
+  (Array.isArray(order.furnitureDetails) ? order.furnitureDetails : []).forEach((item: any) => {
+    pushLine(item?.furnitureName, item?.quantity, item?.unit || "Pcs", item?.status);
+  });
+
+  if (lines.length > 0) return lines;
+
+  const fallbackItems = order?.sections?.NORMAL?.items || [];
+  fallbackItems.forEach((item: any) => {
+    pushLine(item?.bcn || item?.description || item?.itemName, item?.qty, item?.unit, item?.status);
+  });
+
+  return lines;
+};
+
 const pickLatestMilestone = (
   milestones: any[] | undefined,
   stepId: number,
@@ -362,7 +445,7 @@ const getDaysBetween = (from?: string, to?: string) => {
 };
 
 const getPurchaseRowKey = (row: string[]) =>
-  [row[0], row[1], row[2], row[3]].map(normalize).join("|");
+  [row[0], row[1], row[3]].map(normalize).join("|");
 
 const getDateTimeScore = (value?: string) => {
   const time = new Date(String(value || "")).getTime();
@@ -389,9 +472,18 @@ const mergeDuplicatePurchaseRows = (rows: string[][]) => {
     });
 
     // Prefer latest timestamps when same logical PO row appears multiple times.
-    [7, 8, 10, 11].forEach((idx) => {
+    [10, 11, 13, 14].forEach((idx) => {
       if (getDateTimeScore(row[idx]) > getDateTimeScore(merged[idx])) {
         merged[idx] = row[idx];
+      }
+    });
+
+    // Prefer affirmative flags when duplicates collide.
+    [9, 15].forEach((idx) => {
+      const incoming = String(row[idx] || "").trim().toLowerCase();
+      const current = String(merged[idx] || "").trim().toLowerCase();
+      if (incoming === "yes" && current !== "yes") {
+        merged[idx] = "Yes";
       }
     });
 
@@ -772,30 +864,115 @@ export async function POST() {
     });
 
     const purchaseRows: string[][] = [];
+
+    const dealMetaByDealId = new Map<
+      string,
+      {
+        customerName: string;
+        salesman: string;
+      }
+    >();
+    deals.forEach(({ id, customerId, data }) => {
+      const dealId = String(data?.dealId || id || "");
+      if (!dealId) return;
+      const customer = data?.customer || customersById.get(customerId) || {};
+      const customerName = String(customer?.name || data?.customerName || "").trim();
+      const salesman = String(
+        data?.assignedSalesPerson?.name ||
+          customersById.get(customerId)?.assignedSalesPerson?.name ||
+          ""
+      ).trim();
+      dealMetaByDealId.set(dealId, { customerName, salesman });
+    });
+
+    const getApprovedStockRecordsForDeal = (dealId: string, orderForDeal: any) => {
+      const combined: ApprovedStockRecord[] = [];
+      const seen = new Set<string>();
+      const addMany = (records?: ApprovedStockRecord[]) => {
+        (records || []).forEach((record) => {
+          if (seen.has(record.id)) return;
+          seen.add(record.id);
+          combined.push(record);
+        });
+      };
+      addMany(orderForDeal?.id ? approvedStockByOrderId.get(String(orderForDeal.id)) : undefined);
+      addMany(approvedStockByDealId.get(dealId));
+      return combined;
+    };
+
+    // Baseline: include all BCN/items present in order/deal regardless of PR creation.
+    deals.forEach(({ id, data }) => {
+      const dealId = String(data?.dealId || id || "").trim();
+      if (!dealId) return;
+      const orderForDeal = orderByDealId.get(dealId);
+      const orderId = String(orderForDeal?.crmOrderNo || orderForDeal?.orderNo || orderForDeal?.id || dealId);
+      const dealMeta = dealMetaByDealId.get(dealId);
+      const customerName = String(
+        orderForDeal?.customerName || orderForDeal?.customerSnapshot?.name || dealMeta?.customerName || ""
+      ).trim();
+      const salesman = String(orderForDeal?.salesPerson || dealMeta?.salesman || "").trim();
+      const approvedStockRecords = getApprovedStockRecordsForDeal(dealId, orderForDeal);
+
+      const baselineItems = (() => {
+        const lines = getOrderMaterialLines(orderForDeal);
+        if (lines.length > 0) return lines;
+        const productItems = getDealProductItemLabels(dealProductsByDealId.get(dealId));
+        return productItems.map((itemName) => ({ itemName }));
+      })();
+
+      baselineItems.forEach((line: any) => {
+        const itemName = String(line?.itemName || "").trim();
+        if (!itemName) return;
+        const stockRecord = findApprovedStockForItem(approvedStockRecords, itemName);
+        const stockVerificationStatus =
+          normalizeStockVerificationStatus(stockRecord?.status) ||
+          normalizeStockVerificationStatus(line?.status) ||
+          findOrderFabricStatusForItem(orderForDeal, itemName);
+        const inStockYesNo = stockVerificationStatus === "Instock" ? "Yes" : "No";
+        const prCreatedYesNo = normalizePrCreatedStatus(line?.status) || "No";
+
+        purchaseRows.push([
+          dealId,
+          orderId,
+          customerName,
+          itemName,
+          "",
+          String(line?.quantity ?? ""),
+          String(line?.unit || ""),
+          salesman,
+          "",
+          prCreatedYesNo,
+          "",
+          "",
+          "",
+          "",
+          formatSheetDate(stockRecord?.updatedAt || stockRecord?.createdAt),
+          inStockYesNo,
+        ]);
+      });
+    });
+
+    // Enrichment: overlay PR/PO details on top of baseline rows.
     purchaseRequestsSnapshot.docs.forEach((doc) => {
       const request = { id: doc.id, ...(doc.data() as any) };
+      const dealId = String(request.dealId || "").trim();
+      if (!dealId) return;
+
+      const orderForDeal = orderByDealId.get(dealId);
+      const orderId = String(
+        orderForDeal?.crmOrderNo || request.quotationNo || request.dealId || request.id || ""
+      ).trim();
+      const dealMeta = dealMetaByDealId.get(dealId);
+      const customerName = String(
+        request.customerName || orderForDeal?.customerName || orderForDeal?.customerSnapshot?.name || dealMeta?.customerName || ""
+      ).trim();
+      const salesman = String(request.salesman || orderForDeal?.salesPerson || dealMeta?.salesman || "").trim();
+      const approvedStockRecordsForRequest = getApprovedStockRecordsForDeal(dealId, orderForDeal);
+
       const poGenerateMilestone = pickLatestMilestone(request.milestones, 4);
       const poConfirmationMilestone = pickLatestMilestone(request.poMilestones, 1);
       const poGenerateAt =
         poGenerateMilestone?.completedAt || poConfirmationMilestone?.completedAt || request.createdAt || "";
-      const dealId = String(request.dealId || "");
-      const orderId = String(request.quotationNo || request.dealId || request.id || "");
-      const salesman = String(request.salesman || "");
-      const orderForDeal = orderByDealId.get(dealId);
-      const approvedStockRecordsForRequest = (() => {
-        const combined: ApprovedStockRecord[] = [];
-        const seen = new Set<string>();
-        const addMany = (records?: ApprovedStockRecord[]) => {
-          (records || []).forEach((record) => {
-            if (seen.has(record.id)) return;
-            seen.add(record.id);
-            combined.push(record);
-          });
-        };
-        addMany(orderForDeal?.id ? approvedStockByOrderId.get(String(orderForDeal.id)) : undefined);
-        addMany(approvedStockByDealId.get(dealId));
-        return combined;
-      })();
 
       const requestItems = [
         ...((Array.isArray(request.fabricDetails) ? request.fabricDetails : []).map((item: any) => ({
@@ -820,11 +997,11 @@ export async function POST() {
 
       requestItems.forEach((item) => {
         const itemName = String(item?.itemName || "").trim();
-        const poNumber = String(item?.poNumber || "").trim();
-        if (!itemName || !poNumber) return;
+        if (!itemName) return;
 
-        const poItemKey = `${poNumber}|${normalize(itemName)}`;
-        const inboundMeta = inboundByPoItem.get(poItemKey);
+        const poNumber = String(item?.poNumber || "").trim();
+        const poItemKey = poNumber ? `${poNumber}|${normalize(itemName)}` : "";
+        const inboundMeta = poItemKey ? inboundByPoItem.get(poItemKey) : undefined;
         const followUpMilestone = pickLatestMilestone(request.poMilestones, 2, itemName);
         const receivingMilestone = pickLatestMilestone(request.poMilestones, 3, itemName);
 
@@ -846,15 +1023,22 @@ export async function POST() {
           stockRecord?.createdAt ||
           (stockVerificationStatus === "Instock" ? poReceivingAt : "");
         const inStockYesNo = stockVerificationStatus === "Instock" ? "Yes" : "No";
+        const prCreatedYesNo =
+          normalizePrCreatedStatus(request.status) ||
+          normalizePrCreatedStatus(item?.status) ||
+          (poNumber ? "Yes" : "No");
 
         purchaseRows.push([
           dealId,
           orderId,
+          customerName,
           itemName,
           vendorName,
           String(item?.quantity ?? ""),
           unit,
           salesman,
+          poNumber,
+          prCreatedYesNo || "Yes",
           formatSheetDate(poGenerateAt),
           formatSheetDate(followUpMilestone?.completedAt),
           expectedDeliveryDays,
@@ -877,6 +1061,11 @@ export async function POST() {
       purchaseHeaderNormalized.includes(normalize(label))
     ).length;
     const hasPurchaseHeader = purchaseHeaderMatchCount >= 3;
+    const isPurchaseHeaderExact =
+      existingPurchaseHeader.length >= purchaseCanonicalHeader.length &&
+      purchaseCanonicalHeader.every(
+        (label, index) => normalize(existingPurchaseHeader[index]) === normalize(label)
+      );
     const purchaseDataRows = hasPurchaseHeader ? existingPurchaseValues.slice(1) : existingPurchaseValues;
 
     const purchaseHeaderIndex = new Map<string, number>();
@@ -931,6 +1120,17 @@ export async function POST() {
       purchaseRowsToAppend.unshift(purchaseCanonicalHeader);
     }
 
+    if (hasPurchaseHeader && !isPurchaseHeaderExact) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `${purchaseSheetName}!A1:${PURCHASE_SHEET_LAST_COLUMN}1`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [purchaseCanonicalHeader],
+        },
+      });
+    }
+
     if (purchaseRowsToUpdate.length > 0) {
       await sheets.spreadsheets.values.batchUpdate({
         spreadsheetId: sheetId,
@@ -955,7 +1155,7 @@ export async function POST() {
 
     const purchaseStatusSummary = uniquePurchaseRows.reduce(
       (acc, row) => {
-        const yesNo = String(row[12] ?? "").trim().toLowerCase();
+        const yesNo = String(row[15] ?? "").trim().toLowerCase();
         if (yesNo === "yes") acc.yes += 1;
         else if (yesNo === "no") acc.no += 1;
         else acc.blank += 1;
