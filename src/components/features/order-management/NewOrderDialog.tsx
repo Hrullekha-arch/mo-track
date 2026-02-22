@@ -7,7 +7,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { doc, setDoc, getDoc, collection, query, where, onSnapshot, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { getMilestonesForOrder, MILESTONES_CONFIG, ORDER_TYPE_MILESTONES } from "@/lib/constants";
+import { getMilestonesForOrder } from "@/lib/constants";
+import { buildWorkflowMilestones } from "@/lib/order-workflow";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -26,29 +27,6 @@ const fabricDetailSchema = z.object({
   fabricName: z.string().min(1, "Fabric name is required"),
   quantity: z.string().min(1, "Quantity is required"),
 });
-
-const ORDER_MILESTONE_KEY_MAP: Record<number, string> = {
-  1: "ORDER_RECEIVED",
-  2: "FABRIC_ALLOCATED",
-  3: "SENT_TO_STITCHING",
-  4: "STITCHING_DONE",
-  5: "READY_FOR_DELIVERY",
-  6: "INSTALLATION_SCHEDULED",
-  7: "OUT_FOR_DELIVERY_INSTALLATION",
-  8: "INSTALLATION_DONE",
-};
-
-const buildWorkflowMilestones = (orderType: OrderType, actor: { id?: string; name?: string }) => {
-  const ids = ORDER_TYPE_MILESTONES[orderType] || ORDER_TYPE_MILESTONES.delivery;
-  const now = new Date().toISOString();
-  return ids.map((id, index) => ({
-    key: ORDER_MILESTONE_KEY_MAP[id] || `MILESTONE_${id}`,
-    label: MILESTONES_CONFIG[id]?.name || `Step ${id}`,
-    status: index === 0 ? "DONE" : "PENDING",
-    at: index === 0 ? now : undefined,
-    by: index === 0 ? { id: actor.id, name: actor.name } : undefined,
-  }));
-};
 
 const formSchema = z.object({
   crmOrderNo: z.string().min(1, "CRM Order No. is required"),
@@ -257,7 +235,6 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
           }
           return legacy;
         })(),
-        o2dMilestones: [],
         createdAt: now,
         updatedAt: now,
         createdBy: { id: user.id, name: user.name },

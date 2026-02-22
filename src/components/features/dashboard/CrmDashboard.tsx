@@ -44,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MilestoneProgress } from "@/components/features/order-management/MilestoneProgress";
 import { Progress } from "@/components/ui/progress";
+import { getNormalizedOrderMilestones } from "@/lib/order-workflow";
 
 interface EnrichedVisit extends DealVisit {
   customerName: string;
@@ -190,7 +191,7 @@ const DetailField = ({ label, value }: { label: string; value: unknown }) => (
 );
 
 const deriveOrderMonitor = (order: Order): OrderMonitorRow => {
-  const milestones = order.milestones || [];
+  const milestones = getNormalizedOrderMilestones(order);
   const totalMilestones = milestones.length;
   const completedMilestones = milestones.filter((step) => step.completed).length;
   const currentStep =
@@ -300,7 +301,7 @@ const OrderUpdatesFeed = ({
             at: toDateSafe(orderItem.createdAt),
           });
 
-          const latestCompletedMilestone = [...(orderItem.milestones || [])]
+          const latestCompletedMilestone = [...getNormalizedOrderMilestones(orderItem)]
             .reverse()
             .find((milestone) => milestone.completed);
           if (latestCompletedMilestone) {
@@ -1427,7 +1428,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
       });
     }
 
-    (targetOrder.milestones || [])
+    getNormalizedOrderMilestones(targetOrder)
       .filter((milestone) => milestone.completed)
       .forEach((milestone) => {
         timeline.push({
@@ -1439,7 +1440,17 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
         });
       });
 
-    (targetOrder.o2dMilestones || [])
+    const o2dMilestonesForTimeline: Array<{
+      stepId: number;
+      status?: string;
+      completedBy?: string;
+      remarks?: string;
+      completedAt?: string;
+    }> = Array.isArray((o2dData as any)?.milestones)
+      ? (o2dData as any).milestones
+      : (targetOrder.o2dMilestones || []);
+
+    o2dMilestonesForTimeline
       .filter((milestone) => normalizeStatus(milestone.status) === "completed")
       .forEach((milestone, idx) => {
         timeline.push({
@@ -2539,8 +2550,8 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
                         <CardDescription>Who completed each milestone and when.</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-2">
-                        {(detailsData.order.milestones || []).length ? (
-                          (detailsData.order.milestones || []).map((milestone) => (
+                        {getNormalizedOrderMilestones(detailsData.order).length ? (
+                          getNormalizedOrderMilestones(detailsData.order).map((milestone) => (
                             <div key={`order-ms-row-${milestone.id}`} className="rounded-md border p-3">
                               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-sm">
                                 <DetailField label="Milestone" value={milestone.name} />
@@ -2647,9 +2658,9 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
                         <CardDescription>Delivery flow milestones and completion trail.</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-2">
-                        {(detailsData.order.o2dMilestones || []).length ? (
-                          (detailsData.order.o2dMilestones || []).map((milestone, idx) => (
-                            <div key={`o2d-${milestone.stepId}-${idx}`} className="rounded-md border p-3">
+                        {detailsData.o2d?.milestones?.length ? (
+                          detailsData.o2d.milestones.map((milestone: any, idx: number) => (
+                            <div key={`o2d-collection-${milestone.stepId}-${idx}`} className="rounded-md border p-3">
                               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-sm">
                                 <DetailField label="Step" value={`Step ${milestone.stepId}`} />
                                 <DetailField label="Status" value={milestone.status} />
@@ -2661,9 +2672,9 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
                               )}
                             </div>
                           ))
-                        ) : detailsData.o2d?.milestones?.length ? (
-                          detailsData.o2d.milestones.map((milestone: any, idx: number) => (
-                            <div key={`o2d-collection-${milestone.stepId}-${idx}`} className="rounded-md border p-3">
+                        ) : (detailsData.order.o2dMilestones || []).length ? (
+                          (detailsData.order.o2dMilestones || []).map((milestone, idx) => (
+                            <div key={`o2d-legacy-${milestone.stepId}-${idx}`} className="rounded-md border p-3">
                               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4 text-sm">
                                 <DetailField label="Step" value={`Step ${milestone.stepId}`} />
                                 <DetailField label="Status" value={milestone.status} />
@@ -2728,7 +2739,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
           </DialogHeader>
           <div className="py-4">
             {selectedOrder && (
-              <MilestoneProgress milestones={(selectedOrder.milestones || []) as Milestone[]} />
+              <MilestoneProgress milestones={getNormalizedOrderMilestones(selectedOrder) as Milestone[]} />
             )}
           </div>
         </DialogContent>

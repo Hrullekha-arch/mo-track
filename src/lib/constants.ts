@@ -1,6 +1,6 @@
 
 
-import { type Milestone, type OrderType, type PurchaseStep, O2DStep, type ComboboxOption } from './types';
+import { type Milestone, type OrderType, type PurchaseStep, O2DStep, type ComboboxOption, type Order } from './types';
 import { ThumbsUp, Truck, FileCheck, Send, User, Users, Banknote, ClipboardCheck, Box, ArrowRightCircle, UserCheck, PackageSearch, MessageSquare, Briefcase, FileText, BadgePercent, Timer, ShoppingCart, PhoneCall, Factory, Layers, CheckCircle, Archive, Ruler, Weight, Barcode, Warehouse } from 'lucide-react';
 import { addDays, addHours, addMinutes, subDays } from 'date-fns';
 import { PurchaseRequest } from './types';
@@ -461,7 +461,9 @@ export function getExpectedCompletionDate(step: O2DStep, startDate: Date): Date 
     return completionDate;
 }
 
-export const calculateExpectedDatesForOrder = (order: Pick<Order, 'createdAt' | 'o2dMilestones'>) => {
+export const calculateExpectedDatesForOrder = (
+    order: Pick<Order, 'createdAt'> & { o2dMilestones?: Order['o2dMilestones'] }
+) => {
     const expectedDates: Record<number, Date> = {};
     let lastCompletionDate = order.createdAt ? new Date(order.createdAt) : new Date();
 
@@ -492,7 +494,7 @@ export const calculateExpectedDatesForPO = (request: PurchaseRequest) => {
             
             // Check for actual completed milestones to base the next step on
             const allPreviousMilestones = (request.poMilestones || []).filter(m => m.stepId < currentStep.id);
-            const latestPreviousMilestone = allPreviousMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.createdAt).getTime())[0];
+            const latestPreviousMilestone = allPreviousMilestones.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())[0];
 
             if (latestPreviousMilestone) {
                 startDate = new Date(latestPreviousMilestone.completedAt);

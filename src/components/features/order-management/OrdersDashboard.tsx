@@ -16,6 +16,10 @@ import { generateInstallationSchedule, GenerateInstallationScheduleInput, Genera
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  getNormalizedOrderMilestones,
+  isOrderComplete as isOrderWorkflowComplete,
+} from "@/lib/order-workflow";
 
 type SummaryFilterType = 'totalActive' | 'scheduledToday' | 'scheduled' | 'assigned' | 'readyForDelivery' | 'stitched' | 'completed' | 'bypassedOtp' | 'readyForAllocation';
 
@@ -31,7 +35,7 @@ export function OrdersDashboard() {
   const [filters, setFilters] = useState({ search: '', salesPerson: 'all', installer: 'all' });
   const [activeSummaryFilter, setActiveSummaryFilter] = useState<SummaryFilterType>('totalActive');
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
-  const [installPrompt, setInstallPrompt] = React.useState<Event | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
   const isMobile = useIsMobile();
 
    useEffect(() => {
@@ -103,8 +107,10 @@ export function OrdersDashboard() {
     setOrders(prevOrders => prevOrders.map(o => o.id === updatedOrder.id ? updatedOrder : o));
   };
   
-  const isFullyCompleted = (order: Order) => Array.isArray(order.milestones) && order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
-  const scheduledDate = (order: Order) => Array.isArray(order.milestones) ? order.milestones.find(m => m.id === 6 || m.id === 7)?.completedAt : undefined;
+  const isFullyCompleted = (order: Order) =>
+    isOrderWorkflowComplete(order) && (!!order.feedbackRating || order.bypassedOtp === true);
+  const scheduledDate = (order: Order) =>
+    getNormalizedOrderMilestones(order).find((milestone) => milestone.id === 6 || milestone.id === 7)?.completedAt;
   
   const filteredOrders = useMemo(() => {
       if (loading) return [];
@@ -132,10 +138,10 @@ export function OrdersDashboard() {
                 if (!order.assignedTo || isFullyCompleted(order)) return false;
                 break;
             case 'readyForDelivery':
-                if (!Array.isArray(order.milestones) || !order.milestones?.find(m => m.id === 5)?.completed || isFullyCompleted(order)) return false;
+                if (!getNormalizedOrderMilestones(order).find((milestone) => milestone.id === 5)?.completed || isFullyCompleted(order)) return false;
                 break;
             case 'stitched':
-                 if (!Array.isArray(order.milestones) || !(order.milestones?.find(m => m.id === 4)?.completed && !order.milestones?.find(m => m.id === 5)?.completed) || isFullyCompleted(order)) return false;
+                 if (!(getNormalizedOrderMilestones(order).find((milestone) => milestone.id === 4)?.completed && !getNormalizedOrderMilestones(order).find((milestone) => milestone.id === 5)?.completed) || isFullyCompleted(order)) return false;
                 break;
             case 'completed':
                 if (!isFullyCompleted(order)) return false;
@@ -176,8 +182,8 @@ export function OrdersDashboard() {
         }).length,
         scheduled: activeOrders.filter(o => scheduledDate(o)).length,
         assigned: activeOrders.filter(o => !!o.assignedTo).length,
-        readyForDelivery: activeOrders.filter(o => Array.isArray(o.milestones) && o.milestones?.find(m => m.id === 5)?.completed).length,
-        stitched: activeOrders.filter(o => Array.isArray(o.milestones) && o.milestones?.find(m => m.id === 4)?.completed && !o.milestones?.find(m => m.id === 5)?.completed).length,
+        readyForDelivery: activeOrders.filter((order) => getNormalizedOrderMilestones(order).find((milestone) => milestone.id === 5)?.completed).length,
+        stitched: activeOrders.filter((order) => getNormalizedOrderMilestones(order).find((milestone) => milestone.id === 4)?.completed && !getNormalizedOrderMilestones(order).find((milestone) => milestone.id === 5)?.completed).length,
         completed: completedOrders.length,
         bypassedOtp: orders.filter(o => o.bypassedOtp === true).length,
     }

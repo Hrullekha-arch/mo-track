@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import Image from "next/image";
+import { applyOrderMilestoneChange } from "@/lib/order-workflow";
 
 type ScanAction = 'pmsComplete' | 'stockDetail' | 'verifyCut' | 'verifyInbound';
 
@@ -312,12 +313,13 @@ function UniversalScanner() {
                         const orderSnap = await getDoc(orderRef);
                         if (orderSnap.exists()) {
                             const orderData = orderSnap.data() as Order;
-                            const updatedMilestones = orderData.milestones.map(m =>
-                                m.id === 3 // Sent to Stitching milestone
-                                ? { ...m, completed: true, completedAt: new Date().toISOString(), completedBy: user.name }
-                                : m
+                            const { milestones, workflow } = applyOrderMilestoneChange(
+                              orderData,
+                              3,
+                              true,
+                              { id: user.id, name: user.name }
                             );
-                            batch.update(orderRef, { milestones: updatedMilestones });
+                            batch.update(orderRef, { milestones, workflow });
                         }
                     }
 
@@ -372,7 +374,7 @@ function UniversalScanner() {
 
     useEffect(() => {
         if (!html5QrCodeRef.current) {
-            html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, { experimentalFeatures: { useOffscreenCanvas: true }, verbose: false });
+            html5QrCodeRef.current = new Html5Qrcode(scannerContainerId, { verbose: false });
         }
 
         if (hasPermission === null) {

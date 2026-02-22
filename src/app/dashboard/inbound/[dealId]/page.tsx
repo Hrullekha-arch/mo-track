@@ -23,6 +23,7 @@ import { PO_PROCESS_CONFIG, INBOUND_PROCESS_CONFIG } from '@/lib/constants';
 import { updateStockQuantityAction, revertStockAdditionAction } from '@/app/dashboard/inventory/actions';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StockLengthSticker } from "@/components/features/inventory/StockLengthSticker";
+import { dedupeO2DMilestones, upsertO2DMilestone } from "@/lib/o2d-milestones";
 
 
 const ItemProcessTimeline = ({
@@ -284,7 +285,11 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                                     remarks: "Automatically completed after all items for this deal were received.",
                                     selection: 'Done'
                                 };
-                                batch.update(o2dDocRef, { milestones: arrayUnion(newMilestone) });
+                                const mergedMilestones = upsertO2DMilestone(
+                                    dedupeO2DMilestones((o2dData.milestones || []) as O2DStatus[]),
+                                    newMilestone
+                                );
+                                batch.update(o2dDocRef, { milestones: mergedMilestones });
                                     toast({
                                     title: "O2D Step 7 Completed!",
                                     description: `Purchase Material Receiving marked as done for deal ${o2dData.dealId}.`,
@@ -498,7 +503,6 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     <StockLengthSticker
                         bcn={printingItem.itemName}
                         length={parseFloat(printingItem.quantity)}
-                        mrp={0} // MRP is not on the inbound item, would need to fetch from stock master
                         rack={'N/A'} // Rack is assigned later
                     />
                     </div>

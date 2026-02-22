@@ -377,7 +377,7 @@ export interface Order {
   furnitureDetails?: FurnitureDetail[];
   vasDetails?: VasDetail[];
   totalAmount?: number;
-  status?: 'Pending Approval' | 'Approved' | 'BalanceFollowUp';
+  status?: 'Pending Approval' | 'Approved' | 'BalanceFollowUp'  | "INSTALLATION DONE";
   isAcknowledged: boolean;
 
   // For mobile view

@@ -3,8 +3,12 @@
 'use server'
 
 import { adminDb } from '@/lib/firebase-admin';
-import { Order, Stock, StockTransaction, O2DStatus, FabricDetail } from '@/lib/types';
-import { FieldValue, Timestamp, doc } from 'firebase-admin/firestore';
+import { Order, OrderWorkflowStatus, Stock, StockTransaction, O2DStatus, FabricDetail } from '@/lib/types';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import {
+  buildWorkflowFromLegacyMilestones,
+  getNormalizedOrderMilestones,
+} from '@/lib/order-workflow';
 
 
 export async function getAvailableStockLengths(stockId: string): Promise<{ success: boolean; message: string; lengths?: { length: number; transactionId: string }[] }> {
@@ -272,18 +276,16 @@ export async function allocateStockToAction(
         };
 
         // 5. Update order milestone/workflow payload
-        const updatedMilestones = orderData.milestones.map((m: any) => {
-          if (m.id === 2) { // ID for "Fabric Allocated"
-            return { ...m, completed: true, completedAt: updateTimestamp, completedBy: userName };
-          }
-          return m;
-        });
-
-        const workflow = orderData.workflow || { status: "CREATED", milestones: [] };
-        const updatedWorkflowMilestones = (workflow.milestones || []).map((m: any) =>
-            m.key === "FABRIC_ALLOCATED"
-                ? { ...m, status: "DONE", at: updateTimestamp, by: { id: userId, name: userName } }
-                : m
+        const baseMilestones = getNormalizedOrderMilestones(orderData);
+        const updatedMilestones = baseMilestones.map((milestone) =>
+          milestone.id === 2
+            ? {
+                ...milestone,
+                completed: true,
+                completedAt: updateTimestamp,
+                completedBy: userName,
+              }
+            : milestone
         );
 
         const allocationStatuses = updatedNormalItems.map((item: any) => item.allocation?.status);
@@ -296,7 +298,14 @@ export async function allocateStockToAction(
             ? "ALLOCATED"
             : anyAllocated
             ? "ALLOCATING"
-            : workflow.status || "CREATED";
+            : orderData.workflow?.status || "CREATED";
+
+        const updatedWorkflow = buildWorkflowFromLegacyMilestones(
+          orderData.orderType || "delivery",
+          updatedMilestones,
+          orderData.workflow,
+          nextWorkflowStatus as OrderWorkflowStatus
+        );
 
         // --- WRITE PHASE ---
         // 3. Update each length document
@@ -366,11 +375,7 @@ export async function allocateStockToAction(
         transaction.update(orderRef, {
             milestones: updatedMilestones,
             sections: updatedSections,
-            workflow: {
-                ...workflow,
-                status: nextWorkflowStatus,
-                milestones: updatedWorkflowMilestones,
-            },
+            workflow: updatedWorkflow,
         });
       });
   

@@ -4,6 +4,7 @@
 import { adminDb } from '@/lib/firebase-admin';
 import { Order, PmsStatus } from '@/lib/types';
 import { PMS_PROCESS_CONFIG } from '@/components/features/pms/pms-constants';
+import { applyOrderMilestoneChange, getNormalizedOrderMilestones } from '@/lib/order-workflow';
 
 interface CompletePmsInput {
   orderId: string;
@@ -44,7 +45,7 @@ export async function completePmsProcess(input: CompletePmsInput): Promise<Compl
     const order = { id: orderDoc.id, ...orderData } as Order;
     
     // Stop if stitching is already done
-    const stitchingDoneMilestone = order.milestones.find(m => m.id === 4);
+    const stitchingDoneMilestone = getNormalizedOrderMilestones(order).find((milestone) => milestone.id === 4);
     if (stitchingDoneMilestone?.completed) {
       return { 
         success: true, 
@@ -64,15 +65,18 @@ export async function completePmsProcess(input: CompletePmsInput): Promise<Compl
         completedBy,
     }));
 
-    // 2. Complete the main "Stitching Done" milestone
-    const updatedMainMilestones = order.milestones.map(m => 
-        m.id === 4 // "Stitching Done" milestone
-        ? { ...m, completed: true, completedAt, completedBy }
-        : m
+    // 2. Complete the main "Stitching Done" milestone + sync workflow
+    const { milestones, workflow } = applyOrderMilestoneChange(
+      order,
+      4,
+      true,
+      { name: completedBy },
+      completedAt
     );
 
     const updatePayload = {
-        milestones: updatedMainMilestones,
+        milestones,
+        workflow,
         pmsMilestones: allPmsSteps
     };
     

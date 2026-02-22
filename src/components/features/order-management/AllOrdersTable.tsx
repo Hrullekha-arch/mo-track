@@ -50,6 +50,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { MILESTONES_CONFIG } from "@/lib/constants";
 import { setBalanceFollowUp } from "@/app/dashboard/all-orders/actions";
+import {
+  getNormalizedOrderMilestones,
+  isOrderComplete as isOrderWorkflowComplete,
+} from "@/lib/order-workflow";
 
 function LocationDisplay({ location }: { location: { latitude: number; longitude: number; } }) {
     const [area, setArea] = React.useState("Fetching area...");
@@ -133,8 +137,13 @@ export function AllOrdersTable() {
   
   const handleFollowUp = async () => {
     if (!followUpOrder || !user) return;
+    if (!followUpOrder.dealId) {
+        toast({ variant: "destructive", title: "Missing Deal ID", description: "Cannot locate O2D record for this order." });
+        setFollowUpOrder(null);
+        return;
+    }
     try {
-        const result = await setBalanceFollowUp(followUpOrder.id, followUpOrder.dealDocId!, user.name);
+        const result = await setBalanceFollowUp(followUpOrder.id, String(followUpOrder.dealId), user.name);
         if (result.success) {
             toast({ title: "Follow-up Initiated", description: result.message });
         } else {
@@ -149,7 +158,8 @@ export function AllOrdersTable() {
 
 
   const getInstallerName = (id?: string) => users.find(u => u.id === id)?.name || "N/A";
-  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
+  const isFullyCompleted = (order: Order) =>
+    isOrderWorkflowComplete(order) && (!!order.feedbackRating || order.bypassedOtp === true);
 
   const columns: ColumnDef<Order>[] = [
     {
@@ -206,7 +216,7 @@ export function AllOrdersTable() {
         id: "lastMilestone",
         header: "Last Milestone",
         cell: ({ row }) => {
-            const lastCompleted = row.original.milestones.slice().reverse().find(m => m.completed);
+            const lastCompleted = getNormalizedOrderMilestones(row.original).slice().reverse().find((milestone) => milestone.completed);
             return <div>{lastCompleted?.name || "Order Received"}</div>;
         }
     },
@@ -240,7 +250,7 @@ export function AllOrdersTable() {
             <DropdownMenuContent>
                 <DropdownMenuLabel>Milestone Progress</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {row.original.milestones.map(m => (
+                {getNormalizedOrderMilestones(row.original).map(m => (
                     <DropdownMenuItem key={m.id} disabled className="flex-col items-start">
                         <div className="flex justify-between w-full font-medium">
                            <span>{m.name}</span>
@@ -326,7 +336,8 @@ export function AllOrdersTable() {
 
     const dataToExport = table.getFilteredRowModel().rows.map(row => {
         const order = row.original;
-        const lastCompleted = order.milestones.slice().reverse().find(m => m.completed);
+        const normalizedMilestones = getNormalizedOrderMilestones(order);
+        const lastCompleted = normalizedMilestones.slice().reverse().find((milestone) => milestone.completed);
         
         let flatOrder: any = {
             "Order ID": order.id,
@@ -349,7 +360,7 @@ export function AllOrdersTable() {
         // Add all milestones with their details
         Object.values(MILESTONES_CONFIG).forEach((milestoneConfig, index) => {
             const milestoneId = index + 1;
-            const milestoneData = order.milestones.find(m => m.id === milestoneId);
+            const milestoneData = normalizedMilestones.find((milestone) => milestone.id === milestoneId);
             
             flatOrder[`${milestoneId}. ${milestoneConfig.name} - Status`] = milestoneData ? (milestoneData.completed ? 'Completed' : 'Pending') : 'N/A';
             flatOrder[`${milestoneId}. ${milestoneConfig.name} - Completed At`] = milestoneData?.completedAt ? new Date(milestoneData.completedAt).toLocaleString() : '';

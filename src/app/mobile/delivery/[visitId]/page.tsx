@@ -4,11 +4,12 @@ import * as React from 'react';
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from "@/hooks/use-toast";
-import { doc, getDoc, updateDoc, writeBatch, arrayUnion, collection, query, where, getDocs, limit, } from "firebase/firestore";
+import { doc, getDoc, updateDoc, writeBatch, collection, query, where, getDocs, limit, } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Customer, Deal, DealVisit, Order, O2DStatus } from '@/lib/types';
 import { getCustomerById } from '@/app/dashboard/customers/actions';
 import { getDealById, uploadFileToStorageAction } from '@/app/dashboard/customers/[customerId]/[dealId]/actions';
+import { applyOrderMilestoneChange, getNormalizedOrderMilestones } from '@/lib/order-workflow';
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -371,19 +372,15 @@ export default function DeliveryVisitPage() {
                 // Optionally update order and O2D status as before
                 if (order) {
                     const orderRef = doc(db, "orders", order.id);
-                    const milestoneToUpdate = order.milestones.find(m => m.id === 8);
+                    const milestoneToUpdate = getNormalizedOrderMilestones(order).find((milestone) => milestone.id === 8);
                     if (milestoneToUpdate) {
-                        const updatedMilestones = order.milestones.map(m => 
-                            m.id === 8 
-                                ? { 
-                                    ...m, 
-                                    completed: true, 
-                                    completedAt: new Date().toISOString(), 
-                                    completedBy: user.name 
-                                  } 
-                                : m
+                        const { milestones, workflow } = applyOrderMilestoneChange(
+                          order,
+                          8,
+                          true,
+                          { id: user.id, name: user.name }
                         );
-                        batch.update(orderRef, { milestones: updatedMilestones });
+                        batch.update(orderRef, { milestones, workflow });
                     }
                 }
                 
@@ -404,7 +401,14 @@ export default function DeliveryVisitPage() {
                         selection: "Done", 
                         remarks: remarks || "Completed via mobile app"
                     };
-                    batch.update(o2dDocRef, { milestones: arrayUnion(o2dDoneMilestone) });
+                    const currentMilestones = Array.isArray(o2dSnapshot.docs[0].data()?.milestones)
+                      ? o2dSnapshot.docs[0].data().milestones
+                      : [];
+                    const mergedMilestones = [
+                      ...currentMilestones.filter((milestone: O2DStatus) => milestone.stepId !== o2dDoneMilestone.stepId),
+                      o2dDoneMilestone,
+                    ];
+                    batch.update(o2dDocRef, { milestones: mergedMilestones });
                 }
 
                 await batch.commit();

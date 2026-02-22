@@ -85,6 +85,7 @@ import { useToast } from "@/hooks/use-toast";
 import JsBarcode from "jsbarcode";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
+import { dedupeO2DMilestones, upsertO2DMilestone } from "@/lib/o2d-milestones";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface FlattenedInboundItem {
@@ -577,7 +578,11 @@ function ReceiveDialog({
                     remarks: "Automatically completed after all items received.",
                     selection: "Done",
                   };
-                  batch.update(o2dRef, { milestones: arrayUnion(newMilestone) });
+                  const mergedMilestones = upsertO2DMilestone(
+                    dedupeO2DMilestones((o2dData.milestones || []) as O2DStatus[]),
+                    newMilestone
+                  );
+                  batch.update(o2dRef, { milestones: mergedMilestones });
                 }
               }
             }

@@ -4,17 +4,23 @@ import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, Milestone, CalendarCheck, ArrowRight, Truck, UserIcon, UserCircle, Dock, CalendarSync, PlayCircle, HistoryIcon, Clock } from "lucide-react";
+import { LogOut, Phone, MapPin, Loader2, AlertTriangle, Star, CheckCheck, RefreshCw, CalendarCheck, ArrowRight, Truck, UserIcon, UserCircle, Dock, CalendarSync, PlayCircle, HistoryIcon, Clock } from "lucide-react";
 import { Order, Milestone, DealVisit, User, Customer, Deal, O2DStatus } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { collection, onSnapshot, query, where, doc, updateDoc, writeBatch, getDocs, limit, collectionGroup, getDoc, arrayUnion, runTransaction } from "firebase/firestore";
+import { collection, onSnapshot, query, where, doc, updateDoc, writeBatch, getDocs, limit, collectionGroup, getDoc, runTransaction } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import {
+  applyOrderMilestoneChange,
+  buildWorkflowFromLegacyMilestones,
+  getNormalizedOrderMilestones,
+  isOrderComplete as isOrderWorkflowComplete,
+} from "@/lib/order-workflow";
 
 const formatDetailEntry = (entry: any): string | null => {
   if (entry === null || entry === undefined) return null;
@@ -108,7 +114,7 @@ export function MobileView() {
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy,
           speed: position.coords.speed,
-          timestamp: position.coords.timestamp,
+          timestamp: position.timestamp,
         }),
       }).catch(() => {});
     },
@@ -152,7 +158,7 @@ export function MobileView() {
             longitude: position.coords.longitude,
             accuracy: position.coords.accuracy,
             speed: position.coords.speed,
-            timestamp: position.coords.timestamp,
+            timestamp: position.timestamp,
           }),
         }).catch(() => {});
       },
@@ -266,7 +272,7 @@ export function MobileView() {
       // ---------- DATE FILTER (TODAY ONLY) ----------
       const taskDate =
         task.type === "order"
-          ? task.data.createdat
+          ? task.data.createdAt
           : task.data.dueDate;
 
       if (!isToday(taskDate)) return false;
@@ -274,7 +280,7 @@ export function MobileView() {
       // ---------- STATUS FILTER ----------
       if (task.type === "order") {
         const isCompleted =
-          task.data.milestones.every(m => m.completed) &&
+          isOrderWorkflowComplete(task.data) &&
           (!!task.data.feedbackRating || task.data.bypassedOtp === true);
 
         return !isCompleted;
@@ -834,6 +840,7 @@ const InstallerVisitCard = ({
     const buttonContent = getButtonContent();
     const phone = (visit.customer?.phone || visit.customer?.mobileNo || "").trim();
     const address = (visit.location?.address || visit.customer?.addressPinCode || visit.customer?.city || "").trim();
+    const visitAny = visit as any;
     
     console.log('Rendering InstallerVisitCard for visit:', visit);
     return (
@@ -842,7 +849,7 @@ const InstallerVisitCard = ({
                 <CardTitle className="capitalize flex justify-between">{visit.customer?.name || "Unknown Customer"} <Badge variant="secondary">Deal ID: {visit.deal?.dealId || 'N/A'}</Badge> <Badge>{visit.typeOfVisit}</Badge></CardTitle>
             </CardHeader>
             <CardContent className="text-sm space-y-3">
-                 <p className="flex items-center gap-2 font-semibold"><CalendarCheck className="h-4 w-4 text-muted-foreground" /> <span className="text-teal-800">{format(new Date(visit.slotDate),"dd MMM yyyy")} - {visit.slotLabel}</span></p>
+                 <p className="flex items-center gap-2 font-semibold"><CalendarCheck className="h-4 w-4 text-muted-foreground" /> <span className="text-teal-800">{visit.slotDate ? format(new Date(visit.slotDate),"dd MMM yyyy") : "N/A"} - {visit.slotLabel || "N/A"}</span></p>
                  {/* <p className="flex items-center gap-2">
                     <Phone color="blue" className="h-4 w-4 text-muted-foreground " />
                 {phone ? (
@@ -878,13 +885,13 @@ const InstallerVisitCard = ({
                   <Dock className="h-4 w-4 text-muted-foreground" />
                   <span>
                     {[
-                      { label: "Remark", value: visit.remark },
+                      { label: "Remark", value: visitAny.remark },
                       { label: "Measurements", value: visit.measurements },
                       { label: "Delivery", value: visit.deliveryInstallations },
                       { label: "Sub Delivery", value: visit.subDeliveryInstallations },
                       { label: "Other Delivery", value: visit.otherDelivery },
-                      { label: "Fitting", value: visit.fittingInstallations },
-                      { label: "Sub Fitting", value: visit.subFittingInstallations },
+                      { label: "Fitting", value: visitAny.fittingInstallations },
+                      { label: "Sub Fitting", value: visitAny.subFittingInstallations },
                     ]
                       .flatMap(({ label, value }) => {
                         const entries = collectDetailEntries(value);
@@ -961,14 +968,20 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
     const [remarks, setRemarks] = useState("");
     const [otp, setOtp] = useState("");
     const [isOtpDialogOpen, setIsOtpDialogOpen] = useState(false);
+    const normalizedMilestones = useMemo(
+      () => getNormalizedOrderMilestones(order),
+      [order]
+    );
 
     const installerMilestoneIds = [7, 8]; 
-    const nextInstallerMilestone = order.milestones.find(m => installerMilestoneIds.includes(m.id) && !m.completed);
+    const nextInstallerMilestone = normalizedMilestones.find(
+      (milestone) => installerMilestoneIds.includes(milestone.id) && !milestone.completed
+    );
 
     const canUpdate = (milestone: Milestone) => {
-        const currentIndex = order.milestones.findIndex(m => m.id === milestone.id);
+        const currentIndex = normalizedMilestones.findIndex((item) => item.id === milestone.id);
         if (currentIndex === 0) return true;
-        const prevMilestoneInFlow = order.milestones[currentIndex - 1];
+        const prevMilestoneInFlow = normalizedMilestones[currentIndex - 1];
         return prevMilestoneInFlow.completed;
     }
 
@@ -987,16 +1000,25 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
             const batch = writeBatch(db);
             const orderRef = doc(db, "orders", order.id);
 
-            const updatedMilestones = order.milestones.map(m =>
-                m.id === milestoneToUpdate.id ? { 
-                    ...m, 
-                    completed: true, 
-                    completedAt: new Date().toISOString(), 
-                    completedBy: user.name,
-                    location: location
-                } : m
+            const completedAt = new Date().toISOString();
+            const { milestones, workflow } = applyOrderMilestoneChange(
+              order,
+              milestoneToUpdate.id,
+              true,
+              { id: user.id, name: user.name },
+              completedAt
             );
-            batch.update(orderRef, { milestones: updatedMilestones });
+            const updatedMilestones = milestones.map((milestone) =>
+              milestone.id === milestoneToUpdate.id
+                ? { ...milestone, location: location ?? null }
+                : milestone
+            );
+            const updatedWorkflow = buildWorkflowFromLegacyMilestones(
+              order.orderType,
+              updatedMilestones,
+              workflow
+            );
+            batch.update(orderRef, { milestones: updatedMilestones, workflow: updatedWorkflow });
 
             if (milestoneToUpdate.id === 8 && order.customerId && order.dealId) {
                 const dealQuery = query(collection(db, 'customers', order.customerId, 'deals'), where('dealId', '==', order.dealId), limit(1));
@@ -1026,7 +1048,14 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
                             selection: "Done", 
                             remarks: "Completed via mobile app"
                         };
-                        batch.update(o2dDocRef, { milestones: arrayUnion(o2dDoneMilestone) });
+                        const currentMilestones = Array.isArray(o2dSnapshot.docs[0].data()?.milestones)
+                          ? o2dSnapshot.docs[0].data().milestones
+                          : [];
+                        const mergedMilestones = [
+                          ...currentMilestones.filter((milestone: O2DStatus) => milestone.stepId !== o2dDoneMilestone.stepId),
+                          o2dDoneMilestone,
+                        ];
+                        batch.update(o2dDocRef, { milestones: mergedMilestones });
                     }
                 }
             }
@@ -1092,7 +1121,7 @@ export function InstallerOrderCard({ order, location }: { order: Order; location
         }, 700);
     }
 
-    const isOrderComplete = order.milestones.every(m => m.completed);
+    const isOrderComplete = isOrderWorkflowComplete(order);
 
     return (
         <Card>

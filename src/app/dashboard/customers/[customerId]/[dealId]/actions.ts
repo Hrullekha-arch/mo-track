@@ -6,7 +6,9 @@ import { adminDb, adminStorage } from '@/lib/firebase-admin';
 import { Deal, DealProduct, DealProductsDoc, Quotation, DealOrder, DealVisit, DealMeasurement, DeliveryInstallationItem, Cpd, Dimension, AdvanceDetail, OrderType, Order, O2DStatus, MeasurementEntry, O2DProcess, Selection, Stock, Receipt } from '@/lib/types';
 import { FormValues as QuotationFormValues } from '@/components/features/order-management/CreateQuotationDialog';
 
-import { getMilestonesForOrder, MILESTONES_CONFIG, ORDER_TYPE_MILESTONES } from '@/lib/constants';
+import { getMilestonesForOrder } from '@/lib/constants';
+import { buildWorkflowMilestones } from '@/lib/order-workflow';
+import { dedupeO2DMilestones, upsertO2DMilestone } from '@/lib/o2d-milestones';
 import { FieldValue } from 'firebase-admin/firestore';
 import { Readable } from 'stream';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -357,7 +359,9 @@ export async function createQuotationAction(customerId: string, dealId: string, 
 
     if (o2dProcessDoc.exists) {
         const quotationStepId = 4; // Corresponds to "Quotation Making"
-        const existingMilestones = (o2dProcessDoc.data()?.milestones || []) as O2DStatus[];
+        const existingMilestones = dedupeO2DMilestones(
+            (o2dProcessDoc.data()?.milestones || []) as O2DStatus[]
+        );
         
         // Avoid adding duplicate milestones
         if (!existingMilestones.some(m => m.stepId === quotationStepId)) {
@@ -370,7 +374,7 @@ export async function createQuotationAction(customerId: string, dealId: string, 
                 selection: 'Done'
             };
             batch.update(o2dProcessRef, {
-                milestones: FieldValue.arrayUnion(newMilestone)
+                milestones: upsertO2DMilestone(existingMilestones, newMilestone)
             });
         }
     }
@@ -389,17 +393,6 @@ export async function createQuotationAction(customerId: string, dealId: string, 
     return { success: false, message: `Failed to create quotation: ${error.message}` };
   }
 }
-
-const ORDER_MILESTONE_KEY_MAP: Record<number, string> = {
-  1: "ORDER_RECEIVED",
-  2: "FABRIC_ALLOCATED",
-  3: "SENT_TO_STITCHING",
-  4: "STITCHING_DONE",
-  5: "READY_FOR_DELIVERY",
-  6: "INSTALLATION_SCHEDULED",
-  7: "OUT_FOR_DELIVERY_INSTALLATION",
-  8: "INSTALLATION_DONE",
-};
 
 const coerceNumber = (value: unknown, fallback = 0) => {
   const num = Number(value);
@@ -427,21 +420,6 @@ const resolveOrderItemUnit = (itemType: string, item: any) => {
   if (unit) return unit;
   if (itemType === "FABRIC") return "MTR";
   return "PCS";
-};
-
-const buildWorkflowMilestones = (
-  orderType: OrderType,
-  actor: { id?: string; name?: string }
-) => {
-  const ids = ORDER_TYPE_MILESTONES[orderType] || ORDER_TYPE_MILESTONES.delivery;
-  const now = new Date().toISOString();
-  return ids.map((id, index) => ({
-    key: ORDER_MILESTONE_KEY_MAP[id] || `MILESTONE_${id}`,
-    label: MILESTONES_CONFIG[id]?.name || `Step ${id}`,
-    status: index === 0 ? "DONE" : "PENDING",
-    at: index === 0 ? now : undefined,
-    by: index === 0 ? { id: actor.id, name: actor.name } : undefined,
-  }));
 };
 
 const summarizeOrderItems = (items: Array<{ taxableAmount?: number; gstAmount?: number; totalAmount?: number }>) => {
@@ -1039,6 +1017,9 @@ export async function addVisitAction(
       const o2dProcessRef = adminDb.collection('o2d').doc(dealId);
       const o2dProcessDoc = await o2dProcessRef.get();
       if (o2dProcessDoc.exists) {
+        const existingMilestones = dedupeO2DMilestones(
+          (o2dProcessDoc.data()?.milestones || []) as O2DStatus[]
+        );
         const newMilestone: O2DStatus = {
           stepId: 12,
           status: "completed",
@@ -1048,7 +1029,7 @@ export async function addVisitAction(
           selection: "Done",
         };
         batch.update(o2dProcessRef, {
-          milestones: FieldValue.arrayUnion(newMilestone),
+          milestones: upsertO2DMilestone(existingMilestones, newMilestone),
         });
       }
     }
@@ -1146,7 +1127,9 @@ export async function addMeasurementAction(
         
         if (o2dProcessDoc.exists) {
             const measurementStepId = 2; // Corresponds to "Measurement"
-            const existingMilestones = (o2dProcessDoc.data()?.milestones || []) as O2DStatus[];
+            const existingMilestones = dedupeO2DMilestones(
+                (o2dProcessDoc.data()?.milestones || []) as O2DStatus[]
+            );
             
             if (!existingMilestones.some(m => m.stepId === measurementStepId)) {
                 const newMilestone: O2DStatus = {
@@ -1158,7 +1141,7 @@ export async function addMeasurementAction(
                     selection: 'Done'
                 };
                 batch.update(o2dProcessRef, {
-                    milestones: FieldValue.arrayUnion(newMilestone)
+                    milestones: upsertO2DMilestone(existingMilestones, newMilestone)
                 });
             }
         }
@@ -1300,7 +1283,9 @@ export async function addCpdAction(
     
     if (o2dProcessDoc.exists) {
         const finalSelectionStepId = 3; // Corresponds to "Final Material Selection"
-         const existingMilestones = (o2dProcessDoc.data()?.milestones || []) as O2DStatus[];
+         const existingMilestones = dedupeO2DMilestones(
+            (o2dProcessDoc.data()?.milestones || []) as O2DStatus[]
+         );
         
         if (!existingMilestones.some(m => m.stepId === finalSelectionStepId)) {
             const newMilestone: O2DStatus = {
@@ -1312,7 +1297,7 @@ export async function addCpdAction(
                 selection: 'Done'
             };
             batch.update(o2dProcessRef, {
-                milestones: FieldValue.arrayUnion(newMilestone)
+                milestones: upsertO2DMilestone(existingMilestones, newMilestone)
             });
         }
     }

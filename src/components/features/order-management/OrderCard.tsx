@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Order, User, Milestone, PurchaseRequest, FabricDetail, O2DStatus } from "@/lib/types";
 import { MoreVertical, User as UserIcon, Phone, MapPin, Tag, Trash2, ChevronDown, ChevronUp, CheckCircle2, PackageCheck, Wrench as WrenchIcon, CalendarClock, TrendingUp, Users, MessageSquare, Star, RefreshCw, Loader2, AlertCircle, ShoppingBag, ShoppingCart } from "lucide-react";
@@ -12,7 +12,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { AssignInstallerDialog } from "./AssignInstallerDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
-import { doc, updateDoc, deleteDoc, getDoc, query, where, getDocs, collection, arrayUnion, onSnapshot } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, getDoc, query, where, getDocs, collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { AssignCrmDialog } from "./AssignCrmDialog";
@@ -23,6 +23,11 @@ import { cn } from "@/lib/utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Link from 'next/link';
+import {
+  applyOrderMilestoneChange,
+  getNormalizedOrderMilestones,
+} from "@/lib/order-workflow";
+import { dedupeO2DMilestones, upsertO2DMilestone } from "@/lib/o2d-milestones";
 
 
 interface OrderCardProps {
@@ -55,14 +60,20 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const crmUsers = allUsers.filter(u => u.designation === 'CRM');
   const assignedInstaller = allUsers.find(u => u.id === currentOrder.assignedTo);
   const crmHandler = allUsers.find(u => u.id === currentOrder.handledByCrm);
+  const normalizedMilestones = useMemo(
+    () => getNormalizedOrderMilestones(currentOrder),
+    [currentOrder]
+  );
   
-  const completedCount = currentOrder.milestones.filter(m => m.completed).length;
-  const progressPercentage = (completedCount / currentOrder.milestones.length) * 100;
+  const completedCount = normalizedMilestones.filter((m) => m.completed).length;
+  const progressPercentage = normalizedMilestones.length
+    ? (completedCount / normalizedMilestones.length) * 100
+    : 0;
   
-  const lastCompletedMilestone = currentOrder.milestones.slice().reverse().find(m => m.completed);
-  const isReadyForDelivery = !!currentOrder.milestones.find(m => m.id === 5)?.completed;
+  const lastCompletedMilestone = normalizedMilestones.slice().reverse().find((m) => m.completed);
+  const isReadyForDelivery = !!normalizedMilestones.find((m) => m.id === 5)?.completed;
 
-  const isOrderComplete = currentOrder.milestones.every(m => m.completed) && (!!currentOrder.feedbackRating || !!currentOrder.customerFeedbackRating || !!currentOrder.bypassedOtp);
+  const isOrderComplete = normalizedMilestones.every((m) => m.completed) && (!!currentOrder.feedbackRating || !!currentOrder.customerFeedbackRating || !!currentOrder.bypassedOtp);
   
   const stockStatus = useMemo(() => {
     const items = order.fabricDetails;
@@ -90,27 +101,21 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         toast({ variant: "destructive", title: "Permission Denied", description: "This milestone is updated by installers." });
         return;
     }
-    if (role === 'employee' && !completed && currentOrder.milestones.find(m => m.id === milestoneId)?.completed) {
+    if (role === 'employee' && !completed && normalizedMilestones.find(m => m.id === milestoneId)?.completed) {
         toast({ variant: "destructive", title: "Permission Denied", description: "You are not authorized to revert milestones." });
         return;
     }
     
     try {
       const orderRef = doc(db, "orders", currentOrder.id);
-      let updatedMilestones = currentOrder.milestones.map(m =>
-        m.id === milestoneId ? { ...m, completed, completedAt: completed ? new Date().toISOString() : null, completedBy: completed ? user?.name : null, location: null } : m
+      const { milestones, workflow } = applyOrderMilestoneChange(
+        currentOrder,
+        milestoneId,
+        completed,
+        { id: user?.id, name: user?.name }
       );
-      
-      if (!completed) {
-          const milestoneIndex = updatedMilestones.findIndex(m => m.id === milestoneId);
-          if (milestoneIndex !== -1) {
-              for (let i = milestoneIndex + 1; i < updatedMilestones.length; i++) {
-                  updatedMilestones[i] = { ...updatedMilestones[i], completed: false, completedAt: null, completedBy: null, location: null };
-              }
-          }
-      }
 
-      const updatePayload: any = { milestones: updatedMilestones };
+      const updatePayload: any = { milestones, workflow };
 
       if (milestoneId === 1 && completed && !currentOrder.otp) {
         updatePayload.otp = Math.floor(1000 + Math.random() * 9000).toString();
@@ -120,7 +125,11 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
         const o2dQuery = query(collection(db, "o2d"), where("dealId", "==", currentOrder.dealId));
         const o2dSnapshot = await getDocs(o2dQuery);
         if (!o2dSnapshot.empty) {
-            const o2dDocRef = o2dSnapshot.docs[0].ref;
+            const o2dDoc = o2dSnapshot.docs[0];
+            const o2dDocRef = o2dDoc.ref;
+            const existingMilestones = dedupeO2DMilestones(
+              (o2dDoc.data()?.milestones || []) as O2DStatus[]
+            );
             const fullKitingMilestone: O2DStatus = {
                 stepId: 9,
                 status: 'completed',
@@ -130,7 +139,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                 selection: "Done"
             };
             await updateDoc(o2dDocRef, {
-                milestones: arrayUnion(fullKitingMilestone)
+                milestones: upsertO2DMilestone(existingMilestones, fullKitingMilestone)
             });
         }
       }
@@ -156,14 +165,14 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
 
         const allCompleted = snapshot.docs.every(doc => doc.data().status === "Completed");
 
-        const milestone3 = currentOrder.milestones.find(m => m.id === 3);
+        const milestone3 = normalizedMilestones.find((m) => m.id === 3);
         if (allCompleted && !milestone3?.completed) {
             handleMilestoneChange(3, true);
         }
     });
 
     return () => unsubscribe();
-  }, [currentOrder.id, currentOrder.milestones, handleMilestoneChange]);
+  }, [currentOrder.id, normalizedMilestones, handleMilestoneChange]);
 
 
   const handleShowMaterial = async () => {
@@ -238,17 +247,25 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     try {
       const orderRef = doc(db, "orders", currentOrder.id);
       const scheduledMilestoneId = currentOrder.orderType === 'stitching+installation' ? 6 : 7;
-      const updatedMilestones = currentOrder.milestones.map(m =>
-        m.id === scheduledMilestoneId ? { ...m, completed: true, completedAt: date.toISOString(), completedBy: user?.name } : m
+      const { milestones, workflow } = applyOrderMilestoneChange(
+        currentOrder,
+        scheduledMilestoneId,
+        true,
+        { id: user?.id, name: user?.name },
+        date.toISOString()
       );
-      const updatedOrder = { ...currentOrder, milestones: updatedMilestones };
-      await updateDoc(orderRef, { milestones: updatedMilestones });
+      const updatedOrder = { ...currentOrder, milestones, workflow };
+      await updateDoc(orderRef, { milestones, workflow });
 
       if (currentOrder.dealId) {
         const o2dQuery = query(collection(db, "o2d"), where("dealId", "==", currentOrder.dealId));
         const o2dSnapshot = await getDocs(o2dQuery);
         if (!o2dSnapshot.empty) {
-          const o2dDocRef = o2dSnapshot.docs[0].ref;
+          const o2dDoc = o2dSnapshot.docs[0];
+          const o2dDocRef = o2dDoc.ref;
+          const existingMilestones = dedupeO2DMilestones(
+            (o2dDoc.data()?.milestones || []) as O2DStatus[]
+          );
           const scheduleMilestone: O2DStatus = {
             stepId: 12,
             status: 'completed',
@@ -258,7 +275,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
             selection: "Done"
           };
           await updateDoc(o2dDocRef, {
-            milestones: arrayUnion(scheduleMilestone)
+            milestones: upsertO2DMilestone(existingMilestones, scheduleMilestone)
           });
         }
       }
@@ -326,8 +343,8 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
     if (progressPercentage === 100) {
       return { text: "Completed", icon: CheckCircle2, color: "text-accent" };
     }
-    const installScheduled = currentOrder.milestones.find(m => m.id === 6)?.completed;
-    const deliveryScheduled = currentOrder.milestones.find(m => m.id === 7)?.completed;
+    const installScheduled = normalizedMilestones.find((m) => m.id === 6)?.completed;
+    const deliveryScheduled = normalizedMilestones.find((m) => m.id === 7)?.completed;
 
     if (installScheduled || deliveryScheduled) {
         return { text: "Scheduled", icon: CalendarClock, color: "text-blue-500" };
@@ -344,7 +361,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
   const status = getStatusInfo();
   const StatusIcon = status.icon;
 
-  const scheduledDate = currentOrder.milestones.find(m => (m.id === 6 || m.id === 7) && m.completed)?.completedAt;
+  const scheduledDate = normalizedMilestones.find((m) => (m.id === 6 || m.id === 7) && m.completed)?.completedAt;
   const createdAtDate = currentOrder.createdAt ? new Date(currentOrder.createdAt) : new Date();
 
   const customerMessage = `Hi ${currentOrder.customerName},\n\nThank you for your order with Mo Design!\n\nYour tracking number is: ${currentOrder.id}\nYour OTP for feedback submission is: ${currentOrder.otp}\nPlease share this OTP only with our installer after the job is complete.\n\nYou can track the live status of your order here:\n${typeof window !== 'undefined' ? window.location.origin : ''}/track?code=${currentOrder.id}\n\nWe look forward to serving you!\n- The MoTrack Team`;
@@ -498,7 +515,7 @@ export function OrderCard({ order, onUpdate, allUsers }: OrderCardProps) {
                     <h4 className="font-semibold">Milestone Progress</h4>
                     <Badge variant={currentOrder.orderType === 'delivery' ? 'default' : currentOrder.orderType === 'stitching' ? 'secondary' : 'outline'}>{currentOrder.orderType.replace('+', ' + ')}</Badge>
                 </div>
-                <MilestoneProgress milestones={currentOrder.milestones} onMilestoneChange={handleMilestoneChange} role={role} />
+                <MilestoneProgress milestones={normalizedMilestones} onMilestoneChange={handleMilestoneChange} role={role} />
             </div>
         )}
       </CardContent>

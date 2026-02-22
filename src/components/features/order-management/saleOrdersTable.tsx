@@ -867,8 +867,8 @@ export function SaleOrdersTable() {
       {/* New Order Dialog */}
       {isQuotationDialogOpen && (
         <NewOrderDialog
-          open={isQuotationDialogOpen}
-          onOpenChange={setIsQuotationDialogOpen}
+          isOpen={isQuotationDialogOpen}
+          onClose={() => setIsQuotationDialogOpen(false)}
         />
       )}
     </>

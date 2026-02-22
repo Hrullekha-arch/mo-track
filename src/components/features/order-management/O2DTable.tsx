@@ -27,7 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, where, collectionGroup, getDocs, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, User, Deal, DealVisit, Quotation, PurchaseRequest, Customer, O2DStep, O2DProcess, O2DStatus } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
@@ -41,6 +41,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import Link from 'next/link';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/context/AuthContext";
+import { getNormalizedOrderMilestones } from "@/lib/order-workflow";
 
 
 interface O2DViewItem {
@@ -108,8 +109,12 @@ export function O2DTable() {
             remarks: 'All required materials were already in stock.',
             selection: 'Done',
           };
+          const mergedMilestones = [
+            ...(o2dData.milestones || []).filter((milestone) => milestone.stepId !== newMilestone.stepId),
+            newMilestone,
+          ];
           await updateDoc(o2dDocRef, {
-            milestones: arrayUnion(newMilestone),
+            milestones: mergedMilestones,
           });
           toast({
               title: "O2D Step Automated",
@@ -121,7 +126,7 @@ export function O2DTable() {
   }, [toast]);
   
     const checkAndUpdateKittingMilestone = React.useCallback(async (order: Order, o2dDocRef: any) => {
-        const stitchingDone = order.milestones.find(m => m.id === 4)?.completed;
+        const stitchingDone = getNormalizedOrderMilestones(order).find((milestone) => milestone.id === 4)?.completed;
         if (!stitchingDone) return;
 
         const o2dDocSnap = await getDoc(o2dDocRef);
@@ -137,8 +142,12 @@ export function O2DTable() {
                     remarks: 'Automatically completed with Stitching Done.',
                     selection: 'Done',
                 };
+                const mergedMilestones = [
+                    ...(o2dData.milestones || []).filter((milestone) => milestone.stepId !== newMilestone.stepId),
+                    newMilestone,
+                ];
                 await updateDoc(o2dDocRef, {
-                    milestones: arrayUnion(newMilestone),
+                    milestones: mergedMilestones,
                 });
                 toast({
                     title: "O2D Step Automated",

@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2 } from "lucide-react";
+import { dedupeO2DMilestones, upsertO2DMilestone } from "@/lib/o2d-milestones";
 
 const buildMissingMilestones = (
   existing: InboundMilestone[],
@@ -214,7 +215,11 @@ export default function InboundReceivePage({
                     remarks: "Automatically completed after all items for this deal were received.",
                     selection: "Done",
                   };
-                  batch.update(o2dDocRef, { milestones: arrayUnion(newMilestone) });
+                  const mergedMilestones = upsertO2DMilestone(
+                    dedupeO2DMilestones((o2dData.milestones || []) as O2DStatus[]),
+                    newMilestone
+                  );
+                  batch.update(o2dDocRef, { milestones: mergedMilestones });
                 }
               }
             }

@@ -28,6 +28,10 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import {
+  applyOrderMilestoneChange,
+  getNormalizedOrderMilestones,
+} from '@/lib/order-workflow';
 
 
 type OrderItem = (FabricDetail | FurnitureDetail) & { type: 'Fabric' | 'Furniture' };
@@ -472,6 +476,10 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
     const [refreshKey, setRefreshKey] = useState(0);
     const { user, role } = useAuth();
     const { toast } = useToast();
+    const normalizedMilestones = useMemo(
+      () => (order ? getNormalizedOrderMilestones(order) : []),
+      [order]
+    );
 
     useEffect(() => {
         const docRef = doc(db, "orders", orderId);
@@ -498,20 +506,13 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
 
         try {
           const orderRef = doc(db, "orders", order.id);
-          let updatedMilestones = order.milestones.map(m =>
-            m.id === milestoneId ? { ...m, completed, completedAt: completed ? new Date().toISOString() : null, completedBy: completed ? user?.name : null, location: null } : m
+          const { milestones, workflow } = applyOrderMilestoneChange(
+            order,
+            milestoneId,
+            completed,
+            { id: user?.id, name: user?.name }
           );
-          
-          if (!completed) {
-              const milestoneIndex = updatedMilestones.findIndex(m => m.id === milestoneId);
-              if (milestoneIndex !== -1) {
-                  for (let i = milestoneIndex + 1; i < updatedMilestones.length; i++) {
-                      updatedMilestones[i] = { ...updatedMilestones[i], completed: false, completedAt: null, completedBy: null, location: null };
-                  }
-              }
-          }
-
-          const updatePayload: any = { milestones: updatedMilestones };
+          const updatePayload: any = { milestones, workflow };
           await updateDoc(orderRef, updatePayload);
           toast({ title: "Milestone updated!" });
         } catch (error) {
@@ -574,7 +575,7 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
                                 <Separator className="col-span-full" />
                                 <div className="flex items-center gap-2"><Tag className="h-4 w-4 text-muted-foreground" /><div><span className="text-muted-foreground">Sales Person: </span><span className="font-medium">{order.salesPerson}</span></div></div>
                                 <div className="flex items-center gap-2"><Calendar className="h-4 w-4 text-muted-foreground" /><div><span className="text-muted-foreground">Created: </span><span className="font-medium">{new Date(order.createdAt).toLocaleDateString()}</span></div></div>
-                                <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-muted-foreground" /><div><span className="text-muted-foreground">Status: </span><span className="font-medium">{order.milestones.slice().reverse().find(m => m.completed)?.name || "Order Received"}</span></div></div>
+                                <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-muted-foreground" /><div><span className="text-muted-foreground">Status: </span><span className="font-medium">{normalizedMilestones.slice().reverse().find(m => m.completed)?.name || "Order Received"}</span></div></div>
                                 <div className="flex items-center gap-2"><ShoppingBag className="h-4 w-4 text-muted-foreground" /><div><span className="text-muted-foreground">Order Type: </span><span className="font-medium capitalize">{order.orderType.replace('+', ' + ')}</span></div></div>
                             </div>
                         </CardContent>
@@ -590,7 +591,7 @@ export default function OrderDetailPage({ params: paramsPromise }: { params: Pro
                             <CardTitle>Milestone Progress</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <MilestoneProgress milestones={order.milestones} onMilestoneChange={canEditMilestones ? handleMilestoneChange : undefined} role={role} />
+                            <MilestoneProgress milestones={normalizedMilestones} onMilestoneChange={canEditMilestones ? handleMilestoneChange : undefined} role={role} />
                         </CardContent>
                     </Card>
                 </div>

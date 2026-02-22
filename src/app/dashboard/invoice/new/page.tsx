@@ -381,7 +381,6 @@ function convertQuotationToTemporaryOrder(q: Quotation): Order {
     orderType: "stitching",
 
     milestones: [],
-    o2dMilestones: [],
     pmsMilestones: [],
 
     fabricDetails: [],

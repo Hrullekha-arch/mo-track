@@ -16,6 +16,10 @@ import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { getMilestonesForOrder } from "@/lib/constants";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  applyOrderMilestoneChange,
+  buildWorkflowFromLegacyMilestones,
+} from "@/lib/order-workflow";
 
 export function PendingOrdersList() {
     const [allOrders, setAllOrders] = useState<Order[]>([]);
@@ -72,18 +76,16 @@ export function PendingOrdersList() {
         setUpdatingOrderId(orderToAck.id);
         try {
             const orderRef = doc(db, "orders", orderToAck.id);
-            const newMilestones = orderToAck.milestones.map(m => 
-                m.id === 1 ? { 
-                    ...m, 
-                    completed: true, 
-                    completedAt: new Date().toISOString(), 
-                    completedBy: user.name,
-                    location: null // No location needed for this step
-                } : m
+            const { milestones, workflow } = applyOrderMilestoneChange(
+              orderToAck,
+              1,
+              true,
+              { id: user.id, name: user.name }
             );
             
             const updatePayload: any = {
-                milestones: newMilestones,
+                milestones,
+                workflow,
                 isAcknowledged: true,
             };
             
@@ -122,9 +124,14 @@ export function PendingOrdersList() {
         try {
             const orderRef = doc(db, "orders", orderId);
             const newMilestones = getMilestonesForOrder(newType);
+            const newWorkflow = buildWorkflowFromLegacyMilestones(
+              newType,
+              newMilestones
+            );
             await updateDoc(orderRef, {
                 orderType: newType,
                 milestones: newMilestones,
+                workflow: newWorkflow,
             });
             toast({
                 title: "Order Type Updated",

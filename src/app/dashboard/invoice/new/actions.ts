@@ -4,7 +4,8 @@
 
 import { adminDb } from '@/lib/firebase-admin';
 import { DealOrder, Order, Quotation, Customer, Deal, FabricDetail, PurchaseRequest, Stock, VasDetail, OrderType, CuttingTask } from '@/lib/types';
-import { getMilestonesForOrder, MILESTONES_CONFIG, ORDER_TYPE_MILESTONES } from '@/lib/constants';
+import { getMilestonesForOrder } from '@/lib/constants';
+import { buildWorkflowMilestones } from '@/lib/order-workflow';
 
 export async function getQuotationsForDeal(customerId: string, dealId: string): Promise<Quotation[]> {
     try {
@@ -28,17 +29,6 @@ export async function getQuotationsForDeal(customerId: string, dealId: string): 
         return [];
     }
 }
-
-const ORDER_MILESTONE_KEY_MAP: Record<number, string> = {
-  1: "ORDER_RECEIVED",
-  2: "FABRIC_ALLOCATED",
-  3: "SENT_TO_STITCHING",
-  4: "STITCHING_DONE",
-  5: "READY_FOR_DELIVERY",
-  6: "INSTALLATION_SCHEDULED",
-  7: "OUT_FOR_DELIVERY_INSTALLATION",
-  8: "INSTALLATION_DONE",
-};
 
 const coerceNumber = (value: unknown, fallback = 0) => {
   const num = Number(value);
@@ -84,21 +74,6 @@ const resolveOrderItemUnit = (itemType: string, item: any) => {
   if (unit) return unit;
   if (itemType === "FABRIC") return "MTR";
   return "PCS";
-};
-
-const buildWorkflowMilestones = (
-  orderType: OrderType,
-  actor: { id?: string; name?: string }
-) => {
-  const ids = ORDER_TYPE_MILESTONES[orderType] || ORDER_TYPE_MILESTONES.delivery;
-  const now = new Date().toISOString();
-  return ids.map((id, index) => ({
-    key: ORDER_MILESTONE_KEY_MAP[id] || `MILESTONE_${id}`,
-    label: MILESTONES_CONFIG[id]?.name || `Step ${id}`,
-    status: index === 0 ? "DONE" : "PENDING",
-    at: index === 0 ? now : undefined,
-    by: index === 0 ? { id: actor.id, name: actor.name } : undefined,
-  }));
 };
 
 const summarizeOrderItems = (items: Array<{ taxableAmount?: number; gstAmount?: number; totalAmount?: number }>) => {

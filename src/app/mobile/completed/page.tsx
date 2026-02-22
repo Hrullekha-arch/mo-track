@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { InstallerOrderCard } from "@/components/features/installer/MobileView";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CompletedVisitsList } from "@/components/features/installer/CompletedVisitsList";
+import { isOrderComplete as isOrderWorkflowComplete } from "@/lib/order-workflow";
 
 export default function MobileCompletedPage() {
   const { user, loading, role } = useAuth();
@@ -30,7 +31,8 @@ export default function MobileCompletedPage() {
     }
   }, [user, loading, role, router]);
 
-  const isFullyCompleted = (order: Order) => order.milestones.every(m => m.completed) && (!!order.feedbackRating || order.bypassedOtp === true);
+  const isFullyCompleted = (order: Order) =>
+    isOrderWorkflowComplete(order) && (!!order.feedbackRating || order.bypassedOtp === true);
 
   useEffect(() => {
     if (!user) return;

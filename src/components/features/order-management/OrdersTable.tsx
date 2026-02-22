@@ -103,6 +103,10 @@ import { cn } from "@/lib/utils";
 import { NewOrderDialog } from "./NewOrderDialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { setFullKittingTime } from "./actions";
+import {
+  getNormalizedOrderMilestones,
+  getOrderStatusLabel,
+} from "@/lib/order-workflow";
 
 type AllocationFilterValue = "all" | "ready" | "partial";
 
@@ -131,16 +135,6 @@ const getOrderAllocationMetrics = (order: Order) => {
     isReadyForAllocate,
     isPartialAllocate,
   };
-};
-
-const getOrderStatusLabel = (order: Order) => {
-  const milestones = Array.isArray(order.milestones) ? order.milestones : [];
-  const lastCompleted = [...milestones]
-    .reverse()
-    .find((milestone) => milestone.completed);
-  if (lastCompleted?.name) return String(lastCompleted.name).toUpperCase();
-  if (order.status === "Pending Approval") return "PENDING APPROVAL";
-  return String(order.status || "NEW").toUpperCase();
 };
 
 // ─── Stats Card ────────────────────────────────────────────────────────────────
@@ -181,7 +175,9 @@ function StatsCard({
 // ─── KittingTimePicker ─────────────────────────────────────────────────────────
 function KittingTimePicker({ order }: { order: Order }) {
   const { toast } = useToast();
-  const sentToStitchingMilestone = order.milestones?.find((m) => m.id === 3);
+  const sentToStitchingMilestone = getNormalizedOrderMilestones(order).find(
+    (milestone) => milestone.id === 3
+  );
 
   const [kittingDate, setKittingDate] = React.useState<Date | undefined>(
     order.fullKittingTime ? new Date(order.fullKittingTime) : undefined
@@ -505,12 +501,21 @@ function FilterPanel({
 
 // ─── Allocation Badge ──────────────────────────────────────────────────────────
 function AllocationBadge({ order }: { order: Order }) {
+  if (getOrderStatusLabel(order) === "INSTALLATION DONE") {
+    return (
+      <Badge className="bg-lime-600 hover:bg-lime-700 text-white text-xs">
+        <CheckCircle2 className="mr-1 h-3 w-3" />
+        Completed
+      </Badge>
+    );
+  }
+
   const {
     totalItems,
     inStockOrAllocatedItems,
     isFullyAllocated,
   } = getOrderAllocationMetrics(order);
-
+ 
   if (totalItems === 0)
     return (
       <Badge variant="outline" className="text-xs">
@@ -553,6 +558,7 @@ function StatusBadge({ order }: { order: Order }) {
   const status = getOrderStatusLabel(order);
   const isPending = status === "PENDING APPROVAL";
   const isNew = status === "NEW" || status === "APPROVED";
+  const isComplete = status === "INSTALLATION DONE";
 
   return (
     <Badge
@@ -561,7 +567,8 @@ function StatusBadge({ order }: { order: Order }) {
         "text-xs font-medium",
         isPending && "border-red-300 bg-red-50 text-red-700",
         isNew && "border-blue-300 bg-blue-50 text-blue-700",
-        !isPending && !isNew && "border-slate-200 bg-slate-50 text-slate-700"
+        !isPending && !isNew && "border-slate-200 bg-slate-50 text-slate-700",
+        isComplete && "border-slate-200 bg-green-200 text-slate-700",
       )}
     >
       {status}
@@ -929,11 +936,12 @@ export function OrdersTable() {
   };
 
   const isInstallationDone = (order: Order) => {
-    if (!Array.isArray(order.milestones)) return false;
-    const milestoneIds = order.milestones.map((m) => m.id);
+    const milestones = getNormalizedOrderMilestones(order);
+    if (!milestones.length) return false;
+    const milestoneIds = milestones.map((milestone) => milestone.id);
     const lastMilestoneId = Math.max(...milestoneIds);
-    const lastMilestone = order.milestones.find(
-      (m) => m.id === lastMilestoneId
+    const lastMilestone = milestones.find(
+      (milestone) => milestone.id === lastMilestoneId
     );
     return !!lastMilestone?.completed;
   };
@@ -1321,8 +1329,8 @@ export function OrdersTable() {
       {/* New Order Dialog */}
       {isQuotationDialogOpen && (
         <NewOrderDialog
-          open={isQuotationDialogOpen}
-          onOpenChange={setIsQuotationDialogOpen}
+          isOpen={isQuotationDialogOpen}
+          onClose={() => setIsQuotationDialogOpen(false)}
         />
       )}
     </>

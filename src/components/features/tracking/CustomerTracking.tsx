@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { getPublicOrderDetails } from "@/app/track/actions";
+import { getNormalizedOrderMilestones, isOrderComplete as isOrderWorkflowComplete } from "@/lib/order-workflow";
 
 const formSchema = z.object({
   trackingCode: z.string().min(1, { message: "Tracking code is required." }),
@@ -107,7 +108,7 @@ export function CustomerTracking() {
     }
   }
   
-  const isOrderComplete = order?.milestones.every(m => m.completed) ?? false;
+  const isOrderComplete = order ? isOrderWorkflowComplete(order) : false;
 
   return (
     <div className="space-y-6">
@@ -153,7 +154,7 @@ export function CustomerTracking() {
                  <Separator />
                  <div>
                     <h3 className="mb-4 text-lg font-semibold">Order Progress</h3>
-                    <MilestoneProgress milestones={order.milestones} />
+                    <MilestoneProgress milestones={getNormalizedOrderMilestones(order)} />
                  </div>
                  {isOrderComplete && (
                     <>

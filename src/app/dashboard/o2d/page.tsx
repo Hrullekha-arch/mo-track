@@ -5,7 +5,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { User, Users, Clock, Banknote, ClipboardCheck, Box, ArrowRightCircle, Phone, MapPin, ChevronDown, CheckCircle, AlertTriangle, MessageSquareWarning, SkipForward, Calendar, MessageCircle, Undo2, Calendar as CalendarIcon, X, Eye, EyeOff, Sparkles, UserCheck, PackageSearch, FileText, BadgePercent, PhoneCall } from 'lucide-react';
-import { collection, onSnapshot, query, doc, updateDoc, arrayUnion, getDoc, arrayRemove, where } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, getDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Order, O2DStep, O2DStatus, OrderType, O2DProcess } from "@/lib/types";
 import { Skeleton } from '@/components/ui/skeleton';
@@ -24,6 +24,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { ConfirmOrderTypeDialog } from "@/components/features/order-management/ConfirmOrderTypeDialog";
 import { getMilestonesForOrder, O2D_PROCESS_CONFIG, calculateExpectedDatesForOrder } from '@/lib/constants';
+import { buildWorkflowFromLegacyMilestones, getNormalizedOrderMilestones } from '@/lib/order-workflow';
+import { dedupeO2DMilestones, removeO2DMilestone, upsertO2DMilestone } from "@/lib/o2d-milestones";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +38,8 @@ import { setBalanceFollowUp } from '../all-orders/actions';
 const formatTimestamp = (date: Date) => {
     return format(date, 'dd/MM/yyyy - HH:mm:ss');
 };
+
+type O2DByDealId = Record<string, (O2DProcess & { id: string })>;
 
 function O2DProcessTimeline({ 
     order, 
@@ -292,6 +296,7 @@ function UpdateO2DStepDialog({
 
 export default function O2DPage() {
     const [allOrders, setAllOrders] = useState<Order[]>([]);
+    const [o2dByDealId, setO2dByDealId] = useState<O2DByDealId>({});
     const [loading, setLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [isRevertDialogOpen, setIsRevertDialogOpen] = useState(false);
@@ -302,68 +307,111 @@ export default function O2DPage() {
     const [followUpOrder, setFollowUpOrder] = useState<Order | null>(null);
 
 
-    const { user, role, designation } = useAuth();
+    const { user, role } = useAuth();
+    const designation = user?.designation ?? null;
     const { toast } = useToast();
 
     useEffect(() => {
-        const q = query(collection(db, "orders"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const ordersData = snapshot.docs.map(doc => {
-                const data = doc.data() as Omit<Order, 'id'>;
-                // Automatically add o2dMilestones if it's missing
-                if (data.o2dMilestones === undefined) {
-                    data.o2dMilestones = [];
-                }
-                return { id: doc.id, ...data } as Order;
-            });
-            
+        let ordersLoaded = false;
+        let o2dLoaded = false;
+        const markLoaded = () => {
+            if (ordersLoaded && o2dLoaded) setLoading(false);
+        };
+
+        setLoading(true);
+        const ordersQuery = query(collection(db, "orders"));
+        const o2dQuery = query(collection(db, "o2d"));
+
+        const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+            const ordersData = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Order));
             setAllOrders(ordersData);
-            
-            // Automation: Check orders for "Stitching Done"
-            ordersData.forEach(async (order) => {
-                const stitchingDone = order.milestones.find(m => m.id === 4)?.completed;
-                if (stitchingDone && order.dealId) {
-                    const o2dQuery = query(collection(db, 'o2d'), where("dealId", "==", order.dealId));
-                    const o2dSnapshot = await getDocs(o2dQuery);
-                    if (!o2dSnapshot.empty) {
-                        const o2dDoc = o2dSnapshot.docs[0];
-                        const o2dData = o2dDoc.data() as O2DProcess;
-                        const productionMilestone = (o2dData.milestones || []).find(m => m.stepId === 8);
-                        
-                        if (!productionMilestone) {
-                            const newMilestone: O2DStatus = {
-                                stepId: 8, // Production
-                                status: 'completed',
-                                completedAt: new Date().toISOString(),
-                                completedBy: user?.name || "System",
-                                remarks: "Automatically completed when stitching was marked as done.",
-                                selection: "Done"
-                            };
-                            await updateDoc(o2dDoc.ref, {
-                                milestones: arrayUnion(newMilestone)
-                            });
-                        }
-                    }
-                }
-            });
-
-
-            setLoading(false);
+            ordersLoaded = true;
+            markLoaded();
         });
-        return () => unsubscribe();
-    }, [user]);
+
+        const unsubscribeO2D = onSnapshot(o2dQuery, (snapshot) => {
+            const nextMap: O2DByDealId = {};
+            snapshot.docs.forEach((docSnap) => {
+                const data = docSnap.data() as O2DProcess;
+                const { id: _ignoredId, ...rest } = (data ?? {}) as O2DProcess;
+                const dealKey = String(data?.dealId || "").trim();
+                if (!dealKey) return;
+                nextMap[dealKey] = {
+                    ...rest,
+                    id: docSnap.id,
+                    milestones: dedupeO2DMilestones(Array.isArray(rest?.milestones) ? rest.milestones : []),
+                };
+            });
+            setO2dByDealId(nextMap);
+            o2dLoaded = true;
+            markLoaded();
+        });
+
+        return () => {
+            unsubscribeOrders();
+            unsubscribeO2D();
+        };
+    }, []);
+
+    const getOrderO2DMilestones = useCallback(
+        (order: Order): O2DStatus[] => {
+            const dealKey = String(order.dealId || "").trim();
+            if (!dealKey) return Array.isArray(order.o2dMilestones) ? order.o2dMilestones : [];
+            const o2dDoc = o2dByDealId[dealKey];
+            if (o2dDoc && Array.isArray(o2dDoc.milestones)) {
+                return dedupeO2DMilestones(o2dDoc.milestones);
+            }
+            return Array.isArray(order.o2dMilestones) ? order.o2dMilestones : [];
+        },
+        [o2dByDealId]
+    );
+
+    useEffect(() => {
+        const ensureProductionMilestone = async () => {
+            const updates = allOrders.map(async (order) => {
+                const stitchingDone = getNormalizedOrderMilestones(order).find((m) => m.id === 4)?.completed;
+                if (!stitchingDone || !order.dealId) return;
+                const o2dDoc = o2dByDealId[String(order.dealId)];
+                if (!o2dDoc) return;
+                const milestones = dedupeO2DMilestones(o2dDoc.milestones);
+                if (milestones.some((m) => m.stepId === 8)) return;
+
+                const newMilestone: O2DStatus = {
+                    stepId: 8,
+                    status: 'completed',
+                    completedAt: new Date().toISOString(),
+                    completedBy: user?.name || "System",
+                    remarks: "Automatically completed when stitching was marked as done.",
+                    selection: "Done",
+                };
+                const mergedMilestones = upsertO2DMilestone(milestones, newMilestone);
+                await updateDoc(doc(db, "o2d", o2dDoc.id), {
+                    milestones: mergedMilestones,
+                });
+            });
+            await Promise.all(updates);
+        };
+
+        ensureProductionMilestone().catch((error) => {
+            console.error("Failed to auto-sync O2D production milestone:", error);
+        });
+    }, [allOrders, o2dByDealId, user?.name]);
 
     const pendingOrders = useMemo(() => {
         let orders = allOrders.filter(order => {
-            const finalO2DStep = order.o2dMilestones?.find(m => m.stepId === O2D_PROCESS_CONFIG[O2D_PROCESS_CONFIG.length - 1].id);
+            const o2dMilestones = getOrderO2DMilestones(order);
+            const finalO2DStep = o2dMilestones.find(
+                (milestone) => milestone.stepId === O2D_PROCESS_CONFIG[O2D_PROCESS_CONFIG.length - 1].id
+            );
             return !finalO2DStep; // If final step doesn't exist, it's pending
         });
 
         if (filterDate) {
             orders = orders.filter(order => {
-                const expectedDates = calculateExpectedDatesForOrder(order);
+                const orderWithMilestones = { ...order, o2dMilestones: getOrderO2DMilestones(order) };
+                const expectedDates = calculateExpectedDatesForOrder(orderWithMilestones);
                 const pendingSteps = O2D_PROCESS_CONFIG.filter(stepConfig => 
-                    !(order.o2dMilestones || []).some(m => m.stepId === stepConfig.id)
+                    !orderWithMilestones.o2dMilestones?.some(m => m.stepId === stepConfig.id)
                 );
                 return pendingSteps.some(step => isSameDay(expectedDates[step.id], filterDate));
             });
@@ -375,7 +423,7 @@ export default function O2DPage() {
             return dateA - dateB;
         });
 
-    }, [allOrders, filterDate]);
+    }, [allOrders, filterDate, getOrderO2DMilestones]);
     
     const handleOpenRemarkDialog = (orderId: string, stepId: number, isOverdue: boolean, action: 'completed' | 'skipped', selection: string) => {
         setUpdatingStepInfo({ orderId, stepId, isOverdue, action, selection });
@@ -389,19 +437,16 @@ export default function O2DPage() {
 
     const handleFollowUp = async () => {
         if (!followUpOrder || !user) return;
-
-        const o2dQuery = query(collection(db, 'o2d'), where('dealId', '==', followUpOrder.dealId));
-        const o2dDocs = await getDocs(o2dQuery);
-
-        if (o2dDocs.empty) {
+        const dealKey = String(followUpOrder.dealId || "").trim();
+        const o2dDoc = dealKey ? o2dByDealId[dealKey] : undefined;
+        if (!o2dDoc) {
             toast({ variant: "destructive", title: "O2D Document not found" });
             setFollowUpOrder(null);
             return;
         }
-        const o2dDocId = o2dDocs.docs[0].id;
         
         try {
-            const result = await setBalanceFollowUp(followUpOrder.orderId!, o2dDocId, user.name);
+            const result = await setBalanceFollowUp(followUpOrder.id, o2dDoc.id, user.name);
             if (result.success) {
                 toast({ title: "Follow-up Step Completed", description: result.message });
             } else {
@@ -418,11 +463,20 @@ export default function O2DPage() {
     const handleRevertStep = async () => {
         if (!revertingStepInfo) return;
         const { orderId, milestone } = revertingStepInfo;
+        const order = allOrders.find((item) => item.id === orderId);
+        const dealKey = String(order?.dealId || "").trim();
+        const o2dDoc = dealKey ? o2dByDealId[dealKey] : undefined;
 
         try {
-            const orderRef = doc(db, "orders", orderId);
-            await updateDoc(orderRef, {
-                o2dMilestones: arrayRemove(milestone)
+            if (!o2dDoc) {
+                throw new Error("O2D document not found for this order.");
+            }
+            const remainingMilestones = removeO2DMilestone(
+                dedupeO2DMilestones(o2dDoc.milestones),
+                milestone.stepId
+            );
+            await updateDoc(doc(db, "o2d", o2dDoc.id), {
+                milestones: remainingMilestones,
             });
             toast({ title: "Step Reverted!", description: "The step has been successfully reverted." });
         } catch (error) {
@@ -450,8 +504,21 @@ export default function O2DPage() {
         };
         
         try {
-            const orderRef = doc(db, "orders", orderId);
-            await updateDoc(orderRef, { o2dMilestones: arrayUnion(newStatus) });
+            const order = allOrders.find((item) => item.id === orderId);
+            const dealKey = String(order?.dealId || "").trim();
+            const o2dDoc = dealKey ? o2dByDealId[dealKey] : undefined;
+            if (!o2dDoc) {
+                throw new Error("O2D document not found for this order.");
+            }
+
+            const mergedMilestones = upsertO2DMilestone(
+                dedupeO2DMilestones(o2dDoc.milestones),
+                newStatus
+            );
+
+            await updateDoc(doc(db, "o2d", o2dDoc.id), {
+                milestones: mergedMilestones,
+            });
 
             toast({ title: "Step Updated!", description: "Progress has been saved." });
         } catch (error) {
@@ -478,16 +545,21 @@ export default function O2DPage() {
 
         try {
             const orderRef = doc(db, "orders", order.id);
+            const dealKey = String(order.dealId || "").trim();
+            const o2dDoc = dealKey ? o2dByDealId[dealKey] : undefined;
+            if (!o2dDoc) {
+                throw new Error("O2D document not found for this order.");
+            }
 
             const updatePayload: any = {
-                o2dMilestones: arrayUnion(newStatus),
                 isAcknowledged: true,
             };
-            
+             
             const orderDoc = await getDoc(orderRef);
             const orderData = orderDoc.data() as Order;
-            
-            let milestonesToUpdate = orderData.milestones;
+             
+            let milestonesToUpdate = getNormalizedOrderMilestones(orderData);
+            const nextOrderType = order.orderType !== newOrderType ? newOrderType : orderData.orderType;
 
             // If order type has changed, update it and the main milestones
             if (order.orderType !== newOrderType) {
@@ -508,8 +580,22 @@ export default function O2DPage() {
                 };
             }
             updatePayload.milestones = milestonesToUpdate;
+            updatePayload.workflow = buildWorkflowFromLegacyMilestones(
+                nextOrderType,
+                milestonesToUpdate,
+                orderData.workflow
+            );
+
+            const mergedO2DMilestones = upsertO2DMilestone(
+                dedupeO2DMilestones(o2dDoc.milestones),
+                newStatus
+            );
 
             await updateDoc(orderRef, updatePayload);
+            await updateDoc(doc(db, "o2d", o2dDoc.id), {
+                milestones: mergedO2DMilestones,
+                isAcknowledged: true,
+            });
             toast({ title: "Order Moved!", description: `${order.id} has been moved to the main dashboard.` });
 
         } catch (error) {
@@ -537,9 +623,11 @@ export default function O2DPage() {
 
     const OrderCard = ({ order }: { order: Order }) => {
         const [showAllSteps, setShowAllSteps] = useState(false);
-        
-        const expectedDates = calculateExpectedDatesForOrder(order);
-        const completedSteps = (order.o2dMilestones || []).filter(m => m.status === 'completed' || m.status === 'skipped');
+        const orderO2DMilestones = getOrderO2DMilestones(order);
+        const expectedDates = calculateExpectedDatesForOrder({ ...order, o2dMilestones: orderO2DMilestones });
+        const completedSteps = orderO2DMilestones.filter(
+            (milestone) => milestone.status === 'completed' || milestone.status === 'skipped'
+        );
         const nextStepIndex = O2D_PROCESS_CONFIG.findIndex(s => !completedSteps.some(cs => cs.stepId === s.id));
         const currentStep = nextStepIndex !== -1 ? O2D_PROCESS_CONFIG[nextStepIndex] : null;
 
@@ -616,7 +704,7 @@ export default function O2DPage() {
                         </Button>
                     </div>
                     <O2DProcessTimeline 
-                        order={order} 
+                        order={{ ...order, o2dMilestones: orderO2DMilestones }} 
                         onStepUpdate={handleOpenRemarkDialog} 
                         onQuickStepUpdate={handleQuickStepUpdate}
                         onRevertStep={handleOpenRevertDialog}
@@ -691,7 +779,7 @@ export default function O2DPage() {
                 isOpen={isDialogOpen}
                 onClose={() => setIsDialogOpen(false)}
                 onUpdate={handleRemarkSubmit}
-                step={updatingStepConfig}
+                step={updatingStepConfig ?? null}
                 action={updatingStepInfo?.action || null}
                 isOverdue={updatingStepInfo?.isOverdue || false}
             />

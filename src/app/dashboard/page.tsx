@@ -57,6 +57,7 @@ import { addCustomerAction, addDealAction } from "./customers/actions";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import { getNormalizedOrderMilestones, isOrderComplete as isOrderWorkflowComplete } from "@/lib/order-workflow";
 
 type DashboardOrderRisk = "critical" | "watch" | "stable";
 
@@ -90,7 +91,7 @@ const toDateSafe = (value: unknown): Date | null => {
 };
 
 const deriveDashboardOrderRow = (order: Order): DashboardOrderRow => {
-  const milestones = order.milestones || [];
+  const milestones = getNormalizedOrderMilestones(order);
   const totalMilestones = milestones.length;
   const completedMilestones = milestones.filter((step) => step.completed).length;
   const progress = totalMilestones ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
@@ -345,9 +346,9 @@ const SalesmanDashboard = () => {
                                             <p className="font-semibold text-primary">{order.customerName}</p>
                                             <p className="text-sm text-muted-foreground">{order.id}</p>
                                         </div>
-                                        <div className="text-right">
-                                            <Badge variant={order.milestones.every(m => m.completed) ? 'default' : 'secondary'} className={cn('capitalize', order.milestones.every(m => m.completed) ? 'bg-green-600' : '')}>
-                                                {order.milestones.slice().reverse().find(m => m.completed)?.name.toLowerCase() || 'Order Received'}
+                                    <div className="text-right">
+                                            <Badge variant={isOrderWorkflowComplete(order) ? 'default' : 'secondary'} className={cn('capitalize', isOrderWorkflowComplete(order) ? 'bg-green-600' : '')}>
+                                                {getNormalizedOrderMilestones(order).slice().reverse().find(m => m.completed)?.name.toLowerCase() || 'Order Received'}
                                             </Badge>
                                             <p className="text-sm text-muted-foreground mt-1">{format(new Date(order.createdAt), 'dd MMM yyyy')}</p>
                                         </div>
@@ -1166,8 +1167,8 @@ const AdminDashboard = () => {
             ...prev,
             readyForDelivery: orders.filter(
               (o) =>
-                o.milestones.find((m) => m.id === 5)?.completed &&
-                !o.milestones.find((m) => m.id === 8)?.completed
+                getNormalizedOrderMilestones(o).find((m) => m.id === 5)?.completed &&
+                !getNormalizedOrderMilestones(o).find((m) => m.id === 8)?.completed
             ).length,
             pendingOrderApproval: orders.filter((o) => o.status === "Pending Approval").length,
             pendingInvoice: orders.filter(

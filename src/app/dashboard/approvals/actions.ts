@@ -4,7 +4,7 @@
 
 import { adminDb } from "@/lib/firebase-admin";
 import { Order, O2DStatus, Quotation } from "@/lib/types";
-import { FieldValue } from "firebase-admin/firestore";
+import { dedupeO2DMilestones, upsertO2DMilestone } from "@/lib/o2d-milestones";
 
 
 export async function approveOrderAndCreatePurchaseRequest(
@@ -117,6 +117,9 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
             if (!o2dSnapshot.empty) {
                 const o2dDoc = o2dSnapshot.docs[0];
                 const o2dRef = o2dDoc.ref;
+                const existingMilestones = dedupeO2DMilestones(
+                    (o2dDoc.data()?.milestones || []) as O2DStatus[]
+                );
                 const paymentConfirmationStep: O2DStatus = {
                     stepId: 11, // 'Payment Received Conf'
                     status: 'completed',
@@ -126,7 +129,7 @@ export async function confirmPaymentReceived(orderId: string, approver: { id: st
                     selection: 'Done'
                 };
                 batch.update(o2dRef, {
-                    milestones: FieldValue.arrayUnion(paymentConfirmationStep)
+                    milestones: upsertO2DMilestone(existingMilestones, paymentConfirmationStep)
                 });
             }
         }
@@ -179,7 +182,9 @@ export async function approveQuotationAction(
             const o2dDoc = o2dSnapshot.docs[0];
             const o2dProcessRef = o2dDoc.ref;
             const quotationRecheckStepId = 5; // Corresponds to "Quotation Re-Check"
-            const existingMilestones = (o2dDoc.data()?.milestones || []) as O2DStatus[];
+            const existingMilestones = dedupeO2DMilestones(
+                (o2dDoc.data()?.milestones || []) as O2DStatus[]
+            );
 
             if (!existingMilestones.some((m) => m.stepId === quotationRecheckStepId)) {
                 const newMilestone: O2DStatus = {
@@ -191,7 +196,7 @@ export async function approveQuotationAction(
                 selection: 'Done',
                 };
                 batch.update(o2dProcessRef, {
-                milestones: FieldValue.arrayUnion(newMilestone),
+                milestones: upsertO2DMilestone(existingMilestones, newMilestone),
                 });
             }
         }
