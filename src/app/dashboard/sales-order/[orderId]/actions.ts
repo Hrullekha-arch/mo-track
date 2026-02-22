@@ -43,6 +43,7 @@ export async function allocateStockToAction(
   ): Promise<{ success: boolean; message: string }> {
     try {
       await adminDb.runTransaction(async (transaction) => {
+        const EPSILON = 0.0001;
         const orderRef = adminDb.collection('orders').doc(orderId);
         const stockRef = adminDb.collection('stocks').doc(bcn);
         // --- READ PHASE ---
@@ -55,18 +56,44 @@ export async function allocateStockToAction(
         if (!orderDoc.exists) throw new Error("Order not found.");
         if (!stockDoc.exists) throw new Error(`Stock item ${bcn} not found.`);
 
+        const toNumber = (value: unknown, fallback: number) => {
+          const num = typeof value === 'number' ? value : Number(value);
+          return Number.isFinite(num) ? num : fallback;
+        };
+        const normalizeOrderBcn = (value?: string) => (value || '').split(' - ')[0].trim().toLowerCase();
+        const getAllocatedQty = (allocation: any) => {
+          const lengths = Array.isArray(allocation?.lengths) ? allocation.lengths : [];
+          const lots = Array.isArray(allocation?.lots) ? allocation.lots : [];
+          return [...lengths, ...lots].reduce(
+            (sum: number, entry: any) => sum + toNumber(entry?.allocatedQty, 0),
+            0
+          );
+        };
+
+        // Normalize inbound allocations and merge duplicate length entries in one request.
+        const mergedAllocationsMap = new Map<string, number>();
+        (Array.isArray(allocations) ? allocations : []).forEach((allocation) => {
+          const lengthId = String(allocation?.lengthId || "").trim();
+          const quantity = toNumber(allocation?.quantity, 0);
+          if (!lengthId || quantity <= EPSILON) return;
+          mergedAllocationsMap.set(lengthId, toNumber(mergedAllocationsMap.get(lengthId), 0) + quantity);
+        });
+        const normalizedAllocations = Array.from(mergedAllocationsMap.entries()).map(
+          ([lengthId, quantity]) => ({ lengthId, quantity })
+        );
+        if (!normalizedAllocations.length) {
+          throw new Error("No valid allocation quantities provided.");
+        }
+
         // 2. Get all length documents that will be written to.
-        const lengthRefs = allocations.map(alloc => stockRef.collection('lengths').doc(alloc.lengthId));
+        const lengthRefs = normalizedAllocations.map((alloc) =>
+          stockRef.collection('lengths').doc(alloc.lengthId)
+        );
         const lengthDocs = await transaction.getAll(...lengthRefs);
         const lengthDocsMap = new Map(lengthDocs.map(doc => [doc.id, doc]));
 
         // --- VALIDATION PHASE (NO WRITES) ---
         const orderData = orderDoc.data() as Order;
-        const normalizeBcn = (value?: string) => (value || '').split(' - ')[0].trim();
-        const toNumber = (value: unknown, fallback: number) => {
-          const num = typeof value === 'number' ? value : Number(value);
-          return Number.isFinite(num) ? num : fallback;
-        };
         const getAvailable = (data: Stock) =>
           toNumber((data as any)?.availableLength ?? (data as any)?.availableQty, 0);
         const getOriginal = (data: Stock, fallback: number) =>
@@ -79,18 +106,56 @@ export async function allocateStockToAction(
           const derived = original - available;
           return derived > 0 ? derived : 0;
         };
-        const normalizedBcn = normalizeBcn(bcn);
-        const matchedFabricDetail = (orderData.fabricDetails || []).find(item => normalizeBcn(item.fabricName) === normalizedBcn);
-        const orderItems = (orderData as { items?: Array<{ collectionBrand?: string; rate?: number; discountPercent?: number }> }).items || [];
-        const matchedOrderItem = orderItems.find(item => normalizeBcn(item.collectionBrand) === normalizedBcn);
-        const resolvedRate = toNumber(matchedFabricDetail?.rate ?? matchedOrderItem?.rate, rate);
-        const resolvedDiscount = toNumber(matchedFabricDetail?.discountPercent ?? matchedOrderItem?.discountPercent, 0);
+        const sections = orderData.sections || {};
+        const normalSection = sections.NORMAL || { items: [] };
+        const normalItems = Array.isArray(normalSection.items) ? normalSection.items : [];
+        const normalizedTargetBcn = normalizeOrderBcn(bcn);
+        const matchingItemIndexes = normalItems
+          .map((orderItem: any, index: number) => ({ orderItem, index }))
+          .filter(({ orderItem }) => {
+            const orderItemBcn = normalizeOrderBcn(
+              orderItem?.bcn || orderItem?.description || orderItem?.itemName || ""
+            );
+            return Boolean(orderItemBcn && orderItemBcn === normalizedTargetBcn);
+          })
+          .map(({ index }) => index);
+
+        if (!matchingItemIndexes.length) {
+          throw new Error(`No matching order line found for ${bcn}.`);
+        }
+
+        let requiredQtyTotal = 0;
+        let alreadyAllocatedTotal = 0;
+        matchingItemIndexes.forEach((itemIndex) => {
+          const orderItem = normalItems[itemIndex];
+          requiredQtyTotal += toNumber(orderItem?.qty, 0);
+          alreadyAllocatedTotal += getAllocatedQty(orderItem?.allocation);
+        });
+
+        const remainingQtyTotal = Math.max(0, requiredQtyTotal - alreadyAllocatedTotal);
+        const requestedQtyTotal = normalizedAllocations.reduce(
+          (sum, allocation) => sum + toNumber(allocation.quantity, 0),
+          0
+        );
+
+        if (remainingQtyTotal <= EPSILON) {
+          throw new Error("This item is already fully allocated for this order.");
+        }
+        if (requestedQtyTotal <= EPSILON) {
+          throw new Error("No allocatable quantity provided.");
+        }
+        if (requestedQtyTotal - remainingQtyTotal > EPSILON) {
+          throw new Error(
+            `Allocation exceeds remaining quantity. Remaining: ${remainingQtyTotal.toFixed(2)}, Requested: ${requestedQtyTotal.toFixed(2)}.`
+          );
+        }
+
         let totalAllocatedQty = 0;
         const lengthMeta = new Map<string, { available: number; original: number; reserved: number; status?: string }>();
         
-        for (const allocation of allocations) {
+        for (const allocation of normalizedAllocations) {
             const { lengthId, quantity } = allocation;
-            if (quantity <= 0) continue;
+            if (quantity <= EPSILON) continue;
 
             const lengthDoc = lengthDocsMap.get(lengthId);
             if (!lengthDoc || !lengthDoc.exists) {
@@ -108,12 +173,136 @@ export async function allocateStockToAction(
             totalAllocatedQty += quantity;
         }
 
-        // --- WRITE PHASE ---
         const updateTimestamp = new Date().toISOString();
+
+        // Build updated order sections before writes so one allocation request can never be duplicated
+        // across every row having the same BCN.
+        const allocationPool = normalizedAllocations.map((entry) => ({
+          lengthId: entry.lengthId,
+          remainingQty: toNumber(entry.quantity, 0),
+        }));
+        const consumeFromPool = (qtyNeeded: number) => {
+          const consumed: Array<{ lengthId: string; qty: number }> = [];
+          let remainingNeed = qtyNeeded;
+          for (const poolItem of allocationPool) {
+            if (remainingNeed <= EPSILON) break;
+            if (poolItem.remainingQty <= EPSILON) continue;
+            const take = Math.min(remainingNeed, poolItem.remainingQty);
+            if (take <= EPSILON) continue;
+            poolItem.remainingQty = Math.max(0, poolItem.remainingQty - take);
+            remainingNeed = Math.max(0, remainingNeed - take);
+            consumed.push({ lengthId: poolItem.lengthId, qty: take });
+          }
+          return consumed;
+        };
+
+        const matchingIndexSet = new Set<number>(matchingItemIndexes);
+        const updatedNormalItems = normalItems.map((orderItem: any, index: number) => {
+            if (!matchingIndexSet.has(index)) return orderItem;
+
+            const existingAllocation = orderItem.allocation || { status: "PENDING", lengths: [], lots: [] };
+            const updatedLengths = Array.isArray(existingAllocation.lengths) ? [...existingAllocation.lengths] : [];
+            const updatedLots = Array.isArray(existingAllocation.lots) ? [...existingAllocation.lots] : [];
+
+            const requiredQty = toNumber(orderItem.qty, 0);
+            const existingAllocated = getAllocatedQty(existingAllocation);
+            const itemRemaining = Math.max(0, requiredQty - existingAllocated);
+            const consumed = itemRemaining > EPSILON ? consumeFromPool(itemRemaining) : [];
+
+            consumed.forEach(({ lengthId, qty }) => {
+                const lengthIndex = updatedLengths.findIndex((entry: any) => entry.lengthId === lengthId);
+                if (lengthIndex >= 0) {
+                    const existing = updatedLengths[lengthIndex];
+                    updatedLengths[lengthIndex] = {
+                        ...existing,
+                        allocatedQty: toNumber(existing.allocatedQty, 0) + qty,
+                        reservedAt: updateTimestamp,
+                        reservedBy: { id: userId, name: userName },
+                    };
+                } else {
+                    updatedLengths.push({
+                        stockItemId: bcn,
+                        lengthId,
+                        allocatedQty: qty,
+                        unit: orderItem.unit,
+                        reservedAt: updateTimestamp,
+                        reservedBy: { id: userId, name: userName },
+                    });
+                }
+            });
+
+            const totalAllocated = [...updatedLengths, ...updatedLots].reduce(
+                (sum: number, entry: any) => sum + toNumber(entry.allocatedQty, 0),
+                0
+            );
+            const allocationStatus =
+                totalAllocated <= EPSILON
+                  ? "PENDING"
+                  : totalAllocated + EPSILON >= requiredQty
+                  ? "ALLOCATED"
+                  : "PARTIAL";
+
+            return {
+                ...orderItem,
+                allocation: {
+                    ...existingAllocation,
+                    status: allocationStatus,
+                    lengths: updatedLengths,
+                    lots: updatedLots,
+                },
+            };
+        });
+
+        const unassignedQty = allocationPool.reduce(
+          (sum, entry) => sum + toNumber(entry.remainingQty, 0),
+          0
+        );
+        if (unassignedQty > EPSILON) {
+          throw new Error(
+            `Could not assign ${unassignedQty.toFixed(2)} to remaining order quantity. Please refresh and retry.`
+          );
+        }
+
+        const updatedSections = {
+            ...sections,
+            NORMAL: {
+                ...normalSection,
+                items: updatedNormalItems,
+            },
+        };
+
+        // 5. Update order milestone/workflow payload
+        const updatedMilestones = orderData.milestones.map((m: any) => {
+          if (m.id === 2) { // ID for "Fabric Allocated"
+            return { ...m, completed: true, completedAt: updateTimestamp, completedBy: userName };
+          }
+          return m;
+        });
+
+        const workflow = orderData.workflow || { status: "CREATED", milestones: [] };
+        const updatedWorkflowMilestones = (workflow.milestones || []).map((m: any) =>
+            m.key === "FABRIC_ALLOCATED"
+                ? { ...m, status: "DONE", at: updateTimestamp, by: { id: userId, name: userName } }
+                : m
+        );
+
+        const allocationStatuses = updatedNormalItems.map((item: any) => item.allocation?.status);
+        const anyAllocated = allocationStatuses.some((status: string) => status === "ALLOCATED" || status === "PARTIAL");
+        const allAllocated =
+            allocationStatuses.length > 0 &&
+            allocationStatuses.every((status: string) => status === "ALLOCATED");
+
+        const nextWorkflowStatus = allAllocated
+            ? "ALLOCATED"
+            : anyAllocated
+            ? "ALLOCATING"
+            : workflow.status || "CREATED";
+
+        // --- WRITE PHASE ---
         // 3. Update each length document
-        for (const allocation of allocations) {
+        for (const allocation of normalizedAllocations) {
             const { lengthId, quantity } = allocation;
-            if (quantity <= 0) continue;
+            if (quantity <= EPSILON) continue;
 
             const lengthDoc = lengthDocsMap.get(lengthId)!;
             const lengthRef = lengthDoc.ref;
@@ -147,100 +336,32 @@ export async function allocateStockToAction(
             });
         }
         
-        // 4. Update the main stock document once with the total
+        // 4. Update the main stock document once with the total (safe for missing fields)
+        const stockData = stockDoc.data() as Stock;
+        const sumLengthsAvailable = lengthDocs.reduce((sum, docSnap) => {
+            const data = docSnap.data() as Stock;
+            return sum + getAvailable(data);
+        }, 0);
+        const sumLengthsReserved = lengthDocs.reduce((sum, docSnap) => {
+            const data = docSnap.data() as Stock;
+            const original = getOriginal(data, 0);
+            return sum + getReserved(data, original);
+        }, 0);
+
+        const stockAvailable = Number(stockData.availableQty);
+        const stockReserved = Number(stockData.reservedQty);
+        const currentAvailable = Number.isFinite(stockAvailable) && stockAvailable >= 0
+            ? stockAvailable
+            : sumLengthsAvailable;
+        const currentReserved = Number.isFinite(stockReserved) && stockReserved >= 0
+            ? stockReserved
+            : sumLengthsReserved;
+
         transaction.update(stockRef, {
-            reservedQty: FieldValue.increment(totalAllocatedQty),
-            availableQty: FieldValue.increment(-totalAllocatedQty),
+            reservedQty: currentReserved + totalAllocatedQty,
+            availableQty: Math.max(0, currentAvailable - totalAllocatedQty),
             lastUpdatedAt: updateTimestamp
         });
-
-        // 5. Update order milestone
-        const updatedMilestones = orderData.milestones.map((m: any) => {
-          if (m.id === 2) { // ID for "Fabric Allocated"
-            return { ...m, completed: true, completedAt: updateTimestamp, completedBy: userName };
-          }
-          return m;
-        });
-        const normalizeOrderBcn = (value?: string) => (value || '').split(' - ')[0].trim().toLowerCase();
-        const normalizedTargetBcn = normalizeOrderBcn(bcn);
-        const sections = orderData.sections || {};
-        const normalSection = sections.NORMAL || { items: [] };
-        const updatedNormalItems = (normalSection.items || []).map((orderItem: any) => {
-            const orderItemBcn = normalizeOrderBcn(orderItem.bcn || orderItem.description || orderItem.itemName || "");
-            if (!orderItemBcn || orderItemBcn !== normalizedTargetBcn) return orderItem;
-
-            const existingAllocation = orderItem.allocation || { status: "PENDING", lengths: [], lots: [] };
-            const updatedLengths = Array.isArray(existingAllocation.lengths) ? [...existingAllocation.lengths] : [];
-            const updatedLots = Array.isArray(existingAllocation.lots) ? [...existingAllocation.lots] : [];
-
-            for (const allocation of allocations) {
-                if (allocation.quantity <= 0) continue;
-                const lengthIndex = updatedLengths.findIndex((entry: any) => entry.lengthId === allocation.lengthId);
-                if (lengthIndex >= 0) {
-                    const existing = updatedLengths[lengthIndex];
-                    updatedLengths[lengthIndex] = {
-                        ...existing,
-                        allocatedQty: toNumber(existing.allocatedQty, 0) + allocation.quantity,
-                        reservedAt: updateTimestamp,
-                        reservedBy: { id: userId, name: userName },
-                    };
-                } else {
-                    updatedLengths.push({
-                        stockItemId: bcn,
-                        lengthId: allocation.lengthId,
-                        allocatedQty: allocation.quantity,
-                        unit: orderItem.unit,
-                        reservedAt: updateTimestamp,
-                        reservedBy: { id: userId, name: userName },
-                    });
-                }
-            }
-
-            const totalAllocated = [...updatedLengths, ...updatedLots].reduce(
-                (sum: number, entry: any) => sum + toNumber(entry.allocatedQty, 0),
-                0
-            );
-            const requiredQty = toNumber(orderItem.qty, 0);
-            const allocationStatus =
-                totalAllocated <= 0 ? "PENDING" : totalAllocated >= requiredQty ? "ALLOCATED" : "PARTIAL";
-
-            return {
-                ...orderItem,
-                allocation: {
-                    ...existingAllocation,
-                    status: allocationStatus,
-                    lengths: updatedLengths,
-                    lots: updatedLots,
-                },
-            };
-        });
-
-        const updatedSections = {
-            ...sections,
-            NORMAL: {
-                ...normalSection,
-                items: updatedNormalItems,
-            },
-        };
-
-        const workflow = orderData.workflow || { status: "CREATED", milestones: [] };
-        const updatedWorkflowMilestones = (workflow.milestones || []).map((m: any) =>
-            m.key === "FABRIC_ALLOCATED"
-                ? { ...m, status: "DONE", at: updateTimestamp, by: { id: userId, name: userName } }
-                : m
-        );
-
-        const allocationStatuses = updatedNormalItems.map((item: any) => item.allocation?.status);
-        const anyAllocated = allocationStatuses.some((status: string) => status === "ALLOCATED" || status === "PARTIAL");
-        const allAllocated =
-            allocationStatuses.length > 0 &&
-            allocationStatuses.every((status: string) => status === "ALLOCATED");
-
-        const nextWorkflowStatus = allAllocated
-            ? "ALLOCATED"
-            : anyAllocated
-            ? "ALLOCATING"
-            : workflow.status || "CREATED";
 
         transaction.update(orderRef, {
             milestones: updatedMilestones,

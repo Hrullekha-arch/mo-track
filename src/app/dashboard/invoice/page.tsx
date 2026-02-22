@@ -372,14 +372,63 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
       const normalItemsRaw = order.sections?.NORMAL?.items || [];
       const normalInvoiceItems: InvoiceLineItem[] = [];
 
+      const groupedNormalItems = new Map<
+        string,
+        {
+          representative: any;
+          requiredQty: number;
+          lotsAllocatedQty: number;
+          lengths: Map<string, { qty: number; stockItemId?: string }>;
+        }
+      >();
+
       normalItemsRaw.forEach((item: any) => {
-        const bcnKey = normalizeKey(item.bcn || item.description || item.itemName);
+        const bcnKey = normalizeKey(item?.bcn || item?.description || item?.itemName);
         if (!bcnKey) return;
-        const allocatedLengths = item.allocation?.lengths || [];
-        const allocatedTotal = [...allocatedLengths, ...(item.allocation?.lots || [])].reduce(
-          (sum: number, entry: any) => sum + num(entry.allocatedQty),
+
+        const existingGroup = groupedNormalItems.get(bcnKey);
+        const group =
+          existingGroup ||
+          {
+            representative: item,
+            requiredQty: 0,
+            lotsAllocatedQty: 0,
+            lengths: new Map<string, { qty: number; stockItemId?: string }>(),
+          };
+
+        group.requiredQty += num(item?.qty);
+        group.lotsAllocatedQty += (item?.allocation?.lots || []).reduce(
+          (sum: number, entry: any) => sum + num(entry?.allocatedQty),
           0
         );
+
+        (item?.allocation?.lengths || []).forEach((length: any) => {
+          const lengthId = String(length?.lengthId || "").trim();
+          if (!lengthId) return;
+          const qty = num(length?.allocatedQty);
+          if (qty <= 0) return;
+          const current = group.lengths.get(lengthId) || {
+            qty: 0,
+            stockItemId: length?.stockItemId || item?.bcn,
+          };
+          current.qty += qty;
+          if (!current.stockItemId) {
+            current.stockItemId = length?.stockItemId || item?.bcn;
+          }
+          group.lengths.set(lengthId, current);
+        });
+
+        if (!existingGroup) groupedNormalItems.set(bcnKey, group);
+      });
+
+      groupedNormalItems.forEach((group, bcnKey) => {
+        const item = group.representative || {};
+        const allocatedFromLengths = Array.from(group.lengths.values()).reduce(
+          (sum, entry) => sum + num(entry.qty),
+          0
+        );
+        const allocatedTotalRaw = allocatedFromLengths + num(group.lotsAllocatedQty);
+        const allocatedTotal = Math.min(allocatedTotalRaw, num(group.requiredQty));
         const alreadyInvoiced = num(invoicedQtyByBcn.get(bcnKey));
         let remaining = Math.max(0, allocatedTotal - alreadyInvoiced);
         if (remaining <= 0) return;
@@ -390,12 +439,13 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
         const unit = item.unit || "MTR";
         const discountPercent = resolveDiscountPercent(order, item);
 
-        if (allocatedLengths.length > 0) {
-          for (const length of allocatedLengths) {
+        const lengthEntries = Array.from(group.lengths.entries());
+        if (lengthEntries.length > 0) {
+          for (const [lengthId, lengthMeta] of lengthEntries) {
             if (remaining <= 0) break;
             const lengthRemaining = Math.max(
               0,
-              num(length.allocatedQty) - num(invoicedQtyByLength.get(length.lengthId))
+              num(lengthMeta.qty) - num(invoicedQtyByLength.get(lengthId))
             );
             if (lengthRemaining <= 0) continue;
             const qty = Math.min(remaining, lengthRemaining);
@@ -404,26 +454,54 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
             const taxableAmount = Math.max(0, baseAmount - discountAmount);
             const gstAmount = taxableAmount * (gst / 100);
             normalInvoiceItems.push({
-              roomName: item.roomName, type: item.type, bcn: item.bcn,
-              description: item.description, unit, exclusiveRate, rate, qty, gst,
-              discountPercent, discountAmount, hsn: item.hsn, group: item.group,
-              taxableAmount, gstAmount, totalAmount: taxableAmount + gstAmount,
-              allocationRef: { lengthId: length.lengthId, stockItemId: length.stockItemId || item.bcn },
+              roomName: item.roomName,
+              type: item.type,
+              bcn: item.bcn,
+              description: item.description,
+              unit,
+              exclusiveRate,
+              rate,
+              qty,
+              gst,
+              discountPercent,
+              discountAmount,
+              hsn: item.hsn,
+              group: item.group,
+              taxableAmount,
+              gstAmount,
+              totalAmount: taxableAmount + gstAmount,
+              allocationRef: {
+                lengthId,
+                stockItemId: lengthMeta.stockItemId || item.bcn,
+              },
             });
             remaining -= qty;
           }
         }
-        if (remaining > 0 && allocatedLengths.length === 0) {
+
+        if (remaining > 0) {
           const qty = remaining;
           const baseAmount = rate * qty;
           const discountAmount = baseAmount * (discountPercent / 100);
           const taxableAmount = Math.max(0, baseAmount - discountAmount);
           const gstAmount = taxableAmount * (gst / 100);
           normalInvoiceItems.push({
-            roomName: item.roomName, type: item.type, bcn: item.bcn,
-            description: item.description, unit, exclusiveRate, rate, qty, gst,
-            discountPercent, discountAmount, hsn: item.hsn, group: item.group,
-            taxableAmount, gstAmount, totalAmount: taxableAmount + gstAmount,
+            roomName: item.roomName,
+            type: item.type,
+            bcn: item.bcn,
+            description: item.description,
+            unit,
+            exclusiveRate,
+            rate,
+            qty,
+            gst,
+            discountPercent,
+            discountAmount,
+            hsn: item.hsn,
+            group: item.group,
+            taxableAmount,
+            gstAmount,
+            totalAmount: taxableAmount + gstAmount,
           });
         }
       });

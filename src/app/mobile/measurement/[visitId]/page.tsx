@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams, useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Pencil, Trash2, Plus, X } from "lucide-react";
+import { Pencil, Trash2, Plus, X, AlertTriangleIcon } from "lucide-react";
 import { MeasurementPreviewDialog } from "@/components/features/measurement/MeasurementPreviewDialog";
 import { toast } from "sonner";
 import { getDealById, getMeasurementsForDeal, saveMeasurementToDeal, startVisitAction, uploadFileToStorageAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
@@ -19,6 +19,22 @@ import { getCustomerById } from "@/app/dashboard/customers/actions";
 import { useAuth } from "@/context/AuthContext";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import { effect } from "zod";
+import { json } from "node:stream/consumers";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import { collectionGroup, onSnapshot, query, where } from "firebase/firestore";
+import { MeasurementEntry } from "@/lib/types";
+import { db } from "@/lib/firebase";
 
 export default function MeasurementTableForm() {
   const searchParams = useSearchParams();
@@ -48,6 +64,7 @@ export default function MeasurementTableForm() {
   const [headerLoading, setHeaderLoading] = useState(false);
   const [fsCustomerId, setFsCustomerId] = useState<string>("");
   const [fsDealId, setFsDealId] = useState<string>(""); // Firestore deal doc id
+  const [measurementId, setMeasurementId] = useState<string>(""); // Firestore deal doc id
 
 
 
@@ -108,9 +125,11 @@ useEffect(() => {
 useEffect(() => {
   const cId = searchParams.get("customerId") || "";
   const dId = searchParams.get("dealId") || ""; // Firestore deal doc id (old style)
+  const measurementId = searchParams.get("measurementId") || ""; // Firestore deal doc id (old style)
 
   setFsCustomerId(cId);
   setFsDealId(dId);
+  setMeasurementId(measurementId);
 }, [searchParams]);
 
 
@@ -497,6 +516,58 @@ useEffect(() => {
 };
 
 
+//========================Local data storage ==============
+// ─── Save data to storage for data Protection ────────────────────────────────────────
+  const [draftData, setDraftData] = useState<any>(null);
+  const [showDraftPrompt, setShowDraftPrompt] = useState(false);
+
+  const draftKey = `measurement_draft_${visitId}`;
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (!visitId) return;
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      await localStorage.setItem(
+        draftKey,
+        JSON.stringify({
+          customerName,
+          dealId,
+          rooms,
+          currentRoom,
+          currentItems,
+          currentExtra,
+          itemPhotos,
+          doerName,
+        }),
+      );
+    }, 800);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [customerName, dealId, rooms, currentRoom, currentItems]);
+  //=====================================UI caller
+
+  useEffect(() => {
+    if (!visitId) return;
+
+    const checkDraft = async () => {
+      const saved = await localStorage.getItem(draftKey);
+      if (saved) {
+        setDraftData(JSON.parse(saved));
+        setShowDraftPrompt(true);
+      }
+    };
+
+    checkDraft();
+  }, [visitId]);
 
   // Handle Preview And Save
   const handlePreview = async () => {
@@ -1486,6 +1557,36 @@ const handleSave = async () => {
           </div>
         </DialogContent>
       </Dialog>
+      {/* ===================== Draft Data Load dialog ======================== */}
+      <AlertDialog open={showDraftPrompt} onOpenChange={setShowDraftPrompt}>
+        <AlertDialogContent className="max-w-sm rounded-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle >
+              <span className="flex-row gap-2"><AlertTriangleIcon color="red" size={24} /> Draft Found !!</span></AlertDialogTitle>
+            <AlertDialogDescription>
+              We found the saved draft of this entries!! want to restore them. 
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row justify-between items-center">
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={ () => {
+                setCustomerName(draftData.customerName || "");
+                setDealId(draftData.dealId || "");
+                setRooms(draftData.rooms || []);
+                setCurrentRoom(draftData.currentRoom || "");
+                setCurrentItems(draftData.currentItems || []);
+                setDoerName(draftData.doerName || "");
+
+                setShowDraftPrompt(false);
+
+                toast.success("Data loaded Successfully.");
+              }}
+            >
+            Continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <MeasurementPreviewDialog
           open={previewOpen}
           onClose={() => setPreviewOpen(false)}

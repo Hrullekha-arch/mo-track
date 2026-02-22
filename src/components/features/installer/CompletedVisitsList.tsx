@@ -92,7 +92,7 @@ export function CompletedVisitsList({ installerId }: { installerId: string }) {
     }, [installerId, toast]);
     
     const handleReMeasure = (visit: EnrichedInstallerVisit) => {
-      router.push(`/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}`);
+      router.push(`/mobile/measurement/${visit.id}?dealId=${visit.dealDocId}&customerId=${visit.customerId}&measurementId=${visit.measurementId}`);
     };
 
     if (loading) {

@@ -74,6 +74,7 @@ import {
   limit,
   orderBy,
   startAfter,
+  runTransaction,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { INBOUND_PROCESS_CONFIG } from "@/lib/constants";
@@ -104,8 +105,11 @@ interface FlattenedInboundItem {
 }
 
 type ReceiveItem = {
+  rowId: string;
+  sourceIndex: number;
   itemName: string;
   expectedQty: string;
+  receivedQty: string;
   actualQty: string;
   unit: string;
   vendorName?: string;
@@ -120,24 +124,21 @@ const parseQty = (value: string) => {
   return Number.isFinite(parsed) ? parsed : NaN;
 };
 
-const isQtyMatchingExpected = (actual: number, expected: number) =>
-  Math.abs(actual - expected) < 0.0001;
+const QTY_EPSILON = 0.0001;
 
-const buildMissingMilestones = (
-  existing: InboundItem["inboundMilestones"],
-  completedBy: string
-) => {
-  const completedIds = new Set((existing || []).map((m) => m.stepId));
-  const now = new Date().toISOString();
-  return INBOUND_PROCESS_CONFIG.filter((step) => !completedIds.has(step.id)).map(
-    (step) => ({
-      stepId: step.id,
-      status: "completed" as const,
-      completedAt: now,
-      completedBy,
-    })
-  );
+const formatQtyString = (value: number) => {
+  if (!Number.isFinite(value)) return "0";
+  return value.toFixed(2).replace(/\.?0+$/, "");
 };
+
+const isFullyReceivedQty = (received: number, expected: number) =>
+  expected > QTY_EPSILON && received + QTY_EPSILON >= expected;
+
+const normalizeMaterialKey = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 
 function chunkArray(arr: any[], size: number) {
   const chunks = [];
@@ -256,11 +257,14 @@ function ReceiveDialog({
           stockSnap.forEach((d) => { const s = d.data() as Stock; stockMap.set(s.bcn, s); });
         }
 
-        setReceiveItems((data.items || []).map((item) => {
+        setReceiveItems((data.items || []).map((item, index) => {
           const stock = stockMap.get(item.itemName);
           return {
+            rowId: `${data.id}-${index}-${item.itemName}`,
+            sourceIndex: index,
             itemName: item.itemName,
             expectedQty: item.quantity,
+            receivedQty: String((item as any).receivedQty || "0"),
             actualQty: "",
             unit: item.unit || "Mtr",
             vendorName: data.vendor,
@@ -279,14 +283,33 @@ function ReceiveDialog({
     load();
   }, [open, poNumber]);
 
-  const selectedItems = receiveItems.filter((i) => i.checked);
+  const getExpectedQty = (item: Pick<ReceiveItem, "expectedQty">) => {
+    const expected = parseQty(item.expectedQty);
+    return Number.isFinite(expected) && expected > 0 ? expected : 0;
+  };
+
+  const getAlreadyReceivedQty = (item: Pick<ReceiveItem, "receivedQty">) => {
+    const received = parseQty(item.receivedQty);
+    return Number.isFinite(received) && received > 0 ? received : 0;
+  };
+
+  const getRemainingQty = (item: Pick<ReceiveItem, "expectedQty" | "receivedQty">) =>
+    Math.max(0, getExpectedQty(item) - getAlreadyReceivedQty(item));
+
+  const selectedItems = receiveItems.filter(
+    (i) => i.checked && getRemainingQty(i) > QTY_EPSILON
+  );
 
   const validateItem = (item: ReceiveItem) => {
     const actual = parseQty(item.actualQty);
-    const expected = parseQty(item.expectedQty);
+    const expected = getExpectedQty(item);
+    const remaining = getRemainingQty(item);
     if (!Number.isFinite(actual) || actual <= 0) return "Enter a valid quantity.";
     if (!Number.isFinite(expected) || expected <= 0) return "Expected qty is invalid.";
-    if (!isQtyMatchingExpected(actual, expected)) return `Must match expected qty (${item.expectedQty}).`;
+    if (remaining <= QTY_EPSILON) return "This line is already fully received.";
+    if (actual - remaining > QTY_EPSILON) {
+      return `Cannot exceed remaining qty (${formatQtyString(remaining)}).`;
+    }
     return "";
   };
 
@@ -300,7 +323,7 @@ function ReceiveDialog({
       const errors: Record<string, string> = {};
       selectedItems.forEach((item) => {
         const err = validateItem(item);
-        if (err) errors[item.itemName] = err;
+        if (err) errors[item.rowId] = err;
       });
       if (Object.keys(errors).length) { setReceiveQtyErrors(errors); return; }
       setStep("preview");
@@ -337,82 +360,219 @@ function ReceiveDialog({
 
   const handleReceive = async () => {
     if (!inboundRequest || !poNumber || !user) return;
-    const parsedItems = selectedItems.map((i) => ({ ...i, parsedQty: parseQty(i.actualQty) }));
+    const parsedItems = selectedItems
+      .map((item) => ({ ...item, parsedQty: parseQty(item.actualQty) }))
+      .filter((item) => Number.isFinite(item.parsedQty) && item.parsedQty > QTY_EPSILON);
+
+    if (!parsedItems.length) {
+      toast({
+        variant: "destructive",
+        title: "No quantity entered",
+        description: "Enter a valid receive quantity for at least one selected line.",
+      });
+      return;
+    }
 
     setIsReceiving(true);
     try {
+      const nowIso = new Date().toISOString();
       const requestRef = doc(db, "inbounds", inboundRequest.id);
-      const items = JSON.parse(JSON.stringify(inboundRequest.items || [])) as InboundItem[];
-      const receiveUpdates = new Map(parsedItems.map((i) => [i.itemName, i]));
+      let resolvedInbound: InboundRequest | null = null;
+      let itemsAfterReceive: InboundItem[] = [];
+      let effectiveReceipts: Array<(typeof parsedItems)[number] & { parsedQty: number }> = [];
+      let allCompleteAfterReceive = false;
 
-      items.forEach((item) => {
-        const update = receiveUpdates.get(item.itemName);
-        if (!update) return;
-        const existing = item.inboundMilestones || [];
-        item.inboundMilestones = [...existing, ...buildMissingMilestones(existing, user.name)];
-        (item as any).receivedQty = String(update.parsedQty);
+      await runTransaction(db, async (transaction) => {
+        const currentInboundSnap = await transaction.get(requestRef);
+        if (!currentInboundSnap.exists()) {
+          throw new Error("Inbound request not found.");
+        }
+
+        resolvedInbound = {
+          id: currentInboundSnap.id,
+          ...(currentInboundSnap.data() as Omit<InboundRequest, "id">),
+        } as InboundRequest;
+        const items = JSON.parse(
+          JSON.stringify((resolvedInbound as InboundRequest).items || [])
+        ) as InboundItem[];
+        const transactionReceipts: Array<(typeof parsedItems)[number] & { parsedQty: number }> = [];
+
+        parsedItems.forEach((update) => {
+          const targetItem = items[update.sourceIndex];
+          if (!targetItem) return;
+
+          const expectedQty = parseQty(String(targetItem.quantity || "0"));
+          const expected = Number.isFinite(expectedQty) && expectedQty > 0 ? expectedQty : 0;
+          const alreadyReceived = parseQty(String((targetItem as any).receivedQty || "0"));
+          const receivedSoFar =
+            Number.isFinite(alreadyReceived) && alreadyReceived > 0 ? alreadyReceived : 0;
+          const remaining = Math.max(0, expected - receivedSoFar);
+          if (remaining <= QTY_EPSILON) return;
+
+          const batchQty = Math.min(update.parsedQty, remaining);
+          if (batchQty <= QTY_EPSILON) return;
+
+          const nextReceived = receivedSoFar + batchQty;
+          (targetItem as any).receivedQty = formatQtyString(nextReceived);
+          const receiptBatches = Array.isArray((targetItem as any).receiptBatches)
+            ? [...(targetItem as any).receiptBatches]
+            : [];
+          receiptBatches.push({
+            receivedQty: formatQtyString(batchQty),
+            receivedAt: nowIso,
+            receivedBy: user.name,
+            unit: update.unit || targetItem.unit || "Mtr",
+          });
+          (targetItem as any).receiptBatches = receiptBatches;
+
+          const milestones = Array.isArray(targetItem.inboundMilestones)
+            ? [...targetItem.inboundMilestones]
+            : [];
+          const receivingMilestoneIndex = milestones.findIndex(
+            (milestone: any) => Number(milestone?.stepId) === 3
+          );
+          if (isFullyReceivedQty(nextReceived, expected)) {
+            const completeMilestone = {
+              stepId: 3,
+              status: "completed" as const,
+              completedAt: nowIso,
+              completedBy: user.name,
+            };
+            if (receivingMilestoneIndex >= 0) milestones[receivingMilestoneIndex] = completeMilestone;
+            else milestones.push(completeMilestone);
+          }
+          targetItem.inboundMilestones = milestones;
+
+          transactionReceipts.push({ ...update, parsedQty: batchQty });
+        });
+
+        if (!transactionReceipts.length) {
+          throw new Error("Selected lines are already fully received.");
+        }
+
+        const allComplete = items.every((item) => {
+          const expected = parseQty(String(item.quantity || "0"));
+          const received = parseQty(String((item as any).receivedQty || "0"));
+          const expectedSafe = Number.isFinite(expected) && expected > 0 ? expected : 0;
+          const receivedSafe = Number.isFinite(received) && received > 0 ? received : 0;
+          return expectedSafe <= QTY_EPSILON || isFullyReceivedQty(receivedSafe, expectedSafe);
+        });
+
+        const inboundUpdate: Record<string, any> = {
+          items,
+          updatedAt: nowIso,
+        };
+        if (allComplete) {
+          inboundUpdate.status = "Completed";
+          inboundUpdate.completedAt = nowIso;
+          inboundUpdate.completedBy = user.name;
+        }
+        transaction.update(requestRef, inboundUpdate);
+
+        itemsAfterReceive = items;
+        effectiveReceipts = transactionReceipts;
+        allCompleteAfterReceive = allComplete;
       });
 
+      const effectiveInbound = resolvedInbound || inboundRequest;
+      const resolvedPurchaseRequestId = effectiveInbound.purchaseRequestId || inboundRequest.purchaseRequestId;
+      const resolvedVendor = effectiveInbound.vendor || inboundRequest.vendor || "";
+      const resolvedDealId = effectiveInbound.dealId || inboundRequest.dealId || "";
       const batch = writeBatch(db);
-      batch.update(requestRef, { items });
 
       let salesman = "Unknown";
-      if (inboundRequest.purchaseRequestId) {
-        const prDoc = await getDoc(doc(db, "purchaseRequests", inboundRequest.purchaseRequestId));
+      if (resolvedPurchaseRequestId) {
+        const prDoc = await getDoc(doc(db, "purchaseRequests", resolvedPurchaseRequestId));
         if (prDoc.exists()) salesman = (prDoc.data() as PurchaseRequest).salesman || salesman;
       }
 
-      for (const update of parsedItems) {
+      for (const update of effectiveReceipts) {
         const stockId = update.itemName.replace(/\//g, "-");
         const transaction: Omit<StockTransaction, "id"> = {
-          stockId, bcn: update.itemName, type: "addition", quantityChange: update.parsedQty,
-          poNumber: poNumber, salesman, lengths: [update.parsedQty],
-          createdAt: new Date().toISOString(), createdBy: user.name, unit: update.unit,
+          stockId,
+          bcn: update.itemName,
+          type: "addition",
+          quantityChange: update.parsedQty,
+          poNumber: poNumber,
+          salesman,
+          lengths: [update.parsedQty],
+          createdAt: nowIso,
+          createdBy: user.name,
+          unit: update.unit,
         };
         const res = await updateStockQuantityAction(stockId, transaction);
         if (!res.success) throw new Error(res.message || "Stock update failed");
       }
 
-      if (inboundRequest.purchaseRequestId) {
-        const prRef = doc(db, "purchaseRequests", inboundRequest.purchaseRequestId);
-        const milestones: PurchaseStatus[] = parsedItems.map((item) => ({
-          stepId: 3, status: "completed", completedAt: new Date().toISOString(),
-          completedBy: user.name, itemName: item.itemName,
-          quantity: String(item.parsedQty), poNumber: poNumber, vendorName: inboundRequest.vendor,
+      if (resolvedPurchaseRequestId) {
+        const prRef = doc(db, "purchaseRequests", resolvedPurchaseRequestId);
+        const milestones: PurchaseStatus[] = effectiveReceipts.map((item) => ({
+          stepId: 3,
+          status: "completed",
+          completedAt: nowIso,
+          completedBy: user.name,
+          itemName: item.itemName,
+          quantity: String(item.parsedQty),
+          poNumber: poNumber,
+          vendorName: resolvedVendor,
         }));
         batch.update(prRef, { poMilestones: arrayUnion(...milestones) });
       }
 
-      const orderSnap = await getDocs(query(collection(db, "orders"), where("crmOrderNo", "==", inboundRequest.dealId), limit(1)));
+      const orderSnap = await getDocs(
+        query(collection(db, "orders"), where("crmOrderNo", "==", resolvedDealId), limit(1))
+      );
       if (!orderSnap.empty) {
         const orderDoc = orderSnap.docs[0];
         const orderData = orderDoc.data() as Order;
-        const fabricDetails = (orderData.fabricDetails || []).map((fabric) =>
-          receiveUpdates.has(fabric.fabricName) ? { ...fabric, status: "in stock" as const } : fabric
-        );
+        const receiveProgressByItem = new Map<string, { expected: number; received: number }>();
+        itemsAfterReceive.forEach((item) => {
+          const key = normalizeMaterialKey(item.itemName);
+          if (!key) return;
+          const expected = parseQty(String(item.quantity || "0"));
+          const received = parseQty(String((item as any).receivedQty || "0"));
+          const current = receiveProgressByItem.get(key) || { expected: 0, received: 0 };
+          current.expected += Number.isFinite(expected) && expected > 0 ? expected : 0;
+          current.received += Number.isFinite(received) && received > 0 ? received : 0;
+          receiveProgressByItem.set(key, current);
+        });
+
+        const fabricDetails = (orderData.fabricDetails || []).map((fabric) => {
+          const key = normalizeMaterialKey(fabric.fabricName);
+          const progress = receiveProgressByItem.get(key);
+          if (!progress) return fabric;
+          if (isFullyReceivedQty(progress.received, progress.expected)) {
+            return { ...fabric, status: "in stock" as const };
+          }
+          return fabric;
+        });
         batch.update(orderDoc.ref, { fabricDetails });
       }
 
-      const allComplete = items.every((item) => (item.inboundMilestones?.length || 0) === INBOUND_PROCESS_CONFIG.length);
-      if (allComplete) {
-        batch.update(requestRef, { status: "Completed", completedAt: new Date().toISOString(), completedBy: user.name });
-        if (inboundRequest.purchaseRequestId) {
-          const prRef = doc(db, "purchaseRequests", inboundRequest.purchaseRequestId);
+      if (allCompleteAfterReceive) {
+        if (resolvedPurchaseRequestId) {
+          const prRef = doc(db, "purchaseRequests", resolvedPurchaseRequestId);
           batch.update(prRef, { status: "Completed" });
           const prSnap = await getDoc(prRef);
           if (prSnap.exists()) {
             const parentPR = prSnap.data() as PurchaseRequest;
-            const allPrSnap = await getDocs(query(collection(db, "purchaseRequests"), where("dealId", "==", parentPR.dealId)));
+            const allPrSnap = await getDocs(
+              query(collection(db, "purchaseRequests"), where("dealId", "==", parentPR.dealId))
+            );
             const allComplete2 = allPrSnap.docs.every((d) => d.data().status === "Completed");
             if (allComplete2) {
-              const o2dSnap = await getDocs(query(collection(db, "o2d"), where("dealId", "==", parentPR.dealId), limit(1)));
+              const o2dSnap = await getDocs(
+                query(collection(db, "o2d"), where("dealId", "==", parentPR.dealId), limit(1))
+              );
               if (!o2dSnap.empty) {
                 const o2dRef = o2dSnap.docs[0].ref;
                 const o2dData = (await getDoc(o2dRef)).data() as O2DProcess;
                 const o2dStep = o2dData.milestones?.find((m) => m.stepId === 7);
                 if (!o2dStep || o2dStep.status !== "completed") {
                   const newMilestone: O2DStatus = {
-                    stepId: 7, status: "completed", completedAt: new Date().toISOString(),
+                    stepId: 7,
+                    status: "completed",
+                    completedAt: nowIso,
                     completedBy: "System (All Inbounds Complete)",
                     remarks: "Automatically completed after all items received.",
                     selection: "Done",
@@ -426,11 +586,18 @@ function ReceiveDialog({
       }
 
       await batch.commit();
-      toast({ title: "✓ Items Received", description: `${parsedItems.length} item(s) received successfully.` });
+      toast({
+        title: "Items Received",
+        description: `${effectiveReceipts.length} line item(s) received in this batch.`,
+      });
       onClose();
     } catch (error: any) {
       console.error(error);
-      toast({ variant: "destructive", title: "Receive Failed", description: error.message || "Could not receive items." });
+      toast({
+        variant: "destructive",
+        title: "Receive Failed",
+        description: error.message || "Could not receive items.",
+      });
     } finally {
       setIsReceiving(false);
     }
@@ -497,10 +664,16 @@ function ReceiveDialog({
               {step === "select" && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-muted-foreground">Select items to receive in this batch.</p>
+                    <p className="text-sm text-muted-foreground">Select lines for this receive batch. Duplicate BCN rows are handled independently.</p>
                     <button
                       className="text-xs text-primary hover:underline"
-                      onClick={() => setReceiveItems((prev) => prev.map((i) => ({ ...i, checked: true })))}
+                      onClick={() =>
+                        setReceiveItems((prev) =>
+                          prev.map((i) =>
+                            getRemainingQty(i) > QTY_EPSILON ? { ...i, checked: true } : i
+                          )
+                        )
+                      }
                     >
                       Select all
                     </button>
@@ -514,21 +687,48 @@ function ReceiveDialog({
                       <span className="text-right">Exp. Qty</span>
                     </div>
                     <div className="divide-y max-h-72 overflow-y-auto">
-                      {receiveItems.map((item) => (
-                        <div key={item.itemName}
-                          className={cn("grid grid-cols-[36px_1fr_1fr_1fr_80px] items-center gap-3 px-4 py-3 transition-colors cursor-pointer",
-                            item.checked ? "bg-primary/5" : "hover:bg-muted/30"
+                      {receiveItems.map((item) => {
+                        const remainingQty = getRemainingQty(item);
+                        const alreadyReceivedQty = getAlreadyReceivedQty(item);
+                        const isFullyReceived = remainingQty <= QTY_EPSILON;
+                        return (
+                        <div
+                          key={item.rowId}
+                          className={cn(
+                            "grid grid-cols-[36px_1fr_1fr_1fr_80px] items-center gap-3 px-4 py-3 transition-colors",
+                            isFullyReceived
+                              ? "opacity-60 bg-muted/20"
+                              : item.checked
+                              ? "bg-primary/5 cursor-pointer"
+                              : "hover:bg-muted/30 cursor-pointer"
                           )}
-                          onClick={() => setReceiveItems((prev) => prev.map((i) => i.itemName === item.itemName ? { ...i, checked: !i.checked } : i))}
+                          onClick={() => {
+                            if (isFullyReceived) return;
+                            setReceiveItems((prev) =>
+                              prev.map((i) =>
+                                i.rowId === item.rowId ? { ...i, checked: !i.checked } : i
+                              )
+                            );
+                          }}
                         >
                           <Checkbox
                             checked={item.checked}
-                            onCheckedChange={(v) => setReceiveItems((prev) => prev.map((i) => i.itemName === item.itemName ? { ...i, checked: !!v } : i))}
+                            disabled={isFullyReceived}
+                            onCheckedChange={(v) =>
+                              setReceiveItems((prev) =>
+                                prev.map((i) =>
+                                  i.rowId === item.rowId ? { ...i, checked: !!v } : i
+                                )
+                              )
+                            }
                             onClick={(e) => e.stopPropagation()}
                           />
                           <div>
                             <p className="text-sm font-medium font-mono">{item.itemName}</p>
-                            <p className="text-xs text-muted-foreground">{item.unit}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {item.unit} | Received {formatQtyString(alreadyReceivedQty)} | Remaining{" "}
+                              {formatQtyString(remainingQty)}
+                            </p>
                           </div>
                           <div className="text-sm">
                             {item.supplierCollectionName && <p className="font-medium">{item.supplierCollectionName}</p>}
@@ -538,7 +738,8 @@ function ReceiveDialog({
                           <p className="text-sm text-muted-foreground">{item.vendorName || "—"}</p>
                           <p className="text-sm font-semibold text-right">{item.expectedQty} {item.unit}</p>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                   {selectedItems.length > 0 && (
@@ -552,16 +753,24 @@ function ReceiveDialog({
               {/* Step 2: Verify Quantities */}
               {step === "verify" && (
                 <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">Enter the actual received quantities. Qty must match expected.</p>
+                  <p className="text-sm text-muted-foreground">Enter received quantity for this batch. Partial receive is allowed up to remaining quantity.</p>
                   <div className="rounded-xl border overflow-hidden">
-                    <div className="grid grid-cols-[1fr_140px_140px] gap-4 px-4 py-2.5 bg-muted/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b">
+                    <div className="grid grid-cols-[1fr_120px_120px_140px] gap-4 px-4 py-2.5 bg-muted/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b">
                       <span>BCN / Item</span>
                       <span>Expected Qty</span>
-                      <span>Received Qty</span>
+                      <span>Remaining Qty</span>
+                      <span>Receive Now</span>
                     </div>
                     <div className="divide-y max-h-72 overflow-y-auto">
-                      {selectedItems.map((item) => (
-                        <div key={item.itemName} className="grid grid-cols-[1fr_140px_140px] items-center gap-4 px-4 py-3">
+                      {selectedItems.map((item) => {
+                        const remainingQty = getRemainingQty(item);
+                        const batchQty = parseQty(item.actualQty);
+                        const isValidBatch =
+                          Number.isFinite(batchQty) &&
+                          batchQty > 0 &&
+                          batchQty - remainingQty <= QTY_EPSILON;
+                        return (
+                        <div key={item.rowId} className="grid grid-cols-[1fr_120px_120px_140px] items-center gap-4 px-4 py-3">
                           <div>
                             <p className="text-sm font-medium font-mono">{item.itemName}</p>
                             {item.supplierCollectionName && (
@@ -572,6 +781,10 @@ function ReceiveDialog({
                             <span className="text-sm font-semibold">{item.expectedQty}</span>
                             <span className="text-xs text-muted-foreground">{item.unit}</span>
                           </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-semibold">{formatQtyString(remainingQty)}</span>
+                            <span className="text-xs text-muted-foreground">{item.unit}</span>
+                          </div>
                           <div className="space-y-1">
                             <div className="relative">
                               <Input
@@ -579,28 +792,39 @@ function ReceiveDialog({
                                 step="0.01"
                                 value={item.actualQty}
                                 onChange={(e) => {
-                                  setReceiveItems((prev) => prev.map((i) => i.itemName === item.itemName ? { ...i, actualQty: e.target.value } : i));
-                                  setReceiveQtyErrors((prev) => { const { [item.itemName]: _, ...rest } = prev; return rest; });
+                                  setReceiveItems((prev) =>
+                                    prev.map((i) =>
+                                      i.rowId === item.rowId ? { ...i, actualQty: e.target.value } : i
+                                    )
+                                  );
+                                  setReceiveQtyErrors((prev) => {
+                                    const { [item.rowId]: _, ...rest } = prev;
+                                    return rest;
+                                  });
                                 }}
-                                className={cn("h-9 pr-10 text-sm", receiveQtyErrors[item.itemName] && "border-red-500 focus-visible:ring-red-500")}
-                                placeholder={item.expectedQty}
+                                className={cn(
+                                  "h-9 pr-10 text-sm",
+                                  receiveQtyErrors[item.rowId] && "border-red-500 focus-visible:ring-red-500"
+                                )}
+                                placeholder={formatQtyString(remainingQty)}
                               />
                               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{item.unit}</span>
                             </div>
-                            {receiveQtyErrors[item.itemName] && (
+                            {receiveQtyErrors[item.rowId] && (
                               <p className="text-xs text-red-600 flex items-center gap-1">
                                 <AlertCircle className="h-3 w-3" />
-                                {receiveQtyErrors[item.itemName]}
+                                {receiveQtyErrors[item.rowId]}
                               </p>
                             )}
-                            {item.actualQty && !receiveQtyErrors[item.itemName] && isQtyMatchingExpected(parseQty(item.actualQty), parseQty(item.expectedQty)) && (
+                            {item.actualQty && !receiveQtyErrors[item.rowId] && isValidBatch && (
                               <p className="text-xs text-emerald-600 flex items-center gap-1">
-                                <CheckCircle2 className="h-3 w-3" /> Qty matches
+                                <CheckCircle2 className="h-3 w-3" /> Looks good
                               </p>
                             )}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -617,7 +841,7 @@ function ReceiveDialog({
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       {selectedItems.map((item) => (
-                        <div key={item.itemName} className="bg-white rounded-lg border border-emerald-200 px-3 py-2">
+                        <div key={item.rowId} className="bg-white rounded-lg border border-emerald-200 px-3 py-2">
                           <p className="text-xs font-mono font-semibold truncate">{item.itemName}</p>
                           <p className="text-sm font-bold text-emerald-700 mt-0.5">{item.actualQty} {item.unit}</p>
                         </div>
@@ -640,7 +864,7 @@ function ReceiveDialog({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-xl border bg-muted/30 p-4">
                       {selectedItems.map((item) => (
                         <InboundSticker
-                          key={item.itemName}
+                          key={item.rowId}
                           bcn={item.itemName}
                           length={parseQty(item.actualQty) || 0}
                           code={item.supplierCollectionCode || "—"}
@@ -745,18 +969,25 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
       const purchaseRequest = purchaseRequestById.get(String(inbound?.purchaseRequestId || ""));
       const inboundStatus = String(inbound?.status || "").toLowerCase();
 
-      return inboundItems.map((item: any) => {
+      return inboundItems.map((item: any, itemIndex: number) => {
         const itemName = String(item?.itemName || "").trim();
         if (!itemName) return null;
         const stockData = stockDataMap.get(itemName);
         const completedMilestones = Array.isArray(item?.inboundMilestones) ? item.inboundMilestones : [];
+        const expected = parseQty(String(item?.quantity ?? "0"));
+        const received = parseQty(String(item?.receivedQty ?? "0"));
+        const expectedSafe = Number.isFinite(expected) && expected > 0 ? expected : 0;
+        const receivedSafe = Number.isFinite(received) && received > 0 ? received : 0;
         let statusText = "Pending Receiving";
-        if (inboundStatus === "completed" || completedMilestones.length >= INBOUND_PROCESS_CONFIG.length) statusText = "Received";
-        else if (completedMilestones.length > 0) statusText = "In Progress";
+        if (
+          inboundStatus === "completed" ||
+          (expectedSafe > QTY_EPSILON && isFullyReceivedQty(receivedSafe, expectedSafe))
+        ) statusText = "Received";
+        else if (receivedSafe > QTY_EPSILON || completedMilestones.length > 0) statusText = "In Progress";
         if (mode === "completed" && statusText !== "Received") return null;
         if (mode === "pending" && statusText === "Received") return null;
         return {
-          id: `${poNumber}-${itemName}`, dealId: String(inbound?.dealId || purchaseRequest?.dealId || ""),
+          id: `${poNumber}-${itemName}-${itemIndex}`, dealId: String(inbound?.dealId || purchaseRequest?.dealId || ""),
           poNumber, customerName: String(inbound?.customerName || purchaseRequest?.customerName || ""),
           salesman: purchaseRequest?.salesman || "Unknown", status: statusText,
           createdAt: String(inbound?.createdAt || purchaseRequest?.createdAt || ""),
@@ -1023,3 +1254,4 @@ export function InboundTable({ mode }: { mode: "pending" | "completed" }) {
     </>
   );
 }
+
