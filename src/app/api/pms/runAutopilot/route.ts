@@ -2,53 +2,103 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { runAutopilot } from "@/lib/pms/autopilot";
 
+const IST_TIMEZONE_OFFSET_MINUTES = 330;
+
 const chunk = <T,>(items: T[], size: number) => {
   const batches: T[][] = [];
   for (let i = 0; i < items.length; i += size) batches.push(items.slice(i, i + size));
   return batches;
 };
 
+const getOrdersByIds = async (ids: string[]) => {
+  const orderMap = new Map<string, any>();
+  if (ids.length === 0) return orderMap;
+
+  const refs = ids.map((id) => adminDb.collection("orders").doc(id));
+  for (const batchRefs of chunk(refs, 400)) {
+    const docs = await adminDb.getAll(...batchRefs);
+    docs.forEach((doc) => {
+      if (doc.exists) {
+        orderMap.set(doc.id, doc.data() as any);
+      }
+    });
+  }
+  return orderMap;
+};
+
+const isOrderClosedForPms = (order?: any) => {
+  if (!order) return false;
+  const workflowStatus = String(order?.workflow?.status || "").trim().toUpperCase();
+  if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") return true;
+  const status = String(order?.status || "").trim().toUpperCase();
+  return status === "INSTALLATION DONE" || status === "COMPLETED" || status === "CANCELLED";
+};
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const orderId = body?.orderId ? String(body.orderId) : null;
+    const parsedOrderId = body?.orderId ? String(body.orderId).trim() : "";
+    const orderId = parsedOrderId || null;
+    const includePlanned =
+      body?.includePlanned === true ||
+      body?.includePlanned === "true" ||
+      Number(body?.includePlanned) === 1;
 
-    // 1) Load WAITING jobs (optionally scoped to one order)
+    // 1) Load candidate jobs (optionally scoped to one order)
     const jobQuery = orderId
-      ? adminDb.collection("jobs").where("orderId", "==", orderId).where("status", "==", "WAITING")
+      ? adminDb.collection("jobs").where("orderId", "==", orderId)
+      : includePlanned
+      ? adminDb.collection("jobs").where("status", "in", ["WAITING", "PLANNED"])
       : adminDb.collection("jobs").where("status", "==", "WAITING");
 
     const jobsSnap = await jobQuery.get();
     if (jobsSnap.empty) {
-      return NextResponse.json({ success: true, planned: 0, message: "No waiting jobs." });
-    }
-
-    const waitingJobs = jobsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) }));
-
-    // 2) Check invoiced orders only
-    const orderIds = Array.from(new Set(waitingJobs.map((j) => j.orderId).filter(Boolean))) as string[];
-    const invoicedOrderIds = new Set<string>();
-
-    await Promise.all(
-      orderIds.map(async (id) => {
-        const snap = await adminDb.collection("orders").doc(id).get();
-        if (!snap.exists) return;
-        const data = snap.data() as any;
-
-        const status = data?.invoicing?.status;
-        const invoiceCount = Array.isArray(data?.invoicing?.invoices) ? data.invoicing.invoices.length : 0;
-        const hasInvoice = Boolean((status && status !== "NOT_INVOICED") || invoiceCount > 0);
-
-        if (hasInvoice) invoicedOrderIds.add(id);
-      })
-    );
-
-    const eligibleWaiting = waitingJobs.filter((j) => invoicedOrderIds.has(j.orderId));
-    if (eligibleWaiting.length === 0) {
       return NextResponse.json({
         success: true,
         planned: 0,
-        message: "No waiting jobs for invoiced orders.",
+        message: includePlanned ? "No waiting/planned jobs." : "No waiting jobs.",
+      });
+    }
+
+    const candidateJobs = jobsSnap.docs
+      .map((doc) => ({ id: doc.id, ...(doc.data() as any) }))
+      .filter((job) => {
+        const status = String(job?.status || "").toUpperCase();
+        if (includePlanned) return status === "WAITING" || status === "PLANNED";
+        return status === "WAITING";
+      });
+
+    if (candidateJobs.length === 0) {
+      return NextResponse.json({
+        success: true,
+        planned: 0,
+        message: includePlanned ? "No waiting/planned jobs." : "No waiting jobs.",
+      });
+    }
+
+    // 2) Check invoiced orders only
+    const orderIds = Array.from(new Set(candidateJobs.map((j) => j.orderId).filter(Boolean))) as string[];
+    const orderDataById = await getOrdersByIds(orderIds);
+    const invoicedOrderIds = new Set<string>();
+
+    orderDataById.forEach((data, id) => {
+      if (isOrderClosedForPms(data)) return;
+      const status = data?.invoicing?.status;
+      const invoiceCount = Array.isArray(data?.invoicing?.invoices)
+        ? data.invoicing.invoices.length
+        : 0;
+      const hasInvoice = Boolean((status && status !== "NOT_INVOICED") || invoiceCount > 0);
+      if (hasInvoice) invoicedOrderIds.add(id);
+    });
+
+    const eligibleJobs = candidateJobs.filter((job) => invoicedOrderIds.has(job.orderId));
+    if (eligibleJobs.length === 0) {
+      return NextResponse.json({
+        success: true,
+        planned: 0,
+        message: includePlanned
+          ? "No waiting/planned jobs for invoiced orders."
+          : "No waiting jobs for invoiced orders.",
       });
     }
 
@@ -73,13 +123,13 @@ export async function POST(request: Request) {
     const workingHours = {
       startTime: String(workingHoursData?.startTime || "10:00"),
       endTime: String(workingHoursData?.endTime || "20:00"),
-      timezoneOffsetMinutes: Number.isFinite(Number(workingHoursData?.timezoneOffsetMinutes))
-        ? Number(workingHoursData?.timezoneOffsetMinutes)
-        : 0,
+      timezoneOffsetMinutes: IST_TIMEZONE_OFFSET_MINUTES,
     };
 
     // 4) For scheduling we need ALL jobs of those orders/groups (so chain works)
-    const jobGroupIds = Array.from(new Set(eligibleWaiting.map((j) => j.jobGroupId).filter(Boolean))) as string[];
+    const jobGroupIds = Array.from(
+      new Set(eligibleJobs.map((job) => job.jobGroupId).filter(Boolean))
+    ) as string[];
 
     const schedulingJobsMap = new Map<string, any>();
 
@@ -95,8 +145,8 @@ export async function POST(request: Request) {
       snap.docs.forEach((doc) => schedulingJobsMap.set(doc.id, { id: doc.id, ...(doc.data() as any) }));
     }
 
-    // ensure eligible waiting included
-    eligibleWaiting.forEach((j) => schedulingJobsMap.set(j.id, j));
+    // ensure eligible jobs included
+    eligibleJobs.forEach((job) => schedulingJobsMap.set(job.id, job));
 
     // merge plannedStart/End from plan docs
     const planByJobId = new Map<string, any>();
@@ -109,21 +159,23 @@ export async function POST(request: Request) {
       .filter((j) => invoicedOrderIds.has(j.orderId))
       .map((j) => {
         const p = planByJobId.get(j.id);
+        const rawStatus = String(j.status || "").toUpperCase();
+        const normalizedStatus = includePlanned && rawStatus === "PLANNED" ? "WAITING" : j.status;
+        const shouldResetPlanFields =
+          includePlanned && (rawStatus === "PLANNED" || rawStatus === "WAITING");
         return {
           ...j,
-          plannedStart: j.plannedStart || p?.plannedStart,
-          plannedEnd: j.plannedEnd || p?.plannedEnd,
+          status: normalizedStatus,
+          plannedStart: shouldResetPlanFields ? undefined : j.plannedStart || p?.plannedStart,
+          plannedEnd: shouldResetPlanFields ? undefined : j.plannedEnd || p?.plannedEnd,
         };
       });
 
     // 5) order priority
     const orderPriorityMap: Record<string, number | undefined> = {};
-    await Promise.all(
-      Array.from(invoicedOrderIds).map(async (id) => {
-        const snap = await adminDb.collection("orders").doc(id).get();
-        if (snap.exists) orderPriorityMap[id] = (snap.data() as any)?.priority;
-      })
-    );
+    Array.from(invoicedOrderIds).forEach((id) => {
+      orderPriorityMap[id] = orderDataById.get(id)?.priority;
+    });
 
     // 6) Run autopilot
     const now = new Date().toISOString();
@@ -172,7 +224,11 @@ export async function POST(request: Request) {
 
     await batch.commit();
 
-    return NextResponse.json({ success: true, planned: planned.length });
+    return NextResponse.json({
+      success: true,
+      planned: planned.length,
+      mode: includePlanned ? "replan" : "waiting-only",
+    });
   } catch (error) {
     console.error("PMS runAutopilot failed:", error);
     return NextResponse.json(

@@ -3,6 +3,16 @@ import { adminDb } from "@/lib/firebase-admin";
 import { buildJobsFromRouting } from "@/lib/pms/routing";
 import { simulateScheduleForOrder } from "@/lib/pms/simulator";
 
+const IST_TIMEZONE_OFFSET_MINUTES = 330;
+
+const isOrderClosedForPms = (order?: any) => {
+  if (!order) return false;
+  const workflowStatus = String(order?.workflow?.status || "").trim().toUpperCase();
+  if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") return true;
+  const status = String(order?.status || "").trim().toUpperCase();
+  return status === "INSTALLATION DONE" || status === "COMPLETED" || status === "CANCELLED";
+};
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -33,6 +43,13 @@ export async function POST(request: Request) {
     }
 
     const orderDataSnapshot = orderSnap.data() as any;
+    if (isOrderClosedForPms(orderDataSnapshot)) {
+      return NextResponse.json(
+        { success: false, message: "Order is already completed/cancelled for PMS." },
+        { status: 400 }
+      );
+    }
+
     const invoicingStatus = orderDataSnapshot?.invoicing?.status;
     const invoiceCount = Array.isArray(orderDataSnapshot?.invoicing?.invoices)
       ? orderDataSnapshot.invoicing.invoices.length
@@ -105,9 +122,7 @@ export async function POST(request: Request) {
     const workingHours = {
       startTime: String(workingHoursData?.startTime || "10:00"),
       endTime: String(workingHoursData?.endTime || "20:00"),
-      timezoneOffsetMinutes: Number.isFinite(Number(workingHoursData?.timezoneOffsetMinutes))
-        ? Number(workingHoursData?.timezoneOffsetMinutes)
-        : 0,
+      timezoneOffsetMinutes: IST_TIMEZONE_OFFSET_MINUTES,
     };
 
     const etaResult = simulateScheduleForOrder({

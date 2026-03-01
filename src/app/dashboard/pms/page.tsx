@@ -7,11 +7,15 @@ import {
   deleteDoc,
   doc,
   writeBatch,
+  getDoc,
+  getDocs,
   onSnapshot,
   setDoc,
   query,
   orderBy,
   limit,
+  where,
+  deleteField,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
@@ -84,8 +88,13 @@ import {
 } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
 import { Order } from "@/lib/types";
+import {
+  formatDateInZone,
+  formatDateTimeInZone,
+  formatTimeInZone,
+  IST_TIME_ZONE,
+} from "@/lib/pms/time";
 
 
 type PmsProduct = { id: string; name: string; category: string };
@@ -130,11 +139,27 @@ const toNumber = (value: string) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const IST_TIMEZONE_OFFSET_MINUTES = 330;
+const AUTO_ADVANCE_POLL_MS = 15_000;
+
 const formatDateTime = (value?: string) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return format(date, "dd MMM, HH:mm");
+  return formatDateTimeInZone(value, {
+    timeZone: IST_TIME_ZONE,
+    placeholder: "-",
+  });
+};
+
+const getQueueDelayLabel = (startIso?: string) => {
+  if (!startIso) return "";
+  const startMs = new Date(startIso).getTime();
+  if (!Number.isFinite(startMs)) return "";
+  const diffMs = startMs - Date.now();
+  if (diffMs <= 0) return "Ready now";
+  const totalMinutes = Math.ceil(diffMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `Queue starts in ${minutes}m`;
+  return `Queue starts in ${hours}h ${minutes}m`;
 };
 
 const normalizeText = (value?: string) =>
@@ -146,7 +171,7 @@ const buildSkillId = (machineId: string, personId: string, category: string) =>
   `${machineId}_${personId}_${category.replace(/[^a-zA-Z0-9]/g, "_")}`;
 
 export default function PmsPage() {
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const { toast } = useToast();
 
   const [products, setProducts] = useState<PmsProduct[]>([]);
@@ -161,13 +186,37 @@ export default function PmsPage() {
   const [vasSearch, setVasSearch] = useState("");
   const [creatingJobKey, setCreatingJobKey] = useState<string | null>(null);
   const [runningAutopilot, setRunningAutopilot] = useState(false);
+  const [runningPriorityReplan, setRunningPriorityReplan] = useState(false);
   const [resettingAutopilot, setResettingAutopilot] = useState(false);
   const [resetAutopilotDialogOpen, setResetAutopilotDialogOpen] = useState(false);
   const [expandedWorkRows, setExpandedWorkRows] = useState<Record<string, boolean>>({});
+  const [priorityUpdatingOrderId, setPriorityUpdatingOrderId] = useState<string | null>(null);
+  const [deletingPlanKey, setDeletingPlanKey] = useState<string | null>(null);
+  const [manualDoneDialog, setManualDoneDialog] = useState<{
+    open: boolean;
+    row: null | {
+      key: string;
+      jobId: string;
+      orderId: string;
+      orderNo: string;
+      customer: string;
+      vasName: string;
+      process: string;
+      qty: number;
+      stepNo?: number;
+      totalSteps: number;
+      plannedStart?: string;
+      plannedEnd?: string;
+    };
+  }>({ open: false, row: null });
+  const [manualDoneAllQtyReady, setManualDoneAllQtyReady] = useState<"yes" | "no">("yes");
+  const [manualDoneRemainingQty, setManualDoneRemainingQty] = useState("");
+  const [manualDoneReason, setManualDoneReason] = useState("");
+  const [manualDoneSaving, setManualDoneSaving] = useState(false);
   const [workingHours, setWorkingHours] = useState({
     startTime: "10:00",
     endTime: "20:00",
-    timezoneOffsetMinutes: -new Date().getTimezoneOffset(),
+    timezoneOffsetMinutes: IST_TIMEZONE_OFFSET_MINUTES,
   });
   const [savingWorkingHours, setSavingWorkingHours] = useState(false);
 
@@ -231,7 +280,9 @@ export default function PmsPage() {
     const unsubOrders = onSnapshot(ordersQuery, (snap) => {
       setOrders(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) } as Order)));
     });
-    const unsubJobs = onSnapshot(collection(db, "jobs"), (snap) => {
+    const activeJobStatuses = ["WAITING", "PLANNED", "IN_PROGRESS", "DONE"];
+    const jobsQuery = query(collection(db, "jobs"), where("status", "in", activeJobStatuses));
+    const unsubJobs = onSnapshot(jobsQuery, (snap) => {
       setJobs(snap.docs.map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as any) })));
     });
     const unsubPlans = onSnapshot(collection(db, "plan"), (snap) => {
@@ -262,9 +313,7 @@ export default function PmsPage() {
         ...prev,
         startTime: typeof data?.startTime === "string" ? data.startTime : prev.startTime,
         endTime: typeof data?.endTime === "string" ? data.endTime : prev.endTime,
-        timezoneOffsetMinutes: Number.isFinite(Number(data?.timezoneOffsetMinutes))
-          ? Number(data.timezoneOffsetMinutes)
-          : prev.timezoneOffsetMinutes,
+        timezoneOffsetMinutes: IST_TIMEZONE_OFFSET_MINUTES,
       }));
     });
   }, []);
@@ -332,6 +381,18 @@ export default function PmsPage() {
     const invoices = order.invoicing?.invoices || [];
     if (status && status !== "NOT_INVOICED") return true;
     return Array.isArray(invoices) && invoices.length > 0;
+  }, []);
+
+  const isOrderClosedForPms = useCallback((order?: Order) => {
+    if (!order) return false;
+    const workflowStatus = String((order as any)?.workflow?.status || "")
+      .trim()
+      .toUpperCase();
+    if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") return true;
+    const status = String((order as any)?.status || "")
+      .trim()
+      .toUpperCase();
+    return status === "INSTALLATION DONE" || status === "COMPLETED" || status === "CANCELLED";
   }, []);
 
   const liveVasRowsAll = useMemo(() => {
@@ -420,7 +481,10 @@ export default function PmsPage() {
     };
 
     const rows = orders
-      .filter((order) => (order.sections?.VAS?.items?.length || 0) > 0)
+      .filter(
+        (order) =>
+          (order.sections?.VAS?.items?.length || 0) > 0 && !isOrderClosedForPms(order)
+      )
       .flatMap((order) => {
         return (order.sections?.VAS?.items || []).map((item, index) => {
           const vasName = item.description || item.group || "VAS";
@@ -467,6 +531,16 @@ export default function PmsPage() {
             status === "WAITING" && !plannedStart
               ? explainNoPlan(match?.id, hasJobsForProduct, waitingJob, prevJob, invoiceReady)
               : "";
+          const rawPriority = Number((order as any)?.priority);
+          const orderPriority = Number.isFinite(rawPriority) ? rawPriority : 500;
+          const isEmergency = orderPriority <= -100;
+          const priorityLabel = isEmergency
+            ? "Emergency"
+            : orderPriority <= 0
+            ? "High"
+            : orderPriority <= 500
+            ? "Normal"
+            : "Low";
 
           return {
             key: `${order.id}-vas-${index}`,
@@ -494,11 +568,14 @@ export default function PmsPage() {
             hasJobsForProduct,
             noPlanReason,
             invoiceReady,
+            orderPriority,
+            priorityLabel,
+            isEmergency,
           };
         });
       });
     return rows;
-  }, [orders, jobs, plans, machines, people, products, routing, skills, isOrderInvoiced]);
+  }, [orders, jobs, plans, machines, people, products, routing, skills, isOrderInvoiced, isOrderClosedForPms]);
 
   const liveVasRows = useMemo(() => {
     const search = vasSearch.trim().toLowerCase();
@@ -512,7 +589,14 @@ export default function PmsPage() {
       : liveVasRowsAll;
 
     const rank: Record<string, number> = { IN_PROGRESS: 0, PLANNED: 1, WAITING: 2, DONE: 3 };
-    return [...filtered].sort((a, b) => (rank[a.status] ?? 99) - (rank[b.status] ?? 99));
+    return [...filtered].sort((a, b) => {
+      const statusRankDiff = (rank[a.status] ?? 99) - (rank[b.status] ?? 99);
+      if (statusRankDiff !== 0) return statusRankDiff;
+      if (a.orderPriority !== b.orderPriority) return a.orderPriority - b.orderPriority;
+      const aTime = a.plannedStart ? new Date(a.plannedStart).getTime() : Number.MAX_SAFE_INTEGER;
+      const bTime = b.plannedStart ? new Date(b.plannedStart).getTime() : Number.MAX_SAFE_INTEGER;
+      return aTime - bTime;
+    });
   }, [liveVasRowsAll, vasSearch]);
 
   const liveStats = useMemo(() => {
@@ -521,7 +605,8 @@ export default function PmsPage() {
     const planned = liveVasRows.filter((row) => row.status === "PLANNED").length;
     const waiting = liveVasRows.filter((row) => row.status === "WAITING").length;
     const done = liveVasRows.filter((row) => row.status === "DONE").length;
-    return { totalItems, inProgress, planned, waiting, done };
+    const emergency = liveVasRows.filter((row) => row.isEmergency).length;
+    return { totalItems, inProgress, planned, waiting, done, emergency };
   }, [liveVasRows]);
 
   const resolveVasInfo = useCallback((order?: Order, productName?: string) => {
@@ -569,6 +654,7 @@ export default function PmsPage() {
   }, []);
 
   const workDetailRows = useMemo(() => {
+    const nowMs = Date.now();
     const ordersById = new Map(orders.map((order) => [order.id, order]));
     const peopleById = new Map(people.map((person) => [person.id, person]));
     const machineById = new Map(machines.map((machine) => [machine.id, machine]));
@@ -585,6 +671,15 @@ export default function PmsPage() {
       );
     });
 
+    const planDocIdsByJob = new Map<string, string[]>();
+    plans.forEach((plan) => {
+      const jobId = String((plan as any)?.jobId || "").trim();
+      const planId = String((plan as any)?.id || "").trim();
+      if (!jobId || !planId) return;
+      if (!planDocIdsByJob.has(jobId)) planDocIdsByJob.set(jobId, []);
+      planDocIdsByJob.get(jobId)!.push(planId);
+    });
+
     const planByJob = new Map<string, PmsPlan>();
     plans.forEach((plan) => {
       const existing = planByJob.get(plan.jobId);
@@ -598,6 +693,42 @@ export default function PmsPage() {
         planByJob.set(plan.jobId, plan);
       }
     });
+
+    const activeAssignments = jobs
+      .map((job) => {
+        const status = String(job.status || "").toUpperCase();
+        if (status !== "IN_PROGRESS" && status !== "PLANNED") return null;
+        const plan = planByJob.get(job.id);
+        if (!plan?.plannedStart || !plan?.plannedEnd) return null;
+        const startMs = new Date(plan.plannedStart).getTime();
+        const endMs = new Date(plan.plannedEnd).getTime();
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+        const order = ordersById.get(job.orderId);
+        return {
+          jobId: job.id,
+          orderId: job.orderId,
+          orderNo: order?.crmOrderNo || order?.orderNo || order?.id || job.orderId,
+          status,
+          machineId: plan.machineId,
+          personId: plan.personId,
+          plannedStart: plan.plannedStart,
+          plannedEnd: plan.plannedEnd,
+          startMs,
+          endMs,
+        };
+      })
+      .filter(Boolean) as Array<{
+      jobId: string;
+      orderId: string;
+      orderNo: string;
+      status: "IN_PROGRESS" | "PLANNED";
+      machineId?: string;
+      personId?: string;
+      plannedStart: string;
+      plannedEnd: string;
+      startMs: number;
+      endMs: number;
+    }>;
 
     const jobsByGroup = new Map<string, PmsJob[]>();
     jobs.forEach((job) => {
@@ -624,6 +755,7 @@ export default function PmsPage() {
         if (!currentJob) return null;
 
         const order = ordersById.get(currentJob.orderId);
+        if (isOrderClosedForPms(order)) return null;
         const product = currentJob.productId ? productById.get(currentJob.productId) : undefined;
         const routingSteps = currentJob.productId
           ? routingByProduct.get(currentJob.productId) || []
@@ -634,6 +766,8 @@ export default function PmsPage() {
           {
             plannedStart?: string;
             plannedEnd?: string;
+            actualStart?: string;
+            actualEnd?: string;
             status?: string;
             machineName?: string;
             personName?: string;
@@ -642,11 +776,17 @@ export default function PmsPage() {
         sortedJobs.forEach((groupJob) => {
           if (groupJob.stepNo === undefined || groupJob.stepNo === null) return;
           const plan = planByJob.get(groupJob.id);
-          const machineName = plan?.machineId ? machineById.get(plan.machineId)?.name : undefined;
-          const personName = plan?.personId ? peopleById.get(plan.personId)?.name : undefined;
+          const machineName = plan?.machineId
+            ? machineById.get(plan.machineId)?.name || plan.machineId
+            : undefined;
+          const personName = plan?.personId
+            ? peopleById.get(plan.personId)?.name || plan.personId
+            : undefined;
           stepPlanMap.set(groupJob.stepNo, {
             plannedStart: groupJob.plannedStart ?? plan?.plannedStart,
             plannedEnd: groupJob.plannedEnd ?? plan?.plannedEnd,
+            actualStart: groupJob.actualStart,
+            actualEnd: groupJob.actualEnd,
             status: groupJob.status,
             machineName,
             personName,
@@ -659,6 +799,10 @@ export default function PmsPage() {
         const nextStep = currentStep
           ? routingSteps.find((step) => step.stepNo === currentStep.stepNo + 1)
           : undefined;
+        const maxStepNo = routingSteps.reduce((max, step) => {
+          return Math.max(max, Number(step?.stepNo || 0));
+        }, 0);
+        const isFinalStep = Boolean(currentStepNo && maxStepNo && Number(currentStepNo) >= maxStepNo);
 
         const currentPlan = currentStep ? stepPlanMap.get(currentStep.stepNo) : undefined;
         const nextPlan = nextStep ? stepPlanMap.get(nextStep.stepNo) : undefined;
@@ -667,11 +811,56 @@ export default function PmsPage() {
         const person = currentPlan?.personName;
         const nextMachine = nextPlan?.machineName;
         const nextPerson = nextPlan?.personName;
+        const currentPlanDoc = planByJob.get(currentJob.id);
+        const currentMachineId = currentPlanDoc?.machineId;
+        const currentPersonId = currentPlanDoc?.personId;
 
         const vasInfo = resolveVasInfo(order, product?.name);
+        const resetJobs = sortedJobs.filter(
+          (job) => job.status === "PLANNED" || job.status === "WAITING"
+        );
+        const resetJobIds = resetJobs.map((job) => job.id).filter(Boolean);
+        const resetPlanDocIds = resetJobIds.flatMap(
+          (jobId) => planDocIdsByJob.get(jobId) || []
+        );
+        let blockedByLabel: string | undefined;
+        if (
+          String(currentJob.status || "").toUpperCase() === "PLANNED" &&
+          currentPlanDoc?.plannedStart &&
+          (currentMachineId || currentPersonId)
+        ) {
+          const rowStartMs = new Date(currentPlanDoc.plannedStart).getTime();
+          if (Number.isFinite(rowStartMs)) {
+            const relatedAssignments = activeAssignments.filter((assignment) => {
+              if (assignment.jobId === currentJob.id) return false;
+              const sameMachine =
+                Boolean(currentMachineId) && assignment.machineId === currentMachineId;
+              const samePerson =
+                Boolean(currentPersonId) && assignment.personId === currentPersonId;
+              return sameMachine || samePerson;
+            });
+            const ongoingNow = relatedAssignments
+              .filter(
+                (assignment) =>
+                  assignment.status === "IN_PROGRESS" &&
+                  assignment.startMs <= nowMs &&
+                  assignment.endMs >= nowMs &&
+                  assignment.endMs <= rowStartMs
+              )
+              .sort((a, b) => b.endMs - a.endMs)[0];
+            if (ongoingNow) {
+              blockedByLabel = `Blocked by ${ongoingNow.orderNo} (${ongoingNow.status}) till ${formatDateTime(
+                ongoingNow.plannedEnd
+              )}`;
+            }
+          }
+        }
+
         return {
           key: groupKey,
+          currentJobId: currentJob.id,
           orderNo: order?.crmOrderNo || order?.orderNo || order?.id || currentJob.orderId,
+          orderId: currentJob.orderId,
           customer: order?.customerSnapshot?.name || order?.customerName || "N/A",
           vasName: vasInfo.vasName,
           vasGroup: vasInfo.vasGroup,
@@ -684,6 +873,8 @@ export default function PmsPage() {
           status: currentJob.status || "WAITING",
           routingSteps,
           currentStepNo,
+          isFinalStep,
+          totalSteps: maxStepNo,
           productName: product?.name || currentJob.productId || "Unknown product",
           stepPlanMap,
           nextProcess: nextStep?.process,
@@ -691,10 +882,15 @@ export default function PmsPage() {
           nextPlannedEnd: nextPlan?.plannedEnd,
           nextMachine,
           nextPerson,
+          resetJobIds,
+          resetPlanDocIds,
+          blockedByLabel,
         };
       })
       .filter(Boolean) as Array<{
         key: string;
+        currentJobId: string;
+        orderId: string;
         orderNo: string;
         customer: string;
         vasName: string;
@@ -708,12 +904,16 @@ export default function PmsPage() {
         status: string;
         routingSteps: PmsRouting[];
         currentStepNo?: number;
+        isFinalStep: boolean;
+        totalSteps: number;
         productName: string;
         stepPlanMap: Map<
           number,
           {
             plannedStart?: string;
             plannedEnd?: string;
+            actualStart?: string;
+            actualEnd?: string;
             status?: string;
             machineName?: string;
             personName?: string;
@@ -724,13 +924,30 @@ export default function PmsPage() {
         nextPlannedEnd?: string;
         nextMachine?: string;
         nextPerson?: string;
+        resetJobIds: string[];
+        resetPlanDocIds: string[];
+        blockedByLabel?: string;
       }>;
 
-    return rows.sort(
-      (a, b) =>
-        new Date(a.plannedStart || 0).getTime() - new Date(b.plannedStart || 0).getTime()
-    );
-  }, [plans, jobs, orders, people, machines, products, routing, resolveVasInfo]);
+    const statusRank: Record<string, number> = {
+      IN_PROGRESS: 0,
+      PLANNED: 1,
+      WAITING: 2,
+      DONE: 3,
+    };
+
+    return rows.sort((a, b) => {
+      const rankDiff = (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99);
+      if (rankDiff !== 0) return rankDiff;
+      const aTime = a.plannedStart
+        ? new Date(a.plannedStart).getTime()
+        : Number.MAX_SAFE_INTEGER;
+      const bTime = b.plannedStart
+        ? new Date(b.plannedStart).getTime()
+        : Number.MAX_SAFE_INTEGER;
+      return aTime - bTime;
+    });
+  }, [plans, jobs, orders, people, machines, products, routing, resolveVasInfo, isOrderClosedForPms]);
 
   const workSheetStepRows = useMemo(() => {
     const ordersById = new Map(orders.map((order) => [order.id, order]));
@@ -767,7 +984,7 @@ export default function PmsPage() {
       .filter((job) => job.status !== "DONE")
       .map((job) => {
         const order = ordersById.get(job.orderId);
-        if (!isOrderInvoiced(order)) return null;
+        if (!isOrderInvoiced(order) || isOrderClosedForPms(order)) return null;
         const product = job.productId ? productById.get(job.productId) : undefined;
         const routingSteps = job.productId
           ? routingByProduct.get(job.productId) || []
@@ -838,13 +1055,14 @@ export default function PmsPage() {
       const stepA = a.stepNo ?? Number.MAX_SAFE_INTEGER;
       const stepB = b.stepNo ?? Number.MAX_SAFE_INTEGER;
       if (stepA !== stepB) return stepA - stepB;
-      return (
-        new Date(a.plannedStart || 0).getTime() - new Date(b.plannedStart || 0).getTime()
-      );
+      const aTime = a.plannedStart ? new Date(a.plannedStart).getTime() : Number.MAX_SAFE_INTEGER;
+      const bTime = b.plannedStart ? new Date(b.plannedStart).getTime() : Number.MAX_SAFE_INTEGER;
+      return aTime - bTime;
     });
-  }, [jobs, orders, people, machines, products, routing, plans, resolveVasInfo, isOrderInvoiced]);
+  }, [jobs, orders, people, machines, products, routing, plans, resolveVasInfo, isOrderInvoiced, isOrderClosedForPms]);
 
   const syncingWorkSheetRef = useRef(false);
+  const lastWorkSheetPayloadRef = useRef("");
   const autoAdvanceRef = useRef(false);
 
   const buildWorkSheetRows = (
@@ -905,11 +1123,16 @@ export default function PmsPage() {
       syncingWorkSheetRef.current = true;
       try {
         const rows = buildWorkSheetRows(workSheetStepRows);
+        const payloadHash = JSON.stringify(rows);
+        if (payloadHash === lastWorkSheetPayloadRef.current) {
+          return;
+        }
         await fetch("/api/pms/syncWorkSheet", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rows }),
         });
+        lastWorkSheetPayloadRef.current = payloadHash;
       } catch (error) {
         console.error("PMS work sheet sync failed:", error);
       } finally {
@@ -945,7 +1168,7 @@ export default function PmsPage() {
     };
 
     runAutoAdvance();
-    intervalId = setInterval(runAutoAdvance, 60_000);
+    intervalId = setInterval(runAutoAdvance, AUTO_ADVANCE_POLL_MS);
 
     return () => {
       if (intervalId) clearInterval(intervalId);
@@ -953,6 +1176,15 @@ export default function PmsPage() {
   }, [role]);
 
   const handleCreateJobsForRow = async (row: any) => {
+    if (
+      runningAutopilot ||
+      runningPriorityReplan ||
+      resettingAutopilot ||
+      priorityUpdatingOrderId ||
+      deletingPlanKey
+    ) {
+      return;
+    }
     if (!row?.invoiceReady) {
       toast({
         variant: "destructive",
@@ -1029,7 +1261,14 @@ export default function PmsPage() {
   };
 
   const handleResetAndRerunAutopilot = async () => {
-    if (resettingAutopilot) return;
+    if (
+      resettingAutopilot ||
+      runningAutopilot ||
+      runningPriorityReplan ||
+      priorityUpdatingOrderId ||
+      deletingPlanKey
+    )
+      return;
     setResettingAutopilot(true);
     try {
       const jobGroupMap = new Map<string, { orderId: string; productId: string; qty: number }>();
@@ -1049,8 +1288,12 @@ export default function PmsPage() {
         }
       });
 
-      const jobRefs = jobs.filter((job) => job.id).map((job) => doc(db, "jobs", job.id));
-      const planRefs = plans.filter((plan) => plan.id).map((plan) => doc(db, "plan", plan.id));
+      const [allJobsSnap, allPlansSnap] = await Promise.all([
+        getDocs(collection(db, "jobs")),
+        getDocs(collection(db, "plan")),
+      ]);
+      const jobRefs = allJobsSnap.docs.map((jobDoc) => doc(db, "jobs", jobDoc.id));
+      const planRefs = allPlansSnap.docs.map((planDoc) => doc(db, "plan", planDoc.id));
       const [deletedJobs, deletedPlans] = await Promise.all([
         deleteDocsInBatches(jobRefs),
         deleteDocsInBatches(planRefs),
@@ -1121,13 +1364,14 @@ export default function PmsPage() {
   };
 
   const handleRunAutopilot = async () => {
-    if (resettingAutopilot) return;
+    if (resettingAutopilot || runningPriorityReplan || priorityUpdatingOrderId || deletingPlanKey)
+      return;
     setRunningAutopilot(true);
     try {
       const res = await fetch("/api/pms/runAutopilot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ includePlanned: false }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.success) {
@@ -1151,11 +1395,329 @@ export default function PmsPage() {
     }
   };
 
+  const handleRunPriorityReplan = async () => {
+    if (resettingAutopilot || runningAutopilot || priorityUpdatingOrderId || deletingPlanKey)
+      return;
+    setRunningPriorityReplan(true);
+    try {
+      const res = await fetch("/api/pms/runAutopilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includePlanned: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || "Failed to replan.");
+      }
+      toast({
+        title: "Priority replan complete",
+        description:
+          data?.planned && data.planned > 0
+            ? `Replanned ${data.planned} job(s) including planned queue.`
+            : data?.message || "No changes were required.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Priority replan failed",
+        description: (error as Error).message,
+      });
+    } finally {
+      setRunningPriorityReplan(false);
+    }
+  };
+
+  const handleSetOrderEmergencyPriority = async (orderId: string, emergency: boolean) => {
+    if (!orderId || runningAutopilot || runningPriorityReplan || resettingAutopilot || deletingPlanKey) return;
+    setPriorityUpdatingOrderId(orderId);
+    try {
+      await setDoc(
+        doc(db, "orders", orderId),
+        {
+          priority: emergency ? -100 : 500,
+          pmsPriorityTag: emergency ? "EMERGENCY" : "NORMAL",
+          pmsPriorityUpdatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      const replanRes = await fetch("/api/pms/runAutopilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includePlanned: true }),
+      });
+      const replanData = await replanRes.json().catch(() => ({}));
+      if (!replanRes.ok || !replanData?.success) {
+        throw new Error(replanData?.message || "Priority updated, but replan failed.");
+      }
+
+      toast({
+        title: emergency ? "Marked as emergency" : "Emergency cleared",
+        description:
+          replanData?.planned && replanData.planned > 0
+            ? `Priority reapplied and ${replanData.planned} job(s) replanned.`
+            : "Priority updated successfully.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Priority update failed",
+        description: (error as Error).message,
+      });
+    } finally {
+      setPriorityUpdatingOrderId(null);
+    }
+  };
+
+  const handleDeletePlannedWork = async (row: {
+    key: string;
+    vasName: string;
+    orderNo: string;
+    resetJobIds: string[];
+    resetPlanDocIds: string[];
+    status: string;
+  }) => {
+    if (
+      deletingPlanKey ||
+      runningAutopilot ||
+      runningPriorityReplan ||
+      resettingAutopilot ||
+      priorityUpdatingOrderId
+    ) {
+      return;
+    }
+    if (row.status === "IN_PROGRESS") {
+      toast({
+        variant: "destructive",
+        title: "Cannot delete in-progress plan",
+        description: "Complete or pause the current step before deleting planned work.",
+      });
+      return;
+    }
+
+    const uniqueJobIds = Array.from(new Set((row.resetJobIds || []).filter(Boolean)));
+    const uniquePlanDocIds = Array.from(new Set((row.resetPlanDocIds || []).filter(Boolean)));
+    if (uniqueJobIds.length === 0 && uniquePlanDocIds.length === 0) {
+      toast({
+        title: "No planned work found",
+        description: "This row has no removable planned work.",
+      });
+      return;
+    }
+
+    const confirmed =
+      typeof window === "undefined"
+        ? true
+        : window.confirm(
+            `Delete planned work for Order ${row.orderNo} (${row.vasName})?\n\nThis will remove schedule and reset related jobs to WAITING.`
+          );
+    if (!confirmed) return;
+
+    setDeletingPlanKey(row.key);
+    try {
+      const nowIso = new Date().toISOString();
+      const ops: Array<{ type: "deletePlan" | "resetJob"; id: string }> = [
+        ...uniquePlanDocIds.map((id) => ({ type: "deletePlan" as const, id })),
+        ...uniqueJobIds.map((id) => ({ type: "resetJob" as const, id })),
+      ];
+
+      const chunkSize = 380; // keep below firestore batch limit
+      for (let i = 0; i < ops.length; i += chunkSize) {
+        const batch = writeBatch(db);
+        const part = ops.slice(i, i + chunkSize);
+        part.forEach((op) => {
+          if (op.type === "deletePlan") {
+            batch.delete(doc(db, "plan", op.id));
+            return;
+          }
+          batch.set(
+            doc(db, "jobs", op.id),
+            {
+              status: "WAITING",
+              plannedStart: deleteField(),
+              plannedEnd: deleteField(),
+              updatedAt: nowIso,
+            },
+            { merge: true }
+          );
+        });
+        await batch.commit();
+      }
+
+      toast({
+        title: "Planned work deleted",
+        description: `Reset ${uniqueJobIds.length} step(s) and removed ${uniquePlanDocIds.length} plan record(s).`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Delete planned work failed",
+        description: (error as Error).message,
+      });
+    } finally {
+      setDeletingPlanKey(null);
+    }
+  };
+
+  const handleOpenManualDoneDialog = (row: {
+    key: string;
+    currentJobId: string;
+    orderId: string;
+    orderNo: string;
+    customer: string;
+    vasName: string;
+    process: string;
+    qty: number;
+    currentStepNo?: number;
+    totalSteps: number;
+    plannedStart?: string;
+    plannedEnd?: string;
+  }) => {
+    setManualDoneAllQtyReady("yes");
+    setManualDoneRemainingQty("");
+    setManualDoneReason("");
+    setManualDoneDialog({
+      open: true,
+      row: {
+        key: row.key,
+        jobId: row.currentJobId,
+        orderId: row.orderId,
+        orderNo: row.orderNo,
+        customer: row.customer,
+        vasName: row.vasName,
+        process: row.process,
+        qty: Number.isFinite(Number(row.qty)) ? Number(row.qty) : 0,
+        stepNo: row.currentStepNo,
+        totalSteps: row.totalSteps,
+        plannedStart: row.plannedStart,
+        plannedEnd: row.plannedEnd,
+      },
+    });
+  };
+
+  const handleCloseManualDoneDialog = () => {
+    if (manualDoneSaving) return;
+    setManualDoneDialog({ open: false, row: null });
+  };
+
+  const handleSubmitManualDone = async () => {
+    if (!manualDoneDialog.row || manualDoneSaving) return;
+    const row = manualDoneDialog.row;
+    const totalQty = Number(row.qty || 0);
+    const allQtyReady = manualDoneAllQtyReady === "yes";
+    const parsedRemainingQty = Number(manualDoneRemainingQty || 0);
+    const remainingQty = allQtyReady ? 0 : parsedRemainingQty;
+
+    if (!allQtyReady) {
+      if (!Number.isFinite(parsedRemainingQty) || parsedRemainingQty <= 0) {
+        toast({
+          variant: "destructive",
+          title: "Remaining qty required",
+          description: "Enter a valid remaining qty when all qty is not ready.",
+        });
+        return;
+      }
+      if (totalQty > 0 && parsedRemainingQty > totalQty) {
+        toast({
+          variant: "destructive",
+          title: "Remaining qty is too high",
+          description: `Remaining qty cannot exceed total qty (${totalQty}).`,
+        });
+        return;
+      }
+      if (!manualDoneReason.trim()) {
+        toast({
+          variant: "destructive",
+          title: "Reason required",
+          description: "Please provide a reason for remaining qty.",
+        });
+        return;
+      }
+    }
+
+    setManualDoneSaving(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const readyQty =
+        totalQty > 0 ? Math.max(0, Number((totalQty - remainingQty).toFixed(2))) : undefined;
+      const completionPayload = {
+        mode: "MANUAL_LAST_STEP" as const,
+        isAllQtyReady: allQtyReady,
+        totalQty: totalQty > 0 ? totalQty : null,
+        readyQty: readyQty ?? null,
+        remainingQty: allQtyReady ? 0 : remainingQty,
+        remainingReason: allQtyReady ? null : manualDoneReason.trim(),
+        completedBy: {
+          id: user?.id || null,
+          name: user?.name || null,
+          role: user?.role || null,
+        },
+        completedAt: nowIso,
+      };
+
+      const jobRef = doc(db, "jobs", row.jobId);
+      const jobSnap = await getDoc(jobRef);
+      const jobData = jobSnap.exists() ? (jobSnap.data() as any) : {};
+      const actualStart =
+        String(jobData?.actualStart || "").trim() ||
+        String(jobData?.plannedStart || "").trim() ||
+        row.plannedStart ||
+        nowIso;
+
+      await setDoc(
+        jobRef,
+        {
+          status: "DONE",
+          actualStart,
+          actualEnd: nowIso,
+          updatedAt: nowIso,
+          manualCompletion: completionPayload,
+          completionMeta: completionPayload,
+        },
+        { merge: true }
+      );
+
+      await addDoc(collection(db, "pmsManualCompletions"), {
+        jobId: row.jobId,
+        orderId: row.orderId,
+        orderNo: row.orderNo,
+        customer: row.customer,
+        vasItem: row.vasName,
+        process: row.process,
+        stepNo: row.stepNo || null,
+        totalSteps: row.totalSteps || null,
+        ...completionPayload,
+        createdAt: nowIso,
+      });
+
+      await fetch("/api/pms/autoAdvance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      toast({
+        title: "Step marked complete",
+        description: allQtyReady
+          ? "Final step completed with full qty."
+          : "Final step completed with remaining qty recorded.",
+      });
+      setManualDoneDialog({ open: false, row: null });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Manual completion failed",
+        description: (error as Error).message,
+      });
+    } finally {
+      setManualDoneSaving(false);
+    }
+  };
+
   const handleSaveWorkingHours = async () => {
     if (savingWorkingHours) return;
     setSavingWorkingHours(true);
     try {
-      const offsetMinutes = -new Date().getTimezoneOffset();
+      const offsetMinutes = IST_TIMEZONE_OFFSET_MINUTES;
       await setDoc(
         doc(db, "pmsSettings", "workingHours"),
         {
@@ -1832,7 +2394,7 @@ const getGroupedSkills = () => {
                 </Button>
               </div>
               <div className="text-xs text-muted-foreground">
-                Saved with timezone offset: {workingHours.timezoneOffsetMinutes} minutes.
+                Scheduling timezone: IST (UTC+05:30). Stored offset: {workingHours.timezoneOffsetMinutes} minutes.
               </div>
             </CardContent>
           </Card>
@@ -1882,6 +2444,7 @@ const getGroupedSkills = () => {
                     <Badge className="bg-emerald-600 hover:bg-emerald-600">In Progress: {liveStats.inProgress}</Badge>
                     <Badge className="bg-blue-600 hover:bg-blue-600">Planned: {liveStats.planned}</Badge>
                     <Badge className="bg-amber-500 hover:bg-amber-500">Waiting: {liveStats.waiting}</Badge>
+                    <Badge className="bg-red-600 hover:bg-red-600">Emergency: {liveStats.emergency}</Badge>
                     <Badge variant="outline">Done: {liveStats.done}</Badge>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1896,16 +2459,45 @@ const getGroupedSkills = () => {
                       size="sm"
                       variant="outline"
                       onClick={handleRunAutopilot}
-                      disabled={runningAutopilot || resettingAutopilot}
+                      disabled={
+                        runningAutopilot ||
+                        runningPriorityReplan ||
+                        resettingAutopilot ||
+                        Boolean(priorityUpdatingOrderId) ||
+                        Boolean(deletingPlanKey)
+                      }
                     >
                       {runningAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Run Autopilot
                     </Button>
                     <Button
                       size="sm"
+                      variant="secondary"
+                      onClick={handleRunPriorityReplan}
+                      disabled={
+                        runningAutopilot ||
+                        runningPriorityReplan ||
+                        resettingAutopilot ||
+                        Boolean(priorityUpdatingOrderId) ||
+                        Boolean(deletingPlanKey)
+                      }
+                    >
+                      {runningPriorityReplan && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      Priority Replan
+                    </Button>
+                    <Button
+                      size="sm"
                       variant="destructive"
                       onClick={() => setResetAutopilotDialogOpen(true)}
-                      disabled={runningAutopilot || resettingAutopilot}
+                      disabled={
+                        runningAutopilot ||
+                        runningPriorityReplan ||
+                        resettingAutopilot ||
+                        Boolean(priorityUpdatingOrderId) ||
+                        Boolean(deletingPlanKey)
+                      }
                     >
                       {resettingAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Reset & Rerun
@@ -1923,6 +2515,7 @@ const getGroupedSkills = () => {
                         <TableHead>Qty</TableHead>
                         <TableHead>PMS Product</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Priority</TableHead>
                         <TableHead>Current Step</TableHead>
                         <TableHead>Machine</TableHead>
                         <TableHead>Person</TableHead>
@@ -1935,7 +2528,7 @@ const getGroupedSkills = () => {
                     <TableBody>
                       {liveVasRows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={13} className="h-24 text-center text-muted-foreground">
+                          <TableCell colSpan={14} className="h-24 text-center text-muted-foreground">
                             No VAS items are active right now.
                           </TableCell>
                         </TableRow>
@@ -1971,6 +2564,22 @@ const getGroupedSkills = () => {
                                 {row.status}
                               </Badge>
                             </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={row.isEmergency ? "destructive" : "secondary"}
+                                className={cn(
+                                  row.isEmergency && "animate-pulse",
+                                  !row.isEmergency &&
+                                    row.orderPriority <= 0 &&
+                                    "bg-orange-100 text-orange-700 hover:bg-orange-100",
+                                  !row.isEmergency &&
+                                    row.orderPriority > 0 &&
+                                    "bg-slate-100 text-slate-700 hover:bg-slate-100"
+                                )}
+                              >
+                                {row.priorityLabel}
+                              </Badge>
+                            </TableCell>
                             <TableCell>{row.currentProcess}</TableCell>
                             <TableCell>{row.machineName}</TableCell>
                             <TableCell>{row.personName}</TableCell>
@@ -1978,24 +2587,48 @@ const getGroupedSkills = () => {
                             <TableCell>{formatDateTime(row.eta)}</TableCell>
                             <TableCell>{row.noPlanReason || "-"}</TableCell>
                             <TableCell className="text-right">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={
-                                  creatingJobKey === row.key ||
-                                  row.hasJobsForProduct ||
-                                  !row.matchedProductId ||
-                                  !row.invoiceReady ||
-                                  resettingAutopilot
-                                }
-                                onClick={() => handleCreateJobsForRow(row)}
-                              >
-                                {row.hasJobsForProduct
-                                  ? "Jobs Created"
-                                  : creatingJobKey === row.key
-                                  ? "Creating..."
-                                  : "Create Jobs"}
-                              </Button>
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={
+                                    creatingJobKey === row.key ||
+                                    row.hasJobsForProduct ||
+                                    !row.matchedProductId ||
+                                    !row.invoiceReady ||
+                                    resettingAutopilot ||
+                                    runningAutopilot ||
+                                    runningPriorityReplan ||
+                                    Boolean(deletingPlanKey)
+                                  }
+                                  onClick={() => handleCreateJobsForRow(row)}
+                                >
+                                  {row.hasJobsForProduct
+                                    ? "Jobs Created"
+                                    : creatingJobKey === row.key
+                                    ? "Creating..."
+                                    : "Create Jobs"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant={row.isEmergency ? "outline" : "destructive"}
+                                  disabled={
+                                    priorityUpdatingOrderId === row.orderId ||
+                                    runningAutopilot ||
+                                    runningPriorityReplan ||
+                                    resettingAutopilot ||
+                                    Boolean(deletingPlanKey)
+                                  }
+                                  onClick={() =>
+                                    handleSetOrderEmergencyPriority(row.orderId, !row.isEmergency)
+                                  }
+                                >
+                                  {priorityUpdatingOrderId === row.orderId && (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  )}
+                                  {row.isEmergency ? "Clear Emergency" : "Mark Emergency"}
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))
@@ -2013,7 +2646,8 @@ const getGroupedSkills = () => {
               <CardHeader>
                 <CardTitle>Work Detail</CardTitle>
                 <CardDescription>
-                  Planned work by person, VAS item, and routing roadmap.
+                  Planned work queue by person, VAS item, and routing roadmap.
+                  Planned start time indicates the first available machine/person slot as per queue.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -2028,24 +2662,32 @@ const getGroupedSkills = () => {
                         <TableHead>Order No</TableHead>
                         <TableHead>Customer</TableHead>
                         <TableHead>VAS Item</TableHead>
+                        <TableHead>Qty</TableHead>
                         <TableHead>Current Step</TableHead>
                         <TableHead>Next Step</TableHead>
                         <TableHead>Person</TableHead>
                         <TableHead>Machine</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Roadmap</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {workDetailRows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                          <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                             No planned work yet.
                           </TableCell>
                         </TableRow>
                       ) : (
                         workDetailRows.map((row) => {
                           const isExpanded = Boolean(expandedWorkRows[row.key]);
+                          const canDeletePlan =
+                            (row.resetJobIds.length > 0 || row.resetPlanDocIds.length > 0) &&
+                            row.status !== "IN_PROGRESS";
+                          const canManualDone =
+                            row.isFinalStep &&
+                            row.status === "IN_PROGRESS" &&
+                            Boolean(row.currentJobId);
                           return (
                             <Fragment key={row.key}>
                               <TableRow>
@@ -2057,6 +2699,7 @@ const getGroupedSkills = () => {
                                     <div className="text-xs text-muted-foreground">{row.vasGroup}</div>
                                   </div>
                                 </TableCell>
+                                <TableCell>{row.qty}</TableCell>
                                 <TableCell>
                                   <div className="space-y-1">
                                     <div className="font-medium">{row.process}</div>
@@ -2066,6 +2709,19 @@ const getGroupedSkills = () => {
                                     <div className="text-xs text-muted-foreground">
                                       End: {formatDateTime(row.plannedEnd)}
                                     </div>
+                                    {row.status === "PLANNED" && (
+                                      <div className="text-[11px] font-medium text-amber-600">
+                                        {getQueueDelayLabel(row.plannedStart)}
+                                      </div>
+                                    )}
+                                    {row.blockedByLabel && (
+                                      <div
+                                        className="text-[11px] text-muted-foreground"
+                                        title={row.blockedByLabel}
+                                      >
+                                        {row.blockedByLabel}
+                                      </div>
+                                    )}
                                   </div>
                                 </TableCell>
                                 <TableCell>
@@ -2088,35 +2744,77 @@ const getGroupedSkills = () => {
                                       row.status === "IN_PROGRESS" && "border-emerald-500 text-emerald-600",
                                       row.status === "PLANNED" && "border-blue-500 text-blue-600",
                                       row.status === "WAITING" && "border-amber-500 text-amber-600",
-                                      row.status === "DONE" && "border-slate-400 text-slate-600"
+                                      row.status === "DONE" &&
+                                        "border-green-500 bg-green-400 text-green-950"
                                     )}
                                   >
-                                    {row.status}
+                                    {row.status === "DONE" ? "Completed" : row.status}
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => toggleWorkRow(row.key)}
-                                  >
-                                    {isExpanded ? (
-                                      <>
-                                        <EyeOff className="mr-2 h-4 w-4" />
-                                        Hide
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        View
-                                      </>
-                                    )}
-                                  </Button>
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => toggleWorkRow(row.key)}
+                                    >
+                                      {isExpanded ? (
+                                        <>
+                                          <EyeOff className="mr-2 h-4 w-4" />
+                                          Hide
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Eye className="mr-2 h-4 w-4" />
+                                          View
+                                        </>
+                                      )}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="default"
+                                      disabled={
+                                        !canManualDone ||
+                                        manualDoneSaving ||
+                                        deletingPlanKey === row.key ||
+                                        runningAutopilot ||
+                                        runningPriorityReplan ||
+                                        resettingAutopilot ||
+                                        Boolean(priorityUpdatingOrderId)
+                                      }
+                                      onClick={() => handleOpenManualDoneDialog(row)}
+                                    >
+                                      <Check className="mr-2 h-4 w-4" />
+                                      Manual Done
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      disabled={
+                                        !canDeletePlan ||
+                                        deletingPlanKey === row.key ||
+                                        runningAutopilot ||
+                                        runningPriorityReplan ||
+                                        resettingAutopilot ||
+                                        Boolean(priorityUpdatingOrderId)
+                                      }
+                                      onClick={() => handleDeletePlannedWork(row)}
+                                    >
+                                      {deletingPlanKey === row.key ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          Delete Plan
+                                        </>
+                                      )}
+                                    </Button>
+                                  </div>
                                 </TableCell>
                               </TableRow>
                               {isExpanded && (
                                 <TableRow>
-                                  <TableCell colSpan={9} className="bg-muted/30">
+                                  <TableCell colSpan={10} className="bg-muted/30">
                                     <div className="space-y-3">
                                       <div className="text-xs text-muted-foreground">
                                         Routing roadmap for {row.productName}
@@ -2130,22 +2828,37 @@ const getGroupedSkills = () => {
                                           <div className="flex items-center gap-2 min-w-max">
                                             {row.routingSteps.map((step, index) => {
                                               const currentStep = row.currentStepNo ?? 0;
-                                              const isDone = currentStep && step.stepNo < currentStep;
-                                              const isCurrent = currentStep && step.stepNo === currentStep;
                                               const stepPlan = row.stepPlanMap.get(step.stepNo);
-                                              const stepStart = formatDateTime(stepPlan?.plannedStart);
-                                              const stepEnd = formatDateTime(stepPlan?.plannedEnd);
+                                              const rawStepStatus = String(
+                                                stepPlan?.status ||
+                                                  (currentStep && step.stepNo < currentStep ? "DONE" : "")
+                                              )
+                                                .trim()
+                                                .toUpperCase();
+                                              const isDone = rawStepStatus === "DONE";
+                                              const isInProgress = rawStepStatus === "IN_PROGRESS";
+                                              const isCurrent = currentStep && step.stepNo === currentStep;
+                                              const stepStart = formatDateTime(
+                                                isDone
+                                                  ? stepPlan?.actualStart || stepPlan?.plannedStart
+                                                  : stepPlan?.plannedStart
+                                              );
+                                              const stepEnd = formatDateTime(
+                                                isDone
+                                                  ? stepPlan?.actualEnd || stepPlan?.plannedEnd
+                                                  : stepPlan?.plannedEnd
+                                              );
                                               const stepPerson = stepPlan?.personName;
                                               const tone = isDone
-                                                ? "bg-emerald-50 border-emerald-500 text-emerald-700"
-                                                : isCurrent && row.status === "IN_PROGRESS"
+                                                ? "bg-green-400 border-green-500 text-green-950"
+                                                : isInProgress
                                                 ? "bg-emerald-100 border-emerald-600 text-emerald-700"
                                                 : isCurrent
                                                 ? "bg-blue-50 border-blue-500 text-blue-700"
                                                 : "bg-white border-muted-foreground/40 text-muted-foreground";
                                               const connectorTone = isDone
-                                                ? "bg-emerald-400"
-                                                : isCurrent
+                                                ? "bg-green-500"
+                                                : isInProgress || isCurrent
                                                 ? "bg-blue-400"
                                                 : "bg-muted-foreground/30";
                                               return (
@@ -2157,12 +2870,15 @@ const getGroupedSkills = () => {
                                                         tone
                                                       )}
                                                     >
-                                                      {step.stepNo}
+                                                      {isDone ? <Check className="h-4 w-4" /> : step.stepNo}
                                                     </div>
                                                     <div className="mt-1 text-[11px] text-muted-foreground max-w-[80px] text-center">
                                                       {step.process}
                                                     </div>
                                                     <div className="mt-1 text-[10px] text-muted-foreground leading-tight text-center">
+                                                      <div className={cn(isDone && "font-semibold text-green-700")}>
+                                                        {isDone ? "Completed" : rawStepStatus || "PENDING"}
+                                                      </div>
                                                       <div>Start: {stepStart}</div>
                                                       <div>End: {stepEnd}</div>
                                                       <div>Person: {stepPerson || "-"}</div>
@@ -3333,17 +4049,17 @@ const getGroupedSkills = () => {
                                 </TableCell>
                                 <TableCell>
                                   <div className="text-sm">
-                                    <p>{fromDate.toLocaleDateString()}</p>
+                                    <p>{formatDateInZone(fromDate, { timeZone: IST_TIME_ZONE })}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      {fromDate.toLocaleTimeString()}
+                                      {formatTimeInZone(fromDate, { timeZone: IST_TIME_ZONE })}
                                     </p>
                                   </div>
                                 </TableCell>
                                 <TableCell>
                                   <div className="text-sm">
-                                    <p>{toDate.toLocaleDateString()}</p>
+                                    <p>{formatDateInZone(toDate, { timeZone: IST_TIME_ZONE })}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      {toDate.toLocaleTimeString()}
+                                      {formatTimeInZone(toDate, { timeZone: IST_TIME_ZONE })}
                                     </p>
                                   </div>
                                 </TableCell>
@@ -3492,6 +4208,112 @@ const getGroupedSkills = () => {
           </DialogContent>
         </Dialog>
 
+        <Dialog
+          open={manualDoneDialog.open}
+          onOpenChange={(open) => {
+            if (!open) {
+              handleCloseManualDoneDialog();
+            } else if (!manualDoneDialog.open) {
+              setManualDoneDialog((prev) => ({ ...prev, open: true }));
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Manual Final Step Completion</DialogTitle>
+              <DialogDescription>
+                Confirm final-step completion and capture remaining qty details for future tracking.
+              </DialogDescription>
+            </DialogHeader>
+
+            {manualDoneDialog.row && (
+              <div className="space-y-4">
+                <div className="rounded-lg border p-3 text-sm space-y-1">
+                  <div>
+                    <span className="text-muted-foreground">Order:</span>{" "}
+                    <span className="font-medium">{manualDoneDialog.row.orderNo}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Customer:</span>{" "}
+                    <span className="font-medium">{manualDoneDialog.row.customer}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">VAS:</span>{" "}
+                    <span className="font-medium">{manualDoneDialog.row.vasName}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Step:</span>{" "}
+                    <span className="font-medium">
+                      {manualDoneDialog.row.stepNo || "-"} / {manualDoneDialog.row.totalSteps}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Total Qty:</span>{" "}
+                    <span className="font-medium">{manualDoneDialog.row.qty || 0}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Is all qty ready?</Label>
+                  <Select
+                    value={manualDoneAllQtyReady}
+                    onValueChange={(value) =>
+                      setManualDoneAllQtyReady(value === "no" ? "no" : "yes")
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select readiness" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="yes">Yes, all qty is ready</SelectItem>
+                      <SelectItem value="no">No, qty is remaining</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {manualDoneAllQtyReady === "no" && (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Remaining Qty</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={manualDoneRemainingQty}
+                        onChange={(e) => setManualDoneRemainingQty(e.target.value)}
+                        placeholder="Enter remaining qty"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Reason for Remaining Qty</Label>
+                      <Textarea
+                        value={manualDoneReason}
+                        onChange={(e) => setManualDoneReason(e.target.value)}
+                        placeholder="Enter reason"
+                        className="min-h-[90px]"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={handleCloseManualDoneDialog}
+                disabled={manualDoneSaving}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleSubmitManualDone} disabled={manualDoneSaving}>
+                {manualDoneSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Save & Mark Done
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog((prev) => ({ ...prev, open }))}>
           <AlertDialogContent>
@@ -3540,10 +4362,26 @@ const getGroupedSkills = () => {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={resettingAutopilot}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel
+                disabled={
+                  resettingAutopilot ||
+                  runningAutopilot ||
+                  runningPriorityReplan ||
+                  Boolean(priorityUpdatingOrderId) ||
+                  Boolean(deletingPlanKey)
+                }
+              >
+                Cancel
+              </AlertDialogCancel>
               <AlertDialogAction
                 onClick={handleResetAndRerunAutopilot}
-                disabled={resettingAutopilot}
+                disabled={
+                  resettingAutopilot ||
+                  runningAutopilot ||
+                  runningPriorityReplan ||
+                  Boolean(priorityUpdatingOrderId) ||
+                  Boolean(deletingPlanKey)
+                }
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 {resettingAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

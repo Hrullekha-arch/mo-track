@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { runAutopilot } from "@/lib/pms/autopilot";
 
+const IST_TIMEZONE_OFFSET_MINUTES = 330;
+
 const minutesBetween = (start?: string, end?: string) => {
   if (!start || !end) return 0;
   const from = new Date(start).getTime();
@@ -50,22 +52,78 @@ const chunk = <T,>(items: T[], size: number) => {
   return batches;
 };
 
+const getOrdersByIds = async (ids: string[]) => {
+  const orderMap = new Map<string, any>();
+  if (ids.length === 0) return orderMap;
+  const refs = ids.map((id) => adminDb.collection("orders").doc(id));
+  for (const batchRefs of chunk(refs, 400)) {
+    const docs = await adminDb.getAll(...batchRefs);
+    docs.forEach((doc) => {
+      if (doc.exists) orderMap.set(doc.id, doc.data() as any);
+    });
+  }
+  return orderMap;
+};
+
+const isOrderClosedForPms = (order?: any) => {
+  if (!order) return false;
+  const workflowStatus = String(order?.workflow?.status || "").trim().toUpperCase();
+  if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") return true;
+  const status = String(order?.status || "").trim().toUpperCase();
+  return status === "INSTALLATION DONE" || status === "COMPLETED" || status === "CANCELLED";
+};
+
+const hasInvoiceForPms = (order?: any) => {
+  if (!order || isOrderClosedForPms(order)) return false;
+  const status = order?.invoicing?.status;
+  const invoiceCount = Array.isArray(order?.invoicing?.invoices)
+    ? order.invoicing.invoices.length
+    : 0;
+  return Boolean((status && status !== "NOT_INVOICED") || invoiceCount > 0);
+};
+
 export async function POST() {
   try {
     const now = new Date().toISOString();
     const nowMs = new Date(now).getTime();
 
-    const plannedSnap = await adminDb
-      .collection("jobs")
-      .where("status", "==", "PLANNED")
-      .get();
+    const [plannedSnap, inProgressSnap, routingSnap] = await Promise.all([
+      adminDb.collection("jobs").where("status", "==", "PLANNED").get(),
+      adminDb.collection("jobs").where("status", "==", "IN_PROGRESS").get(),
+      adminDb.collection("routing").get(),
+    ]);
 
     const plannedJobs = plannedSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) }));
+    const inProgressJobs = inProgressSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...(doc.data() as any),
+    }));
+    const maxRouteStepByProduct = new Map<string, number>();
+    routingSnap.docs.forEach((doc) => {
+      const data = doc.data() as any;
+      const productId = String(data?.productId || "").trim();
+      const stepNo = Number(data?.stepNo || 0);
+      if (!productId || !Number.isFinite(stepNo) || stepNo <= 0) return;
+      maxRouteStepByProduct.set(
+        productId,
+        Math.max(maxRouteStepByProduct.get(productId) || 0, stepNo)
+      );
+    });
+    const isFinalRouteStep = (job: any) => {
+      const productId = String(job?.productId || "").trim();
+      const stepNo = Number(job?.stepNo || 0);
+      if (!productId || !Number.isFinite(stepNo) || stepNo <= 0) return false;
+      const maxStep = Number(maxRouteStepByProduct.get(productId) || 0);
+      if (!Number.isFinite(maxStep) || maxStep <= 0) return false;
+      return stepNo >= maxStep;
+    };
+
+    const activeJobs = [...plannedJobs, ...inProgressJobs];
     const planByJob = new Map<
       string,
-      { plannedStart?: string; plannedEnd?: string }
+      { plannedStart?: string; plannedEnd?: string; machineId?: string; personId?: string }
     >();
-    const jobIds = plannedJobs.map((job) => job.id).filter(Boolean);
+    const jobIds = activeJobs.map((job) => job.id).filter(Boolean);
     if (jobIds.length > 0) {
       for (const batchIds of chunk(jobIds, 10)) {
         const planSnap = await adminDb
@@ -78,6 +136,8 @@ export async function POST() {
           const candidate = {
             plannedStart: normalizeIso(data.plannedStart),
             plannedEnd: normalizeIso(data.plannedEnd),
+            machineId: data.machineId,
+            personId: data.personId,
           };
           const candidateTime = toMillis(candidate.plannedEnd || candidate.plannedStart);
           if (!candidateTime) return;
@@ -90,42 +150,100 @@ export async function POST() {
       }
     }
 
-    const plannedDueJobs = plannedJobs.filter((job) => {
-      const plannedEnd = normalizeIso(job.plannedEnd) || planByJob.get(job.id)?.plannedEnd;
-      const endMs = toMillis(plannedEnd);
-      return endMs !== undefined && endMs <= nowMs;
+    const activeOrderIds = Array.from(
+      new Set(activeJobs.map((job) => job.orderId).filter(Boolean))
+    ) as string[];
+    const activeOrderDataById = await getOrdersByIds(activeOrderIds);
+    const invoicedOrderIds = new Set<string>();
+    activeOrderDataById.forEach((data, id) => {
+      if (hasInvoiceForPms(data)) invoicedOrderIds.add(id);
     });
 
-    let eligiblePlannedJobs: typeof plannedJobs = [];
-    if (plannedDueJobs.length > 0) {
-      const plannedOrderIds = Array.from(
-        new Set(plannedDueJobs.map((job) => job.orderId).filter(Boolean))
-      );
-      const invoicedOrderIds = new Set<string>();
-      await Promise.all(
-        plannedOrderIds.map(async (id) => {
-          const snap = await adminDb.collection("orders").doc(id).get();
-          if (!snap.exists) return;
-          const data = snap.data() as any;
-          const status = data?.invoicing?.status;
-          const invoiceCount = Array.isArray(data?.invoicing?.invoices)
-            ? data.invoicing.invoices.length
-            : 0;
-          const hasInvoice = Boolean((status && status !== "NOT_INVOICED") || invoiceCount > 0);
-          if (hasInvoice) invoicedOrderIds.add(id);
-        })
-      );
+    const getJobTiming = (job: any) => {
+      const plan = planByJob.get(job.id);
+      const plannedStart = normalizeIso(job.plannedStart) || plan?.plannedStart;
+      const plannedEnd = normalizeIso(job.plannedEnd) || plan?.plannedEnd;
+      return {
+        job,
+        plan,
+        plannedStart,
+        plannedEnd,
+        plannedStartMs: toMillis(plannedStart),
+        plannedEndMs: toMillis(plannedEnd),
+      };
+    };
 
-      eligiblePlannedJobs = plannedDueJobs.filter((job) => invoicedOrderIds.has(job.orderId));
+    const completedInProgressJobs = inProgressJobs
+      .map(getJobTiming)
+      .filter(({ job, plannedEndMs }) => {
+        if (!invoicedOrderIds.has(job.orderId)) return false;
+        if (isFinalRouteStep(job)) return false;
+        return plannedEndMs !== undefined && plannedEndMs <= nowMs;
+      });
+
+    const runningResourceLocks = inProgressJobs
+      .map(getJobTiming)
+      .filter(({ job, plannedEndMs }) => {
+        if (!invoicedOrderIds.has(job.orderId)) return false;
+        if (completedInProgressJobs.some((entry) => entry.job.id === job.id)) return false;
+        return plannedEndMs === undefined || plannedEndMs > nowMs;
+      })
+      .map(({ job, plan, plannedEndMs }) => ({
+        jobId: job.id as string,
+        machineId: plan?.machineId as string | undefined,
+        personId: plan?.personId as string | undefined,
+        plannedEndMs: plannedEndMs as number,
+      }));
+
+    const promotedPlannedJobs: Array<{
+      job: any;
+      plannedStart?: string;
+      plannedEnd?: string;
+    }> = [];
+
+    const readyPlannedJobs = plannedJobs
+      .map(getJobTiming)
+      .filter(({ job, plannedStartMs, plannedEndMs }) => {
+        if (!invoicedOrderIds.has(job.orderId)) return false;
+        if (plannedStartMs === undefined || plannedStartMs > nowMs) return false;
+        if (plannedEndMs !== undefined && plannedEndMs <= nowMs) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const aStart = a.plannedStartMs ?? Number.MAX_SAFE_INTEGER;
+        const bStart = b.plannedStartMs ?? Number.MAX_SAFE_INTEGER;
+        if (aStart !== bStart) return aStart - bStart;
+        const aEnd = a.plannedEndMs ?? Number.MAX_SAFE_INTEGER;
+        const bEnd = b.plannedEndMs ?? Number.MAX_SAFE_INTEGER;
+        return aEnd - bEnd;
+      });
+
+    for (const entry of readyPlannedJobs) {
+      const machineId = entry.plan?.machineId;
+      const personId = entry.plan?.personId;
+      const hasConflict = runningResourceLocks.some((lock) => {
+        const sameMachine = Boolean(machineId) && lock.machineId === machineId;
+        const samePerson = Boolean(personId) && lock.personId === personId;
+        return sameMachine || samePerson;
+      });
+      if (hasConflict) continue;
+      promotedPlannedJobs.push({
+        job: entry.job,
+        plannedStart: entry.plannedStart,
+        plannedEnd: entry.plannedEnd,
+      });
+      runningResourceLocks.push({
+        jobId: String(entry.job.id),
+        machineId,
+        personId,
+        plannedEndMs: entry.plannedEndMs ?? nowMs,
+      });
     }
 
-    if (eligiblePlannedJobs.length > 0) {
+    if (completedInProgressJobs.length > 0 || promotedPlannedJobs.length > 0) {
       const batch = adminDb.batch();
-      eligiblePlannedJobs.forEach((job) => {
+      completedInProgressJobs.forEach(({ job, plannedStart, plannedEnd }) => {
         const jobRef = adminDb.collection("jobs").doc(job.id);
-        const plan = planByJob.get(job.id);
-        const plannedStart = normalizeIso(job.plannedStart) || plan?.plannedStart;
-        const plannedEnd = normalizeIso(job.plannedEnd) || plan?.plannedEnd;
         const actualStart = normalizeIso(job.actualStart) || plannedStart || now;
         const actualEnd = plannedEnd || normalizeIso(job.actualEnd) || now;
         const actualMinutes = minutesBetween(actualStart, actualEnd);
@@ -145,61 +263,65 @@ export async function POST() {
 
         batch.set(jobRef, updatePayload, { merge: true });
       });
+      promotedPlannedJobs.forEach(({ job, plannedStart, plannedEnd }) => {
+        const jobRef = adminDb.collection("jobs").doc(job.id);
+        const updatePayload: Record<string, unknown> = {
+          status: "IN_PROGRESS",
+          updatedAt: now,
+        };
+        if (!job.actualStart) updatePayload.actualStart = now;
+        if (plannedStart) updatePayload.plannedStart = plannedStart;
+        if (plannedEnd) updatePayload.plannedEnd = plannedEnd;
+        batch.set(jobRef, updatePayload, { merge: true });
+      });
       await batch.commit();
     }
 
-    const waitingJobsSnap = await adminDb.collection("jobs").where("status", "==", "WAITING").get();
-    const waitingJobs = waitingJobsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) }));
+    const queueJobsSnap = await adminDb
+      .collection("jobs")
+      .where("status", "in", ["WAITING", "PLANNED"])
+      .get();
+    const queueJobs = queueJobsSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) }));
 
     let plannedCount = 0;
-    if (waitingJobs.length > 0) {
+    if (queueJobs.length > 0) {
       const machinesSnap = await adminDb.collection("machines").where("active", "==", true).get();
       const skillsSnap = await adminDb.collection("machineSkills").where("allowed", "==", true).get();
       const productsSnap = await adminDb.collection("products").get();
       const plansSnap = await adminDb.collection("plan").get();
       const downtimeSnap = await adminDb.collection("machineDowntime").get();
+      const workingHoursSnap = await adminDb.collection("pmsSettings").doc("workingHours").get();
+      const workingHoursData = workingHoursSnap.exists ? (workingHoursSnap.data() as any) : {};
 
-      const waitingOrderIds = Array.from(new Set(waitingJobs.map((job) => job.orderId).filter(Boolean)));
-      const waitingInvoicedOrderIds = new Set<string>();
-      await Promise.all(
-        waitingOrderIds.map(async (id) => {
-          const snap = await adminDb.collection("orders").doc(id).get();
-          if (!snap.exists) return;
-          const data = snap.data() as any;
-          const status = data?.invoicing?.status;
-          const invoiceCount = Array.isArray(data?.invoicing?.invoices)
-            ? data.invoicing.invoices.length
-            : 0;
-          const hasInvoice = Boolean((status && status !== "NOT_INVOICED") || invoiceCount > 0);
-          if (hasInvoice) waitingInvoicedOrderIds.add(id);
-        })
-      );
+      const queueOrderIds = Array.from(
+        new Set(queueJobs.map((job) => job.orderId).filter(Boolean))
+      ) as string[];
+      const queueOrderDataById = await getOrdersByIds(queueOrderIds);
+      const queueSchedulableOrderIds = new Set<string>();
+      queueOrderDataById.forEach((data, id) => {
+        if (hasInvoiceForPms(data)) queueSchedulableOrderIds.add(id);
+      });
 
-      const eligibleWaitingJobs = waitingJobs.filter((job) => waitingInvoicedOrderIds.has(job.orderId));
-      if (eligibleWaitingJobs.length === 0) {
+      const eligibleQueueJobs = queueJobs.filter((job) => queueSchedulableOrderIds.has(job.orderId));
+      if (eligibleQueueJobs.length === 0) {
         return NextResponse.json({
           success: true,
-          completed: eligiblePlannedJobs.length,
+          completed: completedInProgressJobs.length,
           planned: 0,
         });
       }
 
       const orderPriorityMap: Record<string, number | undefined> = {};
-      await Promise.all(
-        Array.from(waitingInvoicedOrderIds).map(async (id) => {
-          const snap = await adminDb.collection("orders").doc(id).get();
-          if (snap.exists) {
-            orderPriorityMap[id] = snap.data()?.priority;
-          }
-        })
-      );
+      Array.from(queueSchedulableOrderIds).forEach((id) => {
+        orderPriorityMap[id] = queueOrderDataById.get(id)?.priority;
+      });
 
       const jobGroupIds = Array.from(
-        new Set(eligibleWaitingJobs.map((job) => job.jobGroupId).filter(Boolean))
+        new Set(eligibleQueueJobs.map((job) => job.jobGroupId).filter(Boolean))
       ) as string[];
       const orderIds = Array.from(
         new Set(
-          eligibleWaitingJobs
+          eligibleQueueJobs
             .filter((job) => !job.jobGroupId)
             .map((job) => job.orderId)
             .filter(Boolean)
@@ -215,7 +337,8 @@ export async function POST() {
         const snap = await adminDb.collection("jobs").where("orderId", "in", batchIds).get();
         snap.docs.forEach((doc) => schedulingJobsMap.set(doc.id, { id: doc.id, ...(doc.data() as any) }));
       }
-      eligibleWaitingJobs.forEach((job) => schedulingJobsMap.set(job.id, job));
+      eligibleQueueJobs.forEach((job) => schedulingJobsMap.set(job.id, job));
+      inProgressJobs.forEach((job) => schedulingJobsMap.set(job.id, job));
 
       const planByJobId = new Map<string, any>();
       plansSnap.docs.forEach((doc) => {
@@ -223,14 +346,27 @@ export async function POST() {
         if (data?.jobId) planByJobId.set(data.jobId, data);
       });
 
+      const schedulingOrderIds = new Set(queueSchedulableOrderIds);
+      inProgressJobs.forEach((job) => {
+        if (job?.orderId) schedulingOrderIds.add(job.orderId);
+      });
+
       const schedulingJobs = Array.from(schedulingJobsMap.values())
-        .filter((job) => waitingInvoicedOrderIds.has(job.orderId))
+        .filter((job) => schedulingOrderIds.has(job.orderId))
         .map((job) => {
           const plan = planByJobId.get(job.id);
+          const rawStatus = String(job.status || "").toUpperCase();
+          const normalizedStatus = rawStatus === "PLANNED" ? "WAITING" : rawStatus;
+          const shouldResetPlanFields = rawStatus === "PLANNED" || rawStatus === "WAITING";
           return {
             ...job,
-            plannedStart: job.plannedStart || plan?.plannedStart,
-            plannedEnd: job.plannedEnd || plan?.plannedEnd,
+            status: normalizedStatus,
+            plannedStart: shouldResetPlanFields
+              ? undefined
+              : normalizeIso(job.plannedStart) || plan?.plannedStart,
+            plannedEnd: shouldResetPlanFields
+              ? undefined
+              : normalizeIso(job.plannedEnd) || plan?.plannedEnd,
           };
         });
 
@@ -243,14 +379,28 @@ export async function POST() {
         downtimes: downtimeSnap.docs.map((doc) => doc.data() as any),
         orderPriorityMap,
         now,
+        workingHours: {
+          startTime: String(workingHoursData?.startTime || "10:00"),
+          endTime: String(workingHoursData?.endTime || "20:00"),
+          timezoneOffsetMinutes: IST_TIMEZONE_OFFSET_MINUTES,
+        },
       });
 
       plannedCount = planned.length;
       if (planned.length > 0 || updatedJobs.length > 0) {
         const batch = adminDb.batch();
         planned.forEach((planEntry) => {
-          const planRef = adminDb.collection("plan").doc();
-          batch.set(planRef, { ...planEntry, id: planRef.id, createdAt: now }, { merge: true });
+          const planRef = adminDb.collection("plan").doc(planEntry.jobId);
+          batch.set(
+            planRef,
+            {
+              ...planEntry,
+              id: planRef.id,
+              updatedAt: now,
+              createdAt: planEntry?.createdAt || now,
+            },
+            { merge: true }
+          );
         });
         updatedJobs.forEach((updated) => {
           const updatedRef = adminDb.collection("jobs").doc(updated.id);
@@ -271,7 +421,7 @@ export async function POST() {
 
     return NextResponse.json({
       success: true,
-      completed: eligiblePlannedJobs.length,
+      completed: completedInProgressJobs.length,
       planned: plannedCount,
     });
   } catch (error) {

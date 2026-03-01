@@ -61,12 +61,14 @@ export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
                             poNumber: item.poNumber,
                             customerName: request.customerName,
                             itemName: item.fabricName,
+                            itemCode: item.itemCode,
                             quantity: item.quantity,
                             salesman: request.salesman,
                             expectedDeliveryDate: item.expectedDeliveryDate || request.promiseDeliveryDate, // Use item-specific date if available
                             vendorName: item.vendorName,
                             originalRequest: request,
                         });
+                        console.log("Request",request);
                     }
                  });
             }

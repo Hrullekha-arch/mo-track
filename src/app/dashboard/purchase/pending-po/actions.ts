@@ -279,8 +279,9 @@ export async function createPurchaseOrderAction(
         const inboundRef = adminDb.collection('inbounds').doc(poNumber);
         const inboundItems = items.map(item => ({
             itemName: item.collectionBrand,
+            itemCode:item.itemName,
             quantity: String(item.neededQty),
-            unit: 'Mtr',
+            unit:"mtr",
             poNumber: poNumber,
             inboundMilestones: [],
         }));

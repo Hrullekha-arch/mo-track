@@ -96,7 +96,7 @@ export function QuotationDetailDialog({ isOpen, onClose, quotation, deal, salesm
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-7xl p-0">
+      <DialogContent className="max-w-7xl max-h-[95vh] overflow-auto p-0">
         <div className="p-6">
             <DialogHeader className="flex flex-row justify-between items-start">
                 <div>

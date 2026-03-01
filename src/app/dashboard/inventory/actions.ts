@@ -8,6 +8,7 @@ import {
   resolveStockCategoryGroup,
 } from '@/lib/stock-category-rules';
 import { Stock, StockTransaction, CuttingTask, CuttingTaskItem } from '@/lib/types';
+import { normalizePurchaseEntryStatus } from '@/lib/purchase-entry';
 import * as XLSX from "xlsx";
 import {FieldValue } from 'firebase-admin/firestore';
 
@@ -872,11 +873,19 @@ export async function searchStockById(productId: string): Promise<Stock[]> {
 export async function updateStockQuantityAction(
   stockId: string, 
   transaction: Omit<StockTransaction, 'id'>
-): Promise<{ success: boolean; message: string; newStock?: Stock }> {
+): Promise<{
+  success: boolean;
+  message: string;
+  newStock?: Stock;
+  createdLength?: { id: string; quantity: number; purchaseEntryStatus: "Pending" | "Done" };
+}> {
   const stockRef = adminDb.collection('stocks').doc(stockId);
   
   if (transaction.type === 'addition') {
     let finalStockData: Stock;
+    let createdLength:
+      | { id: string; quantity: number; purchaseEntryStatus: "Pending" | "Done" }
+      | undefined;
     const bcnDigits = extractBcnDigits(transaction.bcn || stockId);
     
     try {
@@ -888,6 +897,13 @@ export async function updateStockQuantityAction(
           const lengthNo = Number.isFinite(nextLengthNo) && nextLengthNo > 0 ? nextLengthNo : 1;
           const lengthId = `${stockId}_${lengthNo}`;
           const newLengthRef = stockRef.collection('lengths').doc(lengthId);
+          const source = String((transaction as any).source || "")
+            .trim()
+            .toUpperCase();
+          const isInboundSource = source === "INBOUND_RECEIVE";
+          const purchaseEntryStatus = normalizePurchaseEntryStatus(
+            (transaction as any).purchaseEntryStatus
+          );
           
           const newLengthData: Partial<Stock> & { bcnDigits?: string } = {
               id: newLengthRef.id,
@@ -903,6 +919,7 @@ export async function updateStockQuantityAction(
               reservation: null,
               cutHistory: [],
               receivedAt: transaction.createdAt,
+              createdAt: transaction.createdAt,
               lastUpdatedAt: transaction.createdAt,
               bcn: transaction.bcn || stockId,
               bcnDigits,
@@ -913,12 +930,55 @@ export async function updateStockQuantityAction(
               cutQty: 0,
               poNumber: transaction.poNumber,
               salesman: transaction.salesman,
+              purchaseEntryStatus,
+              purchaseEntryUpdatedAt: transaction.createdAt,
+              purchaseEntryId: isInboundSource && transaction.poNumber ? lengthId : undefined,
+              purchaseRequestId: (transaction as any).purchaseRequestId,
+              inboundId: (transaction as any).inboundId,
+              source: isInboundSource ? "INBOUND_RECEIVE" : source || undefined,
           };
 
           tx.set(
             newLengthRef,
             stripUndefined({ ...newLengthData })
           ); // WRITE
+
+          if (isInboundSource && transaction.poNumber) {
+            const entryRef = adminDb.collection("PendingPurchaseEntry").doc(lengthId);
+            tx.set(
+              entryRef,
+              stripUndefined({
+                id: lengthId,
+                poNumber: transaction.poNumber,
+                status: purchaseEntryStatus,
+                purchaseEntryStatus,
+                stockId,
+                lengthId,
+                bcn: transaction.bcn || stockId,
+                itemName: stockData?.itemName || transaction.bcn || stockId,
+                quantity: transaction.quantityChange,
+                unit: resolvedUnit,
+                dealId: (transaction as any).dealId,
+                customerName: transaction.customerName,
+                vendorName: (transaction as any).vendorName,
+                salesman: transaction.salesman,
+                purchaseRequestId: (transaction as any).purchaseRequestId,
+                inboundId: (transaction as any).inboundId,
+                receivedAt: transaction.createdAt,
+                receivedBy: transaction.createdBy,
+                source: "INBOUND_RECEIVE",
+                createdAt: transaction.createdAt,
+                updatedAt: transaction.createdAt,
+              }),
+              { merge: true }
+            );
+          }
+
+          createdLength = {
+            id: lengthId,
+            quantity: transaction.quantityChange,
+            purchaseEntryStatus,
+          };
 
           if (!stockDoc.exists) {
               tx.set(stockRef, { // WRITE
@@ -958,7 +1018,12 @@ export async function updateStockQuantityAction(
       const updatedStockDoc = await stockRef.get();
       finalStockData = { id: updatedStockDoc.id, ...updatedStockDoc.data() } as Stock;
       
-      return { success: true, message: 'Stock added successfully.', newStock: JSON.parse(JSON.stringify(finalStockData)) };
+      return {
+        success: true,
+        message: 'Stock added successfully.',
+        newStock: JSON.parse(JSON.stringify(finalStockData)),
+        createdLength: createdLength ? JSON.parse(JSON.stringify(createdLength)) : undefined,
+      };
 
     } catch (error: any) {
         console.error("Error in stock addition transaction:", error);
@@ -999,6 +1064,8 @@ export async function revertStockAdditionAction(
     await adminDb.runTransaction(async (transaction) => {
         // 1. Delete the length document
         transaction.delete(lengthDoc.ref);
+        // 1b. Delete the linked pending purchase-entry record if present.
+        transaction.delete(adminDb.collection('PendingPurchaseEntry').doc(lengthId));
 
         // 2. Decrement the main stock document quantities
         transaction.update(stockRef, {

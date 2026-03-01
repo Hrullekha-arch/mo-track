@@ -29,6 +29,7 @@ import {
   ReceiptText,
   ShieldCheck,
   Wallet,
+  ClipboardList,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
@@ -359,7 +360,7 @@ export function AccountsDashboard() {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           <Link href="/dashboard/approvals" className="group block">
             <Card className="h-full border-slate-200 transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md">
               <CardContent className="flex h-full flex-col gap-2 p-4">
@@ -393,6 +394,18 @@ export function AccountsDashboard() {
                 </div>
                 <p className="text-sm font-semibold text-slate-900">Order Ledger</p>
                 <p className="text-xs text-muted-foreground">Track approved orders and finance-relevant checkpoints.</p>
+              </CardContent>
+            </Card>
+          </Link>
+          <Link href="/dashboard/purchase-entry" className="group block">
+            <Card className="h-full border-slate-200 transition-all hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md">
+              <CardContent className="flex h-full flex-col gap-2 p-4">
+                <div className="flex items-center justify-between">
+                  <ClipboardList className="h-5 w-5 text-sky-700" />
+                  <ArrowRight className="h-4 w-4 text-slate-500 transition-transform group-hover:translate-x-0.5" />
+                </div>
+                <p className="text-sm font-semibold text-slate-900">Purchase Entry Desk</p>
+                <p className="text-xs text-muted-foreground">Verify received PO lengths before allocation.</p>
               </CardContent>
             </Card>
           </Link>

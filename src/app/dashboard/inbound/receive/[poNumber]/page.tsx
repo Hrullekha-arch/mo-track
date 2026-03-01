@@ -126,10 +126,18 @@ export default function InboundReceivePage({
           type: "addition",
           quantityChange: Number.isFinite(quantity) ? quantity : 0,
           poNumber: itemToUpdate.poNumber,
+          unit: itemToUpdate.unit || "MTR",
           salesman,
           lengths: [Number.isFinite(quantity) ? quantity : 0],
           createdAt: new Date().toISOString(),
           createdBy: user.name,
+          source: "INBOUND_RECEIVE",
+          dealId: request.dealId,
+          customerName: request.customerName,
+          vendorName: request.vendor,
+          purchaseRequestId: request.purchaseRequestId,
+          inboundId: request.id,
+          purchaseEntryStatus: "Pending",
         };
 
         const stockResult = await updateStockQuantityAction(stockId, transaction);

@@ -5,7 +5,7 @@ import { adminDb } from "@/lib/firebase-admin";
 const DEFAULT_SHEET_ID = "11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA";
 const DEFAULT_SHEET_NAME = "Sheet2";
 const DEFAULT_PURCHASE_SHEET_NAME = "Purchase";
-const SYNC_ROUTE_VERSION = "2026-02-20-purchase-bcn-pr-stock-v3";
+const SYNC_ROUTE_VERSION = "2026-02-28-purchase-docket-v4";
 
 const getSheetsClient = async () => {
   const serviceAccountKey =
@@ -64,6 +64,7 @@ const purchaseCanonicalHeader = [
   "PO Receiving Time",
   "Stock Verification Timestamp",
   "InStock",
+  "Docket No",
 ];
 
 const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase();
@@ -199,6 +200,25 @@ const getColumnLetter = (columnNumber: number) => {
 
 const SHEET_LAST_COLUMN = getColumnLetter(canonicalHeader.length);
 const PURCHASE_SHEET_LAST_COLUMN = getColumnLetter(purchaseCanonicalHeader.length);
+const MAX_BATCH_UPDATE_ROWS = 500;
+const MAX_APPEND_ROWS = 1000;
+
+const chunkArray = <T>(values: T[], size: number): T[][] => {
+  if (!values.length) return [];
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+};
+
+const buildCompositeKey = (parts: unknown[]) => {
+  const normalizedParts = parts.map((part) => normalize(part));
+  if (!normalizedParts.some(Boolean)) return "";
+  return normalizedParts.join("|");
+};
+
+const dedupeKeyCandidates = (candidates: string[]) => Array.from(new Set(candidates.filter(Boolean)));
 
 const formatAddressParts = (address: any) => {
   if (!address) return "";
@@ -299,10 +319,33 @@ const getDealProductItemLabels = (dealProducts: any) => {
   return Array.from(new Set(items));
 };
 
-const getRowKey = (row: string[]) => {
-  const base = row[5] || row[7] || `${row[1]}|${row[0]}`;
-  const item = row[3] || "";
-  return item ? `${base}|${item}` : base;
+const getOrderRowKeyCandidates = (row: string[]) => {
+  const timestamp = row[0] || "";
+  const customerName = row[1] || "";
+  const itemName = row[3] || "";
+  const dealId = row[5] || "";
+  const orderId = row[7] || "";
+
+  const candidates = [
+    // Primary key expected for stable row identity.
+    buildCompositeKey([dealId, orderId, customerName, itemName]),
+    // Fallbacks to keep row stable when one identifier is temporarily missing.
+    buildCompositeKey([dealId, "", customerName, itemName]),
+    buildCompositeKey(["", orderId, customerName, itemName]),
+    buildCompositeKey([dealId, orderId, "", itemName]),
+    buildCompositeKey([dealId, "", "", itemName]),
+    buildCompositeKey(["", orderId, "", itemName]),
+    // Legacy fallback for previously synced rows.
+    (() => {
+      const legacyBase =
+        normalize(dealId) || normalize(orderId) || buildCompositeKey([customerName, timestamp]);
+      const itemKey = normalize(itemName);
+      if (!legacyBase) return "";
+      return itemKey ? `${legacyBase}|${itemKey}` : legacyBase;
+    })(),
+  ];
+
+  return dedupeKeyCandidates(candidates);
 };
 
 const getRecordTime = (record?: { updatedAt?: string; createdAt?: string }) =>
@@ -444,8 +487,28 @@ const getDaysBetween = (from?: string, to?: string) => {
   return String(days);
 };
 
-const getPurchaseRowKey = (row: string[]) =>
-  [row[0], row[1], row[3]].map(normalize).join("|");
+const getPurchaseRowKeyCandidates = (row: string[]) => {
+  const dealId = row[0] || "";
+  const orderId = row[1] || "";
+  const customerName = row[2] || "";
+  const itemName = row[3] || "";
+
+  const candidates = [
+    // Primary key expected for stable row identity.
+    buildCompositeKey([dealId, orderId, customerName, itemName]),
+    // Legacy fallback used by previous sync versions.
+    buildCompositeKey([dealId, orderId, "", itemName]),
+    // Fallbacks for partial/in-flight records.
+    buildCompositeKey([dealId, "", customerName, itemName]),
+    buildCompositeKey(["", orderId, customerName, itemName]),
+    buildCompositeKey([dealId, "", "", itemName]),
+    buildCompositeKey(["", orderId, "", itemName]),
+  ];
+
+  return dedupeKeyCandidates(candidates);
+};
+
+const getPurchaseRowKey = (row: string[]) => getPurchaseRowKeyCandidates(row)[0] || "";
 
 const getDateTimeScore = (value?: string) => {
   const time = new Date(String(value || "")).getTime();
@@ -770,7 +833,9 @@ export async function POST() {
       headerNormalized.includes(normalize(label))
     ).length;
     const hasHeader = headerMatchCount >= 3;
-    const headerRowIndex = hasHeader ? 0 : -1;
+    const isHeaderExact =
+      existingHeader.length >= canonicalHeader.length &&
+      canonicalHeader.every((label, index) => normalize(existingHeader[index]) === normalize(label));
     const dataRows = hasHeader ? existingValues.slice(1) : existingValues;
 
     const headerIndex = new Map<string, number>();
@@ -785,62 +850,107 @@ export async function POST() {
       return row?.[idx] ?? "";
     };
 
-    const existingRowMap = new Map<string, { rowIndex: number; row: any[] }>();
+    type ExistingOrderRowRef = {
+      rowIndex: number;
+      canonicalRow: string[];
+      consumed: boolean;
+    };
+
+    const existingOrderRowKeyMap = new Map<string, ExistingOrderRowRef[]>();
+    const addOrderRowRef = (key: string, rowRef: ExistingOrderRowRef) => {
+      if (!key) return;
+      const list = existingOrderRowKeyMap.get(key) || [];
+      list.push(rowRef);
+      existingOrderRowKeyMap.set(key, list);
+    };
+
     dataRows.forEach((row, idx) => {
       if (isRowBlank(row)) return;
-      const normalizedRow = canonicalHeader.map((label) => getCell(row, label));
-      const key = getRowKey(normalizedRow);
-      if (!key) return;
-      existingRowMap.set(key, { rowIndex: idx + 2, row });
+      const canonicalRow = canonicalHeader.map((label) => String(getCell(row, label) ?? ""));
+      const rowRef: ExistingOrderRowRef = {
+        rowIndex: idx + 2,
+        canonicalRow,
+        consumed: false,
+      };
+      getOrderRowKeyCandidates(canonicalRow).forEach((key) => addOrderRowRef(key, rowRef));
     });
 
-    const rowsToAppend: any[] = [];
+    const findMatchingOrderRow = (row: string[]) => {
+      const candidates = getOrderRowKeyCandidates(row);
+      for (const candidate of candidates) {
+        const list = existingOrderRowKeyMap.get(candidate);
+        if (!list || !list.length) continue;
+        const match = list.find((entry) => !entry.consumed);
+        if (match) return match;
+      }
+      return undefined;
+    };
+
+    const rowsToAppend: string[][] = [];
     const rowsToUpdate: { range: string; values: any[][] }[] = [];
 
     rows.forEach((row) => {
       if (isRowBlank(row)) return;
-      const key = getRowKey(row);
-      const existing = existingRowMap.get(key);
+      const canonicalRow = canonicalHeader.map((_, index) => String(row[index] ?? ""));
+      const existing = findMatchingOrderRow(canonicalRow);
       if (existing) {
-        const existingRow = canonicalHeader.map((label) => getCell(existing.row, label));
+        existing.consumed = true;
+        const existingRow = existing.canonicalRow;
         const same =
-          existingRow.length === row.length &&
-          existingRow.every((cell, idx) => String(cell ?? "").trim() === String(row[idx] ?? "").trim());
+          existingRow.length === canonicalRow.length &&
+          existingRow.every(
+            (cell, idx) => String(cell ?? "").trim() === String(canonicalRow[idx] ?? "").trim()
+          );
         if (!same) {
           rowsToUpdate.push({
             range: `${sheetName}!A${existing.rowIndex}:${SHEET_LAST_COLUMN}${existing.rowIndex}`,
-            values: [row],
+            values: [canonicalRow],
           });
         }
       } else {
-        rowsToAppend.push(row);
+        rowsToAppend.push(canonicalRow);
       }
     });
+
+    if (hasHeader && !isHeaderExact) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `${sheetName}!A1:${SHEET_LAST_COLUMN}1`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [canonicalHeader],
+        },
+      });
+    }
 
     if (!hasHeader) {
       rowsToAppend.unshift(canonicalHeader);
     }
 
     if (rowsToUpdate.length > 0) {
-      await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId: sheetId,
-        requestBody: {
-          valueInputOption: "USER_ENTERED",
-          data: rowsToUpdate,
-        },
-      });
+      for (const chunk of chunkArray(rowsToUpdate, MAX_BATCH_UPDATE_ROWS)) {
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            valueInputOption: "USER_ENTERED",
+            data: chunk,
+          },
+        });
+      }
     }
 
     if (rowsToAppend.length > 0) {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: sheetId,
-        range: `${sheetName}!A1`,
-        valueInputOption: "USER_ENTERED",
-        insertDataOption: "INSERT_ROWS",
-        requestBody: {
-          values: rowsToAppend,
-        },
-      });
+      for (const chunk of chunkArray(rowsToAppend, MAX_APPEND_ROWS)) {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: sheetId,
+          range: `${sheetName}!A1`,
+          valueInputOption: "USER_ENTERED",
+          insertDataOption: "INSERT_ROWS",
+          requestBody: {
+            values: chunk,
+          },
+        });
+      }
     }
 
     const purchaseRequestsSnapshot = await adminDb.collection("purchaseRequests").get();
@@ -948,6 +1058,7 @@ export async function POST() {
           "",
           formatSheetDate(stockRecord?.updatedAt || stockRecord?.createdAt),
           inStockYesNo,
+          "",
         ]);
       });
     });
@@ -1004,6 +1115,7 @@ export async function POST() {
         const inboundMeta = poItemKey ? inboundByPoItem.get(poItemKey) : undefined;
         const followUpMilestone = pickLatestMilestone(request.poMilestones, 2, itemName);
         const receivingMilestone = pickLatestMilestone(request.poMilestones, 3, itemName);
+        const docketNo = String(followUpMilestone?.docketNo || "").trim();
 
         const expectedDeliveryAt =
           item?.expectedDeliveryDate || request.promiseDeliveryDate || request.poDeliveryDate || "";
@@ -1045,6 +1157,7 @@ export async function POST() {
           formatSheetDate(poReceivingAt),
           formatSheetDate(stockVerificationAtRaw),
           inStockYesNo,
+          docketNo,
         ]);
       });
     });
@@ -1082,37 +1195,64 @@ export async function POST() {
       return row?.[idx] ?? "";
     };
 
-    const existingPurchaseRowMap = new Map<string, { rowIndex: number; row: any[] }>();
+    type ExistingPurchaseRowRef = {
+      rowIndex: number;
+      canonicalRow: string[];
+      consumed: boolean;
+    };
+
+    const existingPurchaseRowKeyMap = new Map<string, ExistingPurchaseRowRef[]>();
+    const addPurchaseRowRef = (key: string, rowRef: ExistingPurchaseRowRef) => {
+      if (!key) return;
+      const list = existingPurchaseRowKeyMap.get(key) || [];
+      list.push(rowRef);
+      existingPurchaseRowKeyMap.set(key, list);
+    };
+
     purchaseDataRows.forEach((row, idx) => {
       if (isRowBlank(row)) return;
-      const normalizedRow = purchaseCanonicalHeader.map((label) => getPurchaseCell(row, label));
-      const key = getPurchaseRowKey(normalizedRow);
-      if (!key) return;
-      // Keep the first visible row for a key so updates land on top rows, not duplicate tails.
-      if (!existingPurchaseRowMap.has(key)) {
-        existingPurchaseRowMap.set(key, { rowIndex: idx + 2, row });
-      }
+      const canonicalRow = purchaseCanonicalHeader.map((label) => String(getPurchaseCell(row, label) ?? ""));
+      const rowRef: ExistingPurchaseRowRef = {
+        rowIndex: idx + 2,
+        canonicalRow,
+        consumed: false,
+      };
+      getPurchaseRowKeyCandidates(canonicalRow).forEach((key) => addPurchaseRowRef(key, rowRef));
     });
 
-    const purchaseRowsToAppend: any[] = [];
+    const findMatchingPurchaseRow = (row: string[]) => {
+      const candidates = getPurchaseRowKeyCandidates(row);
+      for (const candidate of candidates) {
+        const list = existingPurchaseRowKeyMap.get(candidate);
+        if (!list || !list.length) continue;
+        const match = list.find((entry) => !entry.consumed);
+        if (match) return match;
+      }
+      return undefined;
+    };
+
+    const purchaseRowsToAppend: string[][] = [];
     const purchaseRowsToUpdate: { range: string; values: any[][] }[] = [];
     uniquePurchaseRows.forEach((row) => {
       if (isRowBlank(row)) return;
-      const key = getPurchaseRowKey(row);
-      const existing = existingPurchaseRowMap.get(key);
+      const canonicalRow = purchaseCanonicalHeader.map((_, index) => String(row[index] ?? ""));
+      const existing = findMatchingPurchaseRow(canonicalRow);
       if (existing) {
-        const existingRow = purchaseCanonicalHeader.map((label) => getPurchaseCell(existing.row, label));
+        existing.consumed = true;
+        const existingRow = existing.canonicalRow;
         const same =
-          existingRow.length === row.length &&
-          existingRow.every((cell, idx) => String(cell ?? "").trim() === String(row[idx] ?? "").trim());
+          existingRow.length === canonicalRow.length &&
+          existingRow.every(
+            (cell, idx) => String(cell ?? "").trim() === String(canonicalRow[idx] ?? "").trim()
+          );
         if (!same) {
           purchaseRowsToUpdate.push({
             range: `${purchaseSheetName}!A${existing.rowIndex}:${PURCHASE_SHEET_LAST_COLUMN}${existing.rowIndex}`,
-            values: [row],
+            values: [canonicalRow],
           });
         }
       } else {
-        purchaseRowsToAppend.push(row);
+        purchaseRowsToAppend.push(canonicalRow);
       }
     });
 
@@ -1132,25 +1272,29 @@ export async function POST() {
     }
 
     if (purchaseRowsToUpdate.length > 0) {
-      await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId: sheetId,
-        requestBody: {
-          valueInputOption: "USER_ENTERED",
-          data: purchaseRowsToUpdate,
-        },
-      });
+      for (const chunk of chunkArray(purchaseRowsToUpdate, MAX_BATCH_UPDATE_ROWS)) {
+        await sheets.spreadsheets.values.batchUpdate({
+          spreadsheetId: sheetId,
+          requestBody: {
+            valueInputOption: "USER_ENTERED",
+            data: chunk,
+          },
+        });
+      }
     }
 
     if (purchaseRowsToAppend.length > 0) {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: sheetId,
-        range: `${purchaseSheetName}!A1`,
-        valueInputOption: "USER_ENTERED",
-        insertDataOption: "INSERT_ROWS",
-        requestBody: {
-          values: purchaseRowsToAppend,
-        },
-      });
+      for (const chunk of chunkArray(purchaseRowsToAppend, MAX_APPEND_ROWS)) {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: sheetId,
+          range: `${purchaseSheetName}!A1`,
+          valueInputOption: "USER_ENTERED",
+          insertDataOption: "INSERT_ROWS",
+          requestBody: {
+            values: chunk,
+          },
+        });
+      }
     }
 
     const purchaseStatusSummary = uniquePurchaseRows.reduce(

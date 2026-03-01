@@ -786,16 +786,6 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
   ).length;
   const stockPendingCount = Math.max(0, stockItems.length - inStockCount - outStockCount);
 
-  const expectedDates = [
-    ...(selectedOrder?.fabricDetails || []).map((item) => item.expectedDeliveryDate),
-    ...purchaseRequests.map((item) => item.poDeliveryDate),
-  ]
-    .map((value) => toDateSafe(value))
-    .filter((value): value is Date => !!value)
-    .sort((a, b) => a.getTime() - b.getTime());
-
-  const expectedDeliveryLabel = expectedDates.length ? format(expectedDates[0], "dd MMM yyyy") : "N/A";
-
   const purchaseStatusLabel = purchaseRequests.length
     ? Array.from(new Set(purchaseRequests.map((requestItem) => String(requestItem.status || "N/A"))))
         .slice(0, 3)
@@ -817,8 +807,106 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
       ? "PR Created"
       : "PR Pending";
 
+  const orderFabricList = useMemo(() => {
+    type OrderFabricListRow = {
+      fabricName: string;
+      qty: string;
+      unit: string;
+      status: string;
+      type: string;
+      poNumber?: string;
+      expectedDeliveryDate?: string;
+      source: "Order" | "PR";
+    };
+
+    const rows: OrderFabricListRow[] = [];
+    const seen = new Set<string>();
+    const nonFabricTypeTokens = ["hardware", "channel", "accessory", "vas", "furniture"];
+
+    const addRow = (row: OrderFabricListRow) => {
+      const key = [
+        normalizeStatus(row.fabricName),
+        normalizeStatus(row.qty),
+        normalizeStatus(row.unit),
+        normalizeStatus(row.source),
+      ].join("|");
+      if (!key || key === "|||") return;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push(row);
+    };
+
+    const normalItems = selectedOrder?.sections?.NORMAL?.items || [];
+    normalItems.forEach((item: any) => {
+      const itemTypeRaw = normalizeStatus(item?.type || item?.productType || item?.bcnType || item?.category || "");
+      if (nonFabricTypeTokens.some((token) => itemTypeRaw.includes(token))) return;
+
+      const fabricName = String(item?.bcn || item?.description || item?.itemName || "").trim();
+      if (!fabricName) return;
+
+      const qty = String(item?.qty ?? item?.quantity ?? "-").trim() || "-";
+      const unit = String(item?.unit || "Mtr").trim() || "Mtr";
+      addRow({
+        fabricName,
+        qty,
+        unit,
+        status: String(item?.allocation?.status || item?.status || "N/A"),
+        type: String(item?.type || item?.productType || item?.bcnType || item?.category || "Fabric"),
+        poNumber: item?.poNumber,
+        expectedDeliveryDate: item?.expectedDeliveryDate,
+        source: "Order",
+      });
+    });
+
+    (selectedOrder?.fabricDetails || []).forEach((fabricItem) => {
+      const fabricName = String(fabricItem?.fabricName || "").trim();
+      if (!fabricName) return;
+      addRow({
+        fabricName,
+        qty: String(fabricItem?.quantity ?? "-").trim() || "-",
+        unit: String((fabricItem as any)?.unit || "Mtr").trim() || "Mtr",
+        status: String(fabricItem?.status || "N/A"),
+        type: String(fabricItem?.type || "Fabric"),
+        poNumber: fabricItem?.poNumber,
+        expectedDeliveryDate: fabricItem?.expectedDeliveryDate,
+        source: "Order",
+      });
+    });
+
+    if (rows.length) return rows;
+
+    purchaseRequests.forEach((requestItem) => {
+      (requestItem.fabricDetails || []).forEach((fabricItem) => {
+        const fabricName = String(fabricItem?.fabricName || "").trim();
+        if (!fabricName) return;
+        addRow({
+          fabricName,
+          qty: String(fabricItem?.quantity ?? "-").trim() || "-",
+          unit: String((fabricItem as any)?.unit || "Mtr").trim() || "Mtr",
+          status: String(fabricItem?.status || requestItem.status || "N/A"),
+          type: String(fabricItem?.type || "Fabric"),
+          poNumber: fabricItem?.poNumber,
+          expectedDeliveryDate: fabricItem?.expectedDeliveryDate || requestItem.poDeliveryDate || undefined,
+          source: "PR",
+        });
+      });
+    });
+
+    return rows;
+  }, [selectedOrder, purchaseRequests]);
+
+  const expectedDates = [
+    ...orderFabricList.map((item) => item.expectedDeliveryDate),
+    ...purchaseRequests.map((item) => item.poDeliveryDate),
+  ]
+    .map((value) => toDateSafe(value))
+    .filter((value): value is Date => !!value)
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  const expectedDeliveryLabel = expectedDates.length ? format(expectedDates[0], "dd MMM yyyy") : "N/A";
+
   const fabricRows = useMemo(() => {
-    return (selectedOrder?.fabricDetails || []).map((fabricItem) => {
+    return orderFabricList.map((fabricItem) => {
       const matchingPr = purchaseRequests.find((requestItem) => {
         const hasFabric = (requestItem.fabricDetails || []).some((lineItem) =>
           matchTextLoose(lineItem.fabricName, fabricItem.fabricName)
@@ -864,7 +952,7 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
 
       return {
         fabricName: fabricItem.fabricName || "-",
-        qty: `${fabricItem.quantity || "-"} ${String((fabricItem as any)?.unit || "")}`.trim(),
+        qty: `${fabricItem.qty || "-"} ${String(fabricItem.unit || "")}`.trim(),
         type: fabricItem.type || "-",
         poStatus,
         expectedDelivery: fabricItem.expectedDeliveryDate || matchingPr?.poDeliveryDate || "N/A",
@@ -873,7 +961,7 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
         prStatus: matchingPr?.status || "No PR",
       };
     });
-  }, [selectedOrder, purchaseRequests, inbounds, stockItems]);
+  }, [orderFabricList, purchaseRequests, inbounds, stockItems]);
 
   return (
     <>
@@ -1057,6 +1145,37 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
                         <p className="text-xs text-muted-foreground">PR / Stock Mode</p>
                         <p className="text-lg font-semibold">{stockFlowLabel}</p>
                       </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Order Fabric List</CardTitle>
+                      <CardDescription>Simple list of fabrics captured on this order.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {orderFabricList.length ? (
+                        <div className="space-y-2">
+                          <div className="hidden rounded-md border bg-slate-50 p-2 text-xs font-semibold text-slate-600 md:grid md:grid-cols-5 md:gap-2">
+                            <p className="md:col-span-2">Fabric</p>
+                            <p>Qty</p>
+                            <p>Unit</p>
+                            <p>Status</p>
+                          </div>
+                          {orderFabricList.map((row, idx) => (
+                            <div key={`${row.fabricName}-${row.source}-${idx}`} className="rounded-md border p-3">
+                              <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-5">
+                                <p className="md:col-span-2 font-medium">{row.fabricName}</p>
+                                <p>{row.qty}</p>
+                                <p>{row.unit}</p>
+                                <p>{row.status}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No fabric list found on this order.</p>
+                      )}
                     </CardContent>
                   </Card>
 
@@ -2461,7 +2580,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
                           {detailsData.quotations.length} quotation(s) linked with this order/deal.
                         </CardDescription>
                       </CardHeader>
-                      <CardContent className="space-y-2">
+                      <CardContent className="space-y-2 overflow-auto">
                         {detailsData.quotations.length ? (
                           detailsData.quotations.map((quotationItem) => (
                             <div key={quotationItem.id} className="rounded-md border p-3">

@@ -165,11 +165,7 @@ const extractDeliveryItemsFromOrder = (order: any) => {
   if (!order) return [] as Array<{ id: string; label: string; qty: number }>;
 
   const rawItems = [
-    ...(Array.isArray(order?.items) ? order.items : []),
     ...(Array.isArray(order?.sections?.NORMAL?.items) ? order.sections.NORMAL.items : []),
-    ...(Array.isArray(order?.sections?.VAS?.items) ? order.sections.VAS.items : []),
-    ...(Array.isArray(order?.fabricDetails) ? order.fabricDetails : []),
-    ...(Array.isArray(order?.furnitureDetails) ? order.furnitureDetails : []),
   ];
 
   const byKey = new Map<string, { id: string; label: string; qty: number }>();
@@ -672,7 +668,7 @@ export function VisitForm({
   );
 
   const DeliveryVisitContent = (
-    <div className="space-y-6">
+    <div className="space-y-6 overflow-auto">
       <FormField
         control={form.control}
         name="orderId"
@@ -724,7 +720,7 @@ export function VisitForm({
                 No items found in selected order.
               </p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 grid grid-cols-3 justify-between items-center gap-2">
                 {deliveryOrderItems.map((item) => {
                   const selected = selectedDeliveryMap.get(item.id);
                   return (
@@ -1208,7 +1204,7 @@ const OtherVisitContent = (
 
       {/* Create Visit Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-5xl overflow-hidden">
+        <DialogContent className="max-w-6xl max-h-[95vh] overflow-auto">  
           <DialogHeader>
             <DialogTitle>Create New Visit</DialogTitle>
             <DialogDescription>

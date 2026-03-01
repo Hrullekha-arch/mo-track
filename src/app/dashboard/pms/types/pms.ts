@@ -1,0 +1,254 @@
+// =============================================================================
+// PMS Domain Types — Single source of truth for all PMS-related type definitions
+// =============================================================================
+
+export type PmsProduct = {
+  id: string;
+  name: string;
+  category: string;
+};
+
+export type PmsRouting = {
+  id: string;
+  productId: string;
+  stepNo: number;
+  process: string;
+  cycleMinutes: number;
+  ops: number;
+};
+
+export type PmsMachine = {
+  id: string;
+  name: string;
+  process: string;
+  shiftMinutes: number;
+  active: boolean;
+};
+
+export type PmsPerson = {
+  id: string;
+  name: string;
+  role?: string;
+};
+
+export type PmsSkill = {
+  id: string;
+  machineId: string;
+  personId: string;
+  process: string;
+  category: string;
+  allowed: boolean;
+};
+
+export type PmsDowntime = {
+  id: string;
+  machineId: string;
+  from: string;
+  to: string;
+  reason?: string;
+};
+
+export type PmsJobStatus = "WAITING" | "PLANNED" | "IN_PROGRESS" | "DONE";
+
+export type PmsJob = {
+  id: string;
+  orderId: string;
+  jobGroupId?: string;
+  productId?: string;
+  stepNo?: number;
+  process?: string;
+  requiredMinutes?: number;
+  status?: PmsJobStatus;
+  plannedStart?: string;
+  plannedEnd?: string;
+  actualStart?: string;
+  actualEnd?: string;
+  updatedAt?: string;
+};
+
+export type PmsPlan = {
+  id: string;
+  jobId: string;
+  machineId: string;
+  personId: string;
+  plannedStart?: string;
+  plannedEnd?: string;
+};
+
+export type PmsWorkingHours = {
+  startTime: string;
+  endTime: string;
+  timezoneOffsetMinutes: number;
+};
+
+// ---------------------------------------------------------------------------
+// Derived / computed row types used by the UI
+// ---------------------------------------------------------------------------
+
+export type LiveVasRow = {
+  key: string;
+  orderId: string;
+  orderNo: string;
+  customer: string;
+  vasName: string;
+  qty: number;
+  group: string;
+  status: string;
+  currentProcess: string;
+  nextProcess?: string;
+  machineName: string;
+  personName: string;
+  plannedStart?: string;
+  plannedEnd?: string;
+  eta?: string;
+  lastUpdate?: string;
+  matchedProductId?: string;
+  matchedProductName?: string;
+  hasJobsForProduct: boolean;
+  noPlanReason: string;
+  invoiceReady: boolean;
+  orderPriority: number;
+  priorityLabel: string;
+  isEmergency: boolean;
+};
+
+export type StepPlanInfo = {
+  plannedStart?: string;
+  plannedEnd?: string;
+  actualStart?: string;
+  actualEnd?: string;
+  status?: string;
+  machineName?: string;
+  personName?: string;
+};
+
+export type WorkDetailRow = {
+  key: string;
+  currentJobId: string;
+  orderId: string;
+  orderNo: string;
+  customer: string;
+  vasName: string;
+  vasGroup: string;
+  qty: number;
+  process: string;
+  machine?: string;
+  person?: string;
+  plannedStart?: string;
+  plannedEnd?: string;
+  status: string;
+  routingSteps: PmsRouting[];
+  currentStepNo?: number;
+  isFinalStep: boolean;
+  totalSteps: number;
+  productName: string;
+  stepPlanMap: Map<number, StepPlanInfo>;
+  nextProcess?: string;
+  nextPlannedStart?: string;
+  nextPlannedEnd?: string;
+  nextMachine?: string;
+  nextPerson?: string;
+  resetJobIds: string[];
+  resetPlanDocIds: string[];
+  blockedByLabel?: string;
+};
+
+export type WorkSheetStepRow = {
+  key: string;
+  orderNo: string;
+  customer: string;
+  vasName: string;
+  qty: number;
+  productName: string;
+  status: string;
+  nextProcess: string;
+  machine?: string;
+  person?: string;
+  process: string;
+  plannedStart?: string;
+  plannedEnd?: string;
+  stepNo?: number;
+};
+
+export type LiveVasStats = {
+  totalItems: number;
+  inProgress: number;
+  planned: number;
+  waiting: number;
+  done: number;
+  emergency: number;
+};
+
+export type PmsStats = {
+  products: number;
+  activeMachines: number;
+  totalMachines: number;
+  people: number;
+  totalCapacity: number;
+  downtimeEvents: number;
+};
+
+// ---------------------------------------------------------------------------
+// Import / Export
+// ---------------------------------------------------------------------------
+
+export type ImportTab = "routing" | "machines" | "skills" | "downtime";
+
+export type ImportState = {
+  open: boolean;
+  tab: ImportTab;
+  text: string;
+  loading: boolean;
+  preview: any[];
+};
+
+// ---------------------------------------------------------------------------
+// Manual Done Dialog
+// ---------------------------------------------------------------------------
+
+export type ManualDoneDialogRow = {
+  key: string;
+  jobId: string;
+  orderId: string;
+  orderNo: string;
+  customer: string;
+  vasName: string;
+  process: string;
+  qty: number;
+  stepNo?: number;
+  totalSteps: number;
+  plannedStart?: string;
+  plannedEnd?: string;
+};
+
+export type ManualDoneDialogState = {
+  open: boolean;
+  row: ManualDoneDialogRow | null;
+};
+
+// ---------------------------------------------------------------------------
+// Delete Confirmation
+// ---------------------------------------------------------------------------
+
+export type DeleteDialogType = "product" | "machine" | "person" | "routing" | "downtime";
+
+export type DeleteDialogState = {
+  open: boolean;
+  type: DeleteDialogType;
+  id: string;
+  name: string;
+};
+
+// ---------------------------------------------------------------------------
+// Shared lookup maps — built once, consumed everywhere
+// ---------------------------------------------------------------------------
+
+export type PmsLookups = {
+  ordersById: Map<string, any>;
+  machineById: Map<string, PmsMachine>;
+  personById: Map<string, PmsPerson>;
+  productById: Map<string, PmsProduct>;
+  routingByProduct: Map<string, PmsRouting[]>;
+  planByJob: Map<string, PmsPlan>;
+  planDocIdsByJob: Map<string, string[]>;
+};

@@ -1,27 +1,24 @@
-
-      "use client";
+"use client";
 
 import * as React from "react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { collection, onSnapshot, query, doc, getDoc, collectionGroup, runTransaction, where } from "firebase/firestore";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card } from "@/components/ui/card";
+import { collection, onSnapshot, query, doc, getDoc, collectionGroup, runTransaction } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DealVisit, Customer, Deal, User } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { format, formatDate } from "date-fns";
+import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
-import Link from 'next/link';
+import Link from "next/link";
 import { AssignInstallerDialog, SLOT_OPTIONS } from "@/components/features/order-management/AssignInstallerDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Eye, User as ChevronDown, Share2, Copy, MapPin, History, CalendarSync, MoreHorizontal, UserCheck, Edit, UserX, Loader2, CloudDownloadIcon, Trash2, ArrowLeftRight } from "lucide-react";
+import {
+  Eye, Share2, Copy, MapPin, History, CalendarSync, MoreHorizontal,
+  UserCheck, Edit, UserX, Loader2, CloudDownload, Trash2, ArrowLeftRight,
+  ChevronDown, Activity, Clock, CheckCircle2, AlertCircle, Radio,
+  TrendingUp, Users, Zap, Search, CalendarDays, X
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -29,1975 +26,1738 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { getAuth } from "firebase/auth";
-import { useAuth } from "@/context/AuthContext";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import {
-  deleteVisitAction,
-  getFreshMeasurementPdfUrlAction,
-  unassignVisitAction,
-  updateVisitDetailsAction,
-} from "./actions";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { deleteVisitAction, getFreshMeasurementPdfUrlAction, unassignVisitAction, updateVisitDetailsAction } from "./actions";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
 import CompanyVisitDialog from "@/components/features/customer/CompanyVisitDialog";
+import { useAuth } from "@/context/AuthContext";
 
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-    interface EnrichedDealVisit extends DealVisit {
-        customerName: string;
-        dealName: string;
-        dealDocId: string;
-        customerId: string;
-        customerAddress?: string;
-        customer?: Customer | null;
-    }
-    type JobSuggestion = {
-    installerId: string;
-    recommendedVisitId: string | null;
-    recommendedDealId?: string | null;
-    recommendedCustomerName?: string | null;
-    distanceKm?: number | null;
+interface InstallerTracking {
+  id: string;
+  installerId?: string;
+  status?: string;
+  location?: { latitude: number; longitude: number };
+  lastPingAt?: string;
+  updatedAt?: string;
+  speedKmh?: number;
+  currentVisitId?: string;
+}
 
-    // Base ETA
-    etaMin?: number | null;
+interface EnrichedDealVisit extends DealVisit {
+  customerName: string;
+  dealName: string;
+  dealDocId: string;
+  customerId: string;
+  customerAddress?: string;
+  customer?: Customer | null;
+}
 
-    // ✅ Smart ETA
-    avgDelayMin?: number | null;
-    finalEtaMin?: number | null;
+type JobSuggestion = {
+  installerId: string;
+  recommendedVisitId: string | null;
+  recommendedDealId?: string | null;
+  recommendedCustomerName?: string | null;
+  distanceKm?: number | null;
+  etaMin?: number | null;
+  avgDelayMin?: number | null;
+  finalEtaMin?: number | null;
+  computedAt?: string;
+  reason?: string;
+  customerId?: string | null;
+  dealDocId?: string | null;
+  coordsSource?: "geo" | "legacy";
+};
 
-    computedAt?: string;
-    reason?: string;
+type AdminDailyStats = {
+  installerId: string;
+  dateKey: string;
+  completedToday: number;
+  totalWorkMin: number;
+  avgWorkMin: number;
+  delayCount: number;
+  updatedAt?: string;
+};
 
-    customerId?: string | null;
-    dealDocId?: string | null;
-    coordsSource?: "geo" | "legacy";
-    };
+type VisitCompletionMode = "Porter" | "Other";
 
-    type AdminDailyStats = {
-    installerId: string;
-    dateKey: string;
-    completedToday: number;
-    totalWorkMin: number;
-    avgWorkMin: number;
-    delayCount: number;
-    updatedAt?: string;
-    };
+interface PendingVisitCompletion {
+  visit: EnrichedDealVisit;
+  mode: VisitCompletionMode;
+  remark: string;
+}
 
+// ─── Status Helpers ───────────────────────────────────────────────────────────
 
-
+const STATUS_CONFIG = {
+  completed: { label: "Completed", className: "bg-emerald-50 text-emerald-700 border-emerald-200 border" },
+  Working:   { label: "Working",   className: "bg-blue-50 text-blue-700 border-blue-200 border animate-pulse" },
+  approved:  { label: "Approved",  className: "bg-violet-50 text-violet-700 border-violet-200 border" },
+  CWC:       { label: "Will Call", className: "bg-amber-50 text-amber-700 border-amber-200 border" },
+} as const;
 
 const renderVisitStatus = (visit: EnrichedDealVisit) => {
-  if (visit.status === "completed") {
-    return <Badge className="mt-1 bg-green-500">Completed</Badge>;
-  }
-
-  if (visit.visitStatus === "Working") {
-    return (
-      <Badge className="mt-1 bg-blue-500 animate-pulse">
-        Working
-      </Badge>
-    );
-  }
-
-  if (visit.status === "approved") {
-    return (
-      <Badge className="mt-1" variant="secondary">
-        Approved
-      </Badge>
-    );
-  }
-
-  if (visit.status === "CWC") {
-    return (
-      <Badge className="mt-1 bg-amber-700 text-gray-800">
-        Customer will Call
-      </Badge>
-    );
-  }
-
+  if (visit.status === "completed") return <StatusPill config={STATUS_CONFIG.completed} />;
+  if (visit.visitStatus === "Working") return <StatusPill config={STATUS_CONFIG.Working} />;
+  if (visit.status === "approved") return <StatusPill config={STATUS_CONFIG.approved} />;
+  if (visit.status === "CWC") return <StatusPill config={STATUS_CONFIG.CWC} />;
   return (
-    <Badge className="mt-1" variant="outline">
+    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium bg-slate-50 text-slate-600 border-slate-200">
       {visit.status || "Pending"}
-    </Badge>
+    </span>
   );
 };
 
+const StatusPill = ({ config }: { config: { label: string; className: string } }) => (
+  <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", config.className)}>
+    {config.label}
+  </span>
+);
 
-const renderLiveStatus = (status?: string) => {
-    const normalized = (status || "IDLE").toUpperCase();
-    const styleMap: Record<string, string> = {
-        WORKING: "bg-green-500",
-        DRIVING: "bg-blue-500",
-        IDLE: "bg-yellow-400 text-black",
-    };
-    const className = styleMap[normalized] || "bg-gray-400";
-    return <Badge className={className}>{normalized}</Badge>;
+const LiveStatusDot = ({ status }: { status?: string }) => {
+  const s = (status || "IDLE").toUpperCase();
+  const cfg = {
+    WORKING: { dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+    DRIVING: { dot: "bg-blue-500",    text: "text-blue-700",    bg: "bg-blue-50 border-blue-200" },
+    IDLE:    { dot: "bg-amber-400",   text: "text-amber-700",   bg: "bg-amber-50 border-amber-200" },
+  }[s] ?? { dot: "bg-slate-400", text: "text-slate-600", bg: "bg-slate-50 border-slate-200" };
+
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold", cfg.bg, cfg.text)}>
+      <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot, s === "WORKING" && "animate-pulse")} />
+      {s}
+    </span>
+  );
 };
 
-const InstallerCard = ({ 
-  installer, 
-  visits, 
-  live,
-  suggestion,
-  dailyStats,
-  onAssign,
-  onShare,
-  onViewDetails
-}: { 
-  installer: User, 
+// ─── Stat Chip ────────────────────────────────────────────────────────────────
+
+const StatChip = ({ icon: Icon, label, value, accent = false }: {
+  icon: React.ElementType; label: string; value: string | number; accent?: boolean
+}) => (
+  <div className={cn(
+    "flex items-center gap-2 rounded-xl px-3 py-2 text-sm border",
+    accent ? "bg-indigo-50 border-indigo-200 text-indigo-700" : "bg-slate-50 border-slate-200 text-slate-600"
+  )}>
+    <Icon className="h-3.5 w-3.5 shrink-0" />
+    <span className="text-xs text-muted-foreground">{label}</span>
+    <span className="font-semibold ml-auto">{value}</span>
+  </div>
+);
+
+// ─── Filter Bar ───────────────────────────────────────────────────────────────
+
+// ─── Filter Chip ─────────────────────────────────────────────────────────────
+
+const FilterChip = ({ label, onRemove }: { label: string; onRemove: () => void }) => (
+  <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
+    {label}
+    <button type="button" onClick={onRemove} className="ml-0.5 rounded-full text-indigo-400 hover:text-indigo-700 transition-colors">
+      <X className="h-2.5 w-2.5" />
+    </button>
+  </span>
+);
+
+const FilterSelect = ({ value, onChange, placeholder, options }: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  options: { value: string; label: string }[];
+}) => (
+  <Select value={value} onValueChange={onChange}>
+    <SelectTrigger className="h-9 rounded-lg border-slate-200 bg-white text-sm text-slate-700 shadow-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400">
+      <SelectValue placeholder={placeholder ?? "Select…"} />
+    </SelectTrigger>
+    <SelectContent className="rounded-xl border-slate-200 shadow-lg">
+      {options.map(o => (
+        <SelectItem key={o.value} value={o.value} className="rounded-lg text-sm">
+          {o.label}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+);
+
+// ─── Installer Card ───────────────────────────────────────────────────────────
+
+const InstallerCard = ({
+  installer, visits, live, suggestion, dailyStats, onAssign, onShare, onViewDetails,
+}: {
+  installer: User;
   live?: InstallerTracking;
   suggestion?: JobSuggestion;
-  visits: EnrichedDealVisit[],
+  visits: EnrichedDealVisit[];
   dailyStats?: AdminDailyStats;
-  onAssign: (visit: EnrichedDealVisit) => void;
-  onShare: (visit: EnrichedDealVisit) => void;
-  onViewDetails: (visit: EnrichedDealVisit) => void;
+  onAssign: (v: EnrichedDealVisit) => void;
+  onShare: (v: EnrichedDealVisit) => void;
+  onViewDetails: (v: EnrichedDealVisit) => void;
 }) => {
-          const { user, logout } = useAuth();
-    // Filter out completed visits - only show active/pending visits
-    const activeVisits = visits.filter(visit => visit.status !== 'completed');
+  const [open, setOpen] = React.useState(false);
+  const activeVisits = visits.filter(v => v.status !== "completed");
+  const liveStatus = live?.status || "IDLE";
 
-    //===============Helper
-    const liveStatus = live?.status || "IDLE";
+  const mapsUrl =
+    typeof live?.location?.latitude === "number" && typeof live?.location?.longitude === "number"
+      ? `https://www.google.com/maps?q=${live.location.latitude},${live.location.longitude}`
+      : null;
 
-    const liveBadgeClass =
-        liveStatus === "WORKING"
-            ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/25"
-            : liveStatus === "DRIVING"
-            ? "bg-sky-500/15 text-sky-300 border-sky-500/25"
-            : "bg-yellow-500/15 text-yellow-300 border-yellow-500/25";
+  const updatedLabel = live?.lastPingAt || live?.updatedAt
+    ? new Date(live.lastPingAt || live.updatedAt!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "No signal";
 
-    const mapsUrl =
-        typeof live?.location?.latitude === "number" && typeof live?.location?.longitude === "number"
-            ? `https://www.google.com/maps?q=${live.location.latitude},${live.location.longitude}`
-            : null;
+  const smartEta = typeof suggestion?.finalEtaMin === "number"
+    ? suggestion.finalEtaMin
+    : typeof suggestion?.etaMin === "number"
+      ? suggestion.etaMin + (suggestion.avgDelayMin || 0)
+      : null;
 
-    const lastPingValue = live?.lastPingAt || live?.updatedAt;
-    const updatedLabel = lastPingValue
-        ? new Date(lastPingValue).toLocaleTimeString()
-        : "N/A";
+  const handleRefreshSuggestion = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const token = await getAuth().currentUser?.getIdToken(true);
+    if (!token) return;
+    await fetch("/api/admin/suggest-nearest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({}),
+    });
+  };
 
-    //===============  Eta fallbacks
-    const baseEta =
-    typeof suggestion?.etaMin === "number" ? suggestion.etaMin : null;
+  const handleRefreshStats = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const token = await getAuth().currentUser?.getIdToken(true);
+    if (!token) return;
+    await fetch("/api/admin/daily-stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({}),
+    });
+  };
 
-    const avgDelay =
-    typeof suggestion?.avgDelayMin === "number" ? suggestion.avgDelayMin : 0;
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className={cn(
+        "rounded-2xl border bg-white shadow-sm transition-all duration-200",
+        open && "shadow-md ring-1 ring-indigo-100"
+      )}>
+        {/* ── Card Header ── */}
+        <CollapsibleTrigger asChild>
+          <div className="flex cursor-pointer flex-col gap-4 p-5 hover:bg-slate-50/80 rounded-2xl transition-colors">
+            {/* Row 1: Avatar + Name + Status */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="relative shrink-0">
+                  <Avatar className="h-11 w-11 ring-2 ring-white shadow-sm">
+                    <AvatarImage src={installer.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(installer.name)}&background=6366f1&color=fff`} />
+                    <AvatarFallback className="bg-indigo-100 text-indigo-700 font-semibold">
+                      {installer.name.charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className={cn(
+                    "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white",
+                    liveStatus === "WORKING" ? "bg-emerald-500" : liveStatus === "DRIVING" ? "bg-blue-500" : "bg-amber-400"
+                  )} />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-900 truncate">{installer.name}</p>
+                  <p className="text-xs text-slate-500 truncate">{installer.email}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-semibold border",
+                  activeVisits.length > 0 ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-slate-100 text-slate-500 border-slate-200"
+                )}>
+                  {activeVisits.length} active
+                </span>
+                <LiveStatusDot status={liveStatus} />
+                <ChevronDown className={cn("h-4 w-4 text-slate-400 transition-transform duration-200", open && "rotate-180")} />
+              </div>
+            </div>
 
-    const smartEta =
-    typeof suggestion?.finalEtaMin === "number"
-        ? suggestion.finalEtaMin
-        : baseEta != null
-        ? baseEta + avgDelay
-        : null;
+            {/* Row 2: Stats */}
+            <div className="grid grid-cols-2 gap-2">
+              {smartEta != null && (
+                <StatChip icon={Zap} label="ETA" value={`${smartEta}m`} accent />
+              )}
+              {typeof live?.speedKmh === "number" && (
+                <StatChip icon={Activity} label="Speed" value={`${Math.round(live.speedKmh)} km/h`} />
+              )}
+              {dailyStats && (
+                <>
+                  <StatChip icon={Clock} label="Avg Work" value={`${dailyStats.avgWorkMin}m`} />
+                  <StatChip icon={AlertCircle} label="Delays" value={dailyStats.delayCount} />
+                </>
+              )}
+            </div>
 
-    //=================Handle Transfer Visit ===================
-      const handleTransferVisit = async (visit: EnrichedDealVisit, slot: SlotSelection) => {
-        if (!user?.id) return;
-    
-        const installerId = user.id;
-        const assignedAt = new Date().toISOString();
-    
-        const visitRef = doc(
-          db,
-          "customers",
-          visit.customerId,
-          "deals",
-          visit.dealDocId,
-          "visits",
-          visit.id
-        );
-    
-        const newDateRef = doc(db, "installers", installerId, "dates", slot.slotDate);
-    
-        const previousInstallerId = visit.assignedTo || installerId;
-        const previousSlotDate = visit.slotDate || "";
-        const previousSlotId = (visit.slotId || "") as SlotId | "";
-    
-        if (
-          previousInstallerId === installerId &&
-          previousSlotDate === slot.slotDate &&
-          previousSlotId === slot.slotId
-        ) {
-          return;
-        }
-    
-        await runTransaction(db, async (tx) => {
-          if (previousInstallerId && previousSlotDate) {
-            const prevRef = doc(db, "installers", previousInstallerId, "dates", previousSlotDate);
-            const prevSnap = await tx.get(prevRef);
-            const prevSlots = prevSnap.exists() && Array.isArray((prevSnap.data() as any)?.slots)
-              ? (prevSnap.data() as any).slots
-              : [];
-    
-            const cleanedPrev = prevSlots.filter((s: any) => s?.visitId !== visit.id);
-    
-            tx.set(
-              prevRef,
-              {
-                slotDate: previousSlotDate,
-                slots: SLOT_OPTIONS.map((opt) => {
-                  const existing = cleanedPrev.find((s: any) => (s?.slotId || s?.id) === opt.id);
-                  if (existing) {
-                    return {
-                      ...existing,
-                      slotId: opt.id,
-                      id: opt.id,
-                      slotLabel: existing.slotLabel || opt.label,
-                      slotStart: existing.slotStart || opt.start,
-                      slotEnd: existing.slotEnd || opt.end,
-                      slotDate: previousSlotDate,
-                      status: existing.status || (existing.visitId ? "booked" : "free"),
-                    };
-                  }
-                  return {
-                    slotId: opt.id,
-                    id: opt.id,
-                    slotLabel: opt.label,
-                    slotStart: opt.start,
-                    slotEnd: opt.end,
-                    slotDate: previousSlotDate,
-                    status: "free",
-                  };
-                }),
-              },
-              { merge: true }
-            );
-          }
-    
-          const newSnap = await tx.get(newDateRef);
-          const newSlots = newSnap.exists() && Array.isArray((newSnap.data() as any)?.slots)
-            ? (newSnap.data() as any).slots
-            : [];
-    
-          const blocking = newSlots.find(
-            (s: any) => (s?.slotId || s?.id) === slot.slotId && s?.visitId && s.visitId !== visit.id
-          );
-          if (blocking) {
-            throw new Error(`Slot ${slot.slotLabel} already booked.`);
-          }
-    
-          const filteredNew = newSlots.filter(
-            (s: any) => s && (s.slotId || s.id) !== slot.slotId && s.visitId !== visit.id
-          );
-    
-          const slotsForDay = SLOT_OPTIONS.map((opt) => {
-            if (opt.id === slot.slotId) return {
-              slotId: slot.slotId,
-              id: slot.slotId,
-              slotLabel: slot.slotLabel,
-              slotStart: slot.slotStart,
-              slotEnd: slot.slotEnd,
-              slotDate: slot.slotDate,
-              visitId: visit.id,
-              customerId: visit.customerId,
-              customerName: visit.customer?.name || "",
-              dealId: visit.deal?.dealId || visit.dealId || "",
-              dealDocId: visit.dealDocId,
-              dealName: visit.deal?.dealName || "",
-              assignedAt,
-              assignedTo: installerId,
-              status: "booked",
-            };
-    
-            const existing = filteredNew.find((s: any) => (s?.slotId || s?.id) === opt.id);
-            if (existing) {
-              return {
-                ...existing,
-                slotId: opt.id,
-                id: opt.id,
-                slotLabel: existing.slotLabel || opt.label,
-                slotStart: existing.slotStart || opt.start,
-                slotEnd: existing.slotEnd || opt.end,
-                slotDate: slot.slotDate,
-                status: existing.status || (existing.visitId ? "booked" : "free"),
-              };
-            }
-    
-            return {
-              slotId: opt.id,
-              id: opt.id,
-              slotLabel: opt.label,
-              slotStart: opt.start,
-              slotEnd: opt.end,
-              slotDate: slot.slotDate,
-              status: "free",
-            };
-          });
-    
-          tx.set(
-            newDateRef,
-            { slotDate: slot.slotDate, slots: slotsForDay },
-            { merge: true }
-          );
-    
-          tx.update(visitRef, {
-            assignedTo: installerId,
-            slotDate: slot.slotDate,
-            slotId: firstSlot.id,
-            slotIds: sortedSlotIds,
-            slotLabel: combinedLabel,
-            slotStart: firstSlot.start,
-            slotEnd: lastSlot.end,
-            assignedAt,
-          });
-        });
-      };    
+            {/* Row 3: Suggestion + Actions */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {suggestion?.recommendedVisitId ? (
+                <div className="flex-1 min-w-0 rounded-lg bg-indigo-50 border border-indigo-100 px-3 py-2">
+                  <p className="text-xs text-indigo-600 font-medium truncate">
+                    📍 {suggestion.recommendedDealId || suggestion.recommendedVisitId}
+                    {suggestion.distanceKm != null && <span className="ml-1 opacity-70">· {suggestion.distanceKm}km</span>}
+                    {suggestion.finalEtaMin != null && <span className="ml-1 font-bold"> · {suggestion.finalEtaMin}min</span>}
+                    {(suggestion.avgDelayMin ?? 0) > 0 && (
+                      <span className="ml-1 opacity-60 text-[10px]">(+{suggestion.avgDelayMin}m delay)</span>
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex-1 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                  <p className="text-xs text-slate-400">No suggestion yet</p>
+                </div>
+              )}
 
+              <div className="flex gap-1.5 shrink-0">
+                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-lg" onClick={handleRefreshSuggestion} title="Refresh suggestion">
+                  <History className="h-3.5 w-3.5" />
+                </Button>
+                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-lg" onClick={handleRefreshStats} title="Refresh stats">
+                  <TrendingUp className="h-3.5 w-3.5" />
+                </Button>
+                {mapsUrl && (
+                  <Button size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-lg" asChild onClick={e => e.stopPropagation()}>
+                    <a href={mapsUrl} target="_blank" rel="noreferrer">
+                      <MapPin className="h-3.5 w-3.5 text-rose-500" />
+                    </a>
+                  </Button>
+                )}
+                {suggestion?.customerId && suggestion?.dealDocId && (
+                  <Button size="sm" variant="outline" className="h-8 rounded-lg text-xs" asChild onClick={e => e.stopPropagation()}>
+                    <Link href={`/dashboard/customers/${suggestion.customerId}/${suggestion.dealDocId}`}>Open</Link>
+                  </Button>
+                )}
+              </div>
+            </div>
 
-      
+            {/* Last ping */}
+            <p className="text-[11px] text-slate-400 -mt-2 flex items-center gap-1">
+              <Radio className="h-2.5 w-2.5" /> Last ping: {updatedLabel}
+            </p>
+          </div>
+        </CollapsibleTrigger>
 
+        {/* ── Visit List ── */}
+        <CollapsibleContent>
+          <div className="border-t border-slate-100 px-4 pb-4 pt-3 space-y-2.5">
+            {activeVisits.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center">
+                <p className="text-sm text-slate-400">No active visits</p>
+              </div>
+            ) : (
+              activeVisits.map(visit => (
+                <div
+                  key={visit.id}
+                  className={cn(
+                    "rounded-xl border bg-slate-50/60 p-3.5 transition-all hover:bg-white hover:shadow-sm",
+                    (visit.visitStatus === "Working" || live?.currentVisitId === visit.id) && "ring-2 ring-blue-300 bg-blue-50/40"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <p className="font-semibold text-slate-800 text-sm">{visit.customerName}</p>
+                      {visit.customerAddress && (
+                        <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[180px]">📍 {visit.customerAddress}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {visit.slotLabel && (
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 font-medium border border-slate-200">
+                          {visit.slotLabel}
+                        </span>
+                      )}
+                      {renderVisitStatus(visit)}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Link href={`/dashboard/customers/${visit.customerId}/${visit.dealDocId}`}
+                        className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">
+                        {visit.dealId}
+                      </Link>
+                      {visit.dueDate && (
+                        <span className="text-[11px] text-slate-400">· {format(new Date(visit.dueDate), "d MMM")}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 rounded-lg" onClick={() => onViewDetails(visit)}>
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 rounded-lg" onClick={() => onShare(visit)}>
+                        <Share2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button disabled={visit.status === "completed"} size="sm" variant="outline" className="h-7 rounded-lg text-xs px-2.5" onClick={() => onAssign(visit)}>
+                        Reassign
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+};
 
+// ─── All Visits Table ─────────────────────────────────────────────────────────
 
-    return (
-        <Collapsible defaultOpen={false}>
-            <Card>
-                <CollapsibleTrigger asChild>
-                    <CardHeader className="flex flex-row items-center justify-between cursor-pointer hover:bg-muted/50">
-                    <span className="font-semibold">
-                    {smartEta != null ? `${smartEta} min` : "—"}
-                    </span>
-
-                    <div className="flex flex-col gap-4 w-full">
-                        {/* Header Row: Avatar, Name, Email, Status Badges */}
-                        <div className="flex items-center justify-between gap-4 w-full">
-                            {/* Left: Avatar + Info */}
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <Avatar className="h-10 w-10 shrink-0">
-                                <AvatarImage 
-                                src={installer.avatarUrl || `https://ui-avatars.com/api/?name=${installer.name}`} 
-                                />
-                                <AvatarFallback>{installer.name.charAt(0)}</AvatarFallback>
-                            </Avatar>
-                            
-                            <div className="min-w-0 flex-1">
-                                <CardTitle className="truncate">{installer.name}</CardTitle>
-                                <CardDescription className="truncate text-sm">
-                                {installer.email}
-                                </CardDescription>
-                            </div>
-                            </div>
-
-                            {/* Right: Status Badges */}
-                            <div className="flex items-center gap-2 shrink-0">
-                            <Badge variant={activeVisits.length > 0 ? "default" : "secondary"}>
-                                {activeVisits.length} Active
-                            </Badge>
-
-                            <Badge className={`border ${liveBadgeClass}`}>
-                                {liveStatus}
-                            </Badge>
-                            </div>
-                        </div>
-
-                        {/* Suggestion Row */}
-                        <div className="flex items-center justify-between gap-2 w-full flex-wrap sm:flex-nowrap">
-                            {/* Suggestion Badge */}
-                            <div className="flex-1 min-w-0">
-                            {suggestion?.recommendedVisitId ? (
-                                <Badge variant="secondary" className="bg-white/10 border-white/10">
-                                    Recommended: {suggestion.recommendedDealId || suggestion.recommendedVisitId} •{" "}
-                                    {suggestion.distanceKm ?? "—"} km •{" "}
-                                    <span className="font-semibold">{suggestion.finalEtaMin ?? suggestion.etaMin ?? "—"} min</span>
-                                    {typeof suggestion.avgDelayMin === "number" && suggestion.avgDelayMin > 0 && (
-                                    <span className="ml-1 text-xs text-muted-foreground">
-                                        <span className="ml-1 text-xs text-muted-foreground">
-                                        (Base {suggestion.etaMin} + {suggestion.avgDelayMin})
-                                        </span>
-                                    </span>
-                                    )}
-                                </Badge>
-                                ) : (
-                                <Badge variant="secondary" className="bg-white/10 border-white/10">
-                                    No suggestion
-                                </Badge>
-                                )}
-                            </div>
-
-                            {/* Refresh Button */}
-                            <Button
-                            variant="outline"
-                            size="icon"
-                            type="button"
-                            className="h-8 w-8 shrink-0"
-                            onClick={async (e) => {
-                            e.stopPropagation();
-
-                            const fbUser = getAuth().currentUser;
-                            if (!fbUser) return;
-
-                            const token = await fbUser.getIdToken(true);
-                            await fetch("/api/admin/suggest-nearest", {
-                                method: "POST",
-                                headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`,
-                                },
-                                body: JSON.stringify({}),
-                            });
-                            }}
-
-                            >
-                            <History className="h-4 w-4" />
-                            </Button>
-                            {suggestion?.customerId && suggestion?.dealDocId && (
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8"
-                                    asChild
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    <Link href={`/dashboard/customers/${suggestion.customerId}/${suggestion.dealDocId}`}>
-                                    Open
-                                    </Link>
-                                </Button>
-                                )}
-                        </div>
-
-                        {/* Bottom Row: Speed, Map, Last Updated, Chevron */}
-                        <div className="flex items-center justify-between gap-3 w-full">
-                            {/* Left: Speed Badge */}
-                            <div className="flex items-center gap-2">
-                            {typeof live?.speedKmh === "number" && (
-                                <Badge variant="secondary" className="bg-white/10 border-white/10">
-                                {Math.round(live.speedKmh)} km/h
-                                </Badge>
-                            )}
-                            </div>
-
-                            {/* Right: Map Button, Last Updated, Chevron */}
-                            <div className="flex items-center gap-2 shrink-0">
-                            {/* Map Button */}
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 w-8 p-0"
-                                disabled={!mapsUrl}
-                                asChild
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                <a 
-                                href={mapsUrl || "#"} 
-                                target="_blank" 
-                                rel="noreferrer"
-                                className="flex items-center justify-center"
-                                >
-                                <MapPin className="h-4 w-4" />
-                                </a>
-                            </Button>
-
-                            {/* Last Updated */}
-                            <span className="text-[11px] text-muted-foreground hidden md:inline whitespace-nowrap">
-                                {updatedLabel}
-                            </span>
-
-                            {/* Chevron */}
-                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                            </div>
-                            <div className="flex flex-col">
-                            {dailyStats && (
-                            <div className="flex items-center gap-2 flex-wrap">
-                                <Badge variant="secondary" className="bg-white/10 border-white/10">
-                                Avg Work: {dailyStats.avgWorkMin}m
-                                </Badge>
-                                <Badge variant="secondary" className="bg-white/10 border-white/10">
-                                 Delays: {dailyStats.delayCount}
-                                </Badge>
-                             </div>
-                             )}
-                             <Button
-                                variant="outline"
-                                onClick={async (e) => {
-                                     e.stopPropagation();
-                                    const fbUser = getAuth().currentUser;
-                                    if (!fbUser) return;
-                                    const token = await fbUser.getIdToken(true);
-                                    await fetch("/api/admin/daily-stats", {
-                                    method: "POST",
-                                    headers: {
-                                        "Content-Type": "application/json",
-                                        Authorization: `Bearer ${token}`,
-                                    },
-                                    body: JSON.stringify({}),
-                                    });
-                                }}
-                                >
-                                Refresh Stats
-                                </Button>
-
-                            </div>
-                        </div>
-                        </div>
-
-                    </CardHeader>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                    <CardContent className="pt-0">
-                         <div className="space-y-3">
-                            {activeVisits.length > 0 ? (
-                                activeVisits.map(visit => (
-                                    <Card 
-                                        key={visit.id} 
-                                        className={cn(
-                                            "hover:shadow-md transition-shadow",
-                                            (visit.visitStatus === "Working" || (live?.currentVisitId && live.currentVisitId === visit.id)) && "ring-2 ring-blue-500"
-
-                                        )}
-                                    >
-                                        <CardContent className="p-4">
-                                            {/* First Row: Customer Name and Status */}
-                                            <div className="flex items-start justify-between mb-2">
-                                                <div className="flex-1">
-                                                    <h3 className="font-semibold text-lg">{visit.customerName}</h3>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <Badge variant="outline" className="text-xs">
-                                                        {visit.slotLabel || 'No Slot'}
-                                                    </Badge>
-                                                    {renderVisitStatus(visit)}
-                                                </div>
-                                            </div>
-
-                                            {/* Second Row: Deal ID and Re-assign Button */}
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <Link 
-                                                        href={`/dashboard/customers/${visit.customerId}/${visit.dealDocId}`} 
-                                                        className="text-primary hover:underline font-medium"
-                                                    >
-                                                        {visit.dealId}
-                                                    </Link>
-                                                    {visit.dueDate && (
-                                                        <span className="text-xs text-muted-foreground">
-                                                            • {format(new Date(visit.dueDate), 'PPP')}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                    <Button 
-                                                        size="sm" 
-                                                        variant="ghost" 
-                                                        onClick={() => onViewDetails(visit)}
-                                                    >
-                                                        <Eye className="h-4 w-4" />
-                                                    </Button>
-                                                    <Button 
-                                                        size="sm" 
-                                                        variant="outline" 
-                                                        onClick={() => onAssign(visit)}
-                                                    >
-                                                        Re-Assign
-                                                    </Button>
-                                                    <Button 
-                                                        size="sm" 
-                                                        variant="ghost" 
-                                                        onClick={() => onShare(visit)}
-                                                    >
-                                                        <Share2 className="h-4 w-4" />
-                                                    </Button>
-                                                </div>
-                                            </div>
-
-                                            {/* Optional: Address if available */}
-                                            {visit.customerAddress && (
-                                                <p className="text-xs text-muted-foreground mt-2">
-                                                    📍 {visit.customerAddress}
-                                                </p>
-                                            )}
-                                        </CardContent>
-                                    </Card>
-                                ))
-                            ) : (
-                                <Card>
-                                    <CardContent className="p-8 text-center">
-                                        <p className="text-muted-foreground">No active visits assigned.</p>
-                                    </CardContent>
-                                </Card>
-                            )}
-                        </div>
-
-                    </CardContent>
-                </CollapsibleContent>
-            </Card>
-        </Collapsible>
-    )
-}
-
-
-function AllVisitsTable({ visits, assigneeNameById, onAssign,onShare, onViewDetails, onTransfer, onUnassign, onEdit, onDelete, installers }: { 
-    visits: EnrichedDealVisit[], 
-    assigneeNameById: Record<string, string>, 
-    onAssign: (visit: EnrichedDealVisit) => void, 
-    onShare: (visit: EnrichedDealVisit) => void, 
-    onViewDetails: (visit: EnrichedDealVisit) => void, 
-    onTransfer: (v: EnrichedDealVisit) => void,
-    onUnassign: (v: EnrichedDealVisit) => void,
-    onEdit: (v: EnrichedDealVisit) => void,
-    onDelete: (v: EnrichedDealVisit) => void,
-    installers: User[]
-
+function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDetails, onUnassign, onEdit, onDelete, installers }: {
+  visits: EnrichedDealVisit[];
+  assigneeNameById: Record<string, string>;
+  onAssign: (v: EnrichedDealVisit) => void;
+  onShare: (v: EnrichedDealVisit) => void;
+  onViewDetails: (v: EnrichedDealVisit) => void;
+  onTransfer: (v: EnrichedDealVisit) => void;
+  onUnassign: (v: EnrichedDealVisit) => void;
+  onEdit: (v: EnrichedDealVisit) => void;
+  onDelete: (v: EnrichedDealVisit) => void;
+  installers: User[];
 }) {
-    const { toast } = useToast();
-    const [dateFrom, setDateFrom] = React.useState<string>("");
-    const [dateTo, setDateTo] = React.useState<string>("");
-    const [typeFilter, setTypeFilter] = React.useState<string>("all");
-    const [statusFilter, setStatusFilter] = React.useState<string>("all");
-    const [query, setQuery] = React.useState<string>("");
-    const [installerFilter, setInstallerFilter] = React.useState<string>("all");
-    const [previewPdf, setPreviewPdf] = React.useState<{
-    url: string;
-    fileName: string;
-    dealId?: string;
-    } | null>(null);
-    const [resolvedPreviewUrl, setResolvedPreviewUrl] = React.useState<string>("");
-    const [resolvingPreviewUrl, setResolvingPreviewUrl] = React.useState(false);
-    const [confirmDelete, setConfirmDelete] = React.useState<EnrichedDealVisit | null>(null);
-    const [confirmUnassign, setConfirmUnassign] = React.useState<EnrichedDealVisit | null>(null);
-    const [isActionBusy, setIsActionBusy] = React.useState(false);
-    const [isSyncingSheet, setIsSyncingSheet] = React.useState(false);
-    const [companyVisitDialog, setCompanyVisitDialog] = React.useState(false);
-    const syncingRef = React.useRef(false);
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [dateFrom, setDateFrom] = React.useState("");
+  const [dateTo, setDateTo] = React.useState("");
+  const [typeFilter, setTypeFilter] = React.useState("all");
+  const [statusFilter, setStatusFilter] = React.useState("all");
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [installerFilter, setInstallerFilter] = React.useState("all");
+  const [previewPdf, setPreviewPdf] = React.useState<{ url: string; fileName: string; dealId?: string } | null>(null);
+  const [resolvedPreviewUrl, setResolvedPreviewUrl] = React.useState("");
+  const [resolvingPreviewUrl, setResolvingPreviewUrl] = React.useState(false);
+  const [confirmDelete, setConfirmDelete] = React.useState<EnrichedDealVisit | null>(null);
+  const [confirmUnassign, setConfirmUnassign] = React.useState<EnrichedDealVisit | null>(null);
+  const [completeDraftVisit, setCompleteDraftVisit] = React.useState<EnrichedDealVisit | null>(null);
+  const [completionMode, setCompletionMode] = React.useState<VisitCompletionMode>("Porter");
+  const [completionRemark, setCompletionRemark] = React.useState("");
+  const [pendingCompletion, setPendingCompletion] = React.useState<PendingVisitCompletion | null>(null);
+  const [isActionBusy, setIsActionBusy] = React.useState(false);
+  const [isCompletingVisit, setIsCompletingVisit] = React.useState(false);
+  const [isSyncingSheet, setIsSyncingSheet] = React.useState(false);
+  const [companyVisitDialog, setCompanyVisitDialog] = React.useState(false);
+  const syncingRef = React.useRef(false);
 
-    const handleSyncSheet = React.useCallback(async (options?: { silent?: boolean }) => {
-        if (syncingRef.current) return;
-        syncingRef.current = true;
-        setIsSyncingSheet(true);
-        try {
-            const res = await fetch("/api/visits/syncVisitSheet", { method: "POST" });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                throw new Error(data?.message || "Failed to sync visits.");
-            }
-            const synced = typeof data?.rows === "number" ? data.rows : 0;
-            if (!options?.silent) {
-                toast({
-                    title: "Visit sheet updated",
-                    description: synced ? `Synced ${synced} visit rows.` : "Sheet updated successfully.",
-                });
-            }
-        } catch (error: any) {
-            toast({
-                variant: "destructive",
-                title: "Sync failed",
-                description: error?.message || "Unable to sync visits to Google Sheet.",
-            });
-        } finally {
-            syncingRef.current = false;
-            setIsSyncingSheet(false);
-        }
-    }, [toast]);
-
-    React.useEffect(() => {
-        const interval = setInterval(() => {
-            if (document.visibilityState !== "visible") return;
-            handleSyncSheet({ silent: true });
-        }, 60_000);
-        return () => clearInterval(interval);
-    }, [handleSyncSheet]);
-
-    React.useEffect(() => {
-      let cancelled = false;
-
-      const resolvePreviewUrl = async () => {
-        if (!previewPdf?.url) {
-          setResolvedPreviewUrl("");
-          setResolvingPreviewUrl(false);
-          return;
-        }
-
-        setResolvingPreviewUrl(true);
-        try {
-          const freshUrl = await getFreshMeasurementPdfUrlAction(previewPdf.url);
-          if (!cancelled) {
-            setResolvedPreviewUrl(freshUrl || previewPdf.url);
-          }
-        } catch (error) {
-          if (!cancelled) {
-            setResolvedPreviewUrl(previewPdf.url);
-          }
-          console.warn("Failed to refresh preview URL:", error);
-        } finally {
-          if (!cancelled) {
-            setResolvingPreviewUrl(false);
-          }
-        }
-      };
-
-      resolvePreviewUrl();
-
-      return () => {
-        cancelled = true;
-      };
-    }, [previewPdf?.url]);
-
-
-
-// build installer options from assigneeNameById (or from your installers list)
-    const installerOptions = React.useMemo(() => {
-    return (installers || [])
-        .map((u) => ({ id: u.id, name: u.name }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-    }, [installers]);
-
-
-
-    const typeOptions = React.useMemo(() => {
-        const set = new Set<string>();
-        visits.forEach(v => {
-            if (v.typeOfVisit) set.add(v.typeOfVisit);
-        });
-        return Array.from(set).sort();
-    }, [visits]);
-
-    const statusOptions = React.useMemo(() => {
-        const set = new Set<string>();
-        visits.forEach(v => {
-            if (v.status) set.add(v.status);
-        });
-        return Array.from(set).sort();
-    }, [visits]);
-
-    const filteredVisits = React.useMemo(() => {
-  const queryText = query.trim().toLowerCase();
-
-  // ✅ Default: today range if user didn't select any dates
-  const hasDateFilter = Boolean(dateFrom) || Boolean(dateTo);
-
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-
-  const endOfToday = new Date();
-  endOfToday.setHours(23, 59, 59, 999);
-
-  const fromDate = dateFrom
-    ? new Date(dateFrom)
-    : hasDateFilter
-      ? null
-      : startOfToday;
-
-  const toDate = dateTo
-    ? new Date(dateTo)
-    : hasDateFilter
-      ? null
-      : endOfToday;
-
-  if (toDate) toDate.setHours(23, 59, 59, 999);
-
-  return visits.filter((visit) => {
-    // ✅ Date filter applies either user-selected OR default today
-    if (fromDate || toDate) {
-      if (!visit.dueDate) return false;
-      const due = new Date(visit.dueDate);
-      if (Number.isNaN(due.getTime())) return false;
-
-      if (fromDate && due < fromDate) return false;
-      if (toDate && due > toDate) return false;
+  // Auto-sync every 60s
+  const handleSyncSheet = React.useCallback(async (options?: { silent?: boolean }) => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    setIsSyncingSheet(true);
+    try {
+      const res = await fetch("/api/visits/syncVisitSheet", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Failed to sync visits.");
+      if (!options?.silent) {
+        const synced = typeof data?.rows === "number" ? data.rows : 0;
+        toast({ title: "Sheet synced", description: synced ? `${synced} rows updated.` : "Done." });
+      }
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Sync failed", description: error?.message });
+    } finally {
+      syncingRef.current = false;
+      setIsSyncingSheet(false);
     }
+  }, [toast]);
 
-    if (typeFilter !== "all" && visit.typeOfVisit !== typeFilter) return false;
-    if (statusFilter !== "all" && (visit.status || "requested") !== statusFilter) return false;
-    if (installerFilter !== "all") {
-    if (installerFilter === "unassigned") {
-        if (visit.assignedTo) return false;
-    } else {
-        if (visit.assignedTo !== installerFilter) return false;
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") handleSyncSheet({ silent: true });
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [handleSyncSheet]);
+
+  // Resolve PDF URL
+  React.useEffect(() => {
+    if (!previewPdf?.url) { setResolvedPreviewUrl(""); return; }
+    let cancelled = false;
+    setResolvingPreviewUrl(true);
+    getFreshMeasurementPdfUrlAction(previewPdf.url)
+      .then(url => { if (!cancelled) setResolvedPreviewUrl(url || previewPdf.url); })
+      .catch(() => { if (!cancelled) setResolvedPreviewUrl(previewPdf.url); })
+      .finally(() => { if (!cancelled) setResolvingPreviewUrl(false); });
+    return () => { cancelled = true; };
+  }, [previewPdf?.url]);
+
+  const installerOptions = React.useMemo(() =>
+    (installers || []).map(u => ({ id: u.id, name: u.name })).sort((a, b) => a.name.localeCompare(b.name)),
+    [installers]
+  );
+  const typeOptions = React.useMemo(() => [...new Set(visits.map(v => v.typeOfVisit).filter(Boolean))].sort(), [visits]);
+  const statusOptions = React.useMemo(() => [...new Set(visits.map(v => v.status).filter(Boolean))].sort(), [visits]);
+
+  const filteredVisits = React.useMemo(() => {
+    const queryText = searchQuery.trim().toLowerCase();
+    const hasDateFilter = Boolean(dateFrom) || Boolean(dateTo);
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    const fromDate = dateFrom ? new Date(dateFrom) : hasDateFilter ? null : startOfToday;
+    const toDate = dateTo ? (() => { const d = new Date(dateTo); d.setHours(23, 59, 59, 999); return d; })() : hasDateFilter ? null : endOfToday;
+
+    return visits.filter(visit => {
+      if (fromDate || toDate) {
+        if (!visit.createdAt) return false;
+        const due = new Date(visit.createdAt);
+        if (isNaN(due.getTime())) return false;
+        if (fromDate && due < fromDate) return false;
+        if (toDate && due > toDate) return false;
+      }
+      if (typeFilter !== "all" && visit.typeOfVisit !== typeFilter) return false;
+      if (statusFilter !== "all" && (visit.status || "requested") !== statusFilter) return false;
+      if (installerFilter !== "all") {
+        if (installerFilter === "unassigned" && visit.assignedTo) return false;
+        if (installerFilter !== "unassigned" && visit.assignedTo !== installerFilter) return false;
+      }
+      if (queryText) {
+        const haystack = [visit.customerName, visit.customerAddress, visit.dealId, visit.dealName,
+          visit.typeOfVisit, visit.createdBy, visit.assignedTo ? assigneeNameById[visit.assignedTo] : ""]
+          .filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(queryText)) return false;
+      }
+      return true;
+    });
+  }, [visits, dateFrom, dateTo, typeFilter, statusFilter, installerFilter, searchQuery, assigneeNameById]);
+
+  const downloadPdf = async (url: string, fileName: string) => {
+    try {
+      const blob = await fetch(url, { cache: "no-store" }).then(r => { if (!r.ok) throw new Error(); return r.blob(); });
+      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: fileName });
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+    } catch {
+      const directUrl = url.includes("alt=media") ? url : `${url}${url.includes("?") ? "&" : "?"}alt=media`;
+      const a = Object.assign(document.createElement("a"), { href: directUrl, download: fileName, target: "_blank", rel: "noopener" });
+      document.body.appendChild(a); a.click(); a.remove();
     }
-    }
+  };
 
-
-
-    if (queryText) {
-      const haystack = [
-        visit.customerName,
-        visit.customerAddress,
-        visit.dealId,
-        visit.dealName,
-        visit.typeOfVisit,
-        visit.createdBy,
-        visit.assignedTo ? assigneeNameById[visit.assignedTo] : "",
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      if (!haystack.includes(queryText)) return false;
-    }
-
-    return true;
-  });
-}, [visits, dateFrom, dateTo, typeFilter, statusFilter, installerFilter, query]);
-
-    async function downloadPdf(url: string, fileName: string) {
-  try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error("Failed to download file");
-
-    const blob = await res.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = blobUrl;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-
-    window.URL.revokeObjectURL(blobUrl);
-    return;
-  } catch (err) {
-    const directUrl = url.includes("alt=media") ? url : `${url}${url.includes("?") ? "&" : "?"}alt=media`;
-    const a = document.createElement("a");
-    a.href = directUrl;
-    a.download = fileName;
-    a.target = "_blank";
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
-}
-
-const previewUrl =
-  (resolvedPreviewUrl || previewPdf?.url)
+  const previewUrl = (resolvedPreviewUrl || previewPdf?.url)
     ? `${resolvedPreviewUrl || previewPdf?.url}#toolbar=0&navpanes=0&scrollbar=0`
     : "";
 
-    return (
-        <>
-        <Card>
-            <CardHeader>
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                        <CardTitle>All Visits List</CardTitle>
-                        <CardDescription>A comprehensive list of all scheduled visits.</CardDescription>
-                    </div>
-                    <div className="flex gap-2 items-center justify-between">
-                    <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={handleSyncSheet}
-                        disabled={isSyncingSheet}
-                    >
-                        {isSyncingSheet ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                            <CalendarSync  className="mr-2 h-4 w-4" />
-                        )}
-                        Sync to Sheet
-                    </Button>
-                    <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setCompanyVisitDialog(true)}
-                        disabled={isSyncingSheet}
-                    >
-                        {isSyncingSheet ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                            <ArrowLeftRight className="mr-2 h-4 w-4" />
-                        )}
-                        Company Visit Tracker
-                    </Button>
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent>
-                <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-5">
-                    <Input
-                        placeholder="Search customer / deal / address"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                    />
-                    <Input
-                        type="date"
-                        value={dateFrom}
-                        onChange={(e) => setDateFrom(e.target.value)}
-                    />
-                    <Input
-                        type="date"
-                        value={dateTo}
-                        onChange={(e) => setDateTo(e.target.value)}
-                    />
-                    <select
-                        className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                        value={typeFilter}
-                        onChange={(e) => setTypeFilter(e.target.value)}
-                    >
-                        <option value="all">All Types</option>
-                        {typeOptions.map((type) => (
-                            <option key={type} value={type}>
-                                {type}
-                            </option>
-                        ))}
-                    </select>
-                    <select
-                        className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                    >
-                        <option value="all">All Status</option>
-                        {statusOptions.map((status) => (
-                            <option key={status} value={status}>
-                                {status}
-                            </option>
-                        ))}
-                    </select>
-                    <select
-                        className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                        value={installerFilter}
-                        onChange={(e) => setInstallerFilter(e.target.value)}
-                    >
-                        <option value="all">All Installers</option>
-                        <option value="unassigned">Unassigned</option>
-                        {installerOptions.map((p) => (
-                        <option key={p.id} value={p.id}>
-                            {p.name}
-                        </option>
-                        ))}
-                    </select>
-                    
-                </div>
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Created Date</TableHead>
-                            <TableHead>Customer</TableHead>
-                            <TableHead>Address</TableHead>
-                            <TableHead>Deal ID / SM</TableHead>
-                            <TableHead>Type / Created By</TableHead>
-                            <TableHead>Date & Slot</TableHead>
-                            <TableHead>Assigned To</TableHead>
-                            <TableHead>Status / Due Date</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {filteredVisits.map(visit => (
-                            <TableRow key={visit.id} className={cn(visit.visitStatus === 'Working' && 'ring-2 ring-blue-500 ring-offset-2')}>
-                                <TableCell className="font-medium">{visit.createdAt ? (
-                                                                    <>
-                                                                        {format(new Date(visit.createdAt), 'dd MMM yyyy')}
-                                                                        <br />
-                                                                        {format(new Date(visit.createdAt), 'hh:mm a')}
-                                                                    </>
-                                                                    ) : (
-                                                                    'Not Set'
-                                                                    )}
-                                </TableCell>
-                                <TableCell className="font-medium">{visit.customerName}</TableCell>
-                                <TableCell className="max-w-[220px] whitespace-normal break-words">
-                                {visit.location?.address || visit.customerSnapshot?.address}
-                                </TableCell>
-                                <TableCell>
-                                    <div className="flex flex-col gap-1 items-center">
-                                    <Link href={`/dashboard/customers/${visit.customerId}/${visit.dealDocId}`} className="text-primary hover:underline">
-                                        {visit.dealId}
-                                    </Link>
-                                    <Badge variant="outline" className="ml-2">
-                                        {visit.assignedSalesPerson?.name || "-"}
-                                    </Badge>
-                                    </div>
-                                </TableCell>
-                                <TableCell className="flex flex-col gap-2">
-                                    <Badge variant="outline" className="capitalize">{visit.typeOfVisit}</Badge>
-                                    <Badge variant="secondary">{visit.createdBy}</Badge>
-                                </TableCell>
-                                <TableCell>
-                                    {visit.slotDate ? format(new Date(visit.slotDate), 'dd MMM yyyy') : 'Not Set'}
-                                    <br />
-                                    <Badge variant={"secondary"} className="text-xs">{visit.slotLabel || 'N/A'}</Badge>
-                                </TableCell>
-                                <TableCell>
-                                    {visit.assignedTo ? (assigneeNameById[visit.assignedTo] || 'Unknown') : 'Unassigned'}
-                                </TableCell>
-                                <TableCell className="flex flex-col items-center gap-2">
-                                    {renderVisitStatus(visit)}
-                                     {visit.status !== "completed" && visit.typeOfVisit !== "measurement" &&(              
-                                      <Badge variant="outline" className="text-xs">
-                                        { format(new Date(visit.dueDate || 0), 'dd MMM yyyy')}
-                                      </Badge>
-                                      )}
+  const openCompleteVisitDialog = (visit: EnrichedDealVisit) => {
+    setCompleteDraftVisit(visit);
+    setCompletionMode("Porter");
+    setCompletionRemark("");
+  };
 
-                                    {visit.status === "completed" &&
-                                      visit.typeOfVisit === "measurement" &&
-                                        visit.measurementPdfUrl && (
-                                            <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setPreviewPdf({
-                                                url: visit.measurementPdfUrl,
-                                                fileName: `${visit.dealId || "deal"}-measurement.pdf`,
-                                                dealId: visit.dealId,
-                                                });
-                                            }}
-                                            className="flex flex-col items-center gap-1"
-                                            >
-                                            <CloudDownloadIcon className="w-5 h-5 text-green-500" />
-                                            <Badge className="bg-green-500/10 text-green-500 border-green-500/20">
-                                                Measurement
-                                            </Badge>
-                                            </button>
-                                        )}
-                                        
-                                    </TableCell>
-
-
-                                <TableCell className="text-right">
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button variant="ghost" className="h-8 w-8 p-0">
-                                                <span className="sr-only">Open menu</span>
-                                                <MoreHorizontal className="h-4 w-4" />
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => onViewDetails(visit)}>
-                                                <Eye className="mr-2 h-4 w-4" />
-                                                View Details
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => onAssign(visit)}>
-                                                <UserCheck className="mr-2 h-4 w-4" />
-                                                {visit.assignedTo ? 'Re-assign' : 'Assign'}
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => onEdit(visit)}>
-                                                <Edit className="mr-2 h-4 w-4" />
-                                                Edit Visit
-                                            </DropdownMenuItem>
-                                            <DropdownMenuSeparator />
-                                            <DropdownMenuItem
-                                                className="text-destructive focus:text-destructive"
-                                                onSelect={(e) => {
-                                                    e.preventDefault();
-                                                    setConfirmDelete(visit);
-                                                }}
-                                            >
-                                                <Trash2 className="mr-2 h-4 w-4" />
-                                                Delete Visit
-                                            </DropdownMenuItem>
-                                            {visit.assignedTo && (
-                                                <>
-                                                    <DropdownMenuSeparator />
-                                                    <DropdownMenuItem
-                                                        className="text-destructive focus:text-destructive"
-                                                        onSelect={(e) => {
-                                                            e.preventDefault();
-                                                            setConfirmUnassign(visit);
-                                                        }}
-                                                    >
-                                                        <UserX className="mr-2 h-4 w-4" />
-                                                        Unassign
-                                                    </DropdownMenuItem>
-                                                </>
-                                            )}
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </CardContent>
-        </Card>
-        {/* //============================measurement Dialog Header */}
-        <Dialog
-            open={!!previewPdf}
-            onOpenChange={(open) => {
-                if (!open) {
-                    setPreviewPdf(null);
-                    setResolvedPreviewUrl("");
-                    setResolvingPreviewUrl(false);
-                }
-            }}
-        >
-            <DialogContent className="max-w-6xl h-[95vh]">
-                <DialogHeader>
-                <DialogTitle>Measurement PDF</DialogTitle>
-                <DialogDescription>
-                    Preview & download
-                </DialogDescription>
-                </DialogHeader>
-                {previewPdf && (
-                <div className="">
-                    {/* ✅ Preview (inline open is OK here) */}
-                    <div className="flex-1 overflow-auto rounded-md border bg-muted/10 p-3">
-                      {resolvingPreviewUrl ? (
-                        <p className="text-center text-sm text-muted-foreground">Refreshing PDF link...</p>
-                      ) : previewUrl ? (
-                        <iframe
-                          title="Measurement PDF Preview"
-                          src={previewUrl}
-                          className="h-[75vh] w-full rounded-md"
-                        />
-                      ) : (
-                        <p className="text-center text-sm text-muted-foreground">PDF not available.</p>
-                      )}
-                    </div>
-                    {/* ✅ Actions */}
-                    <div className="flex justify-end gap-2">
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setPreviewPdf(null);
-                            setResolvedPreviewUrl("");
-                            setResolvingPreviewUrl(false);
-                        }}
-                    >
-                        Close
-                    </Button>
-
-                    <Button
-                        disabled={resolvingPreviewUrl || !(resolvedPreviewUrl || previewPdf.url)}
-                        onClick={async () => {
-                        try {
-                            const activeUrl = resolvedPreviewUrl || previewPdf.url;
-                            await downloadPdf(activeUrl, previewPdf.fileName);
-                        } catch (err: any) {
-                            console.error(err);
-                            // optional toast here
-                        }
-                        }}
-                    >
-                        <CloudDownloadIcon className="mr-2 h-4 w-4" />
-                        Download ({previewPdf.fileName})
-                    </Button>
-                    </div>
-                </div>
-                )}
-            </DialogContent>
-            </Dialog>
-        <AlertDialog open={!!confirmDelete} onOpenChange={(open) => !open && setConfirmDelete(null)}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Delete this visit permanently?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This will remove the visit from the database and cannot be undone.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isActionBusy}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                        onClick={async () => {
-                            if (!confirmDelete) return;
-                            setIsActionBusy(true);
-                            try {
-                                await onDelete(confirmDelete);
-                            } finally {
-                                setIsActionBusy(false);
-                                setConfirmDelete(null);
-                            }
-                        }}
-                        disabled={isActionBusy}
-                    >
-                        {isActionBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Delete
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
-        <AlertDialog open={!!confirmUnassign} onOpenChange={(open) => !open && setConfirmUnassign(null)}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Unassign this visit?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        The visit will be removed from the installer schedule but kept in the system.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isActionBusy}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                        onClick={async () => {
-                            if (!confirmUnassign) return;
-                            setIsActionBusy(true);
-                            try {
-                                await onUnassign(confirmUnassign);
-                            } finally {
-                                setIsActionBusy(false);
-                                setConfirmUnassign(null);
-                            }
-                        }}
-                        disabled={isActionBusy}
-                    >
-                        {isActionBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Unassign
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
-        <CompanyVisitDialog
-                open={companyVisitDialog}
-                onOpenChange={setCompanyVisitDialog}
-            />
-        </>
-    );
-}
-
-function EditVisitDialog({
-    visit,
-    isOpen,
-    onClose,
-    salesmen,
-    onSuccess,
-}: {
-    visit: EnrichedDealVisit | null;
-    isOpen: boolean;
-    onClose: () => void;
-    salesmen: User[];
-    onSuccess: () => void;
-}) {
-    const { toast } = useToast();
-    const [isSubmitting, setIsSubmitting] = React.useState(false);
-    
-    const formSchema = z.object({
-        dueDate: z.string().min(1, "Due date is required."),
-        representative: z.string().min(1, "Representative is required."),
-        customerAddress: z.string().optional(),
-        remark: z.string().optional(),
-    });
-
-    const form = useForm<z.infer<typeof formSchema>>({
-        resolver: zodResolver(formSchema),
-        defaultValues: {
-            dueDate: "",
-            representative: "",
-            customerAddress: "",
-            remark: "",
-        },
-    });
-
-    React.useEffect(() => {
-        if (visit) {
-            form.reset({
-                dueDate: visit.dueDate
-                    ? format(new Date(visit.dueDate), 'yyyy-MM-dd')
-                    : visit.slotDate || "",
-                representative: visit.representative || "",
-                customerAddress: visit.customerAddress || visit.location?.address || "",
-                remark: visit.remark || "",
-            });
-        }
-    }, [visit, form]);
-
-    if (!visit) return null;
-
-    const onSubmit = async (values: z.infer<typeof formSchema>) => {
-        setIsSubmitting(true);
-        try {
-            const result = await updateVisitDetailsAction(visit.customerId, visit.dealDocId, visit.id, {
-                dueDate: new Date(values.dueDate).toISOString(),
-                representative: values.representative,
-                customerAddress: values.customerAddress?.trim(),
-                remark: values.remark,
-            });
-
-            if (result.success) {
-                toast({ title: "Visit Updated", description: result.message });
-                onSuccess();
-                onClose();
-            } else {
-                toast({ variant: "destructive", title: "Update Failed", description: result.message });
-            }
-        } catch (error: any) {
-            toast({ variant: "destructive", title: "Error", description: error.message });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Edit Visit</DialogTitle>
-                    <DialogDescription>
-                        Update details for visit to {visit.customerName}.
-                    </DialogDescription>
-                </DialogHeader>
-                <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-                        <FormField
-                            control={form.control}
-                            name="dueDate"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Visit Date</FormLabel>
-                                    <FormControl>
-                                        <Input type="date" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="customerAddress"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Address</FormLabel>
-                                    <FormControl>
-                                        <Textarea placeholder="Customer address" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="representative"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Representative</FormLabel>
-                                    <Select onValueChange={field.onChange} value={field.value}>
-                                        <FormControl>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Select a representative" />
-                                            </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent>
-                                            {salesmen.map(s => (
-                                                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <FormField
-                            control={form.control}
-                            name="remark"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Remarks</FormLabel>
-                                    <FormControl>
-                                        <Textarea placeholder="Add any notes..." {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                        <DialogFooter>
-                            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-                            <Button type="submit" disabled={isSubmitting}>
-                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Save Changes
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                </Form>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-export default function AllVisitsPage() {
-    const [allVisits, setAllVisits] = React.useState<EnrichedDealVisit[]>([]);
-    const [users, setUsers] = React.useState<User[]>([]);
-    const [loading, setLoading] = React.useState(true);
-    const [tracking, setTracking] = React.useState<InstallerTracking[]>([]);
-    const [trackingLoading, setTrackingLoading] = React.useState(true);
-    const [selectedVisit, setSelectedVisit] = React.useState<EnrichedDealVisit | null>(null);
-    const [isAssigning, setIsAssigning] = React.useState(false);
-    const [shareableLink, setShareableLink] = React.useState<string | null>(null);
-    const [detailsVisit, setDetailsVisit] = React.useState<EnrichedDealVisit | null>(null);
-    const [dailyStatsMap, setDailyStatsMap] = React.useState<Record<string, AdminDailyStats>>({});
-    const [editingVisit, setEditingVisit] = React.useState<EnrichedDealVisit | null>(null);
-
-    console.log("detailsVisit:", detailsVisit);
-
-    const { toast } = useToast();
-    
-    const installers = React.useMemo(() => users.filter(u => u.role === 'installer'), [users]);
-    const assigneeNameById = React.useMemo(() => {
-        const map: Record<string, string> = {};
-        users.forEach(user => {
-            map[user.id] = user.name;
-        });
-        return map;
-    }, [users]);
-
-    const groupedVisits = React.useMemo(() => {
-        const map = new Map<string, EnrichedDealVisit[]>();
-        installers.forEach(installer => map.set(installer.id, [])); // Initialize for all installers
-        allVisits.forEach(visit => {
-            if (visit.assignedTo) {
-                if (!map.has(visit.assignedTo)) {
-                    map.set(visit.assignedTo, []);
-                }
-                map.get(visit.assignedTo)!.push(visit);
-            }
-        });
-        return map;
-    }, [allVisits, installers]);
-
-    const trackingByInstaller = React.useMemo(() => {
-        const map = new Map<string, InstallerTracking>();
-        tracking.forEach(doc => {
-            const key = doc.installerId || doc.id;
-            map.set(key, { ...doc, installerId: key, id: doc.id || key });
-        });
-        return map;
-    }, [tracking]);
-
-    //=======Suggestion Map
-    const [suggestMap, setSuggestMap] = React.useState<Record<string, JobSuggestion>>({});
-
-        React.useEffect(() => {
-        const unsub = onSnapshot(collection(db, "jobSuggestions"), (snap) => {
-            const next: Record<string, JobSuggestion> = {};
-            snap.forEach((d) => {
-            next[d.id] = { installerId: d.id, ...(d.data() as any) };
-            });
-            setSuggestMap(next);
-        });
-        return () => unsub();
-        }, []);
-
-    //=======Daily Stats Map\
-    React.useEffect(() => {
-    const unsub = onSnapshot(collection(db, "adminDailyStats"), (snap) => {
-        const next: Record<string, AdminDailyStats> = {};
-        snap.forEach((d) => {
-        const data = d.data() as any;
-        if (data?.installerId) next[data.installerId] = data;
-        });
-        setDailyStatsMap(next);
-    });
-    return () => unsub();
-    }, []);    
-
-    const visitsById = React.useMemo(() => {
-        const map = new Map<string, EnrichedDealVisit>();
-        allVisits.forEach(visit => map.set(visit.id, visit));
-        return map;
-    }, [allVisits]);
-
-    const completedTodayByInstaller = React.useMemo(() => {
-        const map = new Map<string, number>();
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-
-        allVisits.forEach(visit => {
-            if (!visit.assignedTo || visit.status !== 'completed' || !visit.visitEndTime) return;
-            const endTime = new Date(visit.visitEndTime);
-            if (Number.isNaN(endTime.getTime()) || endTime < todayStart) return;
-            map.set(visit.assignedTo, (map.get(visit.assignedTo) || 0) + 1);
-        });
-
-        return map;
-    }, [allVisits]);
-
-    React.useEffect(() => {
-        setLoading(true);
-
-        const usersQuery = query(collection(db, "users"));
-        const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-            const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-            setUsers(usersData);
-        });
-
-        const visitsQuery = collectionGroup(db, 'visits');
-        const unsubscribeVisits = onSnapshot(visitsQuery, async (snapshot) => {
-            const customerCache = new Map<string, Customer>();
-            const dealCache = new Map<string, Deal>();
-
-            const visitsDataPromises = snapshot.docs.map(async (docSnap) => {
-                const visit = docSnap.data() as DealVisit;
-                const pathParts = docSnap.ref.path.split('/');
-                const customerId = pathParts[1];
-                const dealDocId = pathParts[3];
-
-                let customerName = 'Unknown';
-                let dealName = 'Unknown';
-                let dealId = 'N/A';
-                
-                if (!customerCache.has(customerId)) {
-                    const customerRef = doc(db, 'customers', customerId);
-                    const customerSnap = await getDoc(customerRef);
-                    if (customerSnap.exists()) {
-                        customerCache.set(customerId, { id: customerSnap.id, ...customerSnap.data() } as Customer);
-                    }
-                }
-                customerName = customerCache.get(customerId)?.name || 'Unknown';
-                
-                const dealCacheKey = `${customerId}-${dealDocId}`;
-                if (!dealCache.has(dealCacheKey)) {
-                     const dealRef = doc(db, 'customers', customerId, 'deals', dealDocId);
-                     const dealSnap = await getDoc(dealRef);
-                     if (dealSnap.exists()) {
-                        dealCache.set(dealCacheKey, { id: dealSnap.id, ...dealSnap.data() } as Deal);
-                    }
-                }
-                const dealData = dealCache.get(dealCacheKey);
-                dealName = dealData?.dealName || 'Unknown';
-                dealId = dealData?.dealId || 'N/A';
-
-                return { ...visit, id: docSnap.id, customerId, dealDocId, customerName, dealName, dealId, customer: customerCache.get(customerId) || null };
-            });
-            
-            const visitsData = await Promise.all(visitsDataPromises);
-            setAllVisits(visitsData);
-            setLoading(false);
-        });
-
-        const trackingQuery = collection(db, "installerTracking");
-        const unsubscribeTracking = onSnapshot(trackingQuery, (snapshot) => {
-            const trackingData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InstallerTracking));
-            setTracking(trackingData);
-            setTrackingLoading(false);
-        });
-
-        return () => {
-            unsubscribeUsers();
-            unsubscribeVisits();
-            unsubscribeTracking();
-        };
-    }, []);
-
-    const handleShareClick = (visit: EnrichedDealVisit) => {
-        const baseURL = "https://mo-track-yerq.vercel.app";
-        const link = `${baseURL}/visit/confirm/${visit.id}?customerId=${visit.customerId}&dealId=${visit.dealDocId}`;
-        setShareableLink(link);
-    };
-
-    const handleAssignInstaller = async (installerId: string, slots?: SlotSelection[]) => {
-        if (!selectedVisit || !slots || slots.length === 0) return;
-        setIsAssigning(false); // To close the dialog immediately
-
-        try {
-            const assignedAt = new Date().toISOString();
-            const slotDate = slots[0].slotDate;
-            const slotIndex = new Map(SLOT_OPTIONS.map((opt, idx) => [opt.id, idx]));
-            const uniqueSlotIds = Array.from(new Set(slots.map((s) => s.slotId)));
-            const sortedSlotIds = uniqueSlotIds.sort(
-                (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
-            );
-            const firstSlot = SLOT_OPTIONS.find((s) => s.id === sortedSlotIds[0]);
-            const lastSlot = SLOT_OPTIONS.find((s) => s.id === sortedSlotIds[sortedSlotIds.length - 1]);
-            if (!firstSlot || !lastSlot) return;
-
-            const combinedLabel = `${firstSlot.start} - ${lastSlot.end}`;
-            const previousInstallerId = selectedVisit.assignedTo || "";
-            const previousSlotDate = selectedVisit.slotDate || "";
-            const previousSlotIds = selectedVisit.slotIds?.length
-                ? selectedVisit.slotIds
-                : selectedVisit.slotId
-                    ? [selectedVisit.slotId]
-                    : [];
-            const previousSorted = [...previousSlotIds].sort(
-                (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
-            );
-            const selectionUnchanged =
-                previousInstallerId === installerId &&
-                previousSlotDate === slotDate &&
-                previousSorted.length === sortedSlotIds.length &&
-                previousSorted.every((id, idx) => id === sortedSlotIds[idx]);
-
-            if (selectionUnchanged) {
-                setSelectedVisit(null);
-                return;
-            }
-
-            await runTransaction(db, async (transaction) => {
-                const visitRef = doc(db, "customers", selectedVisit.customerId, "deals", selectedVisit.dealDocId, "visits", selectedVisit.id);
-                const newDateRef = doc(db, "installers", installerId, "dates", slotDate);
-                const prevRef = previousInstallerId && previousSlotDate
-                    ? doc(db, "installers", previousInstallerId, "dates", previousSlotDate)
-                    : null;
-
-                const prevSnap = prevRef ? await transaction.get(prevRef) : null;
-                const newSnap = await transaction.get(newDateRef);
-
-                const prevSlots = prevSnap?.exists() && Array.isArray((prevSnap.data() as any)?.slots)
-                    ? (prevSnap.data() as any).slots
-                    : [];
-                const cleanedPrev = prevSlots.filter((s: any) => s?.visitId !== selectedVisit.id);
-
-                const newSlots = newSnap.exists() && Array.isArray((newSnap.data() as any)?.slots)
-                    ? (newSnap.data() as any).slots
-                    : [];
-
-                const selectedSlotSet = new Set(sortedSlotIds);
-                const blocking = newSlots.find(
-                    (s: any) => selectedSlotSet.has(s?.slotId || s?.id) && s?.visitId && s.visitId !== selectedVisit.id
-                );
-                if (blocking) {
-                    throw new Error(`Slot ${blocking.slotLabel || blocking.slotId} already booked.`);
-                }
-
-                const filteredNew = newSlots.filter((s: any) => s && s.visitId !== selectedVisit.id);
-
-                const slotsForDay = SLOT_OPTIONS.map((opt) => {
-                    if (selectedSlotSet.has(opt.id)) {
-                        return {
-                            slotId: opt.id,
-                            id: opt.id,
-                            slotLabel: opt.label,
-                            slotStart: opt.start,
-                            slotEnd: opt.end,
-                            slotDate: slotDate,
-                            visitId: selectedVisit.id,
-                            customerId: selectedVisit.customerId,
-                            customerName: selectedVisit.customerName || "",
-                            dealId: selectedVisit.dealId || "",
-                            dealDocId: selectedVisit.dealDocId,
-                            dealName: selectedVisit.dealName || "",
-                            assignedAt,
-                            assignedTo: installerId,
-                            status: "booked",
-                        };
-                    }
-
-                    const existing = filteredNew.find((s: any) => (s?.slotId || s?.id) === opt.id);
-                    if (existing) {
-                        return {
-                            ...existing,
-                            slotId: opt.id,
-                            id: opt.id,
-                            slotLabel: existing.slotLabel || opt.label,
-                            slotStart: existing.slotStart || opt.start,
-                            slotEnd: existing.slotEnd || opt.end,
-                            slotDate: slotDate,
-                            status: existing.status || (existing.visitId ? "booked" : "free"),
-                        };
-                    }
-
-                    return {
-                        slotId: opt.id,
-                        id: opt.id,
-                        slotLabel: opt.label,
-                        slotStart: opt.start,
-                        slotEnd: opt.end,
-                        slotDate: slotDate,
-                        status: "free",
-                    };
-                });
-
-                if (prevRef) {
-                    transaction.set(
-                        prevRef,
-                        {
-                            slotDate: previousSlotDate,
-                            slots: SLOT_OPTIONS.map((opt) => {
-                                const existing = cleanedPrev.find((s: any) => (s?.slotId || s?.id) === opt.id);
-                                if (existing) {
-                                    return {
-                                        ...existing,
-                                        slotId: opt.id,
-                                        id: opt.id,
-                                        slotLabel: existing.slotLabel || opt.label,
-                                        slotStart: existing.slotStart || opt.start,
-                                        slotEnd: existing.slotEnd || opt.end,
-                                        slotDate: previousSlotDate,
-                                        status: existing.status || (existing.visitId ? "booked" : "free"),
-                                    };
-                                }
-                                return {
-                                    slotId: opt.id,
-                                    id: opt.id,
-                                    slotLabel: opt.label,
-                                    slotStart: opt.start,
-                                    slotEnd: opt.end,
-                                    slotDate: previousSlotDate,
-                                    status: "free",
-                                };
-                            }),
-                        },
-                        { merge: true }
-                    );
-                }
-
-                transaction.set(
-                    newDateRef,
-                    { slotDate: slotDate, slots: slotsForDay },
-                    { merge: true }
-                );
-
-                transaction.update(visitRef, {
-                    assignedTo: installerId,
-                    slotDate: slotDate,
-                    slotId: firstSlot.id,
-                    slotIds: sortedSlotIds,
-                    slotLabel: combinedLabel,
-                    slotStart: firstSlot.start,
-                    slotEnd: lastSlot.end,
-                    assignedAt,
-                });
-            });
-
-            toast({ title: "Assigned", description: "Installer and slot updated successfully." });
-            setSelectedVisit(null);
-        } catch (error: any) {
-            console.error("Failed to assign installer:", error);
-            toast({ variant: "destructive", title: "Assignment Failed", description: error?.message || "Could not save slot." });
-        }
-    };
-
-    const handleUnassign = async (visit: EnrichedDealVisit) => {
-        if (!visit) return;
-        try {
-            const result = await unassignVisitAction(visit.id, visit.customerId, visit.dealDocId);
-            if (result.success) {
-                toast({ title: "Visit Unassigned", description: result.message });
-            } else {
-                toast({ variant: "destructive", title: "Error", description: result.message });
-            }
-        } catch (e: any) {
-            toast({ variant: "destructive", title: "Server Error", description: e.message });
-        }
-    };
-    
-    const handleEdit = (visit: EnrichedDealVisit) => {
-        setEditingVisit(visit);
-    };
-
-    const handleDelete = async (visit: EnrichedDealVisit) => {
-        if (!visit) return;
-        try {
-            const result = await deleteVisitAction(visit.id, visit.customerId, visit.dealDocId);
-            if (result.success) {
-                toast({ title: "Visit Deleted", description: result.message });
-            } else {
-                toast({ variant: "destructive", title: "Error", description: result.message });
-            }
-        } catch (e: any) {
-            toast({ variant: "destructive", title: "Server Error", description: e.message });
-        }
-    };
-
-if (loading) {
-        return <div className="p-8"><Skeleton className="h-64 w-full" /></div>;
+  const proceedToCompleteConfirmation = () => {
+    if (!completeDraftVisit) return;
+    const trimmedRemark = completionRemark.trim();
+    if (completionMode === "Other" && !trimmedRemark) {
+      toast({
+        variant: "destructive",
+        title: "Remark required",
+        description: "Please enter a remark when selecting Other.",
+      });
+      return;
     }
 
-    return (
-        <div className="p-4 md:p-6 lg:p-8 space-y-6">
-            <header className="flex items-start justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">All Visits</h1>
-                    <p className="text-muted-foreground">A centralized log of all customer visits and appointments.</p>
-                </div>
-            </header>
-            
-            <Tabs defaultValue="live" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="live">Live</TabsTrigger>
-                    <TabsTrigger value="installers">Installers</TabsTrigger>
-                    <TabsTrigger value="all">All Visits</TabsTrigger>
-                </TabsList>
-                <TabsContent value="live" className="mt-4">
-                    {trackingLoading ? (
-                        <Skeleton className="h-64 w-full" />
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                            {installers.map(installer => {
-                                const trackingDoc = trackingByInstaller.get(installer.id);
-                                const currentVisit = trackingDoc?.currentVisitId
-                                    ? visitsById.get(trackingDoc.currentVisitId)
-                                    : null;
-                                const assignedVisits = groupedVisits.get(installer.id) || [];
-                                const fallbackVisit = assignedVisits.find(visit => visit.status !== 'completed') || null;
-                                const activeVisit = currentVisit || fallbackVisit;
-                                const taskLabel = activeVisit
-                                    ? `${activeVisit.customerName} (${activeVisit.typeOfVisit})`
-                                    : trackingDoc?.currentVisitId
-                                        ? `Visit ${trackingDoc.currentVisitId}`
-                                        : "Unassigned";
-                                const completedCount = completedTodayByInstaller.get(installer.id) || 0;
-                                const mapSrc = trackingDoc?.location
-                                    ? `https://maps.google.com/maps?q=${trackingDoc.location.latitude},${trackingDoc.location.longitude}&z=15&output=embed`
-                                    : null;
-                                const lastPingDate = trackingDoc?.lastPingAt
-                                    ? new Date(trackingDoc.lastPingAt)
-                                    : null;
-                                const lastPingAt =
-                                    lastPingDate && !Number.isNaN(lastPingDate.getTime())
-                                        ? format(lastPingDate, "p")
-                                        : "No signal";
+    setPendingCompletion({
+      visit: completeDraftVisit,
+      mode: completionMode,
+      remark: trimmedRemark,
+    });
+    setCompleteDraftVisit(null);
+  };
 
-                                return (
-                                    <Card key={installer.id}>
-                                        <CardHeader className="space-y-1">
-                                            <CardTitle className="flex items-center justify-between">
-                                                <span>{installer.name}</span>
-                                                {renderLiveStatus(trackingDoc?.status)}
-                                            </CardTitle>
-                                            <CardDescription>Last ping: {lastPingAt}</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="space-y-3 text-sm">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-muted-foreground">Current task</span>
-                                                <span className="font-medium">{taskLabel}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-muted-foreground">Completed today</span>
-                                                <span className="font-semibold">{completedCount}</span>
-                                            </div>
-                                        
-                                            {mapSrc ? (
-                                                <div className="overflow-hidden rounded-md border">
-                                                    <iframe
-                                                        title={`${installer.name} location`}
-                                                        src={mapSrc}
-                                                        className="h-40 w-full"
-                                                        loading="lazy"
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <div className="rounded-md border px-3 py-4 text-xs text-muted-foreground text-center">
-                                                    No live location yet.
-                                                </div>
-                                            )}
-                                        </CardContent>
-                                    </Card>
-                                );
-                            })}
-                        </div>
-                    )}
-                </TabsContent>
-                <TabsContent value="installers" className="mt-4">
-                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-4">
-                        {installers.map(installer => (
-                            <InstallerCard
-                                key={installer.id}
-                                installer={installer}
-                                live={trackingByInstaller.get(installer.id)}
-                                suggestion={suggestMap[installer.id]}
-                                dailyStats={dailyStatsMap[installer.id]}
-                                visits={groupedVisits.get(installer.id) || []}
-                                onAssign={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
-                                onShare={handleShareClick}
-                                onViewDetails={(visit) => setDetailsVisit(visit)}
-                            />
-                        ))}
-                    </div>
-                </TabsContent>
-                <TabsContent value="all" className="mt-4">
-                    <div>
-                        <AllVisitsTable
-                            visits={allVisits}
-                            installers={installers}
-                            assigneeNameById={assigneeNameById}
-                            onAssign={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
-                            onShare={handleShareClick}
-                            onViewDetails={(visit) => setDetailsVisit(visit)}
-                            onTransfer={(visit) => { setSelectedVisit(visit); setIsAssigning(true); }}
-                            onUnassign={handleUnassign}
-                            onEdit={handleEdit}
-                            onDelete={handleDelete}
-                        />
-                    </div>
-                </TabsContent>
-            </Tabs>
-            
-            <Dialog open={!!detailsVisit} onOpenChange={() => setDetailsVisit(null)} >
-                <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                        <DialogTitle>Visit Details</DialogTitle>
-                    </DialogHeader>
-                    
-                    {detailsVisit && (
-                        <>
-                        <Card className="p-4">
-                            <div className="m-1 flex justify-between items-center">
-                            <Badge variant={"secondary"} className="bg-blue-300">{detailsVisit.typeOfVisit}</Badge>
-                            <span>{renderVisitStatus(detailsVisit)}</span>
-                            </div>
-                            <div className="m-1 flex justify-between items-center">
-                                <p >Customer Name: <span className="font-semibold">{detailsVisit.customer?.name}</span></p>
-                                <p >Assigned To: <span className="font-semibold">{detailsVisit.assignedTo ? (assigneeNameById[detailsVisit.assignedTo] || 'Unknown') : 'Unassigned'}</span></p>
-                            </div>
-                            <div className="m-1 flex justify-between items-center">
-                                <p >Customer Phone: <span className="font-semibold">{detailsVisit.customer?.phone}</span></p>
-                            </div>
-                            <div className="m-1 flex justify-between items-center">
-                                <p >Customer Address: <span className="font-semibold">{detailsVisit.location?.address}</span></p>
-                            </div>
-                            <Separator className="my-2" />
-                            <span>Visit Details</span>
-                            <div>
-                                {detailsVisit.typeOfVisit === 'measurement' ? (
-                                <div className="space-y-2">
-                                    <h4 className="font-semibold">Measurement Details:</h4>
-                                    <p>{detailsVisit.measurements?.map(m => `‣ ${m?.name || m}`).join(', ') || 'N/A'}</p>
-                                    {detailsVisit.blinds && detailsVisit.blinds.length > 0 && <p>Blinds: {detailsVisit.blinds.join(', ')}</p>}
-                                </div>
-                            ) : (
-                                 <div className="space-y-2">
-                                    <h4 className="font-semibold">Delivery/Installation Details:</h4>
-                                     <p>Items: {detailsVisit.deliveryInstallations?.map(d => `${d?.id} (x${d?.noOfPcs || 1})`).join(', ') || 'N/A'}</p>
-                                </div>
-                            )}
-                            </div>
-                            <Separator className="my-2" />
-                            {detailsVisit.remark && <p><strong>Remark:</strong> {detailsVisit.remark}</p>}
-                        </Card>
-                        </>
-                    )}
-                </DialogContent>
-            </Dialog>
+  const handleConfirmCompleteVisit = async () => {
+    if (!pendingCompletion) return;
+    setIsCompletingVisit(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const visitRef = doc(
+        db,
+        "customers",
+        pendingCompletion.visit.customerId,
+        "deals",
+        pendingCompletion.visit.dealDocId,
+        "visits",
+        pendingCompletion.visit.id
+      );
 
-            <AssignInstallerDialog
-                isOpen={isAssigning}
-                onClose={() => setIsAssigning(false)}
-                onAssign={handleAssignInstaller}
-                installers={installers}
-                currentInstallerId={selectedVisit?.assignedTo}
-                currentVisitId={selectedVisit?.id}
-                currentSlotSelection={selectedVisit ? { 
-                    slotDate: selectedVisit.slotDate, 
-                    slotId: selectedVisit.slotId || undefined,
-                    slotIds: selectedVisit.slotIds?.length
-                      ? selectedVisit.slotIds
-                      : selectedVisit.slotId
-                        ? [selectedVisit.slotId]
-                        : undefined,
-                    slotLabel: selectedVisit.slotLabel,
-                    slotStart: selectedVisit.slotStart,
-                    slotEnd: selectedVisit.slotEnd,
-                } : undefined}
-            />
+      await runTransaction(db, async (tx) => {
+        const visitSnap = await tx.get(visitRef);
+        if (!visitSnap.exists()) {
+          throw new Error("Visit document not found.");
+        }
 
-            <Dialog open={!!shareableLink} onOpenChange={() => setShareableLink(null)}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Share Confirmation Link</DialogTitle>
-                    </DialogHeader>
-                    <div className="py-4">
-                        <Input value={shareableLink || ""} readOnly />
-                    </div>
-                    <DialogFooter>
-                        <Button onClick={() => { navigator.clipboard.writeText(shareableLink || ""); toast({title: "Link Copied!"}); }}>
-                            <Copy className="mr-2 h-4 w-4"/> Copy Link
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+        const payload: Record<string, unknown> = {
+          status: "completed",
+          visitEndTime: nowIso,
+          completedAt: nowIso,
+          completedBy: user?.name || user?.email || "Admin",
+          completedById: user?.id || "admin",
+          completionMode: pendingCompletion.mode,
+          completionRemark:
+            pendingCompletion.mode === "Other"
+              ? pendingCompletion.remark
+              : "Completed via Porter",
+          updatedAt: nowIso,
+          updatedBy: user?.id || "admin",
+        };
 
+        if (pendingCompletion.mode === "Other") {
+          payload.remark = pendingCompletion.remark;
+        }
 
+        tx.update(visitRef, payload);
+      });
 
-            <EditVisitDialog 
-                visit={editingVisit} 
-                isOpen={!!editingVisit} 
-                onClose={() => setEditingVisit(null)}
-                salesmen={users}
-                onSuccess={() => { /* onSnapshot will handle refresh */ }}
-            />
-            
+      toast({
+        title: "Visit completed",
+        description: `${pendingCompletion.visit.customerName} visit marked as completed.`,
+      });
+      setPendingCompletion(null);
+      setCompletionMode("Porter");
+      setCompletionRemark("");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Failed to complete visit",
+        description: error?.message || "Could not update visit status.",
+      });
+    } finally {
+      setIsCompletingVisit(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        {/* Header */}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-6 py-5 border-b border-slate-100">
+          <div>
+            <h2 className="font-semibold text-slate-900">All Visits</h2>
+            <p className="text-sm text-slate-500 mt-0.5">{filteredVisits.length} visits shown · defaults to today</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => handleSyncSheet()} disabled={isSyncingSheet}
+              className="rounded-lg text-xs h-8 border-slate-200">
+              {isSyncingSheet ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <CalendarSync className="mr-1.5 h-3 w-3" />}
+              Sync Sheet
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setCompanyVisitDialog(true)}
+              className="rounded-lg text-xs h-8 border-slate-200">
+              <ArrowLeftRight className="mr-1.5 h-3 w-3" />
+              Company Tracker
+            </Button>
+          </div>
         </div>
-    );
+
+        {/* Filters */}
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
+            {/* Search */}
+            <div className="xl:col-span-2 relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+              <Input
+                placeholder="Search customer, deal, address…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="pl-8 h-9 rounded-lg border-slate-200 text-sm focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:border-indigo-400"
+              />
+            </div>
+
+            {/* Date From */}
+            <div className="relative">
+              <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none z-10" />
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={e => setDateFrom(e.target.value)}
+                className="pl-8 h-9 rounded-lg border-slate-200 text-sm text-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:border-indigo-400 [&::-webkit-calendar-picker-indicator]:opacity-50 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+              />
+              {dateFrom && (
+                <button
+                  type="button"
+                  onClick={() => setDateFrom("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Date To */}
+            <div className="relative">
+              <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none z-10" />
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={e => setDateTo(e.target.value)}
+                className="pl-8 h-9 rounded-lg border-slate-200 text-sm text-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:border-indigo-400 [&::-webkit-calendar-picker-indicator]:opacity-50 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+              />
+              {dateTo && (
+                <button
+                  type="button"
+                  onClick={() => setDateTo("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Type Filter */}
+            <FilterSelect
+              value={typeFilter}
+              onChange={setTypeFilter}
+              placeholder="All Types"
+              options={[
+                { value: "all", label: "All Types" },
+                ...typeOptions.map(t => ({ value: t, label: t })),
+              ]}
+            />
+
+            {/* Status Filter */}
+            <FilterSelect
+              value={statusFilter}
+              onChange={setStatusFilter}
+              placeholder="All Status"
+              options={[
+                { value: "all", label: "All Status" },
+                ...statusOptions.map(s => ({ value: s, label: s })),
+              ]}
+            />
+
+            {/* Installer Filter */}
+            <FilterSelect
+              value={installerFilter}
+              onChange={setInstallerFilter}
+              placeholder="All Installers"
+              options={[
+                { value: "all", label: "All Installers" },
+                { value: "unassigned", label: "Unassigned" },
+                ...installerOptions.map(p => ({ value: p.id, label: p.name })),
+              ]}
+            />
+          </div>
+
+          {/* Active filter chips */}
+          {(dateFrom || dateTo || typeFilter !== "all" || statusFilter !== "all" || installerFilter !== "all" || searchQuery) && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-3">
+              <span className="text-[11px] text-slate-400 font-medium uppercase tracking-wide mr-1">Active:</span>
+              {searchQuery && (
+                <FilterChip label={`"${searchQuery}"`} onRemove={() => setSearchQuery("")} />
+              )}
+              {dateFrom && (
+                <FilterChip label={`From ${dateFrom}`} onRemove={() => setDateFrom("")} />
+              )}
+              {dateTo && (
+                <FilterChip label={`To ${dateTo}`} onRemove={() => setDateTo("")} />
+              )}
+              {typeFilter !== "all" && (
+                <FilterChip label={typeFilter} onRemove={() => setTypeFilter("all")} />
+              )}
+              {statusFilter !== "all" && (
+                <FilterChip label={statusFilter} onRemove={() => setStatusFilter("all")} />
+              )}
+              {installerFilter !== "all" && (
+                <FilterChip
+                  label={installerFilter === "unassigned" ? "Unassigned" : (installerOptions.find(p => p.id === installerFilter)?.name ?? installerFilter)}
+                  onRemove={() => setInstallerFilter("all")}
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(""); setDateFrom(""); setDateTo(""); setTypeFilter("all"); setStatusFilter("all"); setInstallerFilter("all"); }}
+                className="text-[11px] text-indigo-500 hover:text-indigo-700 font-medium ml-1 underline underline-offset-2"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-slate-50/80 hover:bg-slate-50">
+                {["Created", "Customer", "Address", "Deal / SM", "Type", "Slot", "Assigned To", "Status"].map(h => (
+                  <TableHead key={h} className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</TableHead>
+                ))}
+                <TableHead className="text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredVisits.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-16 text-center text-slate-400 text-sm">
+                    No visits match your filters.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredVisits.map(visit => (
+                  <TableRow
+                    key={visit.id}
+                    className={cn(
+                      "border-slate-100 hover:bg-slate-50/60 transition-colors",
+                      visit.visitStatus === "Working" && "bg-blue-50/40 hover:bg-blue-50/60"
+                    )}
+                  >
+                    {/* Created */}
+                    <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+                      {visit.createdAt ? (
+                        <>
+                          <p className="font-medium text-slate-700">{format(new Date(visit.createdAt), "d MMM yyyy")}</p>
+                          <p className="text-slate-400">{format(new Date(visit.createdAt), "hh:mm a")}</p>
+                        </>
+                      ) : "—"}
+                    </TableCell>
+
+                    {/* Customer */}
+                    <TableCell className="font-medium text-slate-800 text-sm">{visit.customerName}</TableCell>
+
+                    {/* Address */}
+                    <TableCell className="max-w-[200px] text-xs text-slate-500 whitespace-normal break-words">
+                      {visit.location?.address || visit.customerSnapshot?.address || "—"}
+                    </TableCell>
+
+                    {/* Deal / SM */}
+                    <TableCell>
+                      <Link href={`/dashboard/customers/${visit.customerId}/${visit.dealDocId}`}
+                        className="text-sm font-semibold text-indigo-600 hover:text-indigo-800 hover:underline block">
+                        {visit.dealId}
+                      </Link>
+                      <span className="text-xs text-slate-400">{visit.assignedSalesPerson?.name || "—"}</span>
+                    </TableCell>
+
+                    {/* Type */}
+                    <TableCell>
+                      <span className="inline-flex rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700 capitalize">
+                        {visit.typeOfVisit}
+                      </span>
+                      <p className="text-[11px] text-slate-400 mt-1">{visit.createdBy}</p>
+                    </TableCell>
+
+                    {/* Slot */}
+                    <TableCell className="text-xs whitespace-nowrap">
+                      <p className="font-medium text-slate-700">
+                        {visit.slotDate ? format(new Date(visit.slotDate), "d MMM yyyy") : "Not set"}
+                      </p>
+                      {visit.slotLabel && (
+                        <span className="inline-flex rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 mt-1">
+                          {visit.slotLabel}
+                        </span>
+                      )}
+                    </TableCell>
+
+                    {/* Assigned To */}
+                    <TableCell className="text-sm">
+                      {visit.assignedTo ? (
+                        <span className="font-medium text-slate-700">{assigneeNameById[visit.assignedTo] || "Unknown"}</span>
+                      ) : (
+                        <span className="text-slate-400 italic text-xs">Unassigned</span>
+                      )}
+                    </TableCell>
+
+                    {/* Status */}
+                    <TableCell>
+                      <div className="flex flex-col items-start gap-1.5">
+                        {renderVisitStatus(visit)}
+                        {visit.status !== "completed" && visit.typeOfVisit !== "measurement" && visit.dueDate && (
+                          <span className="text-[11px] text-slate-400">
+                            {format(new Date(visit.dueDate), "d MMM yyyy")}
+                          </span>
+                        )}
+                        {visit.status === "completed" && visit.typeOfVisit === "measurement" && visit.measurementPdfUrl && (
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); setPreviewPdf({ url: visit.measurementPdfUrl, fileName: `${visit.dealId || "deal"}-measurement.pdf`, dealId: visit.dealId }); }}
+                            className="inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] text-emerald-700 hover:bg-emerald-100 transition-colors"
+                          >
+                            <CloudDownload className="h-3 w-3" /> PDF
+                          </button>
+                        )}
+                      </div>
+                    </TableCell>
+
+                    {/* Actions */}
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0 rounded-lg hover:bg-slate-100">
+                            <MoreHorizontal className="h-4 w-4 text-slate-500" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="rounded-xl shadow-lg border-slate-200 w-44">
+                          <DropdownMenuItem onClick={() => onViewDetails(visit)} className="rounded-lg text-sm">
+                            <Eye className="mr-2 h-3.5 w-3.5" /> View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onAssign(visit)} className="rounded-lg text-sm">
+                            <UserCheck className="mr-2 h-3.5 w-3.5" /> {visit.assignedTo ? "Re-assign" : "Assign"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onEdit(visit)} className="rounded-lg text-sm">
+                            <Edit className="mr-2 h-3.5 w-3.5" /> Edit Visit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onShare(visit)} className="rounded-lg text-sm">
+                            <Share2 className="mr-2 h-3.5 w-3.5" /> Share Link
+                          </DropdownMenuItem>
+                          {visit.status !== "completed" && (
+                            <DropdownMenuItem
+                              className="rounded-lg text-sm"
+                              onSelect={e => { e.preventDefault(); openCompleteVisitDialog(visit); }}
+                            >
+                              <CheckCircle2 className="mr-2 h-3.5 w-3.5 text-emerald-600" /> Complete Visit
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm"
+                            onSelect={e => { e.preventDefault(); setConfirmDelete(visit); }}>
+                            <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+                          </DropdownMenuItem>
+                          {visit.assignedTo && (
+                            <DropdownMenuItem className="text-red-600 focus:text-red-700 rounded-lg text-sm"
+                              onSelect={e => { e.preventDefault(); setConfirmUnassign(visit); }}>
+                              <UserX className="mr-2 h-3.5 w-3.5" /> Unassign
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      {/* PDF Preview Dialog */}
+      <Dialog open={!!previewPdf} onOpenChange={open => { if (!open) { setPreviewPdf(null); setResolvedPreviewUrl(""); } }}>
+        <DialogContent className="max-w-5xl h-[92vh] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Measurement PDF</DialogTitle>
+            <DialogDescription>{previewPdf?.fileName}</DialogDescription>
+          </DialogHeader>
+          {previewPdf && (
+            <div className="flex flex-col gap-3 flex-1 overflow-hidden">
+              <div className="flex-1 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
+                {resolvingPreviewUrl ? (
+                  <div className="flex items-center justify-center h-full">
+                    <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                  </div>
+                ) : previewUrl ? (
+                  <iframe title="PDF Preview" src={previewUrl} className="h-[70vh] w-full" />
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-sm text-slate-400">PDF unavailable.</p>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" className="rounded-lg" onClick={() => { setPreviewPdf(null); setResolvedPreviewUrl(""); }}>Close</Button>
+                <Button className="rounded-lg" disabled={resolvingPreviewUrl || !(resolvedPreviewUrl || previewPdf.url)}
+                  onClick={() => downloadPdf(resolvedPreviewUrl || previewPdf.url, previewPdf.fileName)}>
+                  <CloudDownload className="mr-2 h-4 w-4" /> Download
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Delete */}
+      <AlertDialog open={!!confirmDelete} onOpenChange={open => !open && setConfirmDelete(null)}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this visit?</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-lg" disabled={isActionBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="rounded-lg bg-red-600 hover:bg-red-700" disabled={isActionBusy}
+              onClick={async () => {
+                if (!confirmDelete) return;
+                setIsActionBusy(true);
+                try { await onDelete(confirmDelete); } finally { setIsActionBusy(false); setConfirmDelete(null); }
+              }}>
+              {isActionBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Complete Visit Dialog */}
+      <Dialog
+        open={!!completeDraftVisit}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCompleteDraftVisit(null);
+            setCompletionMode("Porter");
+            setCompletionRemark("");
+          }
+        }}
+      >
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Complete Visit</DialogTitle>
+            <DialogDescription>
+              Mark visit for <span className="font-semibold">{completeDraftVisit?.customerName || "this customer"}</span> as completed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">Completed By</p>
+              <Select
+                value={completionMode}
+                onValueChange={(value) => setCompletionMode(value as VisitCompletionMode)}
+              >
+                <SelectTrigger className="rounded-lg border-slate-200">
+                  <SelectValue placeholder="Select option" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="Porter">Porter</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {completionMode === "Other" && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-slate-700">Remark</p>
+                <Textarea
+                  placeholder="Enter completion remark"
+                  value={completionRemark}
+                  onChange={(event) => setCompletionRemark(event.target.value)}
+                  className="rounded-lg border-slate-200 resize-none"
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-lg"
+              onClick={() => {
+                setCompleteDraftVisit(null);
+                setCompletionMode("Porter");
+                setCompletionRemark("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="rounded-lg"
+              onClick={proceedToCompleteConfirmation}
+              disabled={completionMode === "Other" && !completionRemark.trim()}
+            >
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Complete Visit */}
+      <AlertDialog
+        open={!!pendingCompletion}
+        onOpenChange={(open) => {
+          if (!open && !isCompletingVisit) setPendingCompletion(null);
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Complete this visit?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark visit for <span className="font-semibold">{pendingCompletion?.visit.customerName || "this customer"}</span> as completed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-lg" disabled={isCompletingVisit}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-lg"
+              disabled={isCompletingVisit}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleConfirmCompleteVisit();
+              }}
+            >
+              {isCompletingVisit && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirm Unassign */}
+      <AlertDialog open={!!confirmUnassign} onOpenChange={open => !open && setConfirmUnassign(null)}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unassign this visit?</AlertDialogTitle>
+            <AlertDialogDescription>The visit will stay in the system but be removed from the installer's schedule.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-lg" disabled={isActionBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="rounded-lg" disabled={isActionBusy}
+              onClick={async () => {
+                if (!confirmUnassign) return;
+                setIsActionBusy(true);
+                try { await onUnassign(confirmUnassign); } finally { setIsActionBusy(false); setConfirmUnassign(null); }
+              }}>
+              {isActionBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Unassign
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <CompanyVisitDialog open={companyVisitDialog} onOpenChange={setCompanyVisitDialog} installers={installers} />
+    </>
+  );
 }
 
+// ─── Edit Visit Dialog ────────────────────────────────────────────────────────
+
+const formSchema = z.object({
+  dueDate: z.string().min(1, "Due date is required."),
+  representative: z.string().min(1, "Representative is required."),
+  customerAddress: z.string().optional(),
+  remark: z.string().optional(),
+});
+
+function EditVisitDialog({ visit, isOpen, onClose, salesmen, onSuccess }: {
+  visit: EnrichedDealVisit | null;
+  isOpen: boolean;
+  onClose: () => void;
+  salesmen: User[];
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: { dueDate: "", representative: "", customerAddress: "", remark: "" },
+  });
+
+  React.useEffect(() => {
+    if (visit) form.reset({
+      dueDate: visit.dueDate ? format(new Date(visit.dueDate), "yyyy-MM-dd") : visit.slotDate || "",
+      representative: visit.representative || "",
+      customerAddress: visit.customerAddress || visit.location?.address || "",
+      remark: visit.remark || "",
+    });
+  }, [visit, form]);
+
+  if (!visit) return null;
+
+  const onSubmit = async (values: z.infer<typeof formSchema>) => {
+    setIsSubmitting(true);
+    try {
+      const result = await updateVisitDetailsAction(visit.customerId, visit.dealDocId, visit.id, {
+        dueDate: new Date(values.dueDate).toISOString(),
+        representative: values.representative,
+        customerAddress: values.customerAddress?.trim(),
+        remark: values.remark,
+      });
+      if (result.success) { toast({ title: "Visit updated" }); onSuccess(); onClose(); }
+      else toast({ variant: "destructive", title: "Update failed", description: result.message });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Error", description: e.message });
+    } finally { setIsSubmitting(false); }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="rounded-2xl">
+        <DialogHeader>
+          <DialogTitle>Edit Visit</DialogTitle>
+          <DialogDescription>Updating visit for {visit.customerName}</DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-2">
+            {[
+              { name: "dueDate" as const, label: "Visit Date", type: "date" as const },
+            ].map(({ name, label, type }) => (
+              <FormField key={name} control={form.control} name={name} render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium text-slate-700">{label}</FormLabel>
+                  <FormControl><Input type={type} {...field} className="rounded-lg border-slate-200" /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            ))}
+            <FormField control={form.control} name="customerAddress" render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-sm font-medium text-slate-700">Address</FormLabel>
+                <FormControl><Textarea placeholder="Customer address" {...field} className="rounded-lg border-slate-200 resize-none" /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <FormField control={form.control} name="representative" render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-sm font-medium text-slate-700">Representative</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger className="rounded-lg border-slate-200"><SelectValue placeholder="Select representative" /></SelectTrigger>
+                  </FormControl>
+                  <SelectContent className="rounded-xl">
+                    {salesmen.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <FormField control={form.control} name="remark" render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-sm font-medium text-slate-700">Remarks</FormLabel>
+                <FormControl><Textarea placeholder="Add any notes…" {...field} className="rounded-lg border-slate-200 resize-none" /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="ghost" onClick={onClose} className="rounded-lg">Cancel</Button>
+              <Button type="submit" disabled={isSubmitting} className="rounded-lg">
+                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save Changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Visit Details Dialog ─────────────────────────────────────────────────────
+
+function VisitDetailsDialog({ visit, assigneeNameById, onClose }: {
+  visit: EnrichedDealVisit | null;
+  assigneeNameById: Record<string, string>;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={!!visit} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg rounded-2xl">
+        <DialogHeader>
+          <DialogTitle>Visit Details</DialogTitle>
+        </DialogHeader>
+        {visit && (
+          <div className="space-y-4">
+            {/* Status row */}
+            <div className="flex items-center justify-between">
+              <span className="inline-flex rounded-lg bg-blue-50 border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-700 capitalize">
+                {visit.typeOfVisit}
+              </span>
+              {renderVisitStatus(visit)}
+            </div>
+
+            {/* Info Grid */}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: "Customer", value: visit.customer?.name },
+                { label: "Assigned To", value: visit.assignedTo ? (assigneeNameById[visit.assignedTo] || "Unknown") : "Unassigned" },
+                { label: "Phone", value: visit.customer?.phone },
+                { label: "Created By", value: visit.createdBy },
+              ].map(({ label, value }) => (
+                <div key={label} className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                  <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wide">{label}</p>
+                  <p className="text-sm font-semibold text-slate-800 mt-0.5">{value || "—"}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Address */}
+            {visit.location?.address && (
+              <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5">
+                <p className="text-[11px] text-slate-400 font-medium uppercase tracking-wide">Address</p>
+                <p className="text-sm text-slate-700 mt-0.5">{visit.location.address}</p>
+              </div>
+            )}
+
+            <Separator className="bg-slate-100" />
+
+            {/* Visit-type-specific details */}
+            {visit.typeOfVisit === "measurement" ? (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Measurement Details</p>
+                <p className="text-sm text-slate-700">{visit.measurements?.map(m => `‣ ${m?.name || m}`).join(", ") || "N/A"}</p>
+                {visit.blinds?.length > 0 && (
+                  <p className="text-sm text-slate-700 mt-1">Blinds: {visit.blinds.join(", ")}</p>
+                )}
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Items</p>
+                <p className="text-sm text-slate-700">
+                  {visit.deliveryInstallations?.map(d => `${d?.id} (×${d?.noOfPcs || 1})`).join(", ") || "N/A"}
+                </p>
+              </div>
+            )}
+
+            {visit.remark && (
+              <div className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2.5">
+                <p className="text-[11px] text-amber-600 font-medium uppercase tracking-wide">Remark</p>
+                <p className="text-sm text-slate-700 mt-0.5">{visit.remark}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function AllVisitsPage() {
+  const [allVisits, setAllVisits] = React.useState<EnrichedDealVisit[]>([]);
+  const [users, setUsers] = React.useState<User[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [tracking, setTracking] = React.useState<InstallerTracking[]>([]);
+  const [trackingLoading, setTrackingLoading] = React.useState(true);
+  const [selectedVisit, setSelectedVisit] = React.useState<EnrichedDealVisit | null>(null);
+  const [isAssigning, setIsAssigning] = React.useState(false);
+  const [shareableLink, setShareableLink] = React.useState<string | null>(null);
+  const [detailsVisit, setDetailsVisit] = React.useState<EnrichedDealVisit | null>(null);
+  const [dailyStatsMap, setDailyStatsMap] = React.useState<Record<string, AdminDailyStats>>({});
+  const [suggestMap, setSuggestMap] = React.useState<Record<string, JobSuggestion>>({});
+  const [editingVisit, setEditingVisit] = React.useState<EnrichedDealVisit | null>(null);
+  const { toast } = useToast();
+
+  const installers = React.useMemo(() => users.filter(u => u.role === "installer"), [users]);
+
+  const assigneeNameById = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    users.forEach(u => { map[u.id] = u.name; });
+    return map;
+  }, [users]);
+
+  const groupedVisits = React.useMemo(() => {
+    const map = new Map<string, EnrichedDealVisit[]>();
+    installers.forEach(i => map.set(i.id, []));
+    allVisits.forEach(v => {
+      if (v.assignedTo) {
+        if (!map.has(v.assignedTo)) map.set(v.assignedTo, []);
+        map.get(v.assignedTo)!.push(v);
+      }
+    });
+    return map;
+  }, [allVisits, installers]);
+
+  const trackingByInstaller = React.useMemo(() => {
+    const map = new Map<string, InstallerTracking>();
+    tracking.forEach(d => { const k = d.installerId || d.id; map.set(k, { ...d, installerId: k, id: d.id || k }); });
+    return map;
+  }, [tracking]);
+
+  const visitsById = React.useMemo(() => {
+    const map = new Map<string, EnrichedDealVisit>();
+    allVisits.forEach(v => map.set(v.id, v));
+    return map;
+  }, [allVisits]);
+
+  const completedTodayByInstaller = React.useMemo(() => {
+    const map = new Map<string, number>();
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    allVisits.forEach(v => {
+      if (!v.assignedTo || v.status !== "completed" || !v.visitEndTime) return;
+      const t = new Date(v.visitEndTime);
+      if (!isNaN(t.getTime()) && t >= todayStart) map.set(v.assignedTo, (map.get(v.assignedTo) || 0) + 1);
+    });
+    return map;
+  }, [allVisits]);
+
+  // Firestore subscriptions
+  React.useEffect(() => {
+    const unsubs = [
+      onSnapshot(query(collection(db, "users")), snap => {
+        setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+      }),
+      onSnapshot(collectionGroup(db, "visits"), async snap => {
+        const customerCache = new Map<string, Customer>();
+        const dealCache = new Map<string, Deal>();
+        const results = await Promise.all(snap.docs.map(async docSnap => {
+          const visit = docSnap.data() as DealVisit;
+          const parts = docSnap.ref.path.split("/");
+          const customerId = parts[1], dealDocId = parts[3];
+          if (!customerCache.has(customerId)) {
+            const s = await getDoc(doc(db, "customers", customerId));
+            if (s.exists()) customerCache.set(customerId, { id: s.id, ...s.data() } as Customer);
+          }
+          const ck = `${customerId}-${dealDocId}`;
+          if (!dealCache.has(ck)) {
+            const s = await getDoc(doc(db, "customers", customerId, "deals", dealDocId));
+            if (s.exists()) dealCache.set(ck, { id: s.id, ...s.data() } as Deal);
+          }
+          const deal = dealCache.get(ck);
+          return {
+            ...visit, id: docSnap.id, customerId, dealDocId,
+            customerName: customerCache.get(customerId)?.name || "Unknown",
+            dealName: deal?.dealName || "Unknown",
+            dealId: deal?.dealId || "N/A",
+            customer: customerCache.get(customerId) || null,
+          };
+        }));
+        setAllVisits(results);
+        setLoading(false);
+      }),
+      onSnapshot(collection(db, "installerTracking"), snap => {
+        setTracking(snap.docs.map(d => ({ id: d.id, ...d.data() } as InstallerTracking)));
+        setTrackingLoading(false);
+      }),
+      onSnapshot(collection(db, "jobSuggestions"), snap => {
+        const next: Record<string, JobSuggestion> = {};
+        snap.forEach(d => { next[d.id] = { installerId: d.id, ...(d.data() as any) }; });
+        setSuggestMap(next);
+      }),
+      onSnapshot(collection(db, "adminDailyStats"), snap => {
+        const next: Record<string, AdminDailyStats> = {};
+        snap.forEach(d => { const data = d.data() as any; if (data?.installerId) next[data.installerId] = data; });
+        setDailyStatsMap(next);
+      }),
+    ];
+    return () => unsubs.forEach(u => u());
+  }, []);
+
+  const openAssign = (visit: EnrichedDealVisit) => { setSelectedVisit(visit); setIsAssigning(true); };
+
+  const handleShareClick = (visit: EnrichedDealVisit) => {
+    const link = `https://mo-track-yerq.vercel.app/visit/confirm/${visit.id}?customerId=${visit.customerId}&dealId=${visit.dealDocId}`;
+    setShareableLink(link);
+  };
+
+  const handleAssignInstaller = async (installerId: string, slots?: SlotSelection[]) => {
+    if (!selectedVisit || !slots?.length) return;
+    setIsAssigning(false);
+    try {
+      const assignedAt = new Date().toISOString();
+      const slotDate = slots[0].slotDate;
+      const slotIndex = new Map(SLOT_OPTIONS.map((opt, idx) => [opt.id, idx]));
+      const sortedSlotIds = [...new Set(slots.map(s => s.slotId))].sort(
+        (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
+      );
+      const firstSlot = SLOT_OPTIONS.find(s => s.id === sortedSlotIds[0]);
+      const lastSlot  = SLOT_OPTIONS.find(s => s.id === sortedSlotIds[sortedSlotIds.length - 1]);
+      if (!firstSlot || !lastSlot) return;
+
+      // ── Guard: skip if nothing changed ───────────────────────────────────
+      const prevInstallerId = selectedVisit.assignedTo || "";
+      const prevSlotDate    = selectedVisit.slotDate   || "";
+      const prevSlotIds     = selectedVisit.slotIds?.length
+        ? selectedVisit.slotIds
+        : selectedVisit.slotId ? [selectedVisit.slotId] : [];
+      const prevSorted = [...prevSlotIds].sort(
+        (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
+      );
+      const selectionUnchanged =
+        prevInstallerId === installerId &&
+        prevSlotDate    === slotDate &&
+        prevSorted.length === sortedSlotIds.length &&
+        prevSorted.every((id, i) => id === sortedSlotIds[i]);
+
+      if (selectionUnchanged) { setSelectedVisit(null); return; }
+
+      await runTransaction(db, async tx => {
+        const visitRef   = doc(db, "customers", selectedVisit.customerId, "deals", selectedVisit.dealDocId, "visits", selectedVisit.id);
+        const newDateRef = doc(db, "installers", installerId, "dates", slotDate);
+        const prevRef    = prevInstallerId && prevSlotDate
+          ? doc(db, "installers", prevInstallerId, "dates", prevSlotDate)
+          : null;
+
+        // ── Fetch sequentially to avoid passing null into Promise.all ──────
+        const newSnap  = await tx.get(newDateRef);
+        const prevSnap = prevRef ? await tx.get(prevRef) : null;
+
+        const rawPrevSlots: any[] = Array.isArray((prevSnap?.data() as any)?.slots) ? (prevSnap!.data() as any).slots : [];
+        const rawNewSlots:  any[] = Array.isArray((newSnap.data()  as any)?.slots)  ? (newSnap.data()  as any).slots  : [];
+        const selectedSet = new Set(sortedSlotIds);
+
+        // ── Block if target slot already booked by someone else ────────────
+        const blocking = rawNewSlots.find(
+          (s: any) => selectedSet.has(s?.slotId || s?.id) && s?.visitId && s.visitId !== selectedVisit.id
+        );
+        if (blocking) throw new Error(`Slot "${blocking.slotLabel || blocking.slotId}" is already booked.`);
+
+        // ── cleanSlots: removes this visit from previous installer's day ───
+        const cleanSlots = (base: any[], forDate: string) =>
+          SLOT_OPTIONS.map(opt => {
+            const ex = base.filter(s => s?.visitId !== selectedVisit.id)
+              .find((s: any) => (s?.slotId || s?.id) === opt.id);
+            return ex
+              ? { ...ex, slotId: opt.id, id: opt.id, slotDate: forDate, status: ex.status || (ex.visitId ? "booked" : "free") }
+              : { slotId: opt.id, id: opt.id, slotLabel: opt.label, slotStart: opt.start, slotEnd: opt.end, slotDate: forDate, status: "free" };
+          });
+
+        // ── bookSlots: inserts this visit into new installer's day ─────────
+        const bookSlots = (base: any[], forDate: string) =>
+          SLOT_OPTIONS.map(opt => {
+            if (selectedSet.has(opt.id)) return {
+              slotId: opt.id, id: opt.id, slotLabel: opt.label, slotStart: opt.start, slotEnd: opt.end, slotDate: forDate,
+              visitId: selectedVisit.id, customerId: selectedVisit.customerId, customerName: selectedVisit.customerName || "",
+              dealId: selectedVisit.dealId || "", dealDocId: selectedVisit.dealDocId, dealName: selectedVisit.dealName || "",
+              assignedAt, assignedTo: installerId, status: "booked",
+            };
+            const ex = base.filter(s => s?.visitId !== selectedVisit.id)
+              .find((s: any) => (s?.slotId || s?.id) === opt.id);
+            return ex
+              ? { ...ex, slotId: opt.id, id: opt.id, slotDate: forDate, status: ex.status || (ex.visitId ? "booked" : "free") }
+              : { slotId: opt.id, id: opt.id, slotLabel: opt.label, slotStart: opt.start, slotEnd: opt.end, slotDate: forDate, status: "free" };
+          });
+
+        // ── Writes ─────────────────────────────────────────────────────────
+        if (prevRef) {
+          tx.set(prevRef, { slotDate: prevSlotDate, slots: cleanSlots(rawPrevSlots, prevSlotDate) }, { merge: true });
+        }
+        tx.set(newDateRef, { slotDate, slots: bookSlots(rawNewSlots, slotDate) }, { merge: true });
+        tx.update(visitRef, {
+          assignedTo: installerId,
+          slotDate,
+          slotId:    firstSlot.id,
+          slotIds:   sortedSlotIds,
+          slotLabel: `${firstSlot.start} - ${lastSlot.end}`,
+          slotStart: firstSlot.start,
+          slotEnd:   lastSlot.end,
+          assignedAt,
+        });
+      });
+
+      toast({ title: "Assigned", description: "Installer and slot updated successfully." });
+      setSelectedVisit(null);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Assignment failed", description: e?.message });
+    }
+  };
+
+  const handleUnassign = async (visit: EnrichedDealVisit) => {
+    try {
+      const r = await unassignVisitAction(visit.id, visit.customerId, visit.dealDocId);
+      toast(r.success ? { title: "Unassigned" } : { variant: "destructive", title: "Error", description: r.message });
+    } catch (e: any) { toast({ variant: "destructive", title: "Error", description: e.message }); }
+  };
+
+  const handleDelete = async (visit: EnrichedDealVisit) => {
+    try {
+      const r = await deleteVisitAction(visit.id, visit.customerId, visit.dealDocId);
+      toast(r.success ? { title: "Deleted" } : { variant: "destructive", title: "Error", description: r.message });
+    } catch (e: any) { toast({ variant: "destructive", title: "Error", description: e.message }); }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-8 space-y-4">
+        <Skeleton className="h-10 w-48 rounded-xl" />
+        <div className="grid grid-cols-3 gap-4">
+          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-48 rounded-2xl" />)}
+        </div>
+      </div>
+    );
+  }
+
+  // Summary stats
+  const totalActive = allVisits.filter(v => v.status !== "completed").length;
+  const totalCompleted = allVisits.filter(v => v.status === "completed").length;
+  const totalWorking = allVisits.filter(v => v.visitStatus === "Working").length;
+
+  return (
+    <div className="min-h-screen bg-slate-50/50 p-4 md:p-6 lg:p-8">
+      {/* ── Page Header ── */}
+      <div className="mb-8">
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Visit Management</h1>
+            <p className="text-slate-500 text-sm mt-1">Monitor and manage all customer visits in real-time</p>
+          </div>
+        </div>
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { label: "Total Installers", value: installers.length, icon: Users, color: "from-indigo-500 to-indigo-600" },
+            { label: "Active Visits", value: totalActive, icon: Activity, color: "from-blue-500 to-blue-600" },
+            { label: "Working Now", value: totalWorking, icon: Zap, color: "from-amber-500 to-amber-600" },
+            { label: "Completed Today", value: totalCompleted, icon: CheckCircle2, color: "from-emerald-500 to-emerald-600" },
+          ].map(({ label, value, icon: Icon, color }) => (
+            <div key={label} className="rounded-2xl bg-white border border-slate-200 shadow-sm p-4 flex items-center gap-3">
+              <div className={cn("rounded-xl p-2.5 bg-gradient-to-br text-white shadow-sm", color)}>
+                <Icon className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-900 leading-none">{value}</p>
+                <p className="text-xs text-slate-500 mt-1">{label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Tabs ── */}
+      <Tabs defaultValue="live" className="w-full">
+        <TabsList className="bg-white border border-slate-200 shadow-sm rounded-xl p-1 h-auto mb-6">
+          {[
+            { value: "live", label: "Live Map" },
+            { value: "installers", label: "Installers" },
+            { value: "all", label: "All Visits" },
+          ].map(({ value, label }) => (
+            <TabsTrigger key={value} value={value}
+              className="rounded-lg text-sm px-5 py-2 data-[state=active]:bg-indigo-600 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all">
+              {label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {/* Live Tab */}
+        <TabsContent value="live">
+          {trackingLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-64 rounded-2xl" />)}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {installers.map(installer => {
+                const td = trackingByInstaller.get(installer.id);
+                const currentVisit = td?.currentVisitId ? visitsById.get(td.currentVisitId) : null;
+                const assignedVisits = groupedVisits.get(installer.id) || [];
+                const activeVisit = currentVisit || assignedVisits.find(v => v.status !== "completed");
+                const taskLabel = activeVisit
+                  ? `${activeVisit.customerName} (${activeVisit.typeOfVisit})`
+                  : td?.currentVisitId ? `Visit ${td.currentVisitId}` : "No active task";
+                const completedCount = completedTodayByInstaller.get(installer.id) || 0;
+                const mapSrc = td?.location
+                  ? `https://maps.google.com/maps?q=${td.location.latitude},${td.location.longitude}&z=15&output=embed`
+                  : null;
+                const lastPing = td?.lastPingAt ? new Date(td.lastPingAt) : null;
+                const lastPingAt = lastPing && !isNaN(lastPing.getTime()) ? format(lastPing, "p") : "No signal";
+
+                return (
+                  <div key={installer.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                    <div className="p-4 border-b border-slate-100">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar className="h-9 w-9">
+                            <AvatarImage src={installer.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(installer.name)}&background=6366f1&color=fff`} />
+                            <AvatarFallback className="bg-indigo-100 text-indigo-700 text-xs font-bold">{installer.name.charAt(0)}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-semibold text-slate-800 text-sm">{installer.name}</p>
+                            <p className="text-[11px] text-slate-400">Last ping: {lastPingAt}</p>
+                          </div>
+                        </div>
+                        <LiveStatusDot status={td?.status} />
+                      </div>
+                    </div>
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-500">Current task</span>
+                        <span className="font-medium text-slate-800 text-xs max-w-[160px] text-right truncate">{taskLabel}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-500">Completed today</span>
+                        <span className="font-bold text-slate-800">{completedCount}</span>
+                      </div>
+                      {mapSrc ? (
+                        <div className="overflow-hidden rounded-xl border border-slate-200">
+                          <iframe title={`${installer.name} location`} src={mapSrc} className="h-36 w-full" loading="lazy" />
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-slate-200 py-6 text-center">
+                          <MapPin className="h-5 w-5 text-slate-300 mx-auto mb-1" />
+                          <p className="text-xs text-slate-400">No live location</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Installers Tab */}
+        <TabsContent value="installers">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {installers.map(installer => (
+              <InstallerCard
+                key={installer.id}
+                installer={installer}
+                live={trackingByInstaller.get(installer.id)}
+                suggestion={suggestMap[installer.id]}
+                dailyStats={dailyStatsMap[installer.id]}
+                visits={groupedVisits.get(installer.id) || []}
+                onAssign={openAssign}
+                onShare={handleShareClick}
+                onViewDetails={v => setDetailsVisit(v)}
+              />
+            ))}
+          </div>
+        </TabsContent>
+
+        {/* All Visits Tab */}
+        <TabsContent value="all">
+          <AllVisitsTable
+            visits={allVisits}
+            installers={installers}
+            assigneeNameById={assigneeNameById}
+            onAssign={openAssign}
+            onShare={handleShareClick}
+            onViewDetails={v => setDetailsVisit(v)}
+            onTransfer={openAssign}
+            onUnassign={handleUnassign}
+            onEdit={v => setEditingVisit(v)}
+            onDelete={handleDelete}
+          />
+        </TabsContent>
+      </Tabs>
+
+      {/* ── Dialogs ── */}
+      <VisitDetailsDialog
+        visit={detailsVisit}
+        assigneeNameById={assigneeNameById}
+        onClose={() => setDetailsVisit(null)}
+      />
+
+      <AssignInstallerDialog
+        isOpen={isAssigning}
+        onClose={() => setIsAssigning(false)}
+        onAssign={handleAssignInstaller}
+        installers={installers}
+        currentInstallerId={selectedVisit?.assignedTo}
+        currentVisitId={selectedVisit?.id}
+        currentSlotSelection={selectedVisit ? {
+          slotDate: selectedVisit.slotDate,
+          slotId: selectedVisit.slotId || undefined,
+          slotIds: selectedVisit.slotIds?.length ? selectedVisit.slotIds : selectedVisit.slotId ? [selectedVisit.slotId] : undefined,
+          slotLabel: selectedVisit.slotLabel,
+          slotStart: selectedVisit.slotStart,
+          slotEnd: selectedVisit.slotEnd,
+        } : undefined}
+      />
+
+      <Dialog open={!!shareableLink} onOpenChange={() => setShareableLink(null)}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Share Visit Link</DialogTitle>
+            <DialogDescription>Send this link for customer confirmation.</DialogDescription>
+          </DialogHeader>
+          <div className="py-3">
+            <Input value={shareableLink || ""} readOnly className="rounded-lg border-slate-200 text-sm font-mono" />
+          </div>
+          <DialogFooter>
+            <Button onClick={() => { navigator.clipboard.writeText(shareableLink || ""); toast({ title: "Copied!" }); }}
+              className="rounded-lg">
+              <Copy className="mr-2 h-4 w-4" /> Copy Link
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <EditVisitDialog
+        visit={editingVisit}
+        isOpen={!!editingVisit}
+        onClose={() => setEditingVisit(null)}
+        salesmen={users}
+        onSuccess={() => {}}
+      />
+    </div>
+  );
+}

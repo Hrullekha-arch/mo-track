@@ -85,11 +85,22 @@ function groupKeyOf(job: any) {
 }
 
 // ✅ NEW: seed busy maps from ALL plans (source of truth)
-function seedBusyFromPlans(plans: any[]) {
+function seedBusyFromPlans(plans: any[], jobs: any[]) {
   const machineBusyUntil = new Map<string, string>();
   const personBusyUntil = new Map<string, string>();
+  const statusByJobId = new Map<string, string>();
+
+  for (const job of jobs || []) {
+    if (!job?.id) continue;
+    statusByJobId.set(String(job.id), String(job?.status || "").toUpperCase());
+  }
 
   for (const p of plans || []) {
+    const jobId = String(p?.jobId || "");
+    if (!jobId || !statusByJobId.has(jobId)) continue;
+    const status = statusByJobId.get(jobId);
+    if (status !== "IN_PROGRESS" && status !== "PLANNED") continue;
+
     const end = p?.plannedEnd;
     if (!end) continue;
 
@@ -121,8 +132,8 @@ export function runAutopilot(args: AutopilotArgs) {
   const downtimeByMachine = buildDowntimeByMachine(downtimes || []);
   const activeMachines = (machines || []).filter((m: any) => m?.active !== false);
 
-  // ✅ IMPORTANT FIX: busy maps must come from ALL plans, not just passed "jobs"
-  const { machineBusyUntil, personBusyUntil } = seedBusyFromPlans(plans || []);
+  // Seed busy maps from plans tied to current scheduling jobs only.
+  const { machineBusyUntil, personBusyUntil } = seedBusyFromPlans(plans || [], jobs || []);
 
   // ✅ Group jobs (only jobs we are allowed to schedule are in "jobs" input)
   const groups = new Map<string, any[]>();
@@ -158,6 +169,10 @@ export function runAutopilot(args: AutopilotArgs) {
     // (no lexicographic issues; we compute by date)
     let anchor = now;
     for (const j of steps) {
+      const status = String(j?.status || "").toUpperCase();
+      if (status !== "DONE" && status !== "IN_PROGRESS" && status !== "PLANNED") {
+        continue;
+      }
       const p = planByJobId.get(j.id);
       const end = j?.actualEnd || j?.plannedEnd || p?.plannedEnd;
       if (end) anchor = maxIso(anchor, end);

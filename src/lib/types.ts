@@ -587,6 +587,11 @@ export interface Stock {
     qty?: number;
     remainingQty?: number;
   }>;
+  purchaseEntryStatus?: "Pending" | "Done";
+  purchaseEntryUpdatedAt?: string;
+  purchaseEntryDoneAt?: string;
+  purchaseEntryDoneBy?: { id?: string; name?: string };
+  purchaseEntryId?: string;
 
   // System
   createdAt?: string;
@@ -653,6 +658,37 @@ export interface StockTransaction {
   salesman?: string;
   unit?: string;
   cutHistory?: StockTransaction[];
+  source?: string;
+  dealId?: string;
+  vendorName?: string;
+  purchaseRequestId?: string;
+  inboundId?: string;
+  purchaseEntryStatus?: "Pending" | "Done";
+}
+
+export interface PendingPurchaseEntry {
+  id: string;
+  poNumber: string;
+  status: "Pending" | "Done";
+  purchaseEntryStatus?: "Pending" | "Done";
+  stockId: string;
+  lengthId: string;
+  bcn: string;
+  itemName?: string;
+  quantity: number;
+  unit?: string;
+  dealId?: string;
+  customerName?: string;
+  vendorName?: string;
+  salesman?: string;
+  purchaseRequestId?: string;
+  inboundId?: string;
+  receivedAt?: string;
+  receivedBy?: string;
+  doneAt?: string;
+  doneBy?: { id?: string; name?: string; role?: string };
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CustomerAddress {

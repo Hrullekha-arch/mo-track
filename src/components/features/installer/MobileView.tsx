@@ -57,6 +57,7 @@ import { useRouter } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AssignInstallerDialog, SLOT_OPTIONS, type SlotSelection } from "../order-management/AssignInstallerDialog";
 import { startVisitAction } from "@/app/dashboard/customers/[customerId]/[dealId]/actions";
+import UpdateDialog from "./UpdateDialog";
 
 const LOCATION_PING_INTERVAL_MS = 20000;
 
@@ -82,7 +83,11 @@ export function MobileView() {
   const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [transferVisit, setTransferVisit] = useState<EnrichedInstallerVisit | null>(null);
   const [geoPermission, setGeoPermission] = useState<PermissionState | "unsupported">("prompt");
-  const [isRequestingLocation, setIsRequestingLocation] = useState(false);
+    const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setOpen(true); // Open dialog on page load
+  }, []);
 
 
   const requestLocationNow = useCallback(async () => {
@@ -181,80 +186,142 @@ export function MobileView() {
 
 
   useEffect(() => {
-    if (!user) return;
-    setLoading(true);
+  if (!user) return;
 
-    const ordersQuery = query(collection(db, "orders"), where("assignedTo", "==", user.id));
-    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-        const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        setTasks(prevTasks => {
-            const otherTasks = prevTasks.filter(t => t.type !== 'order');
-            const newOrderTasks: InstallerTask[] = ordersData.map(o => ({ type: 'order', data: o }));
-            return [...otherTasks, ...newOrderTasks];
-        });
-        setLoading(false);
+  setLoading(true);
+
+  // 🔵 ORDERS LISTENER
+  const ordersQuery = query(
+    collection(db, "orders"),
+    where("assignedTo", "==", user.id)
+  );
+
+  const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
+    const ordersData = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    } as Order));
+
+    setTasks(prev => {
+      const other = prev.filter(t => t.type !== "order");
+      const newOrders: InstallerTask[] = ordersData.map(o => ({
+        type: "order",
+        data: o,
+      }));
+      return [...other, ...newOrders];
     });
 
-    const visitsQuery = query(
-        collectionGroup(db, "visits"),
-        where("assignedTo", "==", user.id),
-        where("status", "!=", "completed")
+    setLoading(false);
+  });
+
+  // 🔵 COMPANY VISIT (TOP LEVEL)
+  const companyVisitQuery = query(
+    collection(db, "companyVisit"),
+    where("assignedTo", "==", user.id),
+    where("status", "!=", "completed")
+  );
+
+  const unsubscribeCompanyVisit = onSnapshot(
+    companyVisitQuery,
+    (snapshot) => {
+      const visitsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        source: "companyVisit",
+      }));
+
+      setTasks(prev => {
+        const other = prev.filter(t => t.type !== "companyVisit");
+        const newVisits: InstallerTask[] = visitsData.map(v => ({
+          type: "companyVisit",
+          data: v,
+        }));
+        return [...other, ...newVisits];
+      });
+
+      setLoading(false);
+    }
+  );
+
+  // 🔵 SUBCOLLECTION VISITS
+  const visitsQuery = query(
+    collectionGroup(db, "visits"),
+    where("assignedTo", "==", user.id),
+    where("status", "!=", "completed")
+  );
+
+  const unsubscribeVisits = onSnapshot(visitsQuery, async (snapshot) => {
+    const customerCache = new Map<string, Customer>();
+    const dealCache = new Map<string, Deal>();
+
+    const visitsData = await Promise.all(
+      snapshot.docs.map(async (docSnap) => {
+        const visit = docSnap.data() as DealVisit;
+
+        const pathParts = docSnap.ref.path.split("/");
+        const customerId = pathParts[1];
+        const dealDocId = pathParts[3];
+
+        // 🔹 Fetch customer (cached)
+        let customer = customerCache.get(customerId);
+        if (!customer) {
+          const customerSnap = await getDoc(
+            doc(db, "customers", customerId)
+          );
+          if (customerSnap.exists()) {
+            customer = {
+              id: customerSnap.id,
+              ...customerSnap.data(),
+            } as Customer;
+            customerCache.set(customerId, customer);
+          }
+        }
+
+        // 🔹 Fetch deal (cached)
+        const dealKey = `${customerId}-${dealDocId}`;
+        let deal = dealCache.get(dealKey);
+        if (!deal) {
+          const dealSnap = await getDoc(
+            doc(db, "customers", customerId, "deals", dealDocId)
+          );
+          if (dealSnap.exists()) {
+            deal = {
+              id: dealSnap.id,
+              ...dealSnap.data(),
+            } as Deal;
+            dealCache.set(dealKey, deal);
+          }
+        }
+
+        return {
+          id: docSnap.id,
+          ...visit,
+          customer,
+          deal,
+          customerId,
+          dealDocId,
+        } as EnrichedInstallerVisit;
+      })
     );
-     const unsubscribeVisits = onSnapshot(visitsQuery, async (snapshot) => {
-        const customerCache = new Map<string, Customer>();
-        const dealCache = new Map<string, Deal>();
 
-        const visitsDataPromises = snapshot.docs.map(async (docSnap) => {
-            const visit = docSnap.data() as DealVisit;
-            const pathParts = docSnap.ref.path.split('/');
-            const customerId = pathParts[1];
-            const dealDocId = pathParts[3];
-
-            let customerData: Customer | null = customerCache.get(customerId) || null;
-            if (!customerData) {
-                const customerRef = doc(db, 'customers', customerId);
-                const customerSnap = await getDoc(customerRef);
-                if (customerSnap.exists()) {
-                    customerData = { id: customerSnap.id, ...customerSnap.data() } as Customer;
-                    customerCache.set(customerId, customerData);
-                }
-            }
-
-            const dealCacheKey = `${customerId}-${dealDocId}`;
-            let dealData: Deal | null = dealCache.get(dealCacheKey) || null;
-            if (!dealData) {
-                    const dealRef = doc(db, 'customers', customerId, 'deals', dealDocId);
-                    const dealSnap = await getDoc(dealRef);
-                     if (dealSnap.exists()) {
-                        dealData = { id: dealSnap.id, ...dealSnap.data() } as Deal;
-                        dealCache.set(dealCacheKey, dealData);
-                    }
-            }
-
-            return {
-                ...visit,
-                id: docSnap.id,
-                customer: customerData,
-                deal: dealData,
-                dealDocId: dealDocId,
-                customerId: customerId,
-            } as EnrichedInstallerVisit;
-        });
-
-        const visitsData = await Promise.all(visitsDataPromises);
-        setTasks(prevTasks => {
-            const otherTasks = prevTasks.filter(t => t.type !== 'visit');
-            const newVisitTasks: InstallerTask[] = visitsData.map(v => ({ type: 'visit', data: v }));
-            return [...otherTasks, ...newVisitTasks];
-        });
-        setLoading(false);
+    setTasks(prev => {
+      const other = prev.filter(t => t.type !== "visit");
+      const newVisits: InstallerTask[] = visitsData.map(v => ({
+        type: "visit",
+        data: v,
+      }));
+      return [...other, ...newVisits];
     });
 
-    return () => {
-        unsubscribeOrders();
-        unsubscribeVisits();
-    };
-  }, [user]);
+    setLoading(false);
+  });
+
+  return () => {
+    unsubscribeOrders();
+    unsubscribeCompanyVisit();
+    unsubscribeVisits();
+  };
+}, [user]);
 
   const activeTasks = useMemo(() => {
   const today = new Date();
@@ -659,6 +726,8 @@ export function MobileView() {
           <p className="text-sm text-muted-foreground">You have no active assignments.</p>
         </div>
       )}
+
+      <UpdateDialog open={open} onOpenChange={setOpen} />
 
       <AssignInstallerDialog
                 isOpen={isTransferOpen}

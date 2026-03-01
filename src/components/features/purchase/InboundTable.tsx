@@ -500,6 +500,13 @@ function ReceiveDialog({
           createdAt: nowIso,
           createdBy: user.name,
           unit: update.unit,
+          source: "INBOUND_RECEIVE",
+          dealId: resolvedDealId,
+          customerName: effectiveInbound.customerName,
+          vendorName: resolvedVendor,
+          purchaseRequestId: resolvedPurchaseRequestId,
+          inboundId: effectiveInbound.id,
+          purchaseEntryStatus: "Pending",
         };
         const res = await updateStockQuantityAction(stockId, transaction);
         if (!res.success) throw new Error(res.message || "Stock update failed");

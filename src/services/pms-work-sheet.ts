@@ -1,7 +1,7 @@
 import "server-only";
 
-import { format } from "date-fns";
 import { adminDb } from "@/lib/firebase-admin";
+import { formatDateTimeInZone, IST_TIME_ZONE } from "@/lib/pms/time";
 
 const canonicalHeader = [
   "Order No",
@@ -19,10 +19,7 @@ const canonicalHeader = [
 ];
 
 const formatDateTime = (value?: string) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return format(date, "dd MMM, HH:mm");
+  return formatDateTimeInZone(value, { timeZone: IST_TIME_ZONE });
 };
 
 const normalizeText = (value?: string) =>
@@ -36,6 +33,14 @@ const isOrderInvoiced = (order?: any) => {
   const invoices = order.invoicing?.invoices || [];
   if (status && status !== "NOT_INVOICED") return true;
   return Array.isArray(invoices) && invoices.length > 0;
+};
+
+const isOrderClosedForPms = (order?: any) => {
+  if (!order) return false;
+  const workflowStatus = String(order?.workflow?.status || "").trim().toUpperCase();
+  if (workflowStatus === "COMPLETED" || workflowStatus === "CANCELLED") return true;
+  const status = String(order?.status || "").trim().toUpperCase();
+  return status === "INSTALLATION DONE" || status === "COMPLETED" || status === "CANCELLED";
 };
 
 const resolveVasInfo = (order?: any, productName?: string) => {
@@ -100,9 +105,12 @@ const compareOrderNo = (left: string, right: string) => {
 };
 
 export async function buildPmsWorkSheetRowsFromDb() {
-  const jobsSnapshot = await adminDb.collection("jobs").get();
-  const jobs = jobsSnapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) }));
-  const activeJobs = jobs.filter((job) => job.status !== "DONE");
+  const activeStatuses = ["WAITING", "PLANNED", "IN_PROGRESS"] as const;
+  const jobsSnapshot = await adminDb
+    .collection("jobs")
+    .where("status", "in", [...activeStatuses])
+    .get();
+  const activeJobs = jobsSnapshot.docs.map((doc) => ({ id: doc.id, ...(doc.data() as any) }));
 
   if (activeJobs.length === 0) {
     return [canonicalHeader];
@@ -176,7 +184,7 @@ export async function buildPmsWorkSheetRowsFromDb() {
   const rows = activeJobs
     .map((job) => {
       const order = ordersById.get(job.orderId);
-      if (!isOrderInvoiced(order)) return null;
+      if (!isOrderInvoiced(order) || isOrderClosedForPms(order)) return null;
       const product = job.productId ? productById.get(job.productId) : undefined;
       const routingSteps = job.productId ? routingByProduct.get(job.productId) || [] : [];
       const currentStep =

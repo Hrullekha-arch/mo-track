@@ -190,10 +190,18 @@ export default function InboundProcessPage({ params: paramsPromise }: { params: 
                     type: 'addition',
                     quantityChange: quantity,
                     poNumber: itemToUpdate.poNumber,
+                    unit: itemToUpdate.unit || "MTR",
                     salesman: salesman,
                     lengths: [quantity], 
                     createdAt: new Date().toISOString(),
                     createdBy: user.name,
+                    source: "INBOUND_RECEIVE",
+                    dealId: request.dealId,
+                    customerName: request.customerName,
+                    vendorName: request.vendor,
+                    purchaseRequestId: request.purchaseRequestId,
+                    inboundId: request.id,
+                    purchaseEntryStatus: "Pending",
                 };
                 
                 const result = await updateStockQuantityAction(stockId, transaction);

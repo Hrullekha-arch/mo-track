@@ -70,6 +70,7 @@ export const navItems = [
     { href: "/dashboard/cutting", icon: Scissors, label: "Cutting & Details", roles: ['admin', 'employee'] },
     { href: "/dashboard/all-orders", icon: Table, label: "Details", roles: ['admin'] },
     { href: "/dashboard/users", icon: UserCog, label: "User Management", roles: ['admin'] },
+    { href: "/dashboard/user-report", icon: Users, label: "User Report", roles: ['admin'] },
     { href: "/dashboard/reports", icon: BarChartHorizontalBig, label: "Reports", roles: ['admin'] },
 ];
 
