@@ -26,7 +26,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -75,7 +74,7 @@ type Props = {
 };
 
 type TeamMemberKind = "employee" | "tailor";
-type VisitCategory = "company_visit" | "tailor_work";
+type VisitCategory = "company_visit" | "tailor_work" | "complaint_visit";
 type VisitStatus = "planned" | "in_progress" | "completed" | "on_hold";
 type WorkMode =
   | "customer_home"
@@ -102,6 +101,7 @@ type TrackerEntry = {
   startTime: string;
   endTime: string;
   remark: string;
+  complaintSubType?: string;
   installerAssignedId?: string;
   installerAssignedName?: string;
 };
@@ -131,6 +131,12 @@ const purposeByCategory: Record<
     { value: "pickup_drop", label: "Pickup / Drop Work" },
     { value: "stitching_support", label: "Stitching Support Visit" },
   ],
+  complaint_visit: [
+    { value: "curtain_alteration", label: "Curtain Alteration" },
+    { value: "repair", label: "Repair" },
+    { value: "blind_installation_repair", label: "Blind Installation Repair" },
+    { value: "uninstallation", label: "Uninstallation" },
+  ],
 };
 
 const workModeLabel: Record<WorkMode, string> = {
@@ -138,6 +144,35 @@ const workModeLabel: Record<WorkMode, string> = {
   outside_workshop: "Outside Workshop",
   factory_visit: "Factory Visit",
   sample_meeting: "Sample Meeting",
+};
+
+const categoryConfig: Record<
+  VisitCategory,
+  {
+    label: string;
+    icon: React.ElementType;
+    iconWrapClass: string;
+    iconClass: string;
+  }
+> = {
+  company_visit: {
+    label: "Company Visit",
+    icon: Building2,
+    iconWrapClass: "bg-indigo-50",
+    iconClass: "text-indigo-600",
+  },
+  tailor_work: {
+    label: "Tailor Work",
+    icon: Scissors,
+    iconWrapClass: "bg-violet-50",
+    iconClass: "text-violet-600",
+  },
+  complaint_visit: {
+    label: "Complaint Visit",
+    icon: AlertCircle,
+    iconWrapClass: "bg-rose-50",
+    iconClass: "text-rose-600",
+  },
 };
 
 const statusConfig: Record<
@@ -181,6 +216,18 @@ const toTitle = (value: string) =>
     .filter(Boolean)
     .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
     .join(" ");
+
+const normalizeVisitCategory = (value: unknown): VisitCategory => {
+  const normalized = String(value || "").trim();
+  if (
+    normalized === "company_visit" ||
+    normalized === "tailor_work" ||
+    normalized === "complaint_visit"
+  ) {
+    return normalized;
+  }
+  return "company_visit";
+};
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -324,6 +371,8 @@ const EntryDetailSheet = ({
 
   const sc = statusConfig[entry.status];
   const StatusIcon = sc.icon;
+  const categoryMeta = categoryConfig[entry.category];
+  const CategoryIcon = categoryMeta.icon;
   const hasInstallers = installers && installers.length > 0;
 
   const handleStatusClick = async (s: VisitStatus) => {
@@ -357,24 +406,17 @@ const EntryDetailSheet = ({
             <div
               className={cn(
                 "flex h-10 w-10 items-center justify-center rounded-xl",
-                entry.category === "company_visit"
-                  ? "bg-indigo-50"
-                  : "bg-violet-50"
+                categoryMeta.iconWrapClass
               )}
             >
-              {entry.category === "company_visit" ? (
-                <Building2 className="h-5 w-5 text-indigo-600" />
-              ) : (
-                <Scissors className="h-5 w-5 text-violet-600" />
-              )}
+              <CategoryIcon className={cn("h-5 w-5", categoryMeta.iconClass)} />
             </div>
             <div>
               <SheetTitle className="text-slate-900 text-base">
                 {toTitle(entry.purpose)}
               </SheetTitle>
               <SheetDescription className="text-xs text-slate-400">
-                {entry.category === "company_visit" ? "Company Visit" : "Tailor Work"} ·{" "}
-                {workModeLabel[entry.workMode]}
+                {categoryMeta.label} - {workModeLabel[entry.workMode]}
               </SheetDescription>
             </div>
           </div>
@@ -454,6 +496,15 @@ const EntryDetailSheet = ({
               </div>
             </div>
           </div>
+
+          {entry.complaintSubType && (
+            <div className="rounded-xl border border-rose-100 bg-rose-50/60 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-rose-500 mb-1">
+                Complaint Sub Type
+              </p>
+              <p className="text-sm text-slate-700">{entry.complaintSubType}</p>
+            </div>
+          )}
 
           {entry.remark && (
             <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3">
@@ -625,6 +676,7 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
   const [visitDate, setVisitDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
+  const [complaintSubType, setComplaintSubType] = useState("");
   const [remark, setRemark] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -655,11 +707,12 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
         setTrackerRows(
           snap.docs.map((d) => {
             const data = d.data() as any;
+            const category = normalizeVisitCategory(data?.category);
             return {
               id: d.id,
               createdAt: String(data?.createdAt || ""),
               updatedAt: String(data?.updatedAt || ""),
-              category: data?.category as VisitCategory,
+              category,
               purpose: String(data?.purpose || ""),
               status: data?.status as VisitStatus,
               assignedToId: String(data?.assignedToId || ""),
@@ -671,6 +724,7 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
               visitDate: String(data?.visitDate || ""),
               startTime: String(data?.startTime || ""),
               endTime: String(data?.endTime || ""),
+              complaintSubType: String(data?.complaintSubType || ""),
               remark: String(data?.remark || ""),
               installerAssignedId: String(data?.installerAssignedId || ""),
               installerAssignedName: String(data?.installerAssignedName || ""),
@@ -691,7 +745,14 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
       return valid ? prev : opts[0]?.value || "";
     });
     setAssignedToId("");
-    setWorkMode(category === "tailor_work" ? "outside_workshop" : "sample_meeting");
+    setWorkMode(
+      category === "tailor_work"
+        ? "outside_workshop"
+        : category === "complaint_visit"
+        ? "customer_home"
+        : "sample_meeting"
+    );
+    setComplaintSubType("");
   }, [category]);
 
   const requiredKind: TeamMemberKind =
@@ -729,6 +790,7 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
     setVisitDate("");
     setStartTime("");
     setEndTime("");
+    setComplaintSubType("");
     setRemark("");
     setAssignedToId("");
     setPurpose(purposeByCategory.company_visit[0]?.value || "");
@@ -790,6 +852,10 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
       toast.error("Please fill all required fields.");
       return;
     }
+    if (category === "complaint_visit" && !complaintSubType.trim()) {
+      toast.error("Please fill complaint sub type.");
+      return;
+    }
     const member = members.find((m) => m.id === assignedToId);
     if (!member) { toast.error("Please select a valid assignee."); return; }
 
@@ -810,6 +876,7 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
         visitDate,
         startTime,
         endTime,
+        complaintSubType: complaintSubType.trim(),
         remark: remark.trim(),
         installerAssignedId: "",
         installerAssignedName: "",
@@ -847,7 +914,7 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
                     Visit Tracker
                   </DialogTitle>
                   <DialogDescription className="text-xs text-slate-400 mt-0.5">
-                    Company visits & tailor work — all in one place
+                    Company visits, tailor work, and complaint visits in one place
                   </DialogDescription>
                 </div>
               </div>
@@ -899,6 +966,7 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
                     [
                       { v: "company_visit", label: "Company Visit", Icon: Building2 },
                       { v: "tailor_work", label: "Tailor Work", Icon: Scissors },
+                      { v: "complaint_visit", label: "Complaint Visit", Icon: AlertCircle },
                     ] as const
                   ).map(({ v, label, Icon }) => (
                     <button
@@ -951,6 +1019,18 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
                     />
                   </FieldWrapper>
                 </FormRow>
+
+                {category === "complaint_visit" && (
+                  <FormRow cols={1}>
+                    <FieldWrapper label="Complaint Sub Type" required>
+                      <StyledInput
+                        value={complaintSubType}
+                        onChange={(e) => setComplaintSubType(e.target.value)}
+                        placeholder="Example: chain stuck, loose stitch, side gap"
+                      />
+                    </FieldWrapper>
+                  </FormRow>
+                )}
 
                 {/* Row 2: Assignee, From, To */}
                 <FormRow cols={4}>
@@ -1172,8 +1252,8 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
                   <div className="space-y-2.5">
                     {filteredRows.map((entry) => {
                       const sc = statusConfig[entry.status];
-                      const StatusIcon = sc.icon;
-                      const isCompany = entry.category === "company_visit";
+                      const categoryMeta = categoryConfig[entry.category];
+                      const CategoryIcon = categoryMeta.icon;
 
                       return (
                         <button
@@ -1187,14 +1267,10 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
                             <div
                               className={cn(
                                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl mt-0.5",
-                                isCompany ? "bg-indigo-50" : "bg-violet-50"
+                                categoryMeta.iconWrapClass
                               )}
                             >
-                              {isCompany ? (
-                                <Building2 className="h-4 w-4 text-indigo-500" />
-                              ) : (
-                                <Scissors className="h-4 w-4 text-violet-500" />
-                              )}
+                              <CategoryIcon className={cn("h-4 w-4", categoryMeta.iconClass)} />
                             </div>
 
                             {/* Content */}
@@ -1218,6 +1294,9 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
                               </div>
 
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-500">
+                                  {categoryMeta.label}
+                                </span>
                                 <span className="flex items-center gap-1">
                                   <User2 className="h-3 w-3" /> {entry.assignedToName}
                                 </span>
@@ -1235,6 +1314,12 @@ export default function CompanyVisitDialog({ open, onOpenChange, installers }: P
                                   {entry.startTime} – {entry.endTime}
                                 </span>
                               </div>
+
+                              {entry.complaintSubType && (
+                                <div className="mt-1 text-xs text-rose-600">
+                                  Sub: {entry.complaintSubType}
+                                </div>
+                              )}
 
                               {entry.installerAssignedName && (
                                 <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 text-[11px] font-medium text-indigo-700">
