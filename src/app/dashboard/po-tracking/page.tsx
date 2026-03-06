@@ -10,7 +10,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { ArrowLeft, Loader2, Calendar as CalendarIcon, CheckboxIcon } from "lucide-react";
+import { ArrowLeft, Loader2, Calendar as CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -158,7 +158,16 @@ export default function FollowUpPage() {
     { accessorKey: "orderId", header: "Order ID" },
     { accessorKey: "poNumber", header: "PO Number" },
     { accessorKey: "customerName", header: "Customer Name" },
-    { accessorKey: "vendorsuppliercode", header: "Item Discription" },
+    {
+      accessorKey: "supplierCollectionCode",
+      header: "Supplier Code / Name",
+      cell: ({ row }) => (
+        <div>
+          <p>{row.original.supplierCollectionCode || "—"}</p>
+          <p className="text-xs text-muted-foreground">{row.original.supplierCollectionName || "—"}</p>
+        </div>
+      ),
+    },
     { accessorKey: "itemName", header: "Item Name" },
     { accessorKey: "quantity", header: "Qty" },
     { accessorKey: "expectedDeliveryDate", header: "Expected Date", cell: ({row}) => format(new Date(row.original.expectedDeliveryDate), "PPP") },

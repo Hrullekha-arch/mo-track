@@ -4,6 +4,7 @@ import { ComboboxOption } from "@/components/ui/combobox";
 import { Timestamp as AdminTimestamp } from "firebase-admin/firestore";
 
 export type UserRole = 'admin' | 'employee' | 'installer' | 'salesman' | 'Accounts' | 'Hr' | 'Purchase';
+export type Weekday = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
 
 export interface PmsProduct {
   id: string;
@@ -103,6 +104,7 @@ export interface User {
   permissions?: string[]; // Array of allowed module keys
   store?: string;
   fcmTokens?: string[]; // For push notifications
+  dayOff?: Weekday;
 }
 
 export interface Walkin_Customer {
@@ -190,10 +192,15 @@ export interface InboundMilestone {
 export interface FabricDetail {
     fabricName: string;
     quantity: string;
+    unit?: 'Mtr' | 'Pcs' | 'mtr' | 'pcs';
+    itemCode?: string;
     poNumber?: string;
     tallyPoNumber?: string;
     vendorName?: string;
+    supplierCollectionCode?: string;
+    supplierCollectionName?: string;
     expectedDeliveryDate?: string;
+    docketNo?: string;
     hasPanels?: boolean;
     type?: string;
     panels?: string;
@@ -424,6 +431,18 @@ export interface SalesmanCrmAssignment {
   crmUserId: string;
 }
 
+export interface PoStockDetailSnapshot {
+  bcn: string;
+  qty: string;
+  unit: 'Mtr' | 'Pcs';
+  vendorName?: string;
+  supplierCollectionCode?: string;
+  supplierCollectionName?: string;
+  itemCode?: string;
+  expectedDeliveryDate?: string;
+  docketNo?: string;
+}
+
 // Purchase Process Types
 export interface PurchaseRequest {
   id: string;
@@ -458,6 +477,33 @@ export interface PurchaseRequest {
   courier?: string;
   mode?: string;
   tallyPoNumber?: string;
+  stockDetails?: PoStockDetailSnapshot[];
+  customerSnapshot?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    customerId?: string;
+  };
+  dealSnapshot?: {
+    dealId?: string;
+    quotationNo?: string;
+    orderId?: string;
+    crmOrderNo?: string;
+  };
+  orderSnapshot?: {
+    id?: string;
+    crmOrderNo?: string;
+    orderNo?: string;
+    orderType?: string;
+    status?: string;
+    createdAt?: string;
+    totalAmount?: number;
+  };
+  assignedSalesman?: {
+    id?: string;
+    name?: string;
+  };
 
   // Completion fields
   completedAt?: string;
@@ -467,10 +513,17 @@ export interface PurchaseRequest {
 
 export interface InboundItem {
     itemName: string;
+    itemCode?: string;
     quantity: string;
     receivedQty?: string;
-    unit: 'Mtr' | 'Pcs';
+    unit: 'Mtr' | 'Pcs' | 'mtr' | 'pcs';
     poNumber?: string;
+    vendorName?: string;
+    supplierCollectionCode?: string;
+    supplierCollectionName?: string;
+    expectedDeliveryDate?: string;
+    docketNo?: string;
+    stockDetail?: PoStockDetailSnapshot;
     inboundMilestones: InboundMilestone[];
 }
 
@@ -483,6 +536,12 @@ export interface InboundRequest {
     tallyPoNumber?: string;
     createdAt: string;
     status: 'Active' | 'Completed';
+    purchaseRequestIds?: string[];
+    stockDetails?: PoStockDetailSnapshot[];
+    customerSnapshot?: PurchaseRequest['customerSnapshot'];
+    dealSnapshot?: PurchaseRequest['dealSnapshot'];
+    orderSnapshot?: PurchaseRequest['orderSnapshot'];
+    assignedSalesman?: PurchaseRequest['assignedSalesman'];
     completedAt?: string;
     completedBy?: string;
     items: InboundItem[];
@@ -499,6 +558,7 @@ export interface PurchaseStatus {
   vendorName?: string;
   quantity?: string;
   itemName?: string;
+  docketNo?: string;
 }
 
 export interface PurchaseStep {

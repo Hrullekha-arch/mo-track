@@ -22,6 +22,11 @@ interface UserTableProps {
   description: string;
 }
 
+const formatDayOff = (dayOff?: User["dayOff"]) => {
+  if (!dayOff) return "-";
+  return dayOff.charAt(0).toUpperCase() + dayOff.slice(1);
+};
+
 export function UserTable({ users, title, description }: UserTableProps) {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
@@ -61,6 +66,7 @@ export function UserTable({ users, title, description }: UserTableProps) {
             <TableHead>Role</TableHead>
             <TableHead>Designation</TableHead>
             <TableHead>Salesman Code</TableHead>
+            <TableHead>Day Off</TableHead>
             {!isEmployee && <TableHead className="text-right">Actions</TableHead>}
           </TableRow>
         </TableHeader>
@@ -99,6 +105,11 @@ export function UserTable({ users, title, description }: UserTableProps) {
                   <span className="text-sm text-muted-foreground">-</span>
                 )}
               </TableCell>
+              <TableCell>
+                <span className="text-sm text-muted-foreground">
+                  {user.role === "installer" ? formatDayOff(user.dayOff) : "-"}
+                </span>
+              </TableCell>
               {!isEmployee && (
                 <TableCell className="text-right">
                   <DropdownMenu>
@@ -120,7 +131,7 @@ export function UserTable({ users, title, description }: UserTableProps) {
           ))
         ) : (
             <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
+                <TableCell colSpan={isEmployee ? 5 : 6} className="h-24 text-center">
                     No users found in this category.
                 </TableCell>
             </TableRow>

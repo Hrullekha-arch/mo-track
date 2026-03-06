@@ -5,7 +5,7 @@ import { adminDb } from "@/lib/firebase-admin";
 const DEFAULT_SHEET_ID = "11gMXD3ZQiH7D9NtCFx1q3COH18jQQRTh3mLSaa8RFKA";
 const DEFAULT_SHEET_NAME = "Sheet2";
 const DEFAULT_PURCHASE_SHEET_NAME = "Purchase";
-const SYNC_ROUTE_VERSION = "2026-02-28-purchase-docket-v4";
+const SYNC_ROUTE_VERSION = "2026-03-06-order-sheet2-v5";
 
 const getSheetsClient = async () => {
   const serviceAccountKey =
@@ -45,6 +45,8 @@ const canonicalHeader = [
   "Stock Verification Timestamp",
   "Stock Verification Status",
   "Order Type",
+  "Quotation amount",
+  "Order status Status (Complete/Pending)",
 ];
 
 const purchaseCanonicalHeader = [
@@ -165,6 +167,46 @@ const normalizePrCreatedStatus = (value?: string) => {
   return "";
 };
 
+const parseAmount = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const normalized = String(value)
+    .replace(/,/g, "")
+    .replace(/[^\d.-]/g, "")
+    .trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const formatAmount = (value: unknown) => {
+  const amount = parseAmount(value);
+  if (amount === null) return "";
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+};
+
+const normalizeOrderCompletionStatus = (order: any, o2d?: any) => {
+  const rawStatus = String(order?.status || "").trim().toLowerCase();
+  if (rawStatus) {
+    const completeTokens = ["complete", "completed", "done", "closed", "delivered", "invoiced"];
+    if (completeTokens.some((token) => rawStatus.includes(token))) {
+      return "Complete";
+    }
+    if (["pending", "open", "active", "pendinginvoice", "pending_invoice"].includes(rawStatus)) {
+      return "Pending";
+    }
+  }
+
+  const deliveryDone = (Array.isArray(o2d?.milestones) ? o2d.milestones : []).some(
+    (milestone: any) =>
+      Number(milestone?.stepId) === 13 &&
+      String(milestone?.status || "").trim().toLowerCase() === "completed"
+  );
+  if (deliveryDone) return "Complete";
+
+  return order ? "Pending" : "";
+};
+
 type QuotationRecord = {
   id: string;
   dealId: string;
@@ -174,6 +216,7 @@ type QuotationRecord = {
   approvedAt?: string;
   convertedAt?: string;
   updatedAt?: string;
+  totalAmount?: number;
   items: string[];
 };
 
@@ -623,6 +666,14 @@ export async function POST() {
         approvedAt: data?.approvedAt,
         convertedAt: data?.convertedAt,
         updatedAt: data?.updatedAt,
+        totalAmount:
+          parseAmount(
+            data?.totalAmount ??
+              data?.grandTotal ??
+              data?.finalAmount ??
+              data?.finalTotal ??
+              data?.amount
+          ) ?? undefined,
         items: getQuotationItemLabels(data),
       };
 
@@ -746,6 +797,13 @@ export async function POST() {
         quotationForItems?.convertedAt ||
         quotationForItems?.updatedAt ||
         "";
+      const quotationAmount = formatAmount(
+        quotationForItems?.totalAmount ??
+          order?.quotationAmount ??
+          order?.totalAmount ??
+          order?.grandTotal
+      );
+      const orderCompletionStatus = normalizeOrderCompletionStatus(order, o2d);
       const orderType = formatOrderTypeLabel(order?.orderType);
       const address =
         buildAddress(customer) ||
@@ -812,6 +870,8 @@ export async function POST() {
           stockVerificationAt,
           stockVerificationStatus,
           orderType,
+          quotationAmount,
+          orderCompletionStatus,
         ]);
       });
     });

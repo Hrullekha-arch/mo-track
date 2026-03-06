@@ -13,12 +13,15 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Download } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 type OrderRisk = "critical" | "watch" | "stable";
 const ALL_ROLES = "__all_roles__";
@@ -95,6 +98,7 @@ const riskBadgeClassMap: Record<OrderRisk, string> = {
 
 export default function UserReportPage() {
   const { user, role, loading: authLoading } = useAuth();
+  const { toast } = useToast();
 
   const [users, setUsers] = useState<User[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -107,6 +111,11 @@ export default function UserReportPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [detailSearch, setDetailSearch] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [masterExporting, setMasterExporting] = useState(false);
+  const [multiExportOpen, setMultiExportOpen] = useState(false);
+  const [multiExporting, setMultiExporting] = useState(false);
+  const [multiExportSearch, setMultiExportSearch] = useState("");
+  const [multiSelectedUserIds, setMultiSelectedUserIds] = useState<string[]>([]);
 
   useEffect(() => {
     let readyUsers = false;
@@ -285,34 +294,56 @@ export default function UserReportPage() {
   }, [selectedRow, detailSearch]);
 
   const roleOptions = useMemo(() => Array.from(new Set(users.map((entry) => entry.role))).sort(), [users]);
+  const multiExportRows = useMemo(() => {
+    const queryText = normalizeText(multiExportSearch);
+    if (!queryText) return reportRows;
+    return reportRows.filter((row) => {
+      return (
+        normalizeText(row.user.name).includes(queryText) ||
+        normalizeText(row.user.email).includes(queryText) ||
+        normalizeText(row.user.role).includes(queryText) ||
+        normalizeText(row.user.designation).includes(queryText)
+      );
+    });
+  }, [reportRows, multiExportSearch]);
 
-  const handleExportSelectedUser = async () => {
-    if (!selectedRow) return;
-    setExporting(true);
-    try {
-      const XLSX = await import("xlsx");
-      const workbook = XLSX.utils.book_new();
+  const buildExportWorkbook = (XLSX: typeof import("xlsx"), rows: UserReportRow[], exportScope: string) => {
+    const workbook = XLSX.utils.book_new();
 
-      const summaryRows = [
-        { Field: "User Name", Value: selectedRow.user.name || "-" },
-        { Field: "Email", Value: selectedRow.user.email || "-" },
-        { Field: "Role", Value: selectedRow.user.role || "-" },
-        { Field: "Designation", Value: selectedRow.user.designation || "-" },
-        { Field: "Work Scope", Value: selectedRow.workScope || "-" },
-        { Field: "Total Orders", Value: selectedRow.totalOrders },
-        { Field: "Pending Orders", Value: selectedRow.pendingOrders },
-        { Field: "Completed Orders", Value: selectedRow.completedOrders },
-        { Field: "Critical Orders", Value: selectedRow.criticalOrders },
-        { Field: "Pending Approval Orders", Value: selectedRow.pendingApprovalOrders },
-        { Field: "Average Progress (%)", Value: selectedRow.averageProgress },
-        { Field: "Total PR", Value: selectedRow.purchaseRows.length },
-        { Field: "Pending PR", Value: selectedRow.purchasePending },
-        { Field: "Completed PR", Value: selectedRow.purchaseCompleted },
-        { Field: "Exported At", Value: format(new Date(), "dd MMM yyyy, hh:mm a") },
-      ];
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), "Summary");
+    const metaRows = [
+      { Field: "Export Scope", Value: exportScope },
+      { Field: "User Count", Value: rows.length },
+      { Field: "Exported At", Value: format(new Date(), "dd MMM yyyy, hh:mm a") },
+    ];
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(metaRows), "Meta");
 
-      const orderRows = selectedRow.orderMonitors.map((row) => ({
+    const summaryRows = rows.map((entry) => ({
+      userId: entry.user.id,
+      userName: entry.user.name || "-",
+      email: entry.user.email || "-",
+      role: entry.user.role || "-",
+      designation: entry.user.designation || "-",
+      workScope: entry.workScope || "-",
+      totalOrders: entry.totalOrders,
+      pendingOrders: entry.pendingOrders,
+      completedOrders: entry.completedOrders,
+      criticalOrders: entry.criticalOrders,
+      pendingApprovalOrders: entry.pendingApprovalOrders,
+      averageProgressPercent: entry.averageProgress,
+      totalPurchaseRequests: entry.purchaseRows.length,
+      pendingPurchaseRequests: entry.purchasePending,
+      completedPurchaseRequests: entry.purchaseCompleted,
+    }));
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(summaryRows.length ? summaryRows : [{ note: "No users selected" }]),
+      "User Summary"
+    );
+
+    const orderRows = rows.flatMap((entry) =>
+      entry.orderMonitors.map((row) => ({
+        userId: entry.user.id,
+        userName: entry.user.name || "-",
         orderId: row.order.id,
         crmOrderNo: row.order.crmOrderNo || row.order.id,
         customerName: row.order.customerName || "-",
@@ -325,14 +356,18 @@ export default function UserReportPage() {
         agingDays: row.ageDays,
         risk: row.risk,
         createdAt: formatDateTimeLabel(row.order.createdAt),
-      }));
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.json_to_sheet(orderRows.length ? orderRows : [{ note: "No linked orders" }]),
-        "Orders"
-      );
+      }))
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(orderRows.length ? orderRows : [{ note: "No linked orders" }]),
+      "Orders"
+    );
 
-      const prRows = selectedRow.purchaseRows.map((row) => ({
+    const prRows = rows.flatMap((entry) =>
+      entry.purchaseRows.map((row) => ({
+        userId: entry.user.id,
+        userName: entry.user.name || "-",
         prId: row.id,
         dealId: row.dealId || "-",
         quotationNo: row.quotationNo || "-",
@@ -342,33 +377,118 @@ export default function UserReportPage() {
         createdBy: row.createdBy?.name || "-",
         createdAt: formatDateTimeLabel(row.createdAt),
         poDeliveryDate: row.poDeliveryDate || "-",
-      }));
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.json_to_sheet(prRows.length ? prRows : [{ note: "No linked purchase requests" }]),
-        "Purchase Requests"
-      );
+      }))
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(prRows.length ? prRows : [{ note: "No linked purchase requests" }]),
+      "Purchase Requests"
+    );
 
-      if (selectedRow.assignedSalesmen.length) {
-        const assignedRows = selectedRow.assignedSalesmen.map((name, index) => ({
-          srNo: index + 1,
-          salesmanName: name,
-        }));
-        XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(assignedRows), "Assigned Salesmen");
-      }
+    const assignedRows = rows.flatMap((entry) =>
+      entry.assignedSalesmen.map((name, index) => ({
+        userId: entry.user.id,
+        userName: entry.user.name || "-",
+        srNo: index + 1,
+        salesmanName: name,
+      }))
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(assignedRows.length ? assignedRows : [{ note: "No assigned salesmen" }]),
+      "Assigned Salesmen"
+    );
 
+    return workbook;
+  };
+
+  const exportRowsToExcel = async (rows: UserReportRow[], filePrefix: string, exportScope: string) => {
+    if (!rows.length) {
+      toast({ variant: "destructive", title: "No users selected", description: "Please select at least one user." });
+      return false;
+    }
+
+    try {
+      const XLSX = await import("xlsx");
+      const workbook = buildExportWorkbook(XLSX, rows, exportScope);
+      const fileName = `${filePrefix}-${format(new Date(), "yyyyMMdd-HHmmss")}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+      toast({
+        title: "Export completed",
+        description: `${rows.length} user${rows.length > 1 ? "s" : ""} exported to Excel.`,
+      });
+      return true;
+    } catch (error) {
+      console.error("Failed to export user report:", error);
+      toast({
+        variant: "destructive",
+        title: "Export failed",
+        description: "Could not generate Excel file. Please try again.",
+      });
+      return false;
+    }
+  };
+
+  const handleExportSelectedUser = async () => {
+    if (!selectedRow) return;
+    setExporting(true);
+    try {
       const safeUserName =
         String(selectedRow.user.name || "user")
           .trim()
           .replace(/[^a-zA-Z0-9]+/g, "-")
           .replace(/^-+|-+$/g, "")
           .toLowerCase() || "user";
-      const fileName = `user-report-${safeUserName}-${format(new Date(), "yyyyMMdd-HHmmss")}.xlsx`;
-      XLSX.writeFile(workbook, fileName);
-    } catch (error) {
-      console.error("Failed to export user report:", error);
+      await exportRowsToExcel([selectedRow], `user-report-${safeUserName}`, `Selected user: ${selectedRow.user.name || "Unknown"}`);
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleMasterExport = async () => {
+    setMasterExporting(true);
+    try {
+      await exportRowsToExcel(reportRows, "user-report-master", "Master export (all users)");
+    } finally {
+      setMasterExporting(false);
+    }
+  };
+
+  const openMultiExportDialog = () => {
+    setMultiExportSearch("");
+    setMultiSelectedUserIds(selectedUserId ? [selectedUserId] : []);
+    setMultiExportOpen(true);
+  };
+
+  const toggleMultiUser = (userId: string, checked: boolean) => {
+    setMultiSelectedUserIds((prev) => {
+      if (checked) return prev.includes(userId) ? prev : [...prev, userId];
+      return prev.filter((id) => id !== userId);
+    });
+  };
+
+  const selectAllVisibleMultiUsers = () => {
+    setMultiSelectedUserIds((prev) => {
+      const next = new Set(prev);
+      multiExportRows.forEach((row) => next.add(row.user.id));
+      return Array.from(next);
+    });
+  };
+
+  const clearMultiUsers = () => setMultiSelectedUserIds([]);
+
+  const handleMultiExport = async () => {
+    const targetRows = reportRows.filter((row) => multiSelectedUserIds.includes(row.user.id));
+    setMultiExporting(true);
+    try {
+      const success = await exportRowsToExcel(
+        targetRows,
+        `user-report-multi-${targetRows.length || 0}-users`,
+        `Multi export (${targetRows.length || 0} selected users)`
+      );
+      if (success) setMultiExportOpen(false);
+    } finally {
+      setMultiExporting(false);
     }
   };
 
@@ -399,8 +519,22 @@ export default function UserReportPage() {
     <div className="space-y-6 p-4 md:p-6 lg:p-8">
       <Card className="border-slate-200 bg-gradient-to-r from-slate-50 via-white to-sky-50">
         <CardHeader>
-          <CardTitle className="text-2xl">User Report</CardTitle>
-          <CardDescription>Admin view of each user&apos;s workload, order status, and pendency.</CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-2xl">User Report</CardTitle>
+              <CardDescription>Admin view of each user&apos;s workload, order status, and pendency.</CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => void openMultiExportDialog()} disabled={!reportRows.length || multiExporting}>
+                <Download className="mr-2 h-4 w-4" />
+                Multi Export
+              </Button>
+              <Button onClick={() => void handleMasterExport()} disabled={!reportRows.length || masterExporting}>
+                <Download className="mr-2 h-4 w-4" />
+                {masterExporting ? "Exporting..." : "Master Export"}
+              </Button>
+            </div>
+          </div>
         </CardHeader>
       </Card>
 
@@ -457,7 +591,7 @@ export default function UserReportPage() {
                     </div>
                     <Button variant="outline" onClick={() => void handleExportSelectedUser()} disabled={exporting}>
                       <Download className="mr-2 h-4 w-4" />
-                      {exporting ? "Exporting..." : "Export Excel"}
+                      {exporting ? "Exporting..." : "Export Selected"}
                     </Button>
                   </div>
                 </CardHeader>
@@ -550,6 +684,73 @@ export default function UserReportPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={multiExportOpen} onOpenChange={(open) => !multiExporting && setMultiExportOpen(open)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Multi Export Users</DialogTitle>
+            <DialogDescription>Select users with checkboxes and export only selected user data.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <Input
+              value={multiExportSearch}
+              onChange={(e) => setMultiExportSearch(e.target.value)}
+              placeholder="Search user in export list..."
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <p className="text-muted-foreground">
+                Selected: <span className="font-semibold text-foreground">{multiSelectedUserIds.length}</span>
+              </p>
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={selectAllVisibleMultiUsers}>
+                  Select All Visible
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={clearMultiUsers}>
+                  Clear
+                </Button>
+              </div>
+            </div>
+
+            <ScrollArea className="h-72 rounded-md border p-2">
+              <div className="space-y-2">
+                {multiExportRows.length ? (
+                  multiExportRows.map((row) => {
+                    const checked = multiSelectedUserIds.includes(row.user.id);
+                    return (
+                      <label key={row.user.id} className={cn("flex cursor-pointer items-start gap-3 rounded-md border p-2", checked ? "border-sky-300 bg-sky-50" : "border-slate-200")}>
+                        <Checkbox checked={checked} onCheckedChange={(value) => toggleMultiUser(row.user.id, !!value)} className="mt-1" />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{row.user.name || "Unnamed User"}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {row.user.role || "-"}{row.user.designation ? ` / ${row.user.designation}` : ""} | {row.user.email || "-"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Orders: {row.totalOrders} | Pending: {row.pendingOrders} | PR: {row.purchaseRows.length}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })
+                ) : (
+                  <p className="py-8 text-center text-sm text-muted-foreground">No users found for this search.</p>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setMultiExportOpen(false)} disabled={multiExporting}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void handleMultiExport()} disabled={!multiSelectedUserIds.length || multiExporting}>
+              <Download className="mr-2 h-4 w-4" />
+              {multiExporting ? "Exporting..." : "Export Selected Users"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

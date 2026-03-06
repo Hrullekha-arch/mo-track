@@ -15,7 +15,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { User, UserRole } from "@/lib/types";
+import { User } from "@/lib/types";
 import { Loader2, Info, PlusCircle } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,6 +29,7 @@ const formSchema = z.object({
   store: z.string().optional(),
   designation: z.enum(['CRM', 'Allocators', 'PC']).optional(),
   salesmanCode: z.string().optional(),
+  dayOff: z.enum(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']).optional(),
   permissions: z.array(z.string()).optional(),
 }).refine(data => {
     if (data.role === 'employee' && !data.designation) {
@@ -38,18 +39,28 @@ const formSchema = z.object({
 }, {
     message: "Designation is required for employees",
     path: ["designation"],
-}).refine(data => {
-    // Other roles besides employee and salesman should not have designation or salesmanCode
+}).superRefine((data, ctx) => {
     if (data.role !== 'employee' && data.designation) {
-        return false;
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["designation"],
+            message: "Designation is only applicable for employees.",
+        });
     }
     if (data.role !== 'salesman' && data.salesmanCode) {
-        return false;
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["salesmanCode"],
+            message: "Salesman code is only applicable for salesmen.",
+        });
     }
-    return true;
-}, {
-    message: "This field is not applicable for the selected role.",
-    path: ["designation"], // Path can be adjusted based on where you want the error
+    if (data.role !== 'installer' && data.dayOff) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["dayOff"],
+            message: "Day off is only applicable for installers.",
+        });
+    }
 });
 
 
@@ -74,6 +85,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
       store: '',
       designation: undefined,
       salesmanCode: '',
+      dayOff: undefined,
       permissions: [],
     },
   });
@@ -90,6 +102,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         designation: user.designation,
         password: '',
         salesmanCode: user.salesmanCode || '',
+        dayOff: user.dayOff,
         permissions: user.permissions || [],
       });
     } else {
@@ -101,6 +114,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
         store: '',
         designation: undefined,
         salesmanCode: '',
+        dayOff: undefined,
         permissions: [],
       });
     }
@@ -112,6 +126,9 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
       }
       if (role !== 'salesman') {
           form.setValue('salesmanCode', '');
+      }
+      if (role !== 'installer') {
+          form.setValue('dayOff', undefined);
       }
   }, [role, form]);
 
@@ -127,6 +144,7 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
             store: values.store || null,
             designation: values.designation || null,
             salesmanCode: values.salesmanCode || null,
+            dayOff: values.role === 'installer' ? (values.dayOff || null) : null,
             permissions: values.permissions || [],
         });
         toast({ title: "User Updated", description: "User details have been successfully updated." });
@@ -154,6 +172,9 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
             }
              if (values.salesmanCode && values.role === 'salesman') {
                 newUser.salesmanCode = values.salesmanCode;
+            }
+            if (values.dayOff && values.role === 'installer') {
+                newUser.dayOff = values.dayOff;
             }
             
             await setDoc(doc(db, "users", authUser.uid), newUser);
@@ -310,6 +331,36 @@ export function UserFormDialog({ isOpen, onClose, user }: UserFormDialogProps) {
                   <FormItem>
                     <FormLabel>Salesman Code</FormLabel>
                     <FormControl><Input placeholder="e.g. S001" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            {role === 'installer' && (
+              <FormField
+                control={form.control}
+                name="dayOff"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Day Off</FormLabel>
+                    <Select
+                      onValueChange={(value) => field.onChange(value === "__none__" ? undefined : value)}
+                      value={field.value || "__none__"}
+                    >
+                      <FormControl>
+                        <SelectTrigger><SelectValue placeholder="Select weekly day off" /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="__none__">No Day Off</SelectItem>
+                        <SelectItem value="sunday">Sunday</SelectItem>
+                        <SelectItem value="monday">Monday</SelectItem>
+                        <SelectItem value="tuesday">Tuesday</SelectItem>
+                        <SelectItem value="wednesday">Wednesday</SelectItem>
+                        <SelectItem value="thursday">Thursday</SelectItem>
+                        <SelectItem value="friday">Friday</SelectItem>
+                        <SelectItem value="saturday">Saturday</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { User } from "@/lib/types";
+import type { User, Weekday } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -36,6 +36,34 @@ const buildSlots = () => {
 };
 
 export const SLOT_OPTIONS = buildSlots();
+
+const WEEKDAY_ORDER: Weekday[] = [
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+];
+
+const WEEKDAY_LABELS: Record<Weekday, string> = {
+  sunday: "Sunday",
+  monday: "Monday",
+  tuesday: "Tuesday",
+  wednesday: "Wednesday",
+  thursday: "Thursday",
+  friday: "Friday",
+  saturday: "Saturday",
+};
+
+const getWeekdayFromSlotDate = (slotDate: string): Weekday | null => {
+  const cleanDate = String(slotDate || "").trim();
+  if (!cleanDate) return null;
+  const localDate = new Date(`${cleanDate}T00:00:00`);
+  if (Number.isNaN(localDate.getTime())) return null;
+  return WEEKDAY_ORDER[localDate.getDay()] || null;
+};
 
 export type SlotId = string;
 
@@ -242,13 +270,27 @@ export function AssignInstallerDialog({
   }, [selectedSlotsSorted]);
 
   const hasBlockedSelected = selectedSlotIds.some((id) => blockedSlotIds.has(id));
+  const selectedWeekday = React.useMemo(
+    () => (slotsEnabled ? getWeekdayFromSlotDate(slotDate) : null),
+    [slotDate, slotsEnabled]
+  );
+  const selectedInstaller = React.useMemo(
+    () => installers.find((installer) => installer.id === installerId),
+    [installerId, installers]
+  );
+  const selectedInstallerIsDayOff =
+    !!slotsEnabled &&
+    !!selectedWeekday &&
+    !!selectedInstaller?.dayOff &&
+    selectedInstaller.dayOff === selectedWeekday;
 
   const canSubmit = slotsEnabled
     ? !!installerId &&
       !!slotDate &&
       selectedSlotIds.length > 0 &&
       !hasBlockedSelected &&
-      isSelectionContiguous
+      isSelectionContiguous &&
+      !selectedInstallerIsDayOff
     : !!installerId;
 
   return (
@@ -379,32 +421,53 @@ export function AssignInstallerDialog({
         <div className="space-y-2 mt-4">
           <div className="text-sm font-medium">Select Installer</div>
           <div className="max-h-64 overflow-auto rounded-md border p-2 space-y-2">
-            {installers.map((installer) => (
-              <button
-                key={installer.id}
-                type="button"
-                onClick={() => {
-                  setInstallerId(installer.id);
-                  if (slotsEnabled) setSelectedSlotIds([]);
-                }}
-                className={cn(
-                  "w-full flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm",
-                  installerId === installer.id && "border-primary"
-                )}
-              >
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{installer.name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{installer.email}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {installerId === installer.id && <Badge>Selected</Badge>}
-                </div>
-              </button>
-            ))}
+            {installers.map((installer) => {
+              const isDayOffForDate =
+                !!slotsEnabled &&
+                !!selectedWeekday &&
+                !!installer.dayOff &&
+                installer.dayOff === selectedWeekday;
+
+              return (
+                <button
+                  key={installer.id}
+                  type="button"
+                  onClick={() => {
+                    if (isDayOffForDate) return;
+                    setInstallerId(installer.id);
+                    if (slotsEnabled) setSelectedSlotIds([]);
+                  }}
+                  disabled={isDayOffForDate}
+                  className={cn(
+                    "w-full flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm",
+                    installerId === installer.id && "border-primary",
+                    isDayOffForDate && "opacity-60 cursor-not-allowed bg-muted/40"
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{installer.name}</div>
+                    <div className="text-xs text-muted-foreground truncate">{installer.email}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isDayOffForDate && (
+                      <Badge variant="outline" className="text-destructive border-destructive/30">
+                        Day Off
+                      </Badge>
+                    )}
+                    {installerId === installer.id && <Badge>Selected</Badge>}
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
           {slotsEnabled && (!slotDate || !installerId) ? (
             <div className="text-xs text-muted-foreground">Pick date + installer to view slots.</div>
+          ) : null}
+          {selectedInstallerIsDayOff && selectedWeekday ? (
+            <div className="text-xs text-destructive">
+              {selectedInstaller?.name || "Selected installer"} is off on {WEEKDAY_LABELS[selectedWeekday]}.
+            </div>
           ) : null}
         </div>
 

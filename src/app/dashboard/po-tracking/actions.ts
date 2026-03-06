@@ -3,8 +3,7 @@
 'use server';
 
 import { adminDb } from '@/lib/firebase-admin';
-import { PurchaseRequest, PurchaseStatus } from '@/lib/types';
-import { subDays, isSameDay } from 'date-fns';
+import { InboundRequest, PurchaseRequest, PurchaseStatus } from '@/lib/types';
 import { FieldValue } from 'firebase-admin/firestore';
 
 export interface PoFollowUpItem {
@@ -14,6 +13,9 @@ export interface PoFollowUpItem {
     poNumber?: string;
     customerName: string;
     itemName: string;
+    itemCode?: string;
+    supplierCollectionCode?: string;
+    supplierCollectionName?: string;
     quantity: string;
     salesman: string;
     expectedDeliveryDate: string;
@@ -22,63 +24,118 @@ export interface PoFollowUpItem {
 }
 
 // Function to get items that need follow-up
+function toISTMidnight(date: Date | string): Date {
+  const d = typeof date === "string" ? new Date(date) : date;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+
+  return new Date(
+    Number(parts.find((p) => p.type === "year")!.value),
+    Number(parts.find((p) => p.type === "month")!.value) - 1,
+    Number(parts.find((p) => p.type === "day")!.value)
+  );
+}
+
 export async function getFollowUpItems(): Promise<PoFollowUpItem[]> {
-    try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0); // Start of today
+  try {
+    console.log("========== FOLLOW UP FETCH START ==========");
 
-        // Fetch all requests that have a PO generated and are not yet completed, OR are completed.
-        // This ensures we catch items that need follow-up even if the parent PR is marked "Completed".
-        const poRequestsSnapshot = await adminDb.collection('purchaseRequests')
-            .where('status', 'in', ['PO Generated', 'Completed'])
-            .get();
+    const todayIST = toISTMidnight(new Date());
 
-        const followUpItems: PoFollowUpItem[] = [];
+    console.log("Today IST:", todayIST.toDateString());
 
-        poRequestsSnapshot.forEach(doc => {
-            const request = { id: doc.id, ...doc.data() } as PurchaseRequest;
-            // Use the promiseDeliveryDate from the root of the request.
-            if (!request.promiseDeliveryDate) return;
+    const poRequestsSnapshot = await adminDb
+      .collection("purchaseRequests")
+      .where("status", "in", ["PO Generated", "Completed"])
+      .get();
 
-            const promiseDate = new Date(request.promiseDeliveryDate);
-            const followUpDate = subDays(promiseDate, 2);
-            
-            // If today is on or after the follow-up date, check items inside.
-            if (isSameDay(today, followUpDate) || today > followUpDate) {
-                 const itemsWithPo = (request.fabricDetails || []).filter(item => item.poNumber);
+    console.log("Total purchaseRequests fetched:", poRequestsSnapshot.size);
 
-                 itemsWithPo.forEach(item => {
-                    // Check if this specific item has already been followed up on.
-                    const isFollowedUp = (request.poMilestones || []).some(
-                        m => m.stepId === 2 && m.itemName === item.fabricName
-                    );
+    const followUpItems: PoFollowUpItem[] = [];
 
-                    if (!isFollowedUp) {
-                        followUpItems.push({
-                            id: `${request.id}-${item.fabricName}`, // Use the correct document ID for the unique ID
-                            requestId: request.id, // Pass the correct document ID
-                            orderId: request.dealId,
-                            poNumber: item.poNumber,
-                            customerName: request.customerName,
-                            itemName: item.fabricName,
-                            itemCode: item.itemCode,
-                            quantity: item.quantity,
-                            salesman: request.salesman,
-                            expectedDeliveryDate: item.expectedDeliveryDate || request.promiseDeliveryDate, // Use item-specific date if available
-                            vendorName: item.vendorName,
-                            originalRequest: request,
-                        });
-                        console.log("Request",request);
-                    }
-                 });
-            }
+    poRequestsSnapshot.forEach((doc: any) => {
+      const request = { id: doc.id, ...doc.data() } as PurchaseRequest;
+
+      console.log("------------------------------------------------");
+      console.log("Processing Request:", request.id);
+
+      if (!request.promiseDeliveryDate) {
+        console.log("❌ No promiseDeliveryDate");
+        return;
+      }
+
+      const promiseDate = toISTMidnight(request.promiseDeliveryDate);
+
+      const followUpDate = new Date(promiseDate);
+      followUpDate.setDate(followUpDate.getDate() - 2);
+
+      console.log("Promise Date IST:", promiseDate.toDateString());
+      console.log("FollowUp Date IST:", followUpDate.toDateString());
+
+      if (todayIST < followUpDate) {
+        console.log("⏳ Follow-up not reached yet");
+        return;
+      }
+
+      console.log("✅ Follow-up condition passed");
+
+      const fabricDetails = request.fabricDetails || [];
+
+      console.log("Fabric items:", fabricDetails.length);
+
+      const itemsWithPo = fabricDetails.filter((item: any) => item.poNumber);
+
+      console.log("Items with PO:", itemsWithPo.length);
+
+      itemsWithPo.forEach((item: any) => {
+        console.log("Checking:", item.fabricName);
+
+        const milestones = request.poMilestones || [];
+        const itemName = (item.fabricName || "").trim();
+
+        const isFollowedUp = milestones.some(
+          (m: any) => m.stepId === 2 && (m.itemName || "").trim() === itemName
+        );
+
+        if (isFollowedUp) {
+          console.log("⚠️ Already followed up:", itemName);
+          return;
+        }
+
+        console.log("✅ Adding item:", itemName);
+
+        followUpItems.push({
+          id: `${request.id}-${itemName}`,
+          requestId: request.id,
+          orderId: request.dealId,
+          poNumber: item.poNumber,
+          customerName: request.customerName,
+          itemName: itemName,
+          itemCode: item.itemCode,
+          supplierCollectionCode: item.supplierCollectionCode,
+          supplierCollectionName: item.supplierCollectionName,
+          quantity: item.quantity,
+          salesman: request.salesman,
+          expectedDeliveryDate:
+            item.expectedDeliveryDate || request.promiseDeliveryDate,
+          vendorName: item.vendorName,
+          originalRequest: request,
         });
+      });
+    });
 
-        return JSON.parse(JSON.stringify(followUpItems));
-    } catch (error) {
-        console.error("Error fetching follow-up items:", error);
-        return [];
-    }
+    console.log("========== FOLLOW UP RESULT ==========");
+    console.log("Total Items:", followUpItems.length);
+
+    return JSON.parse(JSON.stringify(followUpItems));
+  } catch (error) {
+    console.error("❌ Follow-up fetch error:", error);
+    return [];
+  }
 }
 
 // Function to update the follow-up status and optionally the date
@@ -86,14 +143,15 @@ export async function updateFollowUpStatus(
     requestId: string,
     itemName: string,
     newDate: string | null,
-    DocketNo:string | null,
+    docketNoInput: string | null,
     userName: string
 ): Promise<{ success: boolean; message: string }> {
-    console.log("DocketNo",DocketNo , requestId);
     try {
         const requestRef = adminDb.collection('purchaseRequests').doc(requestId);
+        const nowIso = new Date().toISOString();
+        const docketNo = String(docketNoInput || "").trim();
         
-        await adminDb.runTransaction(async (transaction) => {
+        await adminDb.runTransaction(async (transaction: any) => {
             const requestDoc = await transaction.get(requestRef);
             if (!requestDoc.exists) {
                 throw new Error("Purchase request not found.");
@@ -112,21 +170,77 @@ export async function updateFollowUpStatus(
             if (newDate) {
                 fabricDetails[itemIndex].expectedDeliveryDate = newDate;
             }
+            if (docketNo) {
+                fabricDetails[itemIndex].docketNo = docketNo;
+            }
+
+            const linkedPoNumber = String(fabricDetails[itemIndex].poNumber || "").trim();
+            let inboundRef: any = null;
+            let inboundData: InboundRequest | null = null;
+            if (linkedPoNumber) {
+                inboundRef = adminDb.collection("inbounds").doc(linkedPoNumber);
+                const inboundDoc = await transaction.get(inboundRef);
+                if (inboundDoc.exists) {
+                    inboundData = inboundDoc.data() as InboundRequest;
+                }
+            }
             
             const followUpMilestone: PurchaseStatus = {
                 stepId: 2, // 'Delivery Follow Up'
                 status: 'completed',
-                completedAt: new Date().toISOString(),
+                completedAt: nowIso,
                 completedBy: userName,
                 itemName: itemName,
-                docketNo:DocketNo,
-                remarks: newDate ? `Delivery date updated to ${new Date(newDate).toLocaleDateString()}` : "Follow-up confirmed."
+                remarks: [
+                  "Follow-up confirmed.",
+                  newDate ? `Delivery date updated to ${new Date(newDate).toLocaleDateString()}.` : "",
+                  docketNo ? `Docket no: ${docketNo}.` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" "),
+                ...(docketNo ? { docketNo } : {}),
             };
 
             transaction.update(requestRef, { 
                 fabricDetails: fabricDetails,
                 poMilestones: FieldValue.arrayUnion(followUpMilestone)
             });
+
+            if (inboundRef && inboundData) {
+                    const inboundItems = Array.isArray(inboundData?.items) ? [...inboundData.items] : [];
+                    let touched = false;
+
+                    const nextItems = inboundItems.map((lineItem: any) => {
+                        if (String(lineItem?.itemName || "").trim() !== itemName) return lineItem;
+                        touched = true;
+                        const nextLine = { ...lineItem };
+                        if (newDate) nextLine.expectedDeliveryDate = newDate;
+                        if (docketNo) nextLine.docketNo = docketNo;
+                        if (nextLine.stockDetail && typeof nextLine.stockDetail === "object") {
+                            nextLine.stockDetail = {
+                                ...nextLine.stockDetail,
+                                ...(newDate ? { expectedDeliveryDate: newDate } : {}),
+                                ...(docketNo ? { docketNo } : {}),
+                            };
+                        }
+                        return nextLine;
+                    });
+
+                    if (touched) {
+                        const updatePayload: Record<string, unknown> = { items: nextItems, updatedAt: nowIso };
+                        if (Array.isArray((inboundData as any).stockDetails)) {
+                            updatePayload.stockDetails = (inboundData as any).stockDetails.map((line: any) => {
+                                if (String(line?.bcn || "").trim() !== itemName) return line;
+                                return {
+                                    ...line,
+                                    ...(newDate ? { expectedDeliveryDate: newDate } : {}),
+                                    ...(docketNo ? { docketNo } : {}),
+                                };
+                            });
+                        }
+                        transaction.update(inboundRef, updatePayload);
+                    }
+            }
         });
 
         return { success: true, message: `Follow-up for ${itemName} has been recorded.` };

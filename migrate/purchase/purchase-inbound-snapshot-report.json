@@ -1,0 +1,23 @@
+{
+  "startedAt": "2026-03-06T09:51:40.254Z",
+  "dryRun": false,
+  "limit": null,
+  "purchaseRequests": {
+    "scanned": 448,
+    "updated": 447,
+    "unchanged": 1,
+    "failed": 0
+  },
+  "inbounds": {
+    "scanned": 335,
+    "updated": 334,
+    "unchanged": 1,
+    "failed": 0
+  },
+  "write": {
+    "operations": 781,
+    "commits": 3
+  },
+  "warnings": [],
+  "finishedAt": "2026-03-06T09:57:18.591Z"
+}

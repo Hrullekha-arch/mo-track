@@ -95,6 +95,19 @@ interface PendingVisitCompletion {
   remark: string;
 }
 
+const WEEKDAY_ORDER = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+type WeekdayKey = (typeof WEEKDAY_ORDER)[number];
+
+const getWeekdayFromSlotDate = (slotDate: string): WeekdayKey | null => {
+  const cleanDate = String(slotDate || "").trim();
+  if (!cleanDate) return null;
+  const date = new Date(`${cleanDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return WEEKDAY_ORDER[date.getDay()] || null;
+};
+
+const formatWeekday = (day: WeekdayKey) => day.charAt(0).toUpperCase() + day.slice(1);
+
 // ─── Status Helpers ───────────────────────────────────────────────────────────
 
 const STATUS_CONFIG = {
@@ -505,8 +518,8 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDet
 
     return visits.filter(visit => {
       if (fromDate || toDate) {
-        if (!visit.createdAt) return false;
-        const due = new Date(visit.createdAt);
+        if (!visit.dueDate) return false;
+        const due = new Date(visit.dueDate);
         if (isNaN(due.getTime())) return false;
         if (fromDate && due < fromDate) return false;
         if (toDate && due > toDate) return false;
@@ -865,7 +878,7 @@ function AllVisitsTable({ visits, assigneeNameById, onAssign, onShare, onViewDet
                     <TableCell>
                       <div className="flex flex-col items-start gap-1.5">
                         {renderVisitStatus(visit)}
-                        {visit.status !== "completed" && visit.typeOfVisit !== "measurement" && visit.dueDate && (
+                        {visit.status !== "completed" && visit.dueDate && (
                           <span className="text-[11px] text-slate-400">
                             {format(new Date(visit.dueDate), "d MMM yyyy")}
                           </span>
@@ -1429,10 +1442,23 @@ export default function AllVisitsPage() {
 
   const handleAssignInstaller = async (installerId: string, slots?: SlotSelection[]) => {
     if (!selectedVisit || !slots?.length) return;
+    const slotDate = slots[0].slotDate;
+    const selectedInstaller = installers.find((installer) => installer.id === installerId);
+    const installerDayOff = String(selectedInstaller?.dayOff || "").trim().toLowerCase();
+    const slotDay = getWeekdayFromSlotDate(slotDate);
+
+    if (slotDay && installerDayOff && installerDayOff === slotDay) {
+      toast({
+        variant: "destructive",
+        title: "Installer unavailable",
+        description: `${selectedInstaller?.name || "This installer"} is off on ${formatWeekday(slotDay)}.`,
+      });
+      return;
+    }
+
     setIsAssigning(false);
     try {
       const assignedAt = new Date().toISOString();
-      const slotDate = slots[0].slotDate;
       const slotIndex = new Map(SLOT_OPTIONS.map((opt, idx) => [opt.id, idx]));
       const sortedSlotIds = [...new Set(slots.map(s => s.slotId))].sort(
         (a, b) => (slotIndex.get(a) ?? 0) - (slotIndex.get(b) ?? 0)
