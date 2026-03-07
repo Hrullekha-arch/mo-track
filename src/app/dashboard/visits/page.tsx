@@ -38,6 +38,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Separator } from "@/components/ui/separator";
 import CompanyVisitDialog from "@/components/features/customer/CompanyVisitDialog";
 import { useAuth } from "@/context/AuthContext";
+import InstallerLiveMap, { type InstallerMapMarker, type InstallerMapMarkerStatus } from "@/components/features/visits/InstallerLiveMap";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,12 @@ interface InstallerTracking {
   updatedAt?: string;
   speedKmh?: number;
   currentVisitId?: string;
+  batteryLevel?: number | null;
+  networkType?: string | null;
+  gpsAccuracy?: number | null;
+  appState?: string | null;
+  accuracyM?: number | null;
+  deviceModel?: string | null;
 }
 
 interface EnrichedDealVisit extends DealVisit {
@@ -108,6 +115,144 @@ const getWeekdayFromSlotDate = (slotDate: string): WeekdayKey | null => {
 
 const formatWeekday = (day: WeekdayKey) => day.charAt(0).toUpperCase() + day.slice(1);
 
+const OFFLINE_AFTER_MS = 60 * 1000;
+
+const asFiniteNumber = (value: unknown) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const toIsoString = (value: unknown): string | undefined => {
+  if (!value) return undefined;
+
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isNaN(ms) ? undefined : value.toISOString();
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    const ms = new Date(value).getTime();
+    return Number.isNaN(ms) ? undefined : new Date(ms).toISOString();
+  }
+
+  if (typeof value === "object") {
+    const maybeTimestamp = value as {
+      toDate?: () => Date;
+      seconds?: number;
+      nanoseconds?: number;
+      _seconds?: number;
+      _nanoseconds?: number;
+    };
+
+    if (typeof maybeTimestamp.toDate === "function") {
+      const date = maybeTimestamp.toDate();
+      const ms = date.getTime();
+      return Number.isNaN(ms) ? undefined : date.toISOString();
+    }
+
+    const seconds = asFiniteNumber(maybeTimestamp.seconds ?? maybeTimestamp._seconds);
+    if (seconds != null) {
+      const nanos = asFiniteNumber(maybeTimestamp.nanoseconds ?? maybeTimestamp._nanoseconds) ?? 0;
+      const ms = Math.round(seconds * 1000 + nanos / 1_000_000);
+      return new Date(ms).toISOString();
+    }
+  }
+
+  return undefined;
+};
+
+const pingToMs = (value?: unknown) => {
+  const iso = toIsoString(value);
+  if (!iso) return 0;
+  const ms = new Date(iso).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+};
+
+const normalizeTrackingDoc = (docId: string, rawData: any): InstallerTracking => {
+  const raw = rawData || {};
+  const lat = asFiniteNumber(raw?.location?.latitude ?? raw?.latitude);
+  const lng = asFiniteNumber(raw?.location?.longitude ?? raw?.longitude);
+  const networkTypeRaw = raw?.networkType ?? raw?.device?.networkType;
+  const appStateRaw = raw?.appState ?? raw?.device?.appState;
+  const deviceModelRaw = raw?.deviceModel ?? raw?.device?.deviceModel;
+  const rawStatus =
+    typeof raw?.status === "string"
+      ? raw.status
+      : typeof raw?.status?.state === "string"
+        ? raw.status.state
+        : undefined;
+
+  return {
+    id: docId,
+    installerId: String(raw?.installerId || docId),
+    status: rawStatus,
+    location:
+      lat != null && lng != null
+        ? { latitude: lat, longitude: lng }
+        : undefined,
+    lastPingAt: toIsoString(raw?.lastPingAt ?? raw?.timestamps?.lastPingAt ?? raw?.updatedAt ?? raw?.timestamps?.updatedAt),
+    updatedAt: toIsoString(raw?.updatedAt ?? raw?.timestamps?.updatedAt),
+    speedKmh: asFiniteNumber(raw?.speedKmh ?? raw?.location?.speedKmh),
+    currentVisitId: raw?.currentVisitId || raw?.visit?.currentVisitId || undefined,
+    batteryLevel: asFiniteNumber(raw?.batteryLevel ?? raw?.device?.batteryLevel) ?? null,
+    networkType: networkTypeRaw == null ? null : String(networkTypeRaw),
+    gpsAccuracy: asFiniteNumber(raw?.gpsAccuracy ?? raw?.location?.accuracyM) ?? null,
+    appState: appStateRaw == null ? null : String(appStateRaw),
+    accuracyM: asFiniteNumber(raw?.accuracyM ?? raw?.location?.accuracyM) ?? null,
+    deviceModel: deviceModelRaw == null ? null : String(deviceModelRaw),
+  };
+};
+
+const resolvePresenceStatus = (
+  tracking?: InstallerTracking,
+  nowMs: number = Date.now()
+): InstallerMapMarkerStatus => {
+  const lastPingMs = pingToMs(tracking?.lastPingAt);
+  if (!lastPingMs || nowMs - lastPingMs > OFFLINE_AFTER_MS) return "OFFLINE";
+
+  const status = String(tracking?.status || "").toUpperCase();
+  if (status === "DRIVING" || status === "MOVING") return "DRIVING";
+
+  const speedKmh = Number(tracking?.speedKmh);
+  if (Number.isFinite(speedKmh) && speedKmh >= 8) return "DRIVING";
+
+  return "IDLE";
+};
+
+const statusAppearance: Record<InstallerMapMarkerStatus, { label: string; dot: string; badge: string; text: string }> = {
+  DRIVING: {
+    label: "Driving",
+    dot: "bg-emerald-500",
+    badge: "bg-emerald-50 border-emerald-200",
+    text: "text-emerald-700",
+  },
+  IDLE: {
+    label: "Idle",
+    dot: "bg-amber-500",
+    badge: "bg-amber-50 border-amber-200",
+    text: "text-amber-700",
+  },
+  OFFLINE: {
+    label: "Offline",
+    dot: "bg-rose-500",
+    badge: "bg-rose-50 border-rose-200",
+    text: "text-rose-700",
+  },
+};
+
+const formatLastPingAgo = (value?: unknown, nowMs: number = Date.now()) => {
+  const pingMs = pingToMs(value);
+  if (!pingMs) return "No ping";
+  const seconds = Math.max(0, Math.round((nowMs - pingMs) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
 // ─── Status Helpers ───────────────────────────────────────────────────────────
 
 const STATUS_CONFIG = {
@@ -137,16 +282,19 @@ const StatusPill = ({ config }: { config: { label: string; className: string } }
 
 const LiveStatusDot = ({ status }: { status?: string }) => {
   const s = (status || "IDLE").toUpperCase();
-  const cfg = {
-    WORKING: { dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
-    DRIVING: { dot: "bg-blue-500",    text: "text-blue-700",    bg: "bg-blue-50 border-blue-200" },
-    IDLE:    { dot: "bg-amber-400",   text: "text-amber-700",   bg: "bg-amber-50 border-amber-200" },
-  }[s] ?? { dot: "bg-slate-400", text: "text-slate-600", bg: "bg-slate-50 border-slate-200" };
+  const cfg =
+    s === "DRIVING"
+      ? statusAppearance.DRIVING
+      : s === "OFFLINE"
+        ? statusAppearance.OFFLINE
+        : s === "WORKING"
+          ? { dot: "bg-blue-500", text: "text-blue-700", badge: "bg-blue-50 border-blue-200", label: "WORKING" }
+          : statusAppearance.IDLE;
 
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold", cfg.bg, cfg.text)}>
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold", cfg.badge, cfg.text)}>
       <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot, s === "WORKING" && "animate-pulse")} />
-      {s}
+      {cfg.label || s}
     </span>
   );
 };
@@ -1329,6 +1477,7 @@ export default function AllVisitsPage() {
   const [loading, setLoading] = React.useState(true);
   const [tracking, setTracking] = React.useState<InstallerTracking[]>([]);
   const [trackingLoading, setTrackingLoading] = React.useState(true);
+  const [clockNow, setClockNow] = React.useState(() => Date.now());
   const [selectedVisit, setSelectedVisit] = React.useState<EnrichedDealVisit | null>(null);
   const [isAssigning, setIsAssigning] = React.useState(false);
   const [shareableLink, setShareableLink] = React.useState<string | null>(null);
@@ -1337,6 +1486,11 @@ export default function AllVisitsPage() {
   const [suggestMap, setSuggestMap] = React.useState<Record<string, JobSuggestion>>({});
   const [editingVisit, setEditingVisit] = React.useState<EnrichedDealVisit | null>(null);
   const { toast } = useToast();
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const installers = React.useMemo(() => users.filter(u => u.role === "installer"), [users]);
 
@@ -1381,6 +1535,78 @@ export default function AllVisitsPage() {
     return map;
   }, [allVisits]);
 
+  const liveInstallerRows = React.useMemo(() => {
+    return installers.map((installer) => {
+      const trackingDoc = trackingByInstaller.get(installer.id);
+      const presence = resolvePresenceStatus(trackingDoc, clockNow);
+      const currentVisit = trackingDoc?.currentVisitId ? visitsById.get(trackingDoc.currentVisitId) : null;
+      const assignedVisits = groupedVisits.get(installer.id) || [];
+      const activeVisit = currentVisit || assignedVisits.find((visit) => visit.status !== "completed");
+
+      const taskLabel = activeVisit
+        ? `${activeVisit.customerName} (${activeVisit.typeOfVisit || "visit"})`
+        : trackingDoc?.currentVisitId
+          ? `Visit ${trackingDoc.currentVisitId}`
+          : "No active task";
+
+      const batteryLevel =
+        typeof trackingDoc?.batteryLevel === "number"
+          ? Math.max(0, Math.min(100, Math.round(trackingDoc.batteryLevel)))
+          : null;
+
+      const gpsAccuracy =
+        typeof trackingDoc?.gpsAccuracy === "number"
+          ? Math.round(trackingDoc.gpsAccuracy)
+          : typeof trackingDoc?.accuracyM === "number"
+            ? Math.round(trackingDoc.accuracyM)
+            : null;
+
+      return {
+        installer,
+        trackingDoc,
+        presence,
+        taskLabel,
+        batteryLevel,
+        gpsAccuracy,
+        networkType: trackingDoc?.networkType || null,
+        appState: trackingDoc?.appState || null,
+        deviceModel: trackingDoc?.deviceModel || null,
+        speedKmh: typeof trackingDoc?.speedKmh === "number" ? Math.round(trackingDoc.speedKmh) : null,
+        lastPingAt: trackingDoc?.lastPingAt || null,
+        completedToday: completedTodayByInstaller.get(installer.id) || 0,
+      };
+    });
+  }, [installers, trackingByInstaller, clockNow, visitsById, groupedVisits, completedTodayByInstaller]);
+
+  const liveMapMarkers = React.useMemo<InstallerMapMarker[]>(() => {
+    return liveInstallerRows
+      .filter((row) => typeof row.trackingDoc?.location?.latitude === "number" && typeof row.trackingDoc?.location?.longitude === "number")
+      .map((row) => ({
+        id: row.installer.id,
+        name: row.installer.name,
+        status: row.presence,
+        latitude: row.trackingDoc!.location!.latitude,
+        longitude: row.trackingDoc!.location!.longitude,
+        speedKmh: row.speedKmh,
+        batteryLevel: row.batteryLevel,
+        networkType: row.networkType,
+        gpsAccuracy: row.gpsAccuracy,
+        appState: row.appState,
+        lastPingAt: row.lastPingAt,
+        currentTask: row.taskLabel,
+      }));
+  }, [liveInstallerRows]);
+
+  const livePresenceCounts = React.useMemo(() => {
+    return liveInstallerRows.reduce(
+      (acc, row) => {
+        acc[row.presence] += 1;
+        return acc;
+      },
+      { DRIVING: 0, IDLE: 0, OFFLINE: 0 } as Record<InstallerMapMarkerStatus, number>
+    );
+  }, [liveInstallerRows]);
+
   // Firestore subscriptions
   React.useEffect(() => {
     const unsubs = [
@@ -1416,7 +1642,11 @@ export default function AllVisitsPage() {
         setLoading(false);
       }),
       onSnapshot(collection(db, "installerTracking"), snap => {
-        setTracking(snap.docs.map(d => ({ id: d.id, ...d.data() } as InstallerTracking)));
+        const installers: InstallerTracking[] = [];
+        snap.forEach((docSnap) => {
+          installers.push(normalizeTrackingDoc(docSnap.id, docSnap.data()));
+        });
+        setTracking(installers);
         setTrackingLoading(false);
       }),
       onSnapshot(collection(db, "jobSuggestions"), snap => {
@@ -1639,62 +1869,109 @@ export default function AllVisitsPage() {
               {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-64 rounded-2xl" />)}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {installers.map(installer => {
-                const td = trackingByInstaller.get(installer.id);
-                const currentVisit = td?.currentVisitId ? visitsById.get(td.currentVisitId) : null;
-                const assignedVisits = groupedVisits.get(installer.id) || [];
-                const activeVisit = currentVisit || assignedVisits.find(v => v.status !== "completed");
-                const taskLabel = activeVisit
-                  ? `${activeVisit.customerName} (${activeVisit.typeOfVisit})`
-                  : td?.currentVisitId ? `Visit ${td.currentVisitId}` : "No active task";
-                const completedCount = completedTodayByInstaller.get(installer.id) || 0;
-                const mapSrc = td?.location
-                  ? `https://maps.google.com/maps?q=${td.location.latitude},${td.location.longitude}&z=15&output=embed`
-                  : null;
-                const lastPing = td?.lastPingAt ? new Date(td.lastPingAt) : null;
-                const lastPingAt = lastPing && !isNaN(lastPing.getTime()) ? format(lastPing, "p") : "No signal";
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+              <Card className="xl:col-span-8 overflow-hidden border-slate-200 shadow-sm">
+                <div className="border-b border-slate-100 p-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">Installer Live Map</h3>
+                    <p className="text-xs text-slate-500 mt-1">Real-time markers from Firestore `installerTracking`</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {(["DRIVING", "IDLE", "OFFLINE"] as InstallerMapMarkerStatus[]).map((status) => {
+                      const style = statusAppearance[status];
+                      return (
+                        <span
+                          key={status}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
+                            style.badge,
+                            style.text
+                          )}
+                        >
+                          <span className={cn("h-1.5 w-1.5 rounded-full", style.dot)} />
+                          {style.label}: {livePresenceCounts[status]}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="p-4">
+                  <InstallerLiveMap markers={liveMapMarkers} />
+                </div>
+              </Card>
 
-                return (
-                  <div key={installer.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-slate-100">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2.5">
-                          <Avatar className="h-9 w-9">
-                            <AvatarImage src={installer.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(installer.name)}&background=6366f1&color=fff`} />
-                            <AvatarFallback className="bg-indigo-100 text-indigo-700 text-xs font-bold">{installer.name.charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-semibold text-slate-800 text-sm">{installer.name}</p>
-                            <p className="text-[11px] text-slate-400">Last ping: {lastPingAt}</p>
+              <Card className="xl:col-span-4 border-slate-200 shadow-sm">
+                <div className="border-b border-slate-100 p-4">
+                  <h3 className="text-sm font-semibold text-slate-900">Device Health Monitoring</h3>
+                  <p className="text-xs text-slate-500 mt-1">Battery, network, GPS accuracy, app state, and ping freshness</p>
+                </div>
+                <div className="max-h-[510px] overflow-y-auto p-3 space-y-2.5">
+                  {liveInstallerRows.map((row) => {
+                    const style = statusAppearance[row.presence];
+                    const pingAgo = formatLastPingAgo(row.lastPingAt || undefined, clockNow);
+                    const speedLabel = row.speedKmh != null ? `${row.speedKmh} km/h` : "N/A";
+                    const batteryLabel = row.batteryLevel != null ? `${row.batteryLevel}%` : "N/A";
+                    const gpsLabel = row.gpsAccuracy != null ? `${row.gpsAccuracy}m` : "N/A";
+                    const mapsUrl =
+                      typeof row.trackingDoc?.location?.latitude === "number" &&
+                      typeof row.trackingDoc?.location?.longitude === "number"
+                        ? `https://www.google.com/maps?q=${row.trackingDoc.location.latitude},${row.trackingDoc.location.longitude}`
+                        : null;
+
+                    return (
+                      <div key={row.installer.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900 truncate">{row.installer.name}</p>
+                            <p className="text-xs text-slate-500 truncate">{row.taskLabel}</p>
+                          </div>
+                          <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold", style.badge, style.text)}>
+                            <span className={cn("h-1.5 w-1.5 rounded-full", style.dot)} />
+                            {style.label}
+                          </span>
+                        </div>
+
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <p className="text-slate-500">Speed</p>
+                            <p className="font-semibold text-slate-900">{speedLabel}</p>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <p className="text-slate-500">Battery</p>
+                            <p className="font-semibold text-slate-900">{batteryLabel}</p>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <p className="text-slate-500">Network</p>
+                            <p className="font-semibold text-slate-900 uppercase">{row.networkType || "N/A"}</p>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <p className="text-slate-500">GPS</p>
+                            <p className="font-semibold text-slate-900">{gpsLabel}</p>
                           </div>
                         </div>
-                        <LiveStatusDot status={td?.status} />
-                      </div>
-                    </div>
-                    <div className="p-4 space-y-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Current task</span>
-                        <span className="font-medium text-slate-800 text-xs max-w-[160px] text-right truncate">{taskLabel}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-500">Completed today</span>
-                        <span className="font-bold text-slate-800">{completedCount}</span>
-                      </div>
-                      {mapSrc ? (
-                        <div className="overflow-hidden rounded-xl border border-slate-200">
-                          <iframe title={`${installer.name} location`} src={mapSrc} className="h-36 w-full" loading="lazy" />
+
+                        <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                          <span>Last ping: {pingAgo}</span>
+                          <span>App: {row.appState || "N/A"}</span>
                         </div>
-                      ) : (
-                        <div className="rounded-xl border border-dashed border-slate-200 py-6 text-center">
-                          <MapPin className="h-5 w-5 text-slate-300 mx-auto mb-1" />
-                          <p className="text-xs text-slate-400">No live location</p>
+                        <div className="mt-1 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-500">
+                            Completed today: {row.completedToday}
+                            {row.deviceModel ? ` | ${row.deviceModel}` : ""}
+                          </span>
+                          {mapsUrl ? (
+                            <a href={mapsUrl} target="_blank" rel="noreferrer" className="font-medium text-indigo-600 hover:text-indigo-800">
+                              Open map
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">No location</span>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
             </div>
           )}
         </TabsContent>

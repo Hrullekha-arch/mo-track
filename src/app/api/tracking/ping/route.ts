@@ -81,6 +81,22 @@ export async function POST(request: Request) {
   const longitude = Number(payload?.longitude);
   const accuracy = payload?.accuracy;
   const speed = payload?.speed;
+  const batteryLevelRaw = Number(payload?.batteryLevel);
+  const gpsAccuracyRaw = Number(payload?.gpsAccuracy);
+  const networkType = String(payload?.networkType || "").trim() || null;
+  const appState = String(payload?.appState || "").trim() || null;
+
+  const normalizedBatteryLevel =
+    Number.isFinite(batteryLevelRaw)
+      ? Math.max(0, Math.min(100, batteryLevelRaw <= 1 ? batteryLevelRaw * 100 : batteryLevelRaw))
+      : null;
+
+  const normalizedGpsAccuracy =
+    Number.isFinite(gpsAccuracyRaw)
+      ? Math.max(0, gpsAccuracyRaw)
+      : typeof accuracy === "number" && Number.isFinite(accuracy)
+        ? Math.max(0, accuracy)
+        : null;
 
   if (!installerId || Number.isNaN(latitude) || Number.isNaN(longitude)) {
     return NextResponse.json(
@@ -250,6 +266,10 @@ export async function POST(request: Request) {
       visitId: nextVisitId,
       location: currentLocation,
       speedKmh: computedSpeedKmh ?? null,
+      batteryLevel: normalizedBatteryLevel,
+      networkType,
+      gpsAccuracy: normalizedGpsAccuracy,
+      appState,
     });
     currentStatusEventId = newEventRef.id;
   }
@@ -365,7 +385,8 @@ export async function POST(request: Request) {
 
   const nextStatusSince = statusChanged ? nowIso : trackingData.statusSince || nowIso;
 
-  // ---- Save installerTracking doc ----
+  // ---- Save latest installer state only (cost optimized) ----
+  // Full transition history is retained in statusEvents above.
   await trackingRef.set(
     {
       installerId,
@@ -374,7 +395,11 @@ export async function POST(request: Request) {
       lastPingAt: nowIso,
       location: currentLocation,
       accuracyM: typeof accuracy === "number" ? accuracy : null,
+      gpsAccuracy: normalizedGpsAccuracy,
       speedKmh: computedSpeedKmh ?? null,
+      batteryLevel: normalizedBatteryLevel,
+      networkType,
+      appState,
       lastMovementAt,
       inGeofenceVisitId,
       inGeofenceSince,
