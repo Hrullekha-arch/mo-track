@@ -168,6 +168,24 @@ const pingToMs = (value?: unknown) => {
   return Number.isNaN(ms) ? 0 : ms;
 };
 
+const pickLatestIso = (...values: unknown[]) => {
+  let latestMs = 0;
+  let latestIso: string | undefined;
+
+  values.forEach((value) => {
+    const iso = toIsoString(value);
+    if (!iso) return;
+    const ms = new Date(iso).getTime();
+    if (Number.isNaN(ms)) return;
+    if (ms > latestMs) {
+      latestMs = ms;
+      latestIso = iso;
+    }
+  });
+
+  return latestIso;
+};
+
 const normalizeTrackingDoc = (docId: string, rawData: any): InstallerTracking => {
   const raw = rawData || {};
   const lat = asFiniteNumber(raw?.location?.latitude ?? raw?.latitude);
@@ -182,6 +200,20 @@ const normalizeTrackingDoc = (docId: string, rawData: any): InstallerTracking =>
         ? raw.status.state
         : undefined;
 
+  const latestPingIso = pickLatestIso(
+    raw?.timestamps?.lastPingAt,
+    raw?.lastPingAt,
+    raw?.timestamps?.updatedAt,
+    raw?.updatedAt
+  );
+
+  const latestUpdatedIso = pickLatestIso(
+    raw?.timestamps?.updatedAt,
+    raw?.updatedAt,
+    raw?.timestamps?.lastPingAt,
+    raw?.lastPingAt
+  );
+
   return {
     id: docId,
     installerId: String(raw?.installerId || docId),
@@ -190,8 +222,8 @@ const normalizeTrackingDoc = (docId: string, rawData: any): InstallerTracking =>
       lat != null && lng != null
         ? { latitude: lat, longitude: lng }
         : undefined,
-    lastPingAt: toIsoString(raw?.lastPingAt ?? raw?.timestamps?.lastPingAt ?? raw?.updatedAt ?? raw?.timestamps?.updatedAt),
-    updatedAt: toIsoString(raw?.updatedAt ?? raw?.timestamps?.updatedAt),
+    lastPingAt: latestPingIso,
+    updatedAt: latestUpdatedIso,
     speedKmh: asFiniteNumber(raw?.speedKmh ?? raw?.location?.speedKmh),
     currentVisitId: raw?.currentVisitId || raw?.visit?.currentVisitId || undefined,
     batteryLevel: asFiniteNumber(raw?.batteryLevel ?? raw?.device?.batteryLevel) ?? null,

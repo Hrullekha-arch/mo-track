@@ -46,7 +46,19 @@ const allocationSchema = z.object({
 type AllocationFormValues = z.infer<typeof allocationSchema>;
 
 
-function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: OrderItem, stock: Stock, orderId: string, onAllocationSuccess: () => void }) {
+function AllocateDialog({
+    item,
+    stock,
+    orderId,
+    onAllocationSuccess,
+    invoiceRequired,
+}: {
+    item: OrderItem,
+    stock: Stock,
+    orderId: string,
+    onAllocationSuccess: () => void,
+    invoiceRequired: boolean,
+}) {
     const [isOpen, setIsOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [availableLengths, setAvailableLengths] = useState<{ length: number; transactionId: string; }[]>([]);
@@ -129,6 +141,7 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
                 : (stock.rrpWithGstRs ?? stock.mrp ?? 0);
             const result = await allocateStockToAction({
                 orderId,
+                stockId: stock.id,
                 bcn: stock.bcn,
                 allocations: data.allocations,
                 itemName: stock.name || stock.itemName || stock.bcn,
@@ -138,7 +151,12 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
             });
 
             if (result.success) {
-                toast({ title: 'Allocation Successful!', description: 'Stock has been reserved and sent for invoicing.' });
+                toast({
+                    title: 'Allocation Successful!',
+                    description: invoiceRequired
+                        ? 'Stock has been reserved and sent for invoicing.'
+                        : 'Stock has been reserved and marked ready for delivery.',
+                });
                 onAllocationSuccess();
                 setIsOpen(false);
             } else {
@@ -233,7 +251,10 @@ function AllocateDialog({ item, stock, orderId, onAllocationSuccess }: { item: O
                                     <AlertDialogHeader>
                                         <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                                         <AlertDialogDescription>
-                                            This will reserve {totalAllocated.toFixed(2)} units from the selected rolls. This action can be reversed if the order is cancelled before invoicing.
+                                            This will reserve {totalAllocated.toFixed(2)} units from the selected rolls.
+                                            {invoiceRequired
+                                                ? ' This action can be reversed if the order is cancelled before invoicing.'
+                                                : ' This action can be reversed if the order is cancelled before dispatch.'}
                                         </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
@@ -257,6 +278,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
     const [status, setStatus] = useState<{ text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline', poNumber?: string, tallyBillNo?: string }>({ text: 'Loading...', variant: 'secondary' });
 
     const isOrderApproved = order.status === 'Approved';
+    const invoiceRequired = order.invoicing?.invoiceRequired !== false;
 
     useEffect(() => {
         const fetchItemData = async () => {
@@ -348,7 +370,10 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             if (matchedInvoice) {
                  setStatus({ text: `Invoice Generated: ${matchedInvoice.data().tallyVoucherNo || ''}`, variant: 'default', tallyBillNo: matchedInvoice.data().tallyVoucherNo });
             } else if (totalReservedForOrder >= requiredQty) {
-                setStatus({ text: 'Pending for Invoice', variant: 'outline' });
+                setStatus({
+                    text: invoiceRequired ? 'Pending for Invoice' : 'Ready for Delivery',
+                    variant: invoiceRequired ? 'outline' : 'default',
+                });
             } else if (availableQty >= (requiredQty - totalReservedForOrder)) {
                 setStatus({ text: 'In Stock', variant: 'default' });
             } else {
@@ -369,7 +394,7 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
             setLoading(false);
         };
         fetchItemData();
-    }, [item, orderId, orderCrmNo, refreshKey]);
+    }, [item, orderId, orderCrmNo, refreshKey, invoiceRequired]);
 
 
     const name = (item as any).fabricName || (item as any).furnitureName;
@@ -391,7 +416,13 @@ function OrderItemRow({ item, index, order, orderId, orderCrmNo, onAllocationSuc
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (allocatedQty > 0 ? (
                     <span className="font-semibold text-green-600">{allocatedQty.toFixed(2)}</span>
                 ) : isOrderApproved && stockInfo ? (
-                    <AllocateDialog item={item} stock={stockInfo} orderId={orderId} onAllocationSuccess={onAllocationSuccess} />
+                    <AllocateDialog
+                        item={item}
+                        stock={stockInfo}
+                        orderId={orderId}
+                        onAllocationSuccess={onAllocationSuccess}
+                        invoiceRequired={invoiceRequired}
+                    />
                 ) : (
                     <Badge variant="outline">{order.status || 'Pending'}</Badge>
                 ))}

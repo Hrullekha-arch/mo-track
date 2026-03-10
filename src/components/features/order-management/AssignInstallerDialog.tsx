@@ -65,6 +65,18 @@ const getWeekdayFromSlotDate = (slotDate: string): Weekday | null => {
   return WEEKDAY_ORDER[localDate.getDay()] || null;
 };
 
+const normalizeDateInputValue = (value?: string) => {
+  const cleanValue = String(value || "").trim();
+  if (!cleanValue) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(cleanValue)) return cleanValue;
+  const parsed = new Date(cleanValue);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export type SlotId = string;
 
 export type SlotSelection = {
@@ -118,7 +130,7 @@ export function AssignInstallerDialog({
   currentSlotSelection,
   enableSlotBooking = true,
 }: AssignInstallerDialogProps) {
-  const [slotDate, setSlotDate] = React.useState(currentSlotSelection?.slotDate || "");
+  const [slotDate, setSlotDate] = React.useState(normalizeDateInputValue(currentSlotSelection?.slotDate));
   const [selectedSlotIds, setSelectedSlotIds] = React.useState<SlotId[]>(
     getInitialSlotIds(currentSlotSelection)
   );
@@ -126,8 +138,31 @@ export function AssignInstallerDialog({
   const [slotBookings, setSlotBookings] = React.useState<InstallerSlotBooking[]>([]);
   const [slotsLoading, setSlotsLoading] = React.useState(false);
   const [slotsError, setSlotsError] = React.useState<string | null>(null);
+  const initKeyRef = React.useRef<string>("");
 
   const slotsEnabled = enableSlotBooking !== false;
+  const initialSlotIdsKey = React.useMemo(
+    () => getInitialSlotIds(currentSlotSelection).join(","),
+    [currentSlotSelection?.slotId, currentSlotSelection?.slotIds]
+  );
+  const initialSlotIds = React.useMemo(
+    () => (initialSlotIdsKey ? initialSlotIdsKey.split(",").filter(Boolean) : []),
+    [initialSlotIdsKey]
+  );
+  const initialSlotDate = React.useMemo(
+    () => normalizeDateInputValue(currentSlotSelection?.slotDate),
+    [currentSlotSelection?.slotDate]
+  );
+  const initialStateKey = React.useMemo(
+    () =>
+      [
+        currentVisitId || "",
+        currentInstallerId || "",
+        initialSlotDate,
+        initialSlotIdsKey,
+      ].join("|"),
+    [currentInstallerId, currentVisitId, initialSlotDate, initialSlotIdsKey]
+  );
 
   const toggleSlotSelection = (slotId: SlotId) => {
     setSelectedSlotIds((prev) =>
@@ -136,11 +171,17 @@ export function AssignInstallerDialog({
   };
 
   React.useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      initKeyRef.current = "";
+      return;
+    }
+    if (initKeyRef.current === initialStateKey) return;
+
     setInstallerId(currentInstallerId || "");
-    setSlotDate(currentSlotSelection?.slotDate || "");
-    setSelectedSlotIds(getInitialSlotIds(currentSlotSelection));
-  }, [currentInstallerId, currentSlotSelection, isOpen]);
+    setSlotDate(initialSlotDate);
+    setSelectedSlotIds(initialSlotIds);
+    initKeyRef.current = initialStateKey;
+  }, [currentInstallerId, initialSlotDate, initialStateKey, initialSlotIds, isOpen]);
 
   React.useEffect(() => {
     if (!slotsEnabled) {

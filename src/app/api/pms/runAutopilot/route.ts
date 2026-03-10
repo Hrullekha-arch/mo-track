@@ -83,6 +83,10 @@ export async function POST(request: Request) {
 
     orderDataById.forEach((data, id) => {
       if (isOrderClosedForPms(data)) return;
+      if (data?.invoicing?.invoiceRequired === false) {
+        invoicedOrderIds.add(id);
+        return;
+      }
       const status = data?.invoicing?.status;
       const invoiceCount = Array.isArray(data?.invoicing?.invoices)
         ? data.invoicing.invoices.length

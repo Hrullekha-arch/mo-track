@@ -177,7 +177,10 @@ export function AccountsDashboard() {
           pendingOrders: ordersData.filter((item) => item.status === "Pending Approval").length,
           pendingPayments: ordersData.filter((item) => item.balanceFollowUp && !item.paymentConfirmed).length,
           pendingInvoice: ordersData.filter(
-            (item) => item.invoicing?.status && item.invoicing.status !== "INVOICED"
+            (item) =>
+              item.invoicing?.invoiceRequired !== false &&
+              item.invoicing?.status &&
+              item.invoicing.status !== "INVOICED"
           ).length,
         });
 

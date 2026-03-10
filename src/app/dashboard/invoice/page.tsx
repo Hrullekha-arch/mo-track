@@ -351,6 +351,7 @@ const buildInvoiceCandidates = (orders: Order[], invoices: Invoice[]): InvoiceCa
 
   return orders
     .map((order) => {
+      if (order.invoicing?.invoiceRequired === false) return null;
       const orderInvoices = invoicesByOrder[order.id] || [];
       const invoicedQtyByBcn = new Map<string, number>();
       const invoicedQtyByLength = new Map<string, number>();

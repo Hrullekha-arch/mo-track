@@ -45,6 +45,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { MilestoneProgress } from "@/components/features/order-management/MilestoneProgress";
 import { Progress } from "@/components/ui/progress";
 import { getNormalizedOrderMilestones } from "@/lib/order-workflow";
+import { useRouter } from "next/navigation";
 
 interface EnrichedVisit extends DealVisit {
   customerName: string;
@@ -153,6 +154,34 @@ const timelineSort = (a: DetailTimelineItem, b: DetailTimelineItem) =>
 const parseQtySafe = (value: unknown) => {
   const parsed = Number(String(value ?? "").trim());
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const collectExpectedDateCandidates = (
+  requestItem: any,
+  fabricName?: string
+): Array<unknown> => {
+  const fabricDetails = Array.isArray(requestItem?.fabricDetails) ? requestItem.fabricDetails : [];
+  const matchedFabricDates = fabricDetails
+    .filter((fabricItem: any) =>
+      fabricName ? matchTextLoose(fabricItem?.fabricName, fabricName) : true
+    )
+    .flatMap((fabricItem: any) => [
+      fabricItem?.expectedDeliveryDate,
+      fabricItem?.promiseDeliveryDate,
+      fabricItem?.promisedDeliveryDate,
+      fabricItem?.deliveryDate,
+      fabricItem?.expectedReceiveDate,
+    ]);
+
+  return [
+    requestItem?.poDeliveryDate,
+    requestItem?.promiseDeliveryDate,
+    requestItem?.promisedDeliveryDate,
+    requestItem?.expectedDeliveryDate,
+    requestItem?.deliveryDate,
+    requestItem?.expectedReceiveDate,
+    ...matchedFabricDates,
+  ];
 };
 
 const matchTextLoose = (left: unknown, right: unknown) => {
@@ -897,7 +926,7 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
 
   const expectedDates = [
     ...orderFabricList.map((item) => item.expectedDeliveryDate),
-    ...purchaseRequests.map((item) => item.poDeliveryDate),
+    ...purchaseRequests.flatMap((requestItem) => collectExpectedDateCandidates(requestItem)),
   ]
     .map((value) => toDateSafe(value))
     .filter((value): value is Date => !!value)
@@ -907,7 +936,7 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
 
   const fabricRows = useMemo(() => {
     return orderFabricList.map((fabricItem) => {
-      const matchingPr = purchaseRequests.find((requestItem) => {
+      const matchingRequests = purchaseRequests.filter((requestItem) => {
         const hasFabric = (requestItem.fabricDetails || []).some((lineItem) =>
           matchTextLoose(lineItem.fabricName, fabricItem.fabricName)
         );
@@ -916,6 +945,7 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
         );
         return hasFabric || hasPoMilestone;
       });
+      const matchingPr = matchingRequests[0];
 
       const matchingInbound = inbounds.find((inboundItem) =>
         (inboundItem.items || []).some((lineItem: any) => matchTextLoose(lineItem.itemName, fabricItem.fabricName))
@@ -950,15 +980,34 @@ const AllOrdersAndUpdates = ({ assignedSalesmen }: { assignedSalesmen: string[] 
           : "PR Created"
         : "PR Created";
 
+      const expectedPerFabric = [
+        fabricItem.expectedDeliveryDate,
+        ...matchingRequests.flatMap((requestItem) =>
+          collectExpectedDateCandidates(requestItem, fabricItem.fabricName)
+        ),
+      ]
+        .map((value) => toDateSafe(value))
+        .filter((value): value is Date => !!value)
+        .sort((a, b) => a.getTime() - b.getTime());
+
+      const expectedPerFabricLabel = expectedPerFabric.length
+        ? format(expectedPerFabric[0], "dd MMM yyyy")
+        : "Pending date";
+
       return {
         fabricName: fabricItem.fabricName || "-",
         qty: `${fabricItem.qty || "-"} ${String(fabricItem.unit || "")}`.trim(),
         type: fabricItem.type || "-",
         poStatus,
-        expectedDelivery: fabricItem.expectedDeliveryDate || matchingPr?.poDeliveryDate || "N/A",
+        expectedDelivery: expectedPerFabricLabel,
         receivedStatus,
         stockMode,
-        prStatus: matchingPr?.status || "No PR",
+        prStatus:
+          matchingRequests.length > 0
+            ? Array.from(
+                new Set(matchingRequests.map((requestItem) => String(requestItem.status || "No PR")))
+              ).join(", ")
+            : "No PR",
       };
     });
   }, [orderFabricList, purchaseRequests, inbounds, stockItems]);
@@ -2105,12 +2154,8 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
 
         const expectedDates = [
           ...matchingOrderFabrics.map((fabricItem) => fabricItem.expectedDeliveryDate),
-          ...matchingRequests.map((requestItem) => requestItem.poDeliveryDate),
-          ...matchingRequests.map((requestItem) => requestItem.promiseDeliveryDate),
           ...matchingRequests.flatMap((requestItem) =>
-            (requestItem.fabricDetails || [])
-              .filter((fabricItem) => matchTextLoose(fabricItem.fabricName, itemName))
-              .map((fabricItem) => fabricItem.expectedDeliveryDate)
+            collectExpectedDateCandidates(requestItem, itemName)
           ),
         ]
           .map((value) => toDateSafe(value))
@@ -2869,6 +2914,7 @@ const PcControlRoom = ({ readOnly = false }: { readOnly?: boolean }) => {
 
 export default function CrmDashboard({ dashboardType }: { dashboardType: "CRM" | "PC" }) {
   const { user } = useAuth();
+  const router =  useRouter();
   const [assignedSalesmen, setAssignedSalesmen] = useState<string[]>([]);
   const [loadingAssignments, setLoadingAssignments] = useState(true);
 
@@ -2949,11 +2995,24 @@ export default function CrmDashboard({ dashboardType }: { dashboardType: "CRM" |
               one operational view.
             </p>
           </div>
-          <div className="grid w-full grid-cols-2 gap-3 lg:w-auto lg:min-w-[22rem]">
+          <div className="grid w-full grid-cols-3 gap-3 lg:w-auto lg:min-w-[22rem] justify-center items-center">
+            <div className="flex flex-col gap-2 ">
+              <Button
+              onClick={()=>router.push("/dashboard/walkInForm")}
+              >
+                Create Walk-In
+              </Button>
+              <Button
+              onClick={()=>router.push("/dashboard/walk-in")}
+              >
+                View Walk-In
+              </Button>
+            </div>
             <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
               <p className="text-xs text-muted-foreground">Assigned Salesmen</p>
               <p className="mt-1 text-2xl font-bold">{assignedSalesmen.length}</p>
             </div>
+            
             <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
               <p className="text-xs text-muted-foreground">Coverage</p>
               <p className="mt-1 text-2xl font-bold">

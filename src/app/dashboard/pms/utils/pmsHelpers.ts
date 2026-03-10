@@ -312,6 +312,7 @@ export const explainNoPlan = (
 
 export const isOrderInvoiced = (order?: any): boolean => {
   if (!order) return false;
+  if (order.invoicing?.invoiceRequired === false) return true;
   const status = order.invoicing?.status;
   const invoices = order.invoicing?.invoices || [];
   if (status && status !== "NOT_INVOICED") return true;

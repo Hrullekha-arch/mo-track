@@ -75,6 +75,7 @@ const isOrderClosedForPms = (order?: any) => {
 
 const hasInvoiceForPms = (order?: any) => {
   if (!order || isOrderClosedForPms(order)) return false;
+  if (order?.invoicing?.invoiceRequired === false) return true;
   const status = order?.invoicing?.status;
   const invoiceCount = Array.isArray(order?.invoicing?.invoices)
     ? order.invoicing.invoices.length

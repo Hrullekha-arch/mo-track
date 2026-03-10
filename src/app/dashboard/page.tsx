@@ -1172,7 +1172,10 @@ const AdminDashboard = () => {
             ).length,
             pendingOrderApproval: orders.filter((o) => o.status === "Pending Approval").length,
             pendingInvoice: orders.filter(
-              (o) => o.invoicing?.status && o.invoicing.status !== "INVOICED"
+              (o) =>
+                o.invoicing?.invoiceRequired !== false &&
+                o.invoicing?.status &&
+                o.invoicing.status !== "INVOICED"
             ).length,
             paymentConfirmation: orders.filter(
               (o) => o.balanceFollowUp === true && !o.paymentConfirmed

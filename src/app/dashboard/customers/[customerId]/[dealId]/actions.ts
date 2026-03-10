@@ -705,6 +705,7 @@ export async function createDealOrderAction(
         invoices: [],
         canCreateGoodsInvoice: normalItems.length > 0,
         canCreateVasInvoice: vasItems.length > 0,
+        invoiceRequired: true,
       },
       updates: [
         {

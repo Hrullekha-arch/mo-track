@@ -79,6 +79,16 @@ import {
   Eye,
   EyeOff,
   ListChecks,
+  Activity,
+  Zap,
+  Filter,
+  RefreshCw,
+  Cpu,
+  UserCheck,
+  BarChart2,
+  ChevronDown,
+  ChevronUp,
+  PlayCircle,
 } from "lucide-react";
 import {
   Tooltip,
@@ -95,6 +105,7 @@ import {
   formatTimeInZone,
   IST_TIME_ZONE,
 } from "@/lib/pms/time";
+import { WorkStatusPanel } from "@/components/features/pms/WorkStatusPanel";
 
 
 type PmsProduct = { id: string; name: string; category: string };
@@ -184,6 +195,8 @@ export default function PmsPage() {
   const [jobs, setJobs] = useState<PmsJob[]>([]);
   const [plans, setPlans] = useState<PmsPlan[]>([]);
   const [vasSearch, setVasSearch] = useState("");
+  const [vasStatusFilter, setVasStatusFilter] = useState<string>("ALL");
+  const [workingHoursExpanded, setWorkingHoursExpanded] = useState(false);
   const [creatingJobKey, setCreatingJobKey] = useState<string | null>(null);
   const [runningAutopilot, setRunningAutopilot] = useState(false);
   const [runningPriorityReplan, setRunningPriorityReplan] = useState(false);
@@ -377,6 +390,7 @@ export default function PmsPage() {
 
   const isOrderInvoiced = useCallback((order?: Order) => {
     if (!order) return false;
+    if (order.invoicing?.invoiceRequired === false) return true;
     const status = order.invoicing?.status;
     const invoices = order.invoicing?.invoices || [];
     if (status && status !== "NOT_INVOICED") return true;
@@ -608,6 +622,109 @@ export default function PmsPage() {
     const emergency = liveVasRows.filter((row) => row.isEmergency).length;
     return { totalItems, inProgress, planned, waiting, done, emergency };
   }, [liveVasRows]);
+
+  const liveVasRowsFiltered = useMemo(() => {
+    if (vasStatusFilter === "ALL") return liveVasRows;
+    if (vasStatusFilter === "EMERGENCY") return liveVasRows.filter((r) => r.isEmergency);
+    return liveVasRows.filter((r) => r.status === vasStatusFilter);
+  }, [liveVasRows, vasStatusFilter]);
+
+  const workStatusData = useMemo(() => {
+    const vasEligibleOrders = orders.filter(
+      (order) => ((order.sections as any)?.VAS?.items?.length || 0) > 0
+    );
+    const completedOrders = vasEligibleOrders.filter((order) => isOrderClosedForPms(order)).length;
+
+    const orderRowsMap = new Map<
+      string,
+      {
+        orderId: string;
+        orderNo: string;
+        customer: string;
+        statuses: Set<string>;
+        lastUpdate?: string;
+      }
+    >();
+
+    liveVasRowsAll.forEach((row) => {
+      const status = String(row.status || "WAITING").trim().toUpperCase();
+      const existing = orderRowsMap.get(row.orderId);
+      if (!existing) {
+        orderRowsMap.set(row.orderId, {
+          orderId: row.orderId,
+          orderNo: row.orderNo,
+          customer: row.customer,
+          statuses: new Set([status]),
+          lastUpdate: row.lastUpdate,
+        });
+        return;
+      }
+      existing.statuses.add(status);
+      const existingMs = existing.lastUpdate ? new Date(existing.lastUpdate).getTime() : -Infinity;
+      const nextMs = row.lastUpdate ? new Date(row.lastUpdate).getTime() : -Infinity;
+      if (nextMs > existingMs) {
+        existing.lastUpdate = row.lastUpdate;
+      }
+    });
+
+    const rows = Array.from(orderRowsMap.values()).map((entry) => {
+      const statuses = Array.from(entry.statuses);
+      const hasInProgress = statuses.includes("IN_PROGRESS");
+      const hasPlanned = statuses.includes("PLANNED");
+      const hasWaiting = statuses.includes("WAITING");
+      const allDone = statuses.length > 0 && statuses.every((status) => status === "DONE");
+
+      let bucket: "Pending" | "Machine Running" | "Qc Pending" | "Dispatch ready" = "Pending";
+      if (hasInProgress) bucket = "Machine Running";
+      else if (hasPlanned) bucket = "Qc Pending";
+      else if (hasWaiting) bucket = "Pending";
+      else if (allDone) bucket = "Dispatch ready";
+
+      return {
+        ...entry,
+        bucket,
+        statuses,
+      };
+    });
+
+    const counts = rows.reduce(
+      (acc, row) => {
+        if (row.bucket === "Pending") acc.pending += 1;
+        if (row.bucket === "Machine Running") acc.machineRunning += 1;
+        if (row.bucket === "Qc Pending") acc.qcPending += 1;
+        if (row.bucket === "Dispatch ready") acc.dispatchReady += 1;
+        return acc;
+      },
+      { pending: 0, machineRunning: 0, qcPending: 0, dispatchReady: 0 }
+    );
+
+    const bucketRank: Record<string, number> = {
+      "Machine Running": 0,
+      "Qc Pending": 1,
+      Pending: 2,
+      "Dispatch ready": 3,
+    };
+
+    rows.sort((a, b) => {
+      const bucketDiff = (bucketRank[a.bucket] ?? 99) - (bucketRank[b.bucket] ?? 99);
+      if (bucketDiff !== 0) return bucketDiff;
+      const aTime = a.lastUpdate ? new Date(a.lastUpdate).getTime() : -Infinity;
+      const bTime = b.lastUpdate ? new Date(b.lastUpdate).getTime() : -Infinity;
+      return bTime - aTime;
+    });
+
+    return {
+      cards: [
+        { key: "totalOrders", label: "Total Orders", value: vasEligibleOrders.length },
+        { key: "pending", label: "Pending", value: counts.pending },
+        { key: "machineRunning", label: "Machine Running", value: counts.machineRunning },
+        { key: "qcPending", label: "Qc Pending", value: counts.qcPending },
+        { key: "dispatchReady", label: "Dispatch ready", value: counts.dispatchReady },
+        { key: "completed", label: "Completed", value: completedOrders },
+      ],
+      rows,
+    };
+  }, [orders, liveVasRowsAll, isOrderClosedForPms]);
 
   const resolveVasInfo = useCallback((order?: Order, productName?: string) => {
     const items = (order?.sections as any)?.VAS?.items || [];
@@ -2297,600 +2414,686 @@ const getGroupedSkills = () => {
 
   return (
     <TooltipProvider>
-      <div className="container mx-auto p-6 space-y-6 max-w-[1600px]">
-        {/* Header with Stats */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold tracking-tight">PMS Control Center</h1>
-              <p className="text-muted-foreground mt-1">
-                Production Management System configuration and analytics
-              </p>
+      <div className="container mx-auto p-4 md:p-6 space-y-4 max-w-[1800px]">
+
+        {/* ── COMMAND HEADER ─────────────────────────────────────────────────── */}
+        <div className="rounded-2xl border-2 border-slate-800 bg-slate-900 text-white p-5 space-y-4">
+          {/* Title row */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10">
+                <Cpu className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight leading-none">PMS Control Center</h1>
+                <p className="text-slate-400 text-xs mt-0.5">Production Management System — Admin Mode</p>
+              </div>
             </div>
-            <Badge variant="outline" className="text-sm px-4 py-2">
-              <Settings2 className="mr-2 h-4 w-4" />
-              Admin Mode
-            </Badge>
+
+            {/* Autopilot actions */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white border-0"
+                onClick={handleRunAutopilot}
+                disabled={runningAutopilot || runningPriorityReplan || resettingAutopilot || Boolean(priorityUpdatingOrderId) || Boolean(deletingPlanKey)}
+              >
+                {runningAutopilot ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Zap className="mr-1.5 h-3.5 w-3.5" />}
+                Run Autopilot
+              </Button>
+              <Button
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-500 text-white border-0"
+                onClick={handleRunPriorityReplan}
+                disabled={runningAutopilot || runningPriorityReplan || resettingAutopilot || Boolean(priorityUpdatingOrderId) || Boolean(deletingPlanKey)}
+              >
+                {runningPriorityReplan ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+                Priority Replan
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => setResetAutopilotDialogOpen(true)}
+                disabled={runningAutopilot || runningPriorityReplan || resettingAutopilot || Boolean(priorityUpdatingOrderId) || Boolean(deletingPlanKey)}
+              >
+                {resettingAutopilot ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />}
+                Reset & Rerun
+              </Button>
+            </div>
           </div>
 
-          {/* Stats Cards */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Products</CardTitle>
-                <Package className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.products}</div>
-                <p className="text-xs text-muted-foreground">{categories.length} categories</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Active Machines</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.activeMachines}</div>
-                <p className="text-xs text-muted-foreground">of {stats.totalMachines} total</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Capacity</CardTitle>
-                                <Clock className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.totalCapacity}</div>
-                <p className="text-xs text-muted-foreground">minutes per shift</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Workforce</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.people}</div>
-                <p className="text-xs text-muted-foreground">{stats.downtimeEvents} downtime events</p>
-              </CardContent>
-            </Card>
+          {/* Live production stats */}
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+            {[
+              { label: "In Progress", value: liveStats.inProgress, color: "bg-emerald-500", textColor: "text-emerald-300", dot: true },
+              { label: "Planned", value: liveStats.planned, color: "bg-blue-500", textColor: "text-blue-300", dot: false },
+              { label: "Waiting", value: liveStats.waiting, color: "bg-amber-500", textColor: "text-amber-300", dot: false },
+              { label: "Done", value: liveStats.done, color: "bg-slate-500", textColor: "text-slate-300", dot: false },
+              { label: "Emergency", value: liveStats.emergency, color: "bg-red-500", textColor: "text-red-300", dot: true },
+            ].map((s) => (
+              <div key={s.label} className="rounded-xl bg-white/5 border border-white/10 px-3 py-2 space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <span className={cn("h-1.5 w-1.5 rounded-full flex-shrink-0", s.color, s.dot && "animate-pulse")} />
+                  <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">{s.label}</span>
+                </div>
+                <div className={cn("text-2xl font-extrabold tabular-nums leading-none", s.textColor)}>{s.value}</div>
+              </div>
+            ))}
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Working Hours</CardTitle>
-              <CardDescription>
-                Company working window used for PMS scheduling. End time earlier than start means overnight.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-col gap-4 md:flex-row md:items-end">
-                <div className="space-y-2">
-                  <Label htmlFor="work-start">Start</Label>
-                  <Input
-                    id="work-start"
-                    type="time"
-                    value={workingHours.startTime}
-                    onChange={(e) =>
-                      setWorkingHours((prev) => ({ ...prev, startTime: e.target.value }))
-                    }
-                  />
+          {/* System resource stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 border-t border-white/10 pt-3">
+            {[
+              { label: "Products", value: stats.products, sub: `${categories.length} categories`, icon: <Package className="h-3.5 w-3.5" /> },
+              { label: "Active Machines", value: `${stats.activeMachines}/${stats.totalMachines}`, sub: `${Math.round((stats.totalCapacity / 60))}h total capacity`, icon: <Settings2 className="h-3.5 w-3.5" /> },
+              { label: "Workforce", value: stats.people, sub: `${skills.filter(s => s.allowed).length} skill links`, icon: <Users className="h-3.5 w-3.5" /> },
+              { label: "Downtime Events", value: stats.downtimeEvents, sub: `${workingHours.startTime} – ${workingHours.endTime} IST`, icon: <Clock className="h-3.5 w-3.5" /> },
+            ].map((s) => (
+              <div key={s.label} className="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2">
+                <span className="text-slate-400">{s.icon}</span>
+                <div>
+                  <div className="text-lg font-bold tabular-nums leading-none">{s.value}</div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">{s.label}</div>
+                  <div className="text-[9px] text-slate-600">{s.sub}</div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="work-end">End</Label>
-                  <Input
-                    id="work-end"
-                    type="time"
-                    value={workingHours.endTime}
-                    onChange={(e) =>
-                      setWorkingHours((prev) => ({ ...prev, endTime: e.target.value }))
-                    }
-                  />
+              </div>
+            ))}
+          </div>
+
+          {/* Working Hours collapsible */}
+          <div className="border-t border-white/10 pt-2">
+            <button
+              className="flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors"
+              onClick={() => setWorkingHoursExpanded((v) => !v)}
+            >
+              <Clock className="h-3.5 w-3.5" />
+              Working Hours: {workingHours.startTime} – {workingHours.endTime} IST
+              {workingHoursExpanded ? <ChevronUp className="h-3 w-3 ml-1" /> : <ChevronDown className="h-3 w-3 ml-1" />}
+            </button>
+            {workingHoursExpanded && (
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="work-start" className="text-xs text-slate-400">Start</Label>
+                  <Input id="work-start" type="time" value={workingHours.startTime}
+                    className="h-8 bg-white/10 border-white/20 text-white w-32 text-sm"
+                    onChange={(e) => setWorkingHours((prev) => ({ ...prev, startTime: e.target.value }))} />
                 </div>
-                <Button onClick={handleSaveWorkingHours} disabled={savingWorkingHours}>
-                  {savingWorkingHours && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save Hours
+                <div className="space-y-1">
+                  <Label htmlFor="work-end" className="text-xs text-slate-400">End</Label>
+                  <Input id="work-end" type="time" value={workingHours.endTime}
+                    className="h-8 bg-white/10 border-white/20 text-white w-32 text-sm"
+                    onChange={(e) => setWorkingHours((prev) => ({ ...prev, endTime: e.target.value }))} />
+                </div>
+                <Button size="sm" onClick={handleSaveWorkingHours} disabled={savingWorkingHours}
+                  className="bg-white/20 hover:bg-white/30 text-white border-0 h-8">
+                  {savingWorkingHours ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+                  Save
                 </Button>
+                <p className="text-[10px] text-slate-500 self-end pb-1">IST (UTC+05:30) · offset {workingHours.timezoneOffsetMinutes}m</p>
               </div>
-              <div className="text-xs text-muted-foreground">
-                Scheduling timezone: IST (UTC+05:30). Stored offset: {workingHours.timezoneOffsetMinutes} minutes.
-              </div>
-            </CardContent>
-          </Card>
+            )}
+          </div>
         </div>
 
-        <Tabs defaultValue="live" className="space-y-6">
-          <TabsList className="grid grid-cols-6 w-full max-w-4xl">
-            <TabsTrigger value="live" className="gap-2">
-              <Eye className="h-4 w-4" />
-              Live VAS
-            </TabsTrigger>
-            <TabsTrigger value="work" className="gap-2">
-              <ListChecks className="h-4 w-4" />
-              Work Detail
-            </TabsTrigger>
-            <TabsTrigger value="routing" className="gap-2">
-              <Package className="h-4 w-4" />
-              Routing
-            </TabsTrigger>
-            <TabsTrigger value="machines" className="gap-2">
-              <Settings2 className="h-4 w-4" />
-              Machines
-            </TabsTrigger>
-            <TabsTrigger value="skills" className="gap-2">
-              <Users className="h-4 w-4" />
-              Skills
-            </TabsTrigger>
-            <TabsTrigger value="downtime" className="gap-2">
-              <Clock className="h-4 w-4" />
-              Downtime
-            </TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue="live" className="space-y-4">
+          <div className="overflow-x-auto">
+            <TabsList className="inline-flex h-10 gap-0.5 p-1 rounded-xl bg-muted min-w-max">
+              <TabsTrigger value="live" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
+                <Activity className="h-3.5 w-3.5" />
+                Live VAS
+                {liveStats.inProgress > 0 && (
+                  <span className="ml-1 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold text-white leading-none">
+                    {liveStats.inProgress}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="work-status" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
+                <BarChart2 className="h-3.5 w-3.5" />
+                Work Status
+              </TabsTrigger>
+              <TabsTrigger value="work" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
+                <ListChecks className="h-3.5 w-3.5" />
+                Work Detail
+              </TabsTrigger>
+              <TabsTrigger value="routing" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
+                <Package className="h-3.5 w-3.5" />
+                Routing
+              </TabsTrigger>
+              <TabsTrigger value="machines" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
+                <Settings2 className="h-3.5 w-3.5" />
+                Machines
+              </TabsTrigger>
+              <TabsTrigger value="people" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
+                <UserCheck className="h-3.5 w-3.5" />
+                People
+              </TabsTrigger>
+              <TabsTrigger value="skills" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
+                <Users className="h-3.5 w-3.5" />
+                Skills
+              </TabsTrigger>
+              <TabsTrigger value="downtime" className="rounded-lg gap-1.5 text-xs px-3 data-[state=active]:bg-background data-[state=active]:shadow">
+                <Clock className="h-3.5 w-3.5" />
+                Downtime
+                {stats.downtimeEvents > 0 && (
+                  <span className="ml-1 rounded-full bg-orange-500 px-1.5 py-0.5 text-[9px] font-bold text-white leading-none">
+                    {stats.downtimeEvents}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          {/* WORK STATUS TAB */}
+          {/* WORK STATUS TAB */}
+          <TabsContent value="work-status" className="space-y-4">
+            <WorkStatusPanel workStatusData={workStatusData} formatDateTime={formatDateTime} />
+          </TabsContent>
 
           {/* LIVE VAS TAB */}
-          <TabsContent value="live" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Live VAS Tracker</CardTitle>
-                <CardDescription>
-                  Real-time view of VAS work, current processing, and upcoming steps with ETA.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="secondary">Total: {liveStats.totalItems}</Badge>
-                    <Badge className="bg-emerald-600 hover:bg-emerald-600">In Progress: {liveStats.inProgress}</Badge>
-                    <Badge className="bg-blue-600 hover:bg-blue-600">Planned: {liveStats.planned}</Badge>
-                    <Badge className="bg-amber-500 hover:bg-amber-500">Waiting: {liveStats.waiting}</Badge>
-                    <Badge className="bg-red-600 hover:bg-red-600">Emergency: {liveStats.emergency}</Badge>
-                    <Badge variant="outline">Done: {liveStats.done}</Badge>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Search className="h-4 w-4 text-muted-foreground" />
-                    <Input
-                      className="w-full md:w-64"
-                      placeholder="Search order / customer / VAS..."
-                      value={vasSearch}
-                      onChange={(event) => setVasSearch(event.target.value)}
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleRunAutopilot}
-                      disabled={
-                        runningAutopilot ||
-                        runningPriorityReplan ||
-                        resettingAutopilot ||
-                        Boolean(priorityUpdatingOrderId) ||
-                        Boolean(deletingPlanKey)
-                      }
-                    >
-                      {runningAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Run Autopilot
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={handleRunPriorityReplan}
-                      disabled={
-                        runningAutopilot ||
-                        runningPriorityReplan ||
-                        resettingAutopilot ||
-                        Boolean(priorityUpdatingOrderId) ||
-                        Boolean(deletingPlanKey)
-                      }
-                    >
-                      {runningPriorityReplan && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      )}
-                      Priority Replan
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => setResetAutopilotDialogOpen(true)}
-                      disabled={
-                        runningAutopilot ||
-                        runningPriorityReplan ||
-                        resettingAutopilot ||
-                        Boolean(priorityUpdatingOrderId) ||
-                        Boolean(deletingPlanKey)
-                      }
-                    >
-                      {resettingAutopilot && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Reset & Rerun
-                    </Button>
-                  </div>
-                </div>
+          <TabsContent value="live" className="space-y-3">
+            {/* Search + Filter Bar */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="pl-9"
+                  placeholder="Search order / customer / VAS..."
+                  value={vasSearch}
+                  onChange={(e) => setVasSearch(e.target.value)}
+                />
+              </div>
 
-                <div className="rounded-md border">
+              {/* Status filter pills */}
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { key: "ALL", label: "All", count: liveStats.totalItems, cls: "bg-slate-100 text-slate-700 hover:bg-slate-200 data-[active=true]:bg-slate-700 data-[active=true]:text-white" },
+                  { key: "IN_PROGRESS", label: "In Progress", count: liveStats.inProgress, cls: "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 data-[active=true]:bg-emerald-600 data-[active=true]:text-white" },
+                  { key: "PLANNED", label: "Planned", count: liveStats.planned, cls: "bg-blue-50 text-blue-700 hover:bg-blue-100 data-[active=true]:bg-blue-600 data-[active=true]:text-white" },
+                  { key: "WAITING", label: "Waiting", count: liveStats.waiting, cls: "bg-amber-50 text-amber-700 hover:bg-amber-100 data-[active=true]:bg-amber-500 data-[active=true]:text-white" },
+                  { key: "DONE", label: "Done", count: liveStats.done, cls: "bg-slate-50 text-slate-500 hover:bg-slate-100 data-[active=true]:bg-slate-500 data-[active=true]:text-white" },
+                  { key: "EMERGENCY", label: "Emergency", count: liveStats.emergency, cls: "bg-red-50 text-red-700 hover:bg-red-100 data-[active=true]:bg-red-600 data-[active=true]:text-white" },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    data-active={vasStatusFilter === f.key}
+                    onClick={() => setVasStatusFilter(f.key)}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-all focus:outline-none",
+                      "border-transparent",
+                      f.cls
+                    )}
+                  >
+                    {f.label}
+                    <span className="rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-bold tabular-nums leading-none">
+                      {f.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Table */}
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto rounded-xl">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Order No</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>VAS Item</TableHead>
-                        <TableHead>Qty</TableHead>
-                        <TableHead>PMS Product</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Priority</TableHead>
-                        <TableHead>Current Step</TableHead>
-                        <TableHead>Machine</TableHead>
-                        <TableHead>Person</TableHead>
-                        <TableHead>Planned Start</TableHead>
-                        <TableHead>ETA</TableHead>
-                        <TableHead>Not Scheduled Reason</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
+                      <TableRow className="bg-muted/40 hover:bg-muted/40">
+                        <TableHead className="text-[11px] uppercase tracking-wide pl-4">Order</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Customer</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">VAS Item</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide text-center">Qty</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">PMS Product</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Status</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Priority</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Current Step</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Machine</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Person</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Planned Start</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">ETA</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Reason</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide text-right pr-4">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {liveVasRows.length === 0 ? (
+                      {liveVasRowsFiltered.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={14} className="h-24 text-center text-muted-foreground">
-                            No VAS items are active right now.
+                          <TableCell colSpan={14} className="h-28 text-center">
+                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                              <Activity className="h-8 w-8 opacity-30" />
+                              <p className="text-sm font-medium">No VAS items match this filter</p>
+                              <button onClick={() => setVasStatusFilter("ALL")} className="text-xs text-blue-500 hover:underline">Show all</button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ) : (
-                        liveVasRows.map((row) => (
-                          <TableRow key={row.key}>
-                            <TableCell className="font-medium">{row.orderNo}</TableCell>
-                            <TableCell>{row.customer}</TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <div className="font-medium">{row.vasName}</div>
-                                <div className="text-xs text-muted-foreground">{row.group}</div>
-                              </div>
-                            </TableCell>
-                            <TableCell>{row.qty}</TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <div className="font-medium">{row.matchedProductName || "No match"}</div>
-                                {!row.matchedProductName && (
-                                  <div className="text-xs text-muted-foreground">Create PMS product</div>
+                        liveVasRowsFiltered.map((row) => {
+                          const statusBorderColor =
+                            row.isEmergency ? "border-l-red-500" :
+                            row.status === "IN_PROGRESS" ? "border-l-emerald-500" :
+                            row.status === "PLANNED" ? "border-l-blue-500" :
+                            row.status === "WAITING" ? "border-l-amber-400" :
+                            row.status === "DONE" ? "border-l-slate-300" : "border-l-transparent";
+
+                          return (
+                            <TableRow key={row.key} className={cn(
+                              "border-l-[3px] hover:bg-muted/30 transition-colors",
+                              statusBorderColor,
+                              row.isEmergency && "bg-red-50/40"
+                            )}>
+                              <TableCell className="font-bold text-sm pl-4 whitespace-nowrap">
+                                {row.orderNo}
+                                {row.isEmergency && (
+                                  <span className="ml-1.5 inline-flex items-center rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-700 animate-pulse">!!</span>
                                 )}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                className={cn(
-                                  row.status === "IN_PROGRESS" && "bg-emerald-600 hover:bg-emerald-600",
-                                  row.status === "PLANNED" && "bg-blue-600 hover:bg-blue-600",
-                                  row.status === "WAITING" && "bg-amber-500 hover:bg-amber-500",
-                                  row.status === "DONE" && "bg-slate-500 hover:bg-slate-500"
-                                )}
-                              >
-                                {row.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={row.isEmergency ? "destructive" : "secondary"}
-                                className={cn(
-                                  row.isEmergency && "animate-pulse",
-                                  !row.isEmergency &&
-                                    row.orderPriority <= 0 &&
-                                    "bg-orange-100 text-orange-700 hover:bg-orange-100",
-                                  !row.isEmergency &&
-                                    row.orderPriority > 0 &&
-                                    "bg-slate-100 text-slate-700 hover:bg-slate-100"
-                                )}
-                              >
-                                {row.priorityLabel}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{row.currentProcess}</TableCell>
-                            <TableCell>{row.machineName}</TableCell>
-                            <TableCell>{row.personName}</TableCell>
-                            <TableCell>{formatDateTime(row.plannedStart)}</TableCell>
-                            <TableCell>{formatDateTime(row.eta)}</TableCell>
-                            <TableCell>{row.noPlanReason || "-"}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={
-                                    creatingJobKey === row.key ||
-                                    row.hasJobsForProduct ||
-                                    !row.matchedProductId ||
-                                    !row.invoiceReady ||
-                                    resettingAutopilot ||
-                                    runningAutopilot ||
-                                    runningPriorityReplan ||
-                                    Boolean(deletingPlanKey)
-                                  }
-                                  onClick={() => handleCreateJobsForRow(row)}
-                                >
-                                  {row.hasJobsForProduct
-                                    ? "Jobs Created"
-                                    : creatingJobKey === row.key
-                                    ? "Creating..."
-                                    : "Create Jobs"}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant={row.isEmergency ? "outline" : "destructive"}
-                                  disabled={
-                                    priorityUpdatingOrderId === row.orderId ||
-                                    runningAutopilot ||
-                                    runningPriorityReplan ||
-                                    resettingAutopilot ||
-                                    Boolean(deletingPlanKey)
-                                  }
-                                  onClick={() =>
-                                    handleSetOrderEmergencyPriority(row.orderId, !row.isEmergency)
-                                  }
-                                >
-                                  {priorityUpdatingOrderId === row.orderId && (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              </TableCell>
+                              <TableCell className="text-sm max-w-[140px] truncate" title={row.customer}>{row.customer}</TableCell>
+                              <TableCell>
+                                <div>
+                                  <div className="font-medium text-sm leading-tight">{row.vasName}</div>
+                                  {row.group && row.group !== "-" && (
+                                    <div className="text-[10px] text-muted-foreground">{row.group}</div>
                                   )}
-                                  {row.isEmergency ? "Clear Emergency" : "Mark Emergency"}
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center font-mono text-sm">{row.qty}</TableCell>
+                              <TableCell>
+                                {row.matchedProductName ? (
+                                  <span className="text-sm font-medium">{row.matchedProductName}</span>
+                                ) : (
+                                  <span className="text-xs text-destructive font-medium">No match</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <span className={cn(
+                                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
+                                  row.status === "IN_PROGRESS" && "bg-emerald-100 text-emerald-700",
+                                  row.status === "PLANNED" && "bg-blue-100 text-blue-700",
+                                  row.status === "WAITING" && "bg-amber-100 text-amber-700",
+                                  row.status === "DONE" && "bg-slate-100 text-slate-600"
+                                )}>
+                                  {row.status === "IN_PROGRESS" && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                                  {row.status.replace("_", " ")}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={row.isEmergency ? "destructive" : "secondary"}
+                                  className={cn(
+                                    "text-xs",
+                                    row.isEmergency && "animate-pulse",
+                                    !row.isEmergency && row.orderPriority <= 0 && "bg-orange-100 text-orange-700 hover:bg-orange-100",
+                                    !row.isEmergency && row.orderPriority > 0 && row.priorityLabel === "Normal" && "bg-slate-100 text-slate-600 hover:bg-slate-100"
+                                  )}
+                                >
+                                  {row.priorityLabel}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-sm max-w-[160px]">
+                                <span className="font-medium">{row.currentProcess}</span>
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                {row.machineName !== "TBD" ? (
+                                  <span className="font-medium">{row.machineName}</span>
+                                ) : (
+                                  <span className="text-muted-foreground text-xs">TBD</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                {row.personName !== "TBD" ? (
+                                  <span>{row.personName}</span>
+                                ) : (
+                                  <span className="text-muted-foreground text-xs">TBD</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-xs tabular-nums text-muted-foreground whitespace-nowrap">
+                                {formatDateTime(row.plannedStart)}
+                              </TableCell>
+                              <TableCell className="text-xs tabular-nums text-muted-foreground whitespace-nowrap">
+                                {formatDateTime(row.eta)}
+                              </TableCell>
+                              <TableCell className="text-xs max-w-[120px]">
+                                {row.noPlanReason ? (
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      <span className="text-amber-600 font-medium truncate block max-w-[110px]">{row.noPlanReason}</span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{row.noPlanReason}</TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right pr-4">
+                                <div className="flex justify-end gap-1.5">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="sm"
+                                        variant={row.hasJobsForProduct ? "secondary" : "outline"}
+                                        className="h-7 px-2 text-xs"
+                                        disabled={
+                                          creatingJobKey === row.key || row.hasJobsForProduct ||
+                                          !row.matchedProductId || !row.invoiceReady ||
+                                          resettingAutopilot || runningAutopilot ||
+                                          runningPriorityReplan || Boolean(deletingPlanKey)
+                                        }
+                                        onClick={() => handleCreateJobsForRow(row)}
+                                      >
+                                        {creatingJobKey === row.key ? <Loader2 className="h-3 w-3 animate-spin" /> :
+                                         row.hasJobsForProduct ? <Check className="h-3 w-3" /> :
+                                         <PlayCircle className="h-3 w-3" />}
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {row.hasJobsForProduct ? "Jobs already created" : !row.invoiceReady ? "Invoice required" : !row.matchedProductId ? "No PMS product match" : "Create PMS Jobs"}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="sm"
+                                        variant={row.isEmergency ? "outline" : "ghost"}
+                                        className={cn("h-7 px-2 text-xs", !row.isEmergency && "text-muted-foreground hover:text-destructive")}
+                                        disabled={
+                                          priorityUpdatingOrderId === row.orderId ||
+                                          runningAutopilot || runningPriorityReplan ||
+                                          resettingAutopilot || Boolean(deletingPlanKey)
+                                        }
+                                        onClick={() => handleSetOrderEmergencyPriority(row.orderId, !row.isEmergency)}
+                                      >
+                                        {priorityUpdatingOrderId === row.orderId ? (
+                                          <Loader2 className="h-3 w-3 animate-spin" />
+                                        ) : row.isEmergency ? (
+                                          <X className="h-3 w-3" />
+                                        ) : (
+                                          <Zap className="h-3 w-3" />
+                                        )}
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {row.isEmergency ? "Clear Emergency" : "Mark as Emergency"}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
                       )}
                     </TableBody>
                   </Table>
+                </div>
+                <div className="flex items-center justify-between px-4 py-2 border-t bg-muted/20 text-xs text-muted-foreground">
+                  <span>
+                    Showing {liveVasRowsFiltered.length} of {liveStats.totalItems} items
+                    {vasStatusFilter !== "ALL" && ` (filtered: ${vasStatusFilter})`}
+                  </span>
+                  {vasStatusFilter !== "ALL" && (
+                    <button onClick={() => setVasStatusFilter("ALL")} className="text-blue-500 hover:underline">Clear filter</button>
+                  )}
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           {/* WORK DETAIL TAB */}
-          <TabsContent value="work" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Work Detail</CardTitle>
-                <CardDescription>
-                  Planned work queue by person, VAS item, and routing roadmap.
-                  Planned start time indicates the first available machine/person slot as per queue.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary">Planned: {workDetailRows.length}</Badge>
-                </div>
+          <TabsContent value="work" className="space-y-3">
+            {/* Summary strip */}
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              {[
+                { label: "In Progress", val: workDetailRows.filter(r => r.status === "IN_PROGRESS").length, cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+                { label: "Planned", val: workDetailRows.filter(r => r.status === "PLANNED").length, cls: "bg-blue-100 text-blue-700 border-blue-200" },
+                { label: "Waiting", val: workDetailRows.filter(r => r.status === "WAITING").length, cls: "bg-amber-100 text-amber-700 border-amber-200" },
+                { label: "Total", val: workDetailRows.length, cls: "bg-slate-100 text-slate-700 border-slate-200" },
+              ].map(s => (
+                <span key={s.label} className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-0.5 text-xs font-semibold", s.cls)}>
+                  {s.label}: <span className="tabular-nums font-extrabold">{s.val}</span>
+                </span>
+              ))}
+            </div>
 
-                <div className="rounded-md border">
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto rounded-xl">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Order No</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>VAS Item</TableHead>
-                        <TableHead>Qty</TableHead>
-                        <TableHead>Current Step</TableHead>
-                        <TableHead>Next Step</TableHead>
-                        <TableHead>Person</TableHead>
-                        <TableHead>Machine</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                      <TableRow className="bg-muted/40 hover:bg-muted/40">
+                        <TableHead className="text-[11px] uppercase tracking-wide pl-4 w-8"></TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Order</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Customer</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">VAS / Product</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide text-center w-14">Qty</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Progress</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Current Step</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Next Step</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Assigned To</TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wide">Status</TableHead>
+                        <TableHead className="text-right text-[11px] uppercase tracking-wide pr-4">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {workDetailRows.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
-                            No planned work yet.
+                          <TableCell colSpan={11} className="h-28 text-center">
+                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                              <ListChecks className="h-8 w-8 opacity-30" />
+                              <p className="text-sm font-medium">No planned work yet</p>
+                              <p className="text-xs">Run autopilot to schedule jobs</p>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ) : (
                         workDetailRows.map((row) => {
                           const isExpanded = Boolean(expandedWorkRows[row.key]);
-                          const canDeletePlan =
-                            (row.resetJobIds.length > 0 || row.resetPlanDocIds.length > 0) &&
-                            row.status !== "IN_PROGRESS";
-                          const canManualDone =
-                            row.isFinalStep &&
-                            row.status === "IN_PROGRESS" &&
-                            Boolean(row.currentJobId);
+                          const canDeletePlan = (row.resetJobIds.length > 0 || row.resetPlanDocIds.length > 0) && row.status !== "IN_PROGRESS";
+                          const canManualDone = row.isFinalStep && row.status === "IN_PROGRESS" && Boolean(row.currentJobId);
+                          const doneSteps = row.routingSteps.filter(s => {
+                            const sp = row.stepPlanMap.get(s.stepNo);
+                            return String(sp?.status || (row.currentStepNo && s.stepNo < row.currentStepNo ? "DONE" : "")).toUpperCase() === "DONE";
+                          }).length;
+                          const totalSteps = row.routingSteps.length || row.totalSteps || 1;
+                          const progressPct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
+
+                          const borderCls =
+                            row.status === "IN_PROGRESS" ? "border-l-emerald-500" :
+                            row.status === "PLANNED" ? "border-l-blue-400" :
+                            row.status === "WAITING" ? "border-l-amber-400" : "border-l-slate-200";
+
                           return (
                             <Fragment key={row.key}>
-                              <TableRow>
-                                <TableCell className="font-medium">{row.orderNo}</TableCell>
-                                <TableCell>{row.customer}</TableCell>
+                              <TableRow className={cn(
+                                "border-l-[3px] hover:bg-muted/20 transition-colors cursor-pointer",
+                                borderCls,
+                                isExpanded && "bg-muted/10"
+                              )} onClick={() => toggleWorkRow(row.key)}>
+                                {/* Expand toggle */}
+                                <TableCell className="pl-4 w-8">
+                                  <span className="text-muted-foreground">
+                                    {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="font-bold text-sm whitespace-nowrap">{row.orderNo}</TableCell>
+                                <TableCell className="text-sm max-w-[130px] truncate" title={row.customer}>{row.customer}</TableCell>
                                 <TableCell>
-                                  <div className="space-y-1">
-                                    <div className="font-medium">{row.vasName}</div>
-                                    <div className="text-xs text-muted-foreground">{row.vasGroup}</div>
+                                  <div>
+                                    <div className="font-medium text-sm leading-tight">{row.vasName}</div>
+                                    <div className="text-[10px] text-muted-foreground">{row.productName}</div>
                                   </div>
                                 </TableCell>
-                                <TableCell>{row.qty}</TableCell>
-                                <TableCell>
+                                <TableCell className="text-center font-mono text-sm">{row.qty}</TableCell>
+                                {/* Progress */}
+                                <TableCell className="min-w-[110px]">
                                   <div className="space-y-1">
-                                    <div className="font-medium">{row.process}</div>
-                                    <div className="text-xs text-muted-foreground">
-                                      Start: {formatDateTime(row.plannedStart)}
+                                    <div className="flex justify-between text-[10px]">
+                                      <span className="text-muted-foreground">{doneSteps}/{totalSteps} steps</span>
+                                      <span className={cn("font-bold tabular-nums", progressPct === 100 ? "text-green-600" : row.status === "IN_PROGRESS" ? "text-emerald-600" : "text-slate-500")}>{progressPct}%</span>
                                     </div>
-                                    <div className="text-xs text-muted-foreground">
-                                      End: {formatDateTime(row.plannedEnd)}
+                                    <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                                      <div
+                                        className={cn("h-full rounded-full transition-all duration-500",
+                                          progressPct === 100 ? "bg-green-500" :
+                                          row.status === "IN_PROGRESS" ? "bg-gradient-to-r from-emerald-400 to-emerald-600" :
+                                          "bg-blue-400"
+                                        )}
+                                        style={{ width: `${Math.max(progressPct > 0 ? 6 : 0, progressPct)}%` }}
+                                      />
                                     </div>
+                                  </div>
+                                </TableCell>
+                                {/* Current step */}
+                                <TableCell>
+                                  <div>
+                                    <div className="font-medium text-sm">{row.process}</div>
+                                    <div className="text-[10px] text-muted-foreground tabular-nums">{formatDateTime(row.plannedStart)}</div>
                                     {row.status === "PLANNED" && (
-                                      <div className="text-[11px] font-medium text-amber-600">
-                                        {getQueueDelayLabel(row.plannedStart)}
-                                      </div>
+                                      <div className="text-[10px] font-medium text-amber-600">{getQueueDelayLabel(row.plannedStart)}</div>
                                     )}
                                     {row.blockedByLabel && (
-                                      <div
-                                        className="text-[11px] text-muted-foreground"
-                                        title={row.blockedByLabel}
-                                      >
-                                        {row.blockedByLabel}
-                                      </div>
+                                      <Tooltip>
+                                        <TooltipTrigger>
+                                          <div className="text-[10px] font-medium text-red-500 flex items-center gap-0.5">
+                                            <AlertCircle className="h-2.5 w-2.5" /> Blocked
+                                          </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-xs">{row.blockedByLabel}</TooltipContent>
+                                      </Tooltip>
                                     )}
                                   </div>
                                 </TableCell>
+                                {/* Next step */}
                                 <TableCell>
-                                  <div className="space-y-1">
-                                    <div className="font-medium">{row.nextProcess || "-"}</div>
-                                    <div className="text-xs text-muted-foreground">
-                                      Start: {formatDateTime(row.nextPlannedStart)}
+                                  {row.nextProcess ? (
+                                    <div>
+                                      <div className="text-sm text-muted-foreground">{row.nextProcess}</div>
+                                      <div className="text-[10px] text-muted-foreground tabular-nums">{formatDateTime(row.nextPlannedStart)}</div>
                                     </div>
-                                    <div className="text-xs text-muted-foreground">
-                                      End: {formatDateTime(row.nextPlannedEnd)}
-                                    </div>
+                                  ) : (
+                                    <span className={cn("text-xs", row.isFinalStep ? "text-emerald-600 font-medium" : "text-muted-foreground")}>
+                                      {row.isFinalStep ? "Final step" : "—"}
+                                    </span>
+                                  )}
+                                </TableCell>
+                                {/* Assigned */}
+                                <TableCell>
+                                  <div className="space-y-0.5">
+                                    <div className="text-sm font-medium">{row.person || <span className="text-muted-foreground text-xs">TBD</span>}</div>
+                                    <div className="text-[10px] text-muted-foreground">{row.machine || ""}</div>
                                   </div>
                                 </TableCell>
-                                <TableCell>{row.person || "TBD"}</TableCell>
-                                <TableCell>{row.machine || "TBD"}</TableCell>
+                                {/* Status */}
                                 <TableCell>
-                                  <Badge
-                                    variant="outline"
-                                    className={cn(
-                                      row.status === "IN_PROGRESS" && "border-emerald-500 text-emerald-600",
-                                      row.status === "PLANNED" && "border-blue-500 text-blue-600",
-                                      row.status === "WAITING" && "border-amber-500 text-amber-600",
-                                      row.status === "DONE" &&
-                                        "border-green-500 bg-green-400 text-green-950"
-                                    )}
-                                  >
-                                    {row.status === "DONE" ? "Completed" : row.status}
-                                  </Badge>
+                                  <span className={cn(
+                                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
+                                    row.status === "IN_PROGRESS" && "bg-emerald-100 text-emerald-700",
+                                    row.status === "PLANNED" && "bg-blue-100 text-blue-700",
+                                    row.status === "WAITING" && "bg-amber-100 text-amber-700",
+                                    row.status === "DONE" && "bg-green-100 text-green-700"
+                                  )}>
+                                    {row.status === "IN_PROGRESS" && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                                    {row.status.replace("_", " ")}
+                                  </span>
                                 </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end gap-2">
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => toggleWorkRow(row.key)}
-                                    >
-                                      {isExpanded ? (
-                                        <>
-                                          <EyeOff className="mr-2 h-4 w-4" />
-                                          Hide
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Eye className="mr-2 h-4 w-4" />
-                                          View
-                                        </>
-                                      )}
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="default"
-                                      disabled={
-                                        !canManualDone ||
-                                        manualDoneSaving ||
-                                        deletingPlanKey === row.key ||
-                                        runningAutopilot ||
-                                        runningPriorityReplan ||
-                                        resettingAutopilot ||
-                                        Boolean(priorityUpdatingOrderId)
-                                      }
-                                      onClick={() => handleOpenManualDoneDialog(row)}
-                                    >
-                                      <Check className="mr-2 h-4 w-4" />
-                                      Manual Done
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="destructive"
-                                      disabled={
-                                        !canDeletePlan ||
-                                        deletingPlanKey === row.key ||
-                                        runningAutopilot ||
-                                        runningPriorityReplan ||
-                                        resettingAutopilot ||
-                                        Boolean(priorityUpdatingOrderId)
-                                      }
-                                      onClick={() => handleDeletePlannedWork(row)}
-                                    >
-                                      {deletingPlanKey === row.key ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                      ) : (
-                                        <>
-                                          <Trash2 className="mr-2 h-4 w-4" />
-                                          Delete Plan
-                                        </>
-                                      )}
-                                    </Button>
+                                {/* Actions */}
+                                <TableCell className="text-right pr-4" onClick={e => e.stopPropagation()}>
+                                  <div className="flex justify-end items-center gap-1">
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button size="sm" variant="default" className="h-7 px-2"
+                                          disabled={!canManualDone || manualDoneSaving || deletingPlanKey === row.key || runningAutopilot || runningPriorityReplan || resettingAutopilot || Boolean(priorityUpdatingOrderId)}
+                                          onClick={() => handleOpenManualDoneDialog(row)}>
+                                          {manualDoneSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>{canManualDone ? "Mark final step done" : row.isFinalStep ? "Not in progress" : "Not the final step"}</TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button size="sm" variant="destructive" className="h-7 px-2"
+                                          disabled={!canDeletePlan || deletingPlanKey === row.key || runningAutopilot || runningPriorityReplan || resettingAutopilot || Boolean(priorityUpdatingOrderId)}
+                                          onClick={() => handleDeletePlannedWork(row)}>
+                                          {deletingPlanKey === row.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>{canDeletePlan ? "Delete plan & reset to waiting" : row.status === "IN_PROGRESS" ? "Cannot delete in-progress plan" : "No removable plan"}</TooltipContent>
+                                    </Tooltip>
                                   </div>
                                 </TableCell>
                               </TableRow>
+
+                              {/* Expanded routing roadmap */}
                               {isExpanded && (
                                 <TableRow>
-                                  <TableCell colSpan={10} className="bg-muted/30">
-                                    <div className="space-y-3">
-                                      <div className="text-xs text-muted-foreground">
-                                        Routing roadmap for {row.productName}
+                                  <TableCell colSpan={11} className="bg-slate-50/60 border-l-[3px] border-l-slate-200 px-6 py-4">
+                                    <div className="space-y-2">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Routing Roadmap</span>
+                                        <span className="text-xs text-muted-foreground">— {row.productName}</span>
+                                        <span className="ml-auto text-xs text-muted-foreground">{row.currentStepNo ? `Step ${row.currentStepNo} of ${totalSteps}` : `${totalSteps} steps`}</span>
                                       </div>
                                       {row.routingSteps.length === 0 ? (
-                                        <div className="text-sm text-muted-foreground">
-                                          No routing steps found for this product.
-                                        </div>
+                                        <p className="text-sm text-muted-foreground py-2">No routing steps configured for this product.</p>
                                       ) : (
-                                        <div className="overflow-x-auto">
-                                          <div className="flex items-center gap-2 min-w-max">
-                                            {row.routingSteps.map((step, index) => {
-                                              const currentStep = row.currentStepNo ?? 0;
-                                              const stepPlan = row.stepPlanMap.get(step.stepNo);
-                                              const rawStepStatus = String(
-                                                stepPlan?.status ||
-                                                  (currentStep && step.stepNo < currentStep ? "DONE" : "")
-                                              )
-                                                .trim()
-                                                .toUpperCase();
-                                              const isDone = rawStepStatus === "DONE";
-                                              const isInProgress = rawStepStatus === "IN_PROGRESS";
-                                              const isCurrent = currentStep && step.stepNo === currentStep;
-                                              const stepStart = formatDateTime(
-                                                isDone
-                                                  ? stepPlan?.actualStart || stepPlan?.plannedStart
-                                                  : stepPlan?.plannedStart
-                                              );
-                                              const stepEnd = formatDateTime(
-                                                isDone
-                                                  ? stepPlan?.actualEnd || stepPlan?.plannedEnd
-                                                  : stepPlan?.plannedEnd
-                                              );
-                                              const stepPerson = stepPlan?.personName;
-                                              const tone = isDone
-                                                ? "bg-green-400 border-green-500 text-green-950"
-                                                : isInProgress
-                                                ? "bg-emerald-100 border-emerald-600 text-emerald-700"
-                                                : isCurrent
-                                                ? "bg-blue-50 border-blue-500 text-blue-700"
-                                                : "bg-white border-muted-foreground/40 text-muted-foreground";
-                                              const connectorTone = isDone
-                                                ? "bg-green-500"
-                                                : isInProgress || isCurrent
-                                                ? "bg-blue-400"
-                                                : "bg-muted-foreground/30";
+                                        <div className="overflow-x-auto pb-1">
+                                          <div className="flex items-start gap-0 min-w-max">
+                                            {row.routingSteps.map((step, idx) => {
+                                              const cur = row.currentStepNo ?? 0;
+                                              const sp = row.stepPlanMap.get(step.stepNo);
+                                              const rawSt = String(sp?.status || (cur && step.stepNo < cur ? "DONE" : "")).trim().toUpperCase();
+                                              const isDone = rawSt === "DONE";
+                                              const isIP = rawSt === "IN_PROGRESS";
+                                              const isCur = Boolean(cur && step.stepNo === cur);
+                                              const isPending = !isDone && !isIP && !isCur;
+
+                                              const cardCls = isDone
+                                                ? "bg-green-50 border-green-400 shadow-green-100"
+                                                : isIP
+                                                ? "bg-emerald-50 border-emerald-500 shadow-emerald-100 ring-2 ring-emerald-400/30"
+                                                : isCur
+                                                ? "bg-blue-50 border-blue-400 shadow-blue-100 ring-2 ring-blue-400/20"
+                                                : "bg-white border-slate-200";
+                                              const numCls = isDone
+                                                ? "bg-green-500 text-white"
+                                                : isIP
+                                                ? "bg-emerald-500 text-white animate-pulse"
+                                                : isCur
+                                                ? "bg-blue-500 text-white"
+                                                : "bg-slate-200 text-slate-500";
+                                              const connCls = isDone ? "bg-green-400" : isIP || isCur ? "bg-blue-300" : "bg-slate-200";
+
+                                              const displayStart = isDone ? (sp?.actualStart || sp?.plannedStart) : sp?.plannedStart;
+                                              const displayEnd = isDone ? (sp?.actualEnd || sp?.plannedEnd) : sp?.plannedEnd;
+
                                               return (
                                                 <div key={`${row.key}-${step.stepNo}`} className="flex items-center">
-                                                  <div className="flex flex-col items-center">
-                                                    <div
-                                                      className={cn(
-                                                        "h-9 w-9 rounded-full border flex items-center justify-center text-xs font-semibold",
-                                                        tone
+                                                  <div className={cn("relative rounded-xl border shadow-sm p-3 w-[130px] transition-all", cardCls)}>
+                                                    <div className="flex items-center gap-2 mb-1.5">
+                                                      <span className={cn("h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0", numCls)}>
+                                                        {isDone ? <Check className="h-3 w-3" /> : step.stepNo}
+                                                      </span>
+                                                      <span className="text-xs font-semibold truncate" title={step.process}>{step.process}</span>
+                                                    </div>
+                                                    <div className="space-y-0.5 text-[10px] text-slate-500 leading-snug">
+                                                      {isDone && (
+                                                        <div className="text-green-600 font-semibold">✓ Completed</div>
                                                       )}
-                                                    >
-                                                      {isDone ? <Check className="h-4 w-4" /> : step.stepNo}
-                                                    </div>
-                                                    <div className="mt-1 text-[11px] text-muted-foreground max-w-[80px] text-center">
-                                                      {step.process}
-                                                    </div>
-                                                    <div className="mt-1 text-[10px] text-muted-foreground leading-tight text-center">
-                                                      <div className={cn(isDone && "font-semibold text-green-700")}>
-                                                        {isDone ? "Completed" : rawStepStatus || "PENDING"}
-                                                      </div>
-                                                      <div>Start: {stepStart}</div>
-                                                      <div>End: {stepEnd}</div>
-                                                      <div>Person: {stepPerson || "-"}</div>
+                                                      {isIP && (
+                                                        <div className="text-emerald-600 font-semibold flex items-center gap-1">
+                                                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                                          In Progress
+                                                        </div>
+                                                      )}
+                                                      {isCur && !isIP && <div className="text-blue-600 font-semibold">Queued</div>}
+                                                      {isPending && <div className="text-slate-400">Pending</div>}
+                                                      {sp?.machineName && <div className="truncate" title={sp.machineName}>⚙ {sp.machineName}</div>}
+                                                      {sp?.personName && <div className="truncate" title={sp.personName}>👤 {sp.personName}</div>}
+                                                      {displayStart && <div className="tabular-nums">{formatDateTime(displayStart)}</div>}
+                                                      {displayEnd && displayEnd !== displayStart && <div className="tabular-nums text-slate-400">→ {formatDateTime(displayEnd)}</div>}
+                                                      <div className="text-slate-300 tabular-nums">{step.cycleMinutes}m / {step.ops} op{step.ops !== 1 ? "s" : ""}</div>
                                                     </div>
                                                   </div>
-                                                  {index < row.routingSteps.length - 1 && (
-                                                    <div
-                                                      className={cn(
-                                                        "h-[2px] w-12 mx-2 rounded-full",
-                                                        connectorTone
-                                                      )}
-                                                    />
+                                                  {idx < row.routingSteps.length - 1 && (
+                                                    <div className={cn("h-[2px] w-6 flex-shrink-0 rounded-full mx-1", connCls)} />
                                                   )}
                                                 </div>
                                               );
@@ -2909,297 +3112,270 @@ const getGroupedSkills = () => {
                     </TableBody>
                   </Table>
                 </div>
+                <div className="flex items-center px-4 py-2 border-t bg-muted/10 text-xs text-muted-foreground">
+                  <span>{workDetailRows.length} active job group{workDetailRows.length !== 1 ? "s" : ""} — click any row to expand the routing roadmap</span>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           {/* ROUTING TAB */}
           <TabsContent value="routing" className="space-y-4">
-            <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
-              {/* Product Selector */}
-              <Card className="h-fit">
-                <CardHeader>
-                  <CardTitle>Product Selection</CardTitle>
-                  <CardDescription>Choose a product to configure its routing</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Search */}
-                  <div className="relative">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search products..."
-                      value={productSearch}
-                      onChange={(e) => setProductSearch(e.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
+            <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
 
-                  {/* Product List */}
-                  <ScrollArea className="h-[300px] rounded-md border">
-                    <div className="p-4 space-y-2">
-                      {filteredProducts.length === 0 && (
-                        <div className="text-sm text-muted-foreground text-center py-8">
-                          No products found
-                        </div>
-                      )}
-                      {filteredProducts.map((product) => (
-                        <div
-                          key={product.id}
-                          onClick={() => setSelectedProductId(product.id)}
-                          className={cn(
-                            "p-3 rounded-lg border cursor-pointer transition-all hover:border-primary",
-                            selectedProductId === product.id && "border-primary bg-primary/5"
-                          )}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-1">
-                              <p className="font-medium text-sm">{product.name}</p>
-                              <Badge variant="secondary" className="text-xs">
-                                {product.category}
-                              </Badge>
-                            </div>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setDeleteDialog({
-                                      open: true,
-                                      type: "product",
-                                      id: product.id,
-                                      name: product.name,
-                                    });
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Delete product</TooltipContent>
-                            </Tooltip>
-                          </div>
-                        </div>
-                      ))}
+              {/* ── Left: Product List ──────────────────────────────────── */}
+              <div className="space-y-3">
+                <Card>
+                  <CardContent className="p-4 space-y-3">
+                    {/* Search */}
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input placeholder="Search products..." value={productSearch}
+                        onChange={(e) => setProductSearch(e.target.value)} className="pl-8 h-8 text-sm" />
                     </div>
-                  </ScrollArea>
 
-                  <Separator />
+                    {/* Category summary */}
+                    <div className="flex flex-wrap gap-1">
+                      {categories.map((cat) => {
+                        const count = products.filter(p => p.category === cat).length;
+                        return (
+                          <button key={cat}
+                            onClick={() => setProductSearch(cat)}
+                            className="inline-flex items-center gap-1 rounded-full bg-slate-100 hover:bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 transition-colors">
+                            {cat} <span className="font-bold">{count}</span>
+                          </button>
+                        );
+                      })}
+                      {productSearch && (
+                        <button onClick={() => setProductSearch("")}
+                          className="inline-flex items-center gap-1 rounded-full bg-red-50 hover:bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-600 transition-colors">
+                          <X className="h-2.5 w-2.5" /> Clear
+                        </button>
+                      )}
+                    </div>
 
-                  {/* Add New Product */}
-                  <div className="space-y-3">
-                    <Label className="text-sm font-semibold">Add New Product</Label>
-                    <Input
-                      placeholder="Product name"
-                      value={newProduct.name}
-                      onChange={(e) => setNewProduct((prev) => ({ ...prev, name: e.target.value }))}
-                    />
-                    <Select
-                      value={newProduct.category}
-                      onValueChange={(value) => setNewProduct((prev) => ({ ...prev, category: value }))}
-                    >
-                      <SelectTrigger>
+                    {/* Product list */}
+                    <ScrollArea className="h-[320px] rounded-lg border">
+                      <div className="p-2 space-y-1">
+                        {filteredProducts.length === 0 && (
+                          <div className="text-xs text-muted-foreground text-center py-8">No products found</div>
+                        )}
+                        {filteredProducts.map((product) => {
+                          const stepCount = routing.filter(r => r.productId === product.id).length;
+                          const isSelected = selectedProductId === product.id;
+                          return (
+                            <div key={product.id}
+                              onClick={() => setSelectedProductId(product.id)}
+                              className={cn(
+                                "flex items-center justify-between rounded-lg px-2.5 py-2 cursor-pointer transition-all border",
+                                isSelected
+                                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                  : "hover:bg-muted/60 border-transparent hover:border-border"
+                              )}>
+                              <div className="flex-1 min-w-0">
+                                <div className={cn("font-medium text-sm truncate", isSelected ? "text-primary-foreground" : "")}>{product.name}</div>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className={cn("text-[10px] rounded px-1 py-0.5", isSelected ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500")}>{product.category}</span>
+                                  {stepCount > 0 ? (
+                                    <span className={cn("text-[10px] font-medium", isSelected ? "text-white/70" : "text-muted-foreground")}>{stepCount} step{stepCount !== 1 ? "s" : ""}</span>
+                                  ) : (
+                                    <span className={cn("text-[10px]", isSelected ? "text-white/60" : "text-amber-600")}>No steps</span>
+                                  )}
+                                </div>
+                              </div>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" className={cn("h-6 w-6 flex-shrink-0 ml-1", isSelected ? "hover:bg-white/20 text-white" : "hover:text-destructive")}
+                                    onClick={(e) => { e.stopPropagation(); setDeleteDialog({ open: true, type: "product", id: product.id, name: product.name }); }}>
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Delete product</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                    <div className="text-[10px] text-muted-foreground text-center">{products.length} products · {categories.length} categories</div>
+                  </CardContent>
+                </Card>
+
+                {/* Add Product form */}
+                <Card>
+                  <CardContent className="p-4 space-y-2">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Add New Product</div>
+                    <Input placeholder="Product name" value={newProduct.name} className="h-8 text-sm"
+                      onChange={(e) => setNewProduct((prev) => ({ ...prev, name: e.target.value }))} />
+                    <Select value={newProduct.category} onValueChange={(v) => setNewProduct((prev) => ({ ...prev, category: v }))}>
+                      <SelectTrigger className="h-8 text-sm">
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
                       <SelectContent>
-                        {categories.map((cat) => (
-                          <SelectItem key={cat} value={cat}>
-                            {cat}
-                          </SelectItem>
-                        ))}
+                        {categories.map((cat) => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
                         <Separator className="my-1" />
                         <div className="px-2 py-1.5">
-                          <Input
-                            placeholder="Or create new..."
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                setNewProduct((prev) => ({ ...prev, category: e.currentTarget.value }));
-                              }
-                            }}
-                          />
+                          <Input placeholder="Create new category…" className="h-7 text-xs"
+                            onKeyDown={(e) => { if (e.key === "Enter") setNewProduct((prev) => ({ ...prev, category: e.currentTarget.value })); }} />
                         </div>
                       </SelectContent>
                     </Select>
-                    <Button onClick={handleAddProduct} className="w-full">
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Product
+                    <Button onClick={handleAddProduct} className="w-full h-8 text-sm">
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />Add Product
                     </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </div>
 
-              {/* Routing Configuration */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Routing Steps</CardTitle>
-                      <CardDescription>
-                        {selectedProductId
-                          ? `Configure process steps for ${products.find((p) => p.id === selectedProductId)?.name}`
-                          : "Select a product to configure routing"}
-                      </CardDescription>
+              {/* ── Right: Routing Steps Editor ─────────────────────────── */}
+              <Card className="flex flex-col">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      {selectedProductId ? (
+                        <>
+                          <CardTitle className="text-base flex items-center gap-2">
+                            <span className="truncate">{products.find(p => p.id === selectedProductId)?.name}</span>
+                            <Badge variant="secondary" className="text-xs flex-shrink-0">{products.find(p => p.id === selectedProductId)?.category}</Badge>
+                          </CardTitle>
+                          <CardDescription className="text-xs mt-0.5">
+                            {routingRows.length} step{routingRows.length !== 1 ? "s" : ""} · Total cycle: {routingRows.reduce((s, r) => s + r.cycleMinutes, 0)}min
+                          </CardDescription>
+                        </>
+                      ) : (
+                        <CardTitle className="text-base text-muted-foreground">Select a product to configure routing</CardTitle>
+                      )}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-1.5 flex-shrink-0">
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="outline"
+                          <Button size="sm" variant="outline" className="h-8 px-2"
                             onClick={() => exportData(routingRows, "routing.json")}
-                            disabled={!selectedProductId || routingRows.length === 0}
-                          >
-                            <Download className="h-4 w-4" />
+                            disabled={!selectedProductId || routingRows.length === 0}>
+                            <Download className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>Export routing</TooltipContent>
                       </Tooltip>
-                      <Button size="sm" variant="outline" onClick={() => openImportDialog("routing")}>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Import
+                      <Button size="sm" variant="outline" className="h-8 px-2.5 text-xs" onClick={() => openImportDialog("routing")}>
+                        <Upload className="mr-1.5 h-3.5 w-3.5" />Import
                       </Button>
-                      <Button size="sm" onClick={handleAddRoutingRow} disabled={!selectedProductId}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Add Step
+                      <Button size="sm" className="h-8 px-2.5 text-xs" onClick={handleAddRoutingRow} disabled={!selectedProductId}>
+                        <Plus className="mr-1.5 h-3.5 w-3.5" />Add Step
                       </Button>
                     </div>
                   </div>
+
+                  {/* Route chain preview */}
+                  {routingRows.length > 0 && (
+                    <div className="flex items-center gap-1 overflow-x-auto pb-1 mt-2">
+                      {routingRows.map((r, i) => (
+                        <div key={r.id} className="flex items-center gap-1 flex-shrink-0">
+                          <div className="flex items-center gap-1 rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5">
+                            <span className="h-4 w-4 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[9px] font-bold">{r.stepNo}</span>
+                            <span className="text-[10px] font-medium max-w-[80px] truncate">{r.process || "…"}</span>
+                            <span className="text-[9px] text-muted-foreground">{r.cycleMinutes}m</span>
+                          </div>
+                          {i < routingRows.length - 1 && <span className="text-slate-300 text-[10px]">→</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardHeader>
-                <CardContent className="space-y-4">
+
+                <CardContent className="flex-1 space-y-3">
                   {selectedProductId ? (
                     <>
-                      <div className="rounded-lg border">
+                      {/* Step editor table */}
+                      <div className="rounded-xl border overflow-hidden">
                         <Table>
                           <TableHeader>
-                            <TableRow>
-                              <TableHead className="w-[60px]">
-                                <GripVertical className="h-4 w-4 text-muted-foreground" />
-                              </TableHead>
-                              <TableHead className="w-[100px]">Step</TableHead>
-                              <TableHead>Process</TableHead>
-                              <TableHead className="w-[140px]">Cycle (min)</TableHead>
-                              <TableHead className="w-[100px]">OPS</TableHead>
-                              <TableHead className="w-[80px]">Action</TableHead>
+                            <TableRow className="bg-muted/40 hover:bg-muted/40">
+                              <TableHead className="w-8 text-center text-[10px] uppercase tracking-wide"></TableHead>
+                              <TableHead className="w-16 text-[10px] uppercase tracking-wide">Step</TableHead>
+                              <TableHead className="text-[10px] uppercase tracking-wide">Process Name</TableHead>
+                              <TableHead className="w-28 text-[10px] uppercase tracking-wide">Cycle (min)</TableHead>
+                              <TableHead className="w-20 text-[10px] uppercase tracking-wide">OPS</TableHead>
+                              <TableHead className="w-20 text-[10px] uppercase tracking-wide">Time/Piece</TableHead>
+                              <TableHead className="w-10"></TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {routingRows.length === 0 && (
                               <TableRow>
-                                <TableCell colSpan={6} className="h-32 text-center">
+                                <TableCell colSpan={7} className="h-28 text-center">
                                   <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                    <Package className="h-8 w-8 opacity-50" />
-                                    <p className="text-sm">No routing steps configured</p>
-                                    <p className="text-xs">Click "Add Step" to get started</p>
+                                    <Package className="h-7 w-7 opacity-40" />
+                                    <p className="text-sm">No steps yet — click Add Step</p>
                                   </div>
                                 </TableCell>
                               </TableRow>
                             )}
-                            {routingRows.map((row, index) => (
-                              <TableRow key={row.id}>
-                                <TableCell>
-                                  <div className="flex items-center justify-center">
-                                    <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    value={row.stepNo}
-                                    type="number"
-                                    min={1}
-                                    className="w-20"
-                                    onChange={(e) => {
-                                      const stepNo = toNumber(e.target.value);
-                                      setRoutingRows((prev) => {
-                                        const next = [...prev];
-                                        next[index] = { ...next[index], stepNo };
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    value={row.process}
-                                    placeholder="e.g., Assembly"
-                                    onChange={(e) => {
-                                      const process = e.target.value;
-                                      setRoutingRows((prev) => {
-                                        const next = [...prev];
-                                        next[index] = { ...next[index], process };
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    step={0.1}
-                                    value={row.cycleMinutes}
-                                    onChange={(e) => {
-                                      const cycleMinutes = toNumber(e.target.value);
-                                      setRoutingRows((prev) => {
-                                        const next = [...prev];
-                                        next[index] = { ...next[index], cycleMinutes };
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Input
-                                    type="number"
-                                    min={1}
-                                    value={row.ops}
-                                    onChange={(e) => {
-                                      const ops = toNumber(e.target.value);
-                                      setRoutingRows((prev) => {
-                                        const next = [...prev];
-                                        next[index] = { ...next[index], ops };
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() =>
-                                          setRoutingRows((prev) => prev.filter((_, i) => i !== index))
-                                        }
-                                      >
-                                        <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Delete step</TooltipContent>
-                                  </Tooltip>
-                                </TableCell>
-                              </TableRow>
-                            ))}
+                            {routingRows.map((row, index) => {
+                              const timePerPiece = row.ops > 0 ? (row.cycleMinutes / row.ops).toFixed(1) : "—";
+                              const maxCycle = Math.max(...routingRows.map(r => r.cycleMinutes), 1);
+                              const barPct = Math.round((row.cycleMinutes / maxCycle) * 100);
+
+                              return (
+                                <TableRow key={row.id} className="group hover:bg-muted/10">
+                                  <TableCell className="text-center">
+                                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground cursor-move mx-auto" />
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center justify-center h-7 w-7 rounded-full bg-primary/10 text-primary text-xs font-bold mx-auto">
+                                      {row.stepNo}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Input value={row.process} placeholder="e.g., Assembly" className="h-7 text-sm border-0 bg-transparent hover:bg-muted/40 focus:bg-background focus:border px-2"
+                                      onChange={(e) => { const process = e.target.value; setRoutingRows(prev => { const next = [...prev]; next[index] = { ...next[index], process }; return next; }); }} />
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="space-y-1">
+                                      <Input type="number" min={0} step={0.1} value={row.cycleMinutes} className="h-7 text-sm w-full"
+                                        onChange={(e) => { const cycleMinutes = toNumber(e.target.value); setRoutingRows(prev => { const next = [...prev]; next[index] = { ...next[index], cycleMinutes }; return next; }); }} />
+                                      <div className="h-1 rounded-full bg-slate-100 overflow-hidden">
+                                        <div className="h-full bg-primary/40 rounded-full" style={{ width: `${barPct}%` }} />
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Input type="number" min={1} value={row.ops} className="h-7 text-sm w-full"
+                                      onChange={(e) => { const ops = toNumber(e.target.value); setRoutingRows(prev => { const next = [...prev]; next[index] = { ...next[index], ops }; return next; }); }} />
+                                  </TableCell>
+                                  <TableCell>
+                                    <span className="text-xs text-muted-foreground tabular-nums">{timePerPiece}m</span>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 hover:text-destructive"
+                                      onClick={() => setRoutingRows(prev => prev.filter((_, i) => i !== index))}>
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
                           </TableBody>
                         </Table>
                       </div>
 
-                      <div className="flex items-center justify-between pt-4">
-                        <div className="text-sm text-muted-foreground">
-                          {routingRows.length} step{routingRows.length !== 1 ? "s" : ""} configured
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-muted-foreground">
+                          Total cycle time: <span className="font-semibold">{routingRows.reduce((s, r) => s + r.cycleMinutes, 0)} min</span>
+                          {" · "}
+                          Total OPS: <span className="font-semibold">{routingRows.reduce((s, r) => s + r.ops, 0)}</span>
                         </div>
-                        <Button onClick={handleSaveRouting} disabled={savingRouting || routingRows.length === 0}>
-                          {savingRouting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                          <Save className="mr-2 h-4 w-4" />
+                        <Button onClick={handleSaveRouting} disabled={savingRouting || routingRows.length === 0} className="h-8 px-4 text-sm">
+                          {savingRouting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
                           Save Routing
                         </Button>
                       </div>
                     </>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-                      <Package className="h-16 w-16 opacity-50 mb-4" />
-                      <p className="text-lg font-medium">No Product Selected</p>
-                      <p className="text-sm">Select a product from the left panel to configure routing</p>
+                      <Package className="h-12 w-12 opacity-30 mb-3" />
+                      <p className="font-medium">No Product Selected</p>
+                      <p className="text-sm">Pick a product from the left panel</p>
                     </div>
                   )}
                 </CardContent>
@@ -3209,50 +3385,72 @@ const getGroupedSkills = () => {
 
           {/* MACHINES TAB */}
           <TabsContent value="machines" className="space-y-4">
-            <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
+            <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
               {/* Add Machine Form */}
-              <Card className="h-fit">
-                <CardHeader>
-                  <CardTitle>Add Machine</CardTitle>
-                  <CardDescription>Configure a new production machine</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="machine-name">Machine Name</Label>
-                    <Input
-                      id="machine-name"
-                      placeholder="e.g., CNC-001"
-                      value={newMachine.name}
-                      onChange={(e) => setNewMachine((prev) => ({ ...prev, name: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="machine-process">Process</Label>
-                    <Input
-                      id="machine-process"
-                      placeholder="e.g., Cutting"
-                      value={newMachine.process}
-                      onChange={(e) => setNewMachine((prev) => ({ ...prev, process: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="shift-minutes">Shift Duration (minutes)</Label>
-                    <Input
-                      id="shift-minutes"
-                      type="number"
-                      min={60}
-                      placeholder="480"
-                      value={newMachine.shiftMinutes}
-                      onChange={(e) => setNewMachine((prev) => ({ ...prev, shiftMinutes: e.target.value }))}
-                    />
-                    <p className="text-xs text-muted-foreground">Default: 480 minutes (8 hours)</p>
-                  </div>
-                  <Button onClick={handleAddMachine} className="w-full">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Machine
-                  </Button>
-                </CardContent>
-              </Card>
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Cpu className="h-4 w-4" />
+                      Add Machine
+                    </CardTitle>
+                    <CardDescription>Configure a new production machine</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="machine-name">Machine Name</Label>
+                      <Input id="machine-name" placeholder="e.g., CNC-001" value={newMachine.name}
+                        onChange={(e) => setNewMachine((prev) => ({ ...prev, name: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="machine-process">Process</Label>
+                      <Input id="machine-process" placeholder="e.g., Cutting" value={newMachine.process}
+                        onChange={(e) => setNewMachine((prev) => ({ ...prev, process: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="shift-minutes">Shift Duration (minutes)</Label>
+                      <Input id="shift-minutes" type="number" min={60} placeholder="480" value={newMachine.shiftMinutes}
+                        onChange={(e) => setNewMachine((prev) => ({ ...prev, shiftMinutes: e.target.value }))} />
+                      <p className="text-xs text-muted-foreground">Default: 480 min (8 hours)</p>
+                    </div>
+                    <Button onClick={handleAddMachine} className="w-full">
+                      <Plus className="mr-2 h-4 w-4" />Add Machine
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Machine summary */}
+                <Card>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Fleet Overview</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5 text-center">
+                        <div className="text-2xl font-extrabold text-emerald-700">{stats.activeMachines}</div>
+                        <div className="text-[10px] text-emerald-500">Active</div>
+                      </div>
+                      <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5 text-center">
+                        <div className="text-2xl font-extrabold text-slate-600">{stats.totalMachines - stats.activeMachines}</div>
+                        <div className="text-[10px] text-slate-400">Inactive</div>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Total Capacity</span>
+                        <span className="font-semibold">{stats.totalCapacity} min ({Math.round(stats.totalCapacity / 60)}h)</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full transition-all"
+                          style={{ width: `${stats.totalMachines > 0 ? Math.round((stats.activeMachines / stats.totalMachines) * 100) : 0}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-muted-foreground text-right">
+                        {stats.totalMachines > 0 ? Math.round((stats.activeMachines / stats.totalMachines) * 100) : 0}% active
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
 
               {/* Machines List */}
               <Card>
@@ -3265,58 +3463,49 @@ const getGroupedSkills = () => {
                     <div className="flex gap-2">
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => exportData(machines, "machines.json")}
-                          >
+                          <Button size="sm" variant="outline" onClick={() => exportData(machines, "machines.json")}>
                             <Download className="h-4 w-4" />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>Export machines</TooltipContent>
                       </Tooltip>
                       <Button size="sm" variant="outline" onClick={() => openImportDialog("machines")}>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Import
+                        <Upload className="mr-2 h-4 w-4" />Import
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setShowInactiveMachines(!showInactiveMachines)}
-                      >
-                        {showInactiveMachines ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button size="sm" variant="outline" onClick={() => setShowInactiveMachines(!showInactiveMachines)}>
+                            {showInactiveMachines ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{showInactiveMachines ? "Hide inactive" : "Show inactive"}</TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Search */}
+                <CardContent className="space-y-3">
                   <div className="relative">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search machines..."
-                      value={machineSearch}
-                      onChange={(e) => setMachineSearch(e.target.value)}
-                      className="pl-9"
-                    />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Search machines..." value={machineSearch}
+                      onChange={(e) => setMachineSearch(e.target.value)} className="pl-9" />
                   </div>
 
-                  {/* Table */}
-                  <div className="rounded-lg border">
+                  <div className="rounded-xl border overflow-hidden">
                     <Table>
                       <TableHeader>
-                        <TableRow>
-                          <TableHead>Machine</TableHead>
-                          <TableHead>Process</TableHead>
-                          <TableHead>Shift (min)</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableHead className="text-[11px] uppercase tracking-wide">Machine</TableHead>
+                          <TableHead className="text-[11px] uppercase tracking-wide">Process</TableHead>
+                          <TableHead className="text-[11px] uppercase tracking-wide">Capacity</TableHead>
+                          <TableHead className="text-[11px] uppercase tracking-wide">Skills</TableHead>
+                          <TableHead className="text-[11px] uppercase tracking-wide">Status</TableHead>
+                          <TableHead className="text-right text-[11px] uppercase tracking-wide">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredMachines.length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={5} className="h-32 text-center">
+                            <TableCell colSpan={6} className="h-32 text-center">
                               <div className="flex flex-col items-center gap-2 text-muted-foreground">
                                 <Settings2 className="h-8 w-8 opacity-50" />
                                 <p className="text-sm">No machines found</p>
@@ -3324,578 +3513,438 @@ const getGroupedSkills = () => {
                             </TableCell>
                           </TableRow>
                         )}
-                        {filteredMachines.map((machine) => (
-                          <TableRow key={machine.id}>
-                            <TableCell>
-                              {editingMachine === machine.id ? (
-                                <Input
-                                  defaultValue={machine.name}
-                                  onBlur={(e) => {
-                                    if (e.target.value !== machine.name) {
-                                      handleUpdateMachine(machine.id, { name: e.target.value });
-                                    } else {
-                                      setEditingMachine(null);
-                                    }
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.currentTarget.blur();
-                                    }
-                                  }}
-                                  autoFocus
-                                />
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium">{machine.name}</span>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                                    onClick={() => setEditingMachine(machine.id)}
-                                  >
-                                    <Edit2 className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{machine.process}</Badge>
-                            </TableCell>
-                            <TableCell>{machine.shiftMinutes}</TableCell>
-                            <TableCell>
-                              <Button
-                                size="sm"
-                                variant={machine.active ? "default" : "secondary"}
-                                onClick={() =>
-                                  handleUpdateMachine(machine.id, { active: !machine.active })
-                                }
-                              >
-                                {machine.active ? (
-                                  <>
-                                    <Check className="mr-1 h-3 w-3" />
-                                    Active
-                                  </>
+                        {filteredMachines.map((machine) => {
+                          const maxCapacity = Math.max(...machines.map(m => m.shiftMinutes), 1);
+                          const capacityPct = Math.round((machine.shiftMinutes / maxCapacity) * 100);
+                          const machineSkillCount = skills.filter(s => s.machineId === machine.id && s.allowed).length;
+                          const uniquePeople = new Set(skills.filter(s => s.machineId === machine.id && s.allowed).map(s => s.personId)).size;
+
+                          return (
+                            <TableRow key={machine.id} className={cn(
+                              "group hover:bg-muted/20 transition-colors",
+                              !machine.active && "opacity-60"
+                            )}>
+                              <TableCell>
+                                {editingMachine === machine.id ? (
+                                  <Input defaultValue={machine.name} autoFocus
+                                    onBlur={(e) => {
+                                      if (e.target.value !== machine.name) handleUpdateMachine(machine.id, { name: e.target.value });
+                                      else setEditingMachine(null);
+                                    }}
+                                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                                  />
                                 ) : (
-                                  <>
-                                    <X className="mr-1 h-3 w-3" />
-                                    Inactive
-                                  </>
+                                  <div className="flex items-center gap-2">
+                                    <div className={cn(
+                                      "h-2 w-2 rounded-full flex-shrink-0",
+                                      machine.active ? "bg-emerald-500" : "bg-slate-300"
+                                    )} />
+                                    <span className="font-medium text-sm">{machine.name}</span>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                                      onClick={() => setEditingMachine(machine.id)}>
+                                      <Edit2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
                                 )}
-                              </Button>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() =>
-                                      setDeleteDialog({
-                                        open: true,
-                                        type: "machine",
-                                        id: machine.id,
-                                        name: machine.name,
-                                      })
-                                    }
-                                  >
-                                    <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Delete machine</TooltipContent>
-                              </Tooltip>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-xs">{machine.process}</Badge>
+                              </TableCell>
+                              <TableCell className="min-w-[140px]">
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="font-medium">{machine.shiftMinutes} min</span>
+                                    <span className="text-muted-foreground">{Math.round(machine.shiftMinutes / 60)}h</span>
+                                  </div>
+                                  <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                                    <div
+                                      className={cn("h-full rounded-full transition-all", machine.active ? "bg-emerald-400" : "bg-slate-300")}
+                                      style={{ width: `${capacityPct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-xs">
+                                  <span className="font-medium">{machineSkillCount}</span>
+                                  <span className="text-muted-foreground ml-1">skills · {uniquePeople} people</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <button
+                                  onClick={() => handleUpdateMachine(machine.id, { active: !machine.active })}
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold transition-colors border",
+                                    machine.active
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                                      : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100"
+                                  )}
+                                >
+                                  {machine.active ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                                  {machine.active ? "Active" : "Inactive"}
+                                </button>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7"
+                                      onClick={() => setDeleteDialog({ open: true, type: "machine", id: machine.id, name: machine.name })}>
+                                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete machine</TooltipContent>
+                                </Tooltip>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
 
-                  <div className="text-sm text-muted-foreground">
-                    Showing {filteredMachines.length} of {machines.length} machines
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Showing {filteredMachines.length} of {machines.length} machines</span>
+                    <span>Total active capacity: {stats.totalCapacity} min/shift</span>
                   </div>
                 </CardContent>
               </Card>
             </div>
           </TabsContent>
 
-          {/* SKILLS TAB - REDESIGNED */}
-              {/* SKILLS TAB - FORM-BASED REDESIGN */}
+          {/* SKILLS TAB */}
             <TabsContent value="skills" className="space-y-4">
-              <div className="grid gap-6 lg:grid-cols-[500px_1fr]">
-                {/* Skill Assignment Form */}
-                <Card className="h-fit">
-                  <CardHeader>
-                    <CardTitle>Assign Skills</CardTitle>
-                    <CardDescription>Select machine and person to configure capabilities</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Machine Selection */}
-                    <div className="space-y-2">
-                      <Label htmlFor="skill-machine">Select Machine</Label>
-                      <Select
-                        value={selectedSkillMachine}
-                        onValueChange={setSelectedSkillMachine}
-                      >
-                        <SelectTrigger id="skill-machine">
-                          <SelectValue placeholder="Choose a machine..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {machines.filter(m => m.active).map((machine) => (
-                            <SelectItem key={machine.id} value={machine.id}>
-                              <div className="flex items-center justify-between w-full">
-                                <span>{machine.name}</span>
-                                <Badge variant="outline" className="ml-2 text-xs">
-                                  {machine.process}
-                                </Badge>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+              {/* Stats strip */}
+              <div className="grid grid-cols-4 gap-3">
+                <Card className="border-l-4 border-l-violet-500">
+                  <CardContent className="p-3 flex items-center gap-3">
+                    <div className="p-2 bg-violet-100 rounded-lg"><UserCheck className="h-4 w-4 text-violet-600" /></div>
+                    <div><div className="text-xl font-bold">{skills.filter(s => s.allowed).length}</div><div className="text-xs text-muted-foreground">Total Skills</div></div>
+                  </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-blue-500">
+                  <CardContent className="p-3 flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 rounded-lg"><Settings2 className="h-4 w-4 text-blue-600" /></div>
+                    <div><div className="text-xl font-bold">{getUniqueAssignments()}</div><div className="text-xs text-muted-foreground">Assignments</div></div>
+                  </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-emerald-500">
+                  <CardContent className="p-3 flex items-center gap-3">
+                    <div className="p-2 bg-emerald-100 rounded-lg"><Package className="h-4 w-4 text-emerald-600" /></div>
+                    <div><div className="text-xl font-bold">{categories.length}</div><div className="text-xs text-muted-foreground">Categories</div></div>
+                  </CardContent>
+                </Card>
+                <Card className="border-l-4 border-l-orange-500">
+                  <CardContent className="p-3 flex items-center gap-3">
+                    <div className="p-2 bg-orange-100 rounded-lg"><Users className="h-4 w-4 text-orange-600" /></div>
+                    <div><div className="text-xl font-bold">{people.length}</div><div className="text-xs text-muted-foreground">People</div></div>
+                  </CardContent>
+                </Card>
+              </div>
 
-                    {/* Person Selection */}
-                    <div className="space-y-2">
-                      <Label htmlFor="skill-person">Select Person</Label>
-                      <Select
-                        value={selectedSkillPerson}
-                        onValueChange={setSelectedSkillPerson}
-                      >
-                        <SelectTrigger id="skill-person">
-                          <SelectValue placeholder="Choose a person..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {people.map((person) => (
-                            <SelectItem key={person.id} value={person.id}>
-                              <div className="flex items-center justify-between w-full">
-                                <span>{person.name}</span>
-                                {person.role && (
-                                  <Badge variant="secondary" className="ml-2 text-xs">
-                                    {person.role}
-                                  </Badge>
-                                )}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Show Skills when both selected */}
-                    {selectedSkillMachine && selectedSkillPerson && (
-                      <>
-                        <Separator />
-                        
-                        {/* Current Selection Info */}
-                        <div className="p-4 bg-primary/5 rounded-lg border-2 border-primary/20">
-                          <div className="flex items-start justify-between">
-                            <div className="space-y-2">
-                              <div className="flex items-center gap-2">
-                                <Settings2 className="h-4 w-4 text-primary" />
-                                <span className="font-semibold text-sm">
-                                  {machines.find(m => m.id === selectedSkillMachine)?.name}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Users className="h-4 w-4 text-primary" />
-                                <span className="font-semibold text-sm">
-                                  {people.find(p => p.id === selectedSkillPerson)?.name}
-                                </span>
-                              </div>
-                            </div>
-                            <Badge variant="secondary">
-                              {getSelectedSkillCount()}/{categories.length}
-                            </Badge>
-                          </div>
+              <div className="grid gap-6 lg:grid-cols-[440px_1fr]">
+                {/* Left: Assignment panel */}
+                <div className="space-y-4">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2"><Settings2 className="h-4 w-4" />Assign Skills</CardTitle>
+                      <CardDescription className="text-xs">Select machine + person, then toggle categories</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Machine</Label>
+                          <Select value={selectedSkillMachine} onValueChange={setSelectedSkillMachine}>
+                            <SelectTrigger className="h-8 text-sm">
+                              <SelectValue placeholder="Select..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {machines.filter(m => m.active).map((machine) => (
+                                <SelectItem key={machine.id} value={machine.id}>
+                                  <span className="text-sm">{machine.name}</span>
+                                  <span className="ml-2 text-xs text-muted-foreground">{machine.process}</span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Person</Label>
+                          <Select value={selectedSkillPerson} onValueChange={setSelectedSkillPerson}>
+                            <SelectTrigger className="h-8 text-sm">
+                              <SelectValue placeholder="Select..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {people.map((person) => (
+                                <SelectItem key={person.id} value={person.id}>
+                                  <span className="text-sm">{person.name}</span>
+                                  {person.role && <span className="ml-2 text-xs text-muted-foreground">{person.role}</span>}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
 
-                        {/* Category Skills */}
-                        <div className="space-y-2">
-                          <Label className="text-sm font-semibold">Product Categories</Label>
+                      {selectedSkillMachine && selectedSkillPerson ? (
+                        <>
+                          {/* Context banner */}
+                          <div className="flex items-center justify-between p-2.5 bg-primary/5 border border-primary/20 rounded-lg">
+                            <div className="flex items-center gap-2 text-sm">
+                              <span className="font-semibold">{machines.find(m => m.id === selectedSkillMachine)?.name}</span>
+                              <span className="text-muted-foreground">×</span>
+                              <span className="font-semibold">{people.find(p => p.id === selectedSkillPerson)?.name}</span>
+                            </div>
+                            <Badge variant="secondary" className="text-xs">{getSelectedSkillCount()}/{categories.length}</Badge>
+                          </div>
+
+                          {/* Category grid */}
                           {categories.length === 0 ? (
-                            <div className="p-4 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
-                              No categories available. Add products first.
+                            <div className="p-6 text-center text-sm text-muted-foreground border-2 border-dashed rounded-lg">
+                              No categories — add products first.
                             </div>
                           ) : (
-                            <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-1.5">
                               {categories.map((category) => {
-                                const isAllowed = getSkillAllowed(
-                                  selectedSkillMachine,
-                                  selectedSkillPerson,
-                                  category
-                                );
-                                
+                                const isAllowed = getSkillAllowed(selectedSkillMachine, selectedSkillPerson, category);
                                 return (
-                                  <div
+                                  <button
                                     key={category}
+                                    onClick={() => updateSkill(selectedSkillMachine, selectedSkillPerson, category, !isAllowed)}
                                     className={cn(
-                                      "flex items-center justify-between p-3 rounded-lg border-2 transition-all cursor-pointer hover:border-primary/50",
-                                      isAllowed && "bg-green-50 border-green-500 dark:bg-green-950/20"
+                                      "flex items-center gap-2 p-2.5 rounded-lg border-2 text-left text-sm transition-all",
+                                      isAllowed
+                                        ? "bg-emerald-50 border-emerald-400 text-emerald-800 dark:bg-emerald-950/30 dark:border-emerald-700 dark:text-emerald-300"
+                                        : "border-border hover:border-primary/40 text-muted-foreground hover:text-foreground"
                                     )}
-                                    onClick={() =>
-                                      updateSkill(
-                                        selectedSkillMachine,
-                                        selectedSkillPerson,
-                                        category,
-                                        !isAllowed
-                                      )
-                                    }
                                   >
-                                    <div className="flex items-center gap-3">
-                                      <Checkbox
-                                        checked={isAllowed}
-                                        onCheckedChange={(checked) =>
-                                          updateSkill(
-                                            selectedSkillMachine,
-                                            selectedSkillPerson,
-                                            category,
-                                            Boolean(checked)
-                                          )
-                                        }
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="h-5 w-5"
-                                      />
-                                      <div className="space-y-1">
-                                        <p className="font-medium text-sm">{category}</p>
-                                        <p className="text-xs text-muted-foreground">
-                                          Products in this category
-                                        </p>
-                                      </div>
+                                    <div className={cn(
+                                      "h-4 w-4 rounded-sm border-2 flex items-center justify-center flex-shrink-0 transition-all",
+                                      isAllowed ? "bg-emerald-500 border-emerald-500" : "border-muted-foreground/40"
+                                    )}>
+                                      {isAllowed && <Check className="h-2.5 w-2.5 text-white" />}
                                     </div>
-                                    {isAllowed && (
-                                      <Badge variant="default" className="bg-green-600">
-                                        <Check className="mr-1 h-3 w-3" />
-                                        Qualified
-                                      </Badge>
-                                    )}
-                                  </div>
+                                    <span className="truncate font-medium text-xs">{category}</span>
+                                  </button>
                                 );
                               })}
                             </div>
                           )}
-                        </div>
 
-                        {/* Bulk Actions for current selection */}
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1"
-                            onClick={() => handleBulkUpdateCurrentSelection(true)}
-                          >
-                            <Check className="mr-2 h-4 w-4" />
-                            Enable All
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1"
-                            onClick={() => handleBulkUpdateCurrentSelection(false)}
-                          >
-                            <X className="mr-2 h-4 w-4" />
-                            Disable All
-                          </Button>
-                        </div>
-
-                        {/* Copy Skills Action */}
-                        <div className="space-y-2">
-                          <Label className="text-sm">Quick Copy</Label>
+                          {/* Bulk actions */}
                           <div className="flex gap-2">
-                            <Select
-                              value={copyToMachine}
-                              onValueChange={setCopyToMachine}
-                            >
-                              <SelectTrigger className="flex-1">
-                                <SelectValue placeholder="Copy to machine..." />
+                            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => handleBulkUpdateCurrentSelection(true)}>
+                              <Check className="mr-1.5 h-3 w-3" />Enable All
+                            </Button>
+                            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => handleBulkUpdateCurrentSelection(false)}>
+                              <X className="mr-1.5 h-3 w-3" />Disable All
+                            </Button>
+                          </div>
+
+                          {/* Copy to another machine */}
+                          <div className="flex gap-2">
+                            <Select value={copyToMachine} onValueChange={setCopyToMachine}>
+                              <SelectTrigger className="flex-1 h-8 text-xs">
+                                <SelectValue placeholder="Copy skills to machine..." />
                               </SelectTrigger>
                               <SelectContent>
-                                {machines
-                                  .filter(m => m.active && m.id !== selectedSkillMachine)
-                                  .map((machine) => (
-                                    <SelectItem key={machine.id} value={machine.id}>
-                                      {machine.name}
-                                    </SelectItem>
-                                  ))}
+                                {machines.filter(m => m.active && m.id !== selectedSkillMachine).map((m) => (
+                                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Button
-                                  size="icon"
-                                  variant="outline"
-                                  onClick={handleCopySkills}
-                                  disabled={!copyToMachine}
-                                >
-                                  <Copy className="h-4 w-4" />
+                                <Button size="icon" variant="outline" className="h-8 w-8" onClick={handleCopySkills} disabled={!copyToMachine}>
+                                  <Copy className="h-3.5 w-3.5" />
                                 </Button>
                               </TooltipTrigger>
-                              <TooltipContent>Copy skills to another machine</TooltipContent>
+                              <TooltipContent>Copy to machine</TooltipContent>
                             </Tooltip>
                           </div>
+
+                          <Button variant="ghost" size="sm" className="w-full h-7 text-xs"
+                            onClick={() => { setSelectedSkillMachine(""); setSelectedSkillPerson(""); setCopyToMachine(""); }}>
+                            <Plus className="mr-1.5 h-3 w-3" />Assign Another Pair
+                          </Button>
+                        </>
+                      ) : (
+                        <div className="py-8 flex flex-col items-center gap-2 text-muted-foreground">
+                          <UserCheck className="h-10 w-10 opacity-30" />
+                          <p className="text-sm">Select machine and person above</p>
                         </div>
+                      )}
+                    </CardContent>
+                  </Card>
 
-                        {/* Reset Button */}
-                        <Button
-                          variant="ghost"
-                          className="w-full"
-                          onClick={() => {
-                            setSelectedSkillMachine("");
-                            setSelectedSkillPerson("");
-                            setCopyToMachine("");
-                          }}
-                        >
-                          <Plus className="mr-2 h-4 w-4" />
-                          Assign Skills to Another
-                        </Button>
-                      </>
-                    )}
-
-                    {/* Initial State - No Selection */}
-                    {(!selectedSkillMachine || !selectedSkillPerson) && (
-                      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                        <Users className="h-12 w-12 opacity-50 mb-3" />
-                        <p className="text-sm font-medium">Select machine and person</p>
-                        <p className="text-xs">to configure their capabilities</p>
-                      </div>
-                    )}
-
-                    {/* Quick Add Forms */}
-                    <Separator />
-                    <div className="space-y-3">
-                      <Label className="text-sm font-semibold">Quick Add</Label>
+                  {/* Quick Add shortcuts */}
+                  <Card>
+                    <CardContent className="pt-4 pb-4">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Quick Add</p>
                       <div className="grid grid-cols-2 gap-2">
                         <Dialog>
                           <DialogTrigger asChild>
-                            <Button variant="outline" size="sm" className="w-full">
-                              <Plus className="mr-2 h-4 w-4" />
-                              Person
+                            <Button variant="outline" size="sm" className="h-8 text-xs">
+                              <Plus className="mr-1.5 h-3 w-3" />Person
                             </Button>
                           </DialogTrigger>
                           <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Add Person</DialogTitle>
-                            </DialogHeader>
+                            <DialogHeader><DialogTitle>Add Person</DialogTitle></DialogHeader>
                             <div className="space-y-3">
-                              <Input
-                                placeholder="Full name"
-                                value={newPerson.name}
-                                onChange={(e) => setNewPerson((prev) => ({ ...prev, name: e.target.value }))}
-                              />
-                              <Input
-                                placeholder="Role (optional)"
-                                value={newPerson.role}
-                                onChange={(e) => setNewPerson((prev) => ({ ...prev, role: e.target.value }))}
-                              />
+                              <Input placeholder="Full name" value={newPerson.name} onChange={(e) => setNewPerson((prev) => ({ ...prev, name: e.target.value }))} />
+                              <Input placeholder="Role (optional)" value={newPerson.role} onChange={(e) => setNewPerson((prev) => ({ ...prev, role: e.target.value }))} />
                             </div>
-                            <DialogFooter>
-                              <Button onClick={handleAddPerson}>Add Person</Button>
-                            </DialogFooter>
+                            <DialogFooter><Button onClick={handleAddPerson}>Add Person</Button></DialogFooter>
                           </DialogContent>
                         </Dialog>
-
                         <Dialog>
                           <DialogTrigger asChild>
-                            <Button variant="outline" size="sm" className="w-full">
-                              <Plus className="mr-2 h-4 w-4" />
-                              Machine
+                            <Button variant="outline" size="sm" className="h-8 text-xs">
+                              <Plus className="mr-1.5 h-3 w-3" />Machine
                             </Button>
                           </DialogTrigger>
                           <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Add Machine</DialogTitle>
-                            </DialogHeader>
+                            <DialogHeader><DialogTitle>Add Machine</DialogTitle></DialogHeader>
                             <div className="space-y-3">
-                              <Input
-                                placeholder="Machine name"
-                                value={newMachine.name}
-                                onChange={(e) => setNewMachine((prev) => ({ ...prev, name: e.target.value }))}
-                              />
-                              <Input
-                                placeholder="Process"
-                                value={newMachine.process}
-                                onChange={(e) => setNewMachine((prev) => ({ ...prev, process: e.target.value }))}
-                              />
+                              <Input placeholder="Machine name" value={newMachine.name} onChange={(e) => setNewMachine((prev) => ({ ...prev, name: e.target.value }))} />
+                              <Input placeholder="Process" value={newMachine.process} onChange={(e) => setNewMachine((prev) => ({ ...prev, process: e.target.value }))} />
                             </div>
-                            <DialogFooter>
-                              <Button onClick={handleAddMachine}>Add Machine</Button>
-                            </DialogFooter>
+                            <DialogFooter><Button onClick={handleAddMachine}>Add Machine</Button></DialogFooter>
                           </DialogContent>
                         </Dialog>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
+                </div>
 
-                {/* Skills Overview & History */}
+                {/* Right: Skills matrix */}
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <CardTitle>Skills Overview</CardTitle>
-                        <CardDescription>All configured machine-person-category assignments</CardDescription>
+                        <CardTitle className="text-base">Skills Matrix</CardTitle>
+                        <CardDescription className="text-xs">All machine-person-category assignments</CardDescription>
                       </div>
                       <div className="flex gap-2">
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                          <Input placeholder="Search..." value={skillSearch} onChange={(e) => setSkillSearch(e.target.value)} className="pl-8 h-8 text-xs w-44" />
+                        </div>
+                        <Select value={viewFilter} onValueChange={setViewFilter}>
+                          <SelectTrigger className="h-8 text-xs w-36">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All</SelectItem>
+                            <SelectItem value="active">Active Only</SelectItem>
+                            <SelectItem value="machine">By Machine</SelectItem>
+                            <SelectItem value="person">By Person</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => exportData(skills, "skills.json")}
-                            >
-                              <Download className="h-4 w-4" />
+                            <Button size="sm" variant="outline" className="h-8" onClick={() => exportData(skills, "skills.json")}>
+                              <Download className="h-3.5 w-3.5" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Export skills</TooltipContent>
+                          <TooltipContent>Export</TooltipContent>
                         </Tooltip>
-                        <Button size="sm" variant="outline" onClick={() => openImportDialog("skills")}>
-                          <Upload className="mr-2 h-4 w-4" />
-                          Import
+                        <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => openImportDialog("skills")}>
+                          <Upload className="mr-1.5 h-3.5 w-3.5" />Import
                         </Button>
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Stats Cards */}
-                    <div className="grid grid-cols-3 gap-3">
-                      <Card className="border-2">
-                        <CardContent className="pt-4">
-                          <div className="text-2xl font-bold">{skills.filter(s => s.allowed).length}</div>
-                          <p className="text-xs text-muted-foreground">Total Skills</p>
-                        </CardContent>
-                      </Card>
-                      <Card className="border-2">
-                        <CardContent className="pt-4">
-                          <div className="text-2xl font-bold">{getUniqueAssignments()}</div>
-                          <p className="text-xs text-muted-foreground">Assignments</p>
-                        </CardContent>
-                      </Card>
-                      <Card className="border-2">
-                        <CardContent className="pt-4">
-                          <div className="text-2xl font-bold">{categories.length}</div>
-                          <p className="text-xs text-muted-foreground">Categories</p>
-                        </CardContent>
-                      </Card>
-                    </div>
+                  <CardContent>
+                    <ScrollArea className="h-[580px]">
+                      {getGroupedSkills().length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
+                          <Package className="h-10 w-10 opacity-30 mb-2" />
+                          <p className="text-sm">No skills configured yet</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {getGroupedSkills().map((group, groupIndex) => (
+                            <div key={groupIndex}>
+                              {group.header && (
+                                <div className="flex items-center gap-2 py-1.5 mb-1">
+                                  <div className="h-px bg-border flex-1" />
+                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2">{group.header}</span>
+                                  <div className="h-px bg-border flex-1" />
+                                </div>
+                              )}
+                              <div className="space-y-1.5">
+                                {group.items.map((item) => {
+                                  const machine = machines.find(m => m.id === item.machineId);
+                                  const person = people.find(p => p.id === item.personId);
+                                  const skillsForPair = skills.filter(s => s.machineId === item.machineId && s.personId === item.personId && s.allowed);
+                                  const isSelected = selectedSkillMachine === item.machineId && selectedSkillPerson === item.personId;
+                                  const coverage = categories.length > 0 ? (skillsForPair.length / categories.length) * 100 : 0;
 
-                    {/* Filter */}
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Search assignments..."
-                          value={skillSearch}
-                          onChange={(e) => setSkillSearch(e.target.value)}
-                          className="pl-9"
-                        />
-                      </div>
-                      <Select value={viewFilter} onValueChange={setViewFilter}>
-                        <SelectTrigger className="w-[180px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Assignments</SelectItem>
-                          <SelectItem value="active">Active Only</SelectItem>
-                          <SelectItem value="machine">Group by Machine</SelectItem>
-                          <SelectItem value="person">Group by Person</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Skills List */}
-                    <ScrollArea className="h-[600px]">
-                      <div className="space-y-3">
-                        {getGroupedSkills().length === 0 && (
-                          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                            <Package className="h-12 w-12 opacity-50 mb-3" />
-                            <p className="text-sm">No skills configured yet</p>
-                          </div>
-                        )}
-
-                        {getGroupedSkills().map((group, groupIndex) => (
-                          <div key={groupIndex} className="space-y-2">
-                            {group.header && (
-                              <div className="flex items-center gap-2 py-2">
-                                <div className="h-px bg-border flex-1" />
-                                <Badge variant="secondary">{group.header}</Badge>
-                                <div className="h-px bg-border flex-1" />
-                              </div>
-                            )}
-
-                            {group.items.map((item) => {
-                              const machine = machines.find(m => m.id === item.machineId);
-                              const person = people.find(p => p.id === item.personId);
-                              const skillsForPair = skills.filter(
-                                s => s.machineId === item.machineId && 
-                                s.personId === item.personId && 
-                                s.allowed
-                              );
-
-                              return (
-                                <Card
-                                  key={`${item.machineId}-${item.personId}`}
-                                  className="cursor-pointer hover:border-primary/50 transition-all"
-                                  onClick={() => {
-                                    setSelectedSkillMachine(item.machineId);
-                                    setSelectedSkillPerson(item.personId);
-                                  }}
-                                >
-                                  <CardContent className="p-4">
-                                    <div className="flex items-start justify-between">
-                                      <div className="space-y-2 flex-1">
-                                        <div className="flex items-center gap-3">
-                                          <div className="flex items-center gap-2">
-                                            <Settings2 className="h-4 w-4 text-muted-foreground" />
-                                            <span className="font-semibold text-sm">
-                                              {machine?.name || 'Unknown'}
-                                            </span>
-                                            <Badge variant="outline" className="text-xs">
-                                              {machine?.process}
-                                            </Badge>
+                                  return (
+                                    <div
+                                      key={`${item.machineId}-${item.personId}`}
+                                      onClick={() => { setSelectedSkillMachine(item.machineId); setSelectedSkillPerson(item.personId); }}
+                                      className={cn(
+                                        "group p-3 rounded-lg border-2 cursor-pointer transition-all",
+                                        isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                                      )}
+                                    >
+                                      <div className="flex items-start gap-3">
+                                        <div className="flex-1 min-w-0 space-y-2">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <div className="flex items-center gap-1.5">
+                                              <div className="h-6 w-6 rounded bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                                <Settings2 className="h-3 w-3 text-blue-600" />
+                                              </div>
+                                              <span className="font-semibold text-sm">{machine?.name || "?"}</span>
+                                              <Badge variant="outline" className="text-xs h-5 px-1.5">{machine?.process}</Badge>
+                                            </div>
+                                            <span className="text-muted-foreground text-xs">+</span>
+                                            <div className="flex items-center gap-1.5">
+                                              <div className="h-6 w-6 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-violet-700">
+                                                {(person?.name || "?")[0].toUpperCase()}
+                                              </div>
+                                              <span className="font-semibold text-sm">{person?.name || "?"}</span>
+                                            </div>
                                           </div>
-                                          <span className="text-muted-foreground">→</span>
-                                          <div className="flex items-center gap-2">
-                                            <Users className="h-4 w-4 text-muted-foreground" />
-                                            <span className="font-semibold text-sm">
-                                              {person?.name || 'Unknown'}
-                                            </span>
+                                          <div className="flex flex-wrap gap-1">
+                                            {skillsForPair.length > 0 ? skillsForPair.map((skill) => (
+                                              <span key={skill.id} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                                {skill.category}
+                                              </span>
+                                            )) : (
+                                              <span className="text-xs text-muted-foreground italic">No skills assigned</span>
+                                            )}
                                           </div>
-                                        </div>
-
-                                        <div className="flex flex-wrap gap-1">
-                                          {skillsForPair.map((skill) => (
-                                            <Badge key={skill.id} variant="secondary" className="text-xs">
-                                              {skill.category}
-                                            </Badge>
-                                          ))}
-                                          {skillsForPair.length === 0 && (
-                                            <span className="text-xs text-muted-foreground">No skills assigned</span>
+                                          {categories.length > 0 && (
+                                            <div className="flex items-center gap-2">
+                                              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                                                <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${coverage}%` }} />
+                                              </div>
+                                              <span className="text-xs text-muted-foreground">{skillsForPair.length}/{categories.length}</span>
+                                            </div>
                                           )}
                                         </div>
-                                      </div>
-
-                                      <div className="flex items-center gap-2">
-                                        <Badge variant="outline">
-                                          {skillsForPair.length}/{categories.length}
-                                        </Badge>
-                                        <Button
-                                          size="icon"
-                                          variant="ghost"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeleteAllSkills(item.machineId, item.personId);
-                                          }}
-                                        >
-                                          <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                                        </Button>
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button size="icon" variant="ghost" className="h-7 w-7"
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteAllSkills(item.machineId, item.personId); }}>
+                                                <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Remove all skills</TooltipContent>
+                                          </Tooltip>
+                                        </div>
                                       </div>
                                     </div>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </ScrollArea>
                   </CardContent>
                 </Card>
@@ -3904,207 +3953,436 @@ const getGroupedSkills = () => {
 
 
 
+          {/* PEOPLE TAB */}
+          <TabsContent value="people" className="space-y-4">
+            <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+              {/* Add Person Form */}
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <UserCheck className="h-4 w-4" />
+                      Add Person
+                    </CardTitle>
+                    <CardDescription>Register a new operator or team member</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label>Full Name</Label>
+                      <Input
+                        placeholder="e.g., Ravi Kumar"
+                        value={newPerson.name}
+                        onChange={(e) => setNewPerson((prev) => ({ ...prev, name: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Role <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                      <Input
+                        placeholder="e.g., Senior Operator"
+                        value={newPerson.role}
+                        onChange={(e) => setNewPerson((prev) => ({ ...prev, role: e.target.value }))}
+                      />
+                    </div>
+                    <Button onClick={handleAddPerson} className="w-full">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Person
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* People stats */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-3 text-center">
+                        <div className="text-3xl font-extrabold text-blue-700">{people.length}</div>
+                        <div className="text-xs text-blue-500 mt-0.5">Total People</div>
+                      </div>
+                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-3 text-center">
+                        <div className="text-3xl font-extrabold text-emerald-700">
+                          {new Set(skills.filter(s => s.allowed).map(s => s.personId)).size}
+                        </div>
+                        <div className="text-xs text-emerald-500 mt-0.5">With Skills</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 text-xs text-muted-foreground text-center">
+                      {skills.filter(s => s.allowed).length} total skill assignments
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* People List */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>People Registry</CardTitle>
+                      <CardDescription>Manage operators, team members, and their skills</CardDescription>
+                    </div>
+                    <div className="flex gap-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button size="sm" variant="outline" onClick={() => exportData(people, "people.json")}>
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Export people</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search by name or role..."
+                      value={personSearch}
+                      onChange={(e) => setPersonSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+
+                  <div className="rounded-xl border overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
+                          <TableHead className="text-[11px] uppercase tracking-wide">Name</TableHead>
+                          <TableHead className="text-[11px] uppercase tracking-wide">Role</TableHead>
+                          <TableHead className="text-[11px] uppercase tracking-wide">Skill Links</TableHead>
+                          <TableHead className="text-[11px] uppercase tracking-wide">Categories</TableHead>
+                          <TableHead className="text-right text-[11px] uppercase tracking-wide">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredPeople.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="h-32 text-center">
+                              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                                <Users className="h-8 w-8 opacity-50" />
+                                <p className="text-sm">No people found</p>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredPeople.map((person) => {
+                            const personSkills = skills.filter(s => s.personId === person.id && s.allowed);
+                            const uniqueCategories = Array.from(new Set(personSkills.map(s => s.category)));
+                            const uniqueMachines = Array.from(new Set(personSkills.map(s => s.machineId)));
+
+                            return (
+                              <TableRow key={person.id} className="group hover:bg-muted/20 transition-colors">
+                                <TableCell>
+                                  {editingPerson === person.id ? (
+                                    <Input
+                                      defaultValue={person.name}
+                                      autoFocus
+                                      onBlur={(e) => {
+                                        if (e.target.value !== person.name) {
+                                          handleUpdatePerson(person.id, { name: e.target.value });
+                                        } else {
+                                          setEditingPerson(null);
+                                        }
+                                      }}
+                                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                                    />
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs">
+                                        {person.name.charAt(0).toUpperCase()}
+                                      </div>
+                                      <span className="font-medium text-sm">{person.name}</span>
+                                      <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                                        onClick={() => setEditingPerson(person.id)}>
+                                        <Edit2 className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {person.role ? (
+                                    <Badge variant="outline" className="text-xs">{person.role}</Badge>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">—</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-sm font-bold tabular-nums">{personSkills.length}</span>
+                                    <span className="text-xs text-muted-foreground">on {uniqueMachines.length} machine{uniqueMachines.length !== 1 ? "s" : ""}</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap gap-1">
+                                    {uniqueCategories.slice(0, 3).map((cat) => (
+                                      <Badge key={cat} variant="secondary" className="text-[10px] px-1.5 py-0">{cat}</Badge>
+                                    ))}
+                                    {uniqueCategories.length > 3 && (
+                                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">+{uniqueCategories.length - 3}</Badge>
+                                    )}
+                                    {uniqueCategories.length === 0 && (
+                                      <span className="text-xs text-muted-foreground">No skills</span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-1">
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                                          onClick={() => {
+                                            setSelectedSkillPerson(person.id);
+                                          }}>
+                                          <Settings2 className="h-3.5 w-3.5 text-muted-foreground hover:text-primary" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Manage skills (go to Skills tab)</TooltipContent>
+                                    </Tooltip>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Button
+                                          variant="ghost" size="icon" className="h-7 w-7"
+                                          onClick={() => setDeleteDialog({ open: true, type: "person", id: person.id, name: person.name })}
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                                        </Button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>Delete person</TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="text-xs text-muted-foreground text-right">
+                    {filteredPeople.length} of {people.length} people
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
           {/* DOWNTIME TAB */}
           <TabsContent value="downtime" className="space-y-4">
-            <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
-              {/* Log Downtime */}
+            {/* Stats strip */}
+            <div className="grid grid-cols-4 gap-3">
+              <Card className="border-l-4 border-l-red-500">
+                <CardContent className="p-3 flex items-center gap-3">
+                  <div className="p-2 bg-red-100 rounded-lg"><Clock className="h-4 w-4 text-red-600" /></div>
+                  <div><div className="text-xl font-bold">{downtimes.length}</div><div className="text-xs text-muted-foreground">Events</div></div>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-orange-500">
+                <CardContent className="p-3 flex items-center gap-3">
+                  <div className="p-2 bg-orange-100 rounded-lg"><AlertCircle className="h-4 w-4 text-orange-600" /></div>
+                  <div>
+                    <div className="text-xl font-bold">
+                      {(() => {
+                        const totalMins = downtimes.reduce((sum, d) => {
+                          const diff = new Date(d.to).getTime() - new Date(d.from).getTime();
+                          return sum + (diff > 0 ? Math.round(diff / 60000) : 0);
+                        }, 0);
+                        const h = Math.floor(totalMins / 60);
+                        return h > 0 ? `${h}h` : `${totalMins}m`;
+                      })()}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Total Downtime</div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-slate-500">
+                <CardContent className="p-3 flex items-center gap-3">
+                  <div className="p-2 bg-slate-100 rounded-lg"><Settings2 className="h-4 w-4 text-slate-600" /></div>
+                  <div><div className="text-xl font-bold">{new Set(downtimes.map(d => d.machineId)).size}</div><div className="text-xs text-muted-foreground">Machines Affected</div></div>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-emerald-500">
+                <CardContent className="p-3 flex items-center gap-3">
+                  <div className="p-2 bg-emerald-100 rounded-lg"><Activity className="h-4 w-4 text-emerald-600" /></div>
+                  <div><div className="text-xl font-bold">{machines.filter(m => m.active && !downtimes.some(d => d.machineId === m.id)).length}</div><div className="text-xs text-muted-foreground">Fully Available</div></div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+              {/* Left: Log form */}
               <Card className="h-fit">
-                <CardHeader>
-                  <CardTitle>Log Downtime</CardTitle>
-                  <CardDescription>Record machine unavailability periods</CardDescription>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-orange-500" />
+                    Log Downtime
+                  </CardTitle>
+                  <CardDescription className="text-xs">Record machine unavailability periods</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="downtime-machine">Machine</Label>
-                    <Select
-                      value={newDowntime.machineId}
-                      onValueChange={(value) => setNewDowntime((prev) => ({ ...prev, machineId: value }))}
-                    >
-                      <SelectTrigger id="downtime-machine">
-                        <SelectValue placeholder="Select machine" />
+                <CardContent className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Machine</Label>
+                    <Select value={newDowntime.machineId} onValueChange={(v) => setNewDowntime((p) => ({ ...p, machineId: v }))}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Select machine..." />
                       </SelectTrigger>
                       <SelectContent>
                         {machines.filter(m => m.active).map((machine) => (
                           <SelectItem key={machine.id} value={machine.id}>
-                            {machine.name} - {machine.process}
+                            <span>{machine.name}</span>
+                            <span className="ml-2 text-xs text-muted-foreground">{machine.process}</span>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="downtime-from">From</Label>
-                      <Input
-                        id="downtime-from"
-                        type="datetime-local"
-                        value={newDowntime.from}
-                        onChange={(e) => setNewDowntime((prev) => ({ ...prev, from: e.target.value }))}
-                      />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">From</Label>
+                      <Input type="datetime-local" className="h-9 text-xs" value={newDowntime.from} onChange={(e) => setNewDowntime((p) => ({ ...p, from: e.target.value }))} />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="downtime-to">To</Label>
-                      <Input
-                        id="downtime-to"
-                        type="datetime-local"
-                        value={newDowntime.to}
-                        onChange={(e) => setNewDowntime((prev) => ({ ...prev, to: e.target.value }))}
-                      />
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">To</Label>
+                      <Input type="datetime-local" className="h-9 text-xs" value={newDowntime.to} onChange={(e) => setNewDowntime((p) => ({ ...p, to: e.target.value }))} />
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="downtime-reason">Reason</Label>
+                  {/* Duration presets */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Quick Duration</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {([["30m", 30], ["1h", 60], ["2h", 120], ["4h", 240], ["8h", 480]] as [string, number][]).map(([label, mins]) => (
+                        <button
+                          key={label}
+                          onClick={() => {
+                            if (!newDowntime.from) return;
+                            const fromDate = new Date(newDowntime.from);
+                            if (isNaN(fromDate.getTime())) return;
+                            const toDate = new Date(fromDate.getTime() + mins * 60000);
+                            const pad = (n: number) => String(n).padStart(2, "0");
+                            const toLocal = `${toDate.getFullYear()}-${pad(toDate.getMonth()+1)}-${pad(toDate.getDate())}T${pad(toDate.getHours())}:${pad(toDate.getMinutes())}`;
+                            setNewDowntime((p) => ({ ...p, to: toLocal }));
+                          }}
+                          className="px-2.5 py-1 text-xs rounded-md border border-border hover:border-primary hover:bg-primary/5 transition-all"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Reason</Label>
                     <Textarea
-                      id="downtime-reason"
-                      placeholder="e.g., Scheduled maintenance, breakdown, etc."
+                      placeholder="e.g., Scheduled maintenance, breakdown..."
                       value={newDowntime.reason}
-                      onChange={(e) => setNewDowntime((prev) => ({ ...prev, reason: e.target.value }))}
-                      rows={3}
+                      onChange={(e) => setNewDowntime((p) => ({ ...p, reason: e.target.value }))}
+                      rows={2}
+                      className="text-sm resize-none"
                     />
                   </div>
 
-                  <Button onClick={handleAddDowntime} className="w-full">
+                  <Button onClick={handleAddDowntime} className="w-full h-9">
                     <Plus className="mr-2 h-4 w-4" />
                     Log Downtime
                   </Button>
                 </CardContent>
               </Card>
 
-              {/* Downtime History */}
+              {/* Right: History */}
               <Card>
-                <CardHeader>
+                <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle>Downtime History</CardTitle>
-                      <CardDescription>Track machine unavailability events</CardDescription>
+                      <CardTitle className="text-base">Downtime History</CardTitle>
+                      <CardDescription className="text-xs">Machine unavailability log, newest first</CardDescription>
                     </div>
                     <div className="flex gap-2">
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => exportData(downtimes, "downtime.json")}
-                          >
-                            <Download className="h-4 w-4" />
+                          <Button size="sm" variant="outline" className="h-8" onClick={() => exportData(downtimes, "downtime.json")}>
+                            <Download className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Export downtime</TooltipContent>
+                        <TooltipContent>Export</TooltipContent>
                       </Tooltip>
-                      <Button size="sm" variant="outline" onClick={() => openImportDialog("downtime")}>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Import
+                      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => openImportDialog("downtime")}>
+                        <Upload className="mr-1.5 h-3.5 w-3.5" />Import
                       </Button>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="rounded-lg border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Machine</TableHead>
-                          <TableHead>From</TableHead>
-                          <TableHead>To</TableHead>
-                          <TableHead>Duration</TableHead>
-                          <TableHead>Reason</TableHead>
-                          <TableHead className="text-right">Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {downtimes.length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={6} className="h-32 text-center">
-                              <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                <Clock className="h-8 w-8 opacity-50" />
-                                <p className="text-sm">No downtime recorded</p>
-                                <p className="text-xs">Machine availability is at 100%</p>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
+                  {downtimes.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-48 text-muted-foreground border-2 border-dashed rounded-lg">
+                      <Clock className="h-10 w-10 opacity-30 mb-2" />
+                      <p className="text-sm font-medium">No downtime recorded</p>
+                      <p className="text-xs">All machines are fully available</p>
+                    </div>
+                  ) : (
+                    <ScrollArea className="h-[520px]">
+                      <div className="space-y-2">
                         {downtimes
+                          .slice()
                           .sort((a, b) => new Date(b.from).getTime() - new Date(a.from).getTime())
                           .map((entry) => {
-                            const machine = machines.find((m) => m.id === entry.machineId);
+                            const machine = machines.find(m => m.id === entry.machineId);
                             const fromDate = new Date(entry.from);
                             const toDate = new Date(entry.to);
-                            const durationMinutes = Math.round((toDate.getTime() - fromDate.getTime()) / 60000);
-                            const hours = Math.floor(durationMinutes / 60);
-                            const minutes = durationMinutes % 60;
+                            const durationMins = Math.max(0, Math.round((toDate.getTime() - fromDate.getTime()) / 60000));
+                            const durH = Math.floor(durationMins / 60);
+                            const durM = durationMins % 60;
+                            const now = new Date();
+                            const isActive = fromDate <= now && toDate >= now;
 
                             return (
-                              <TableRow key={entry.id}>
-                                <TableCell>
-                                  <div className="space-y-1">
-                                    <p className="font-medium">{machine?.name || "Unknown"}</p>
-                                    {machine && (
-                                      <Badge variant="outline" className="text-xs">
-                                        {machine.process}
-                                      </Badge>
-                                    )}
+                              <div key={entry.id} className={cn(
+                                "flex items-start gap-3 p-3 rounded-lg border-2 transition-all",
+                                isActive ? "border-red-300 bg-red-50/50 dark:bg-red-950/20" : "border-border"
+                              )}>
+                                <div className={cn(
+                                  "mt-1.5 h-2.5 w-2.5 rounded-full flex-shrink-0",
+                                  isActive ? "bg-red-500 animate-pulse" : "bg-muted-foreground/30"
+                                )} />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-semibold text-sm">{machine?.name || "Unknown Machine"}</span>
+                                    {machine && <Badge variant="outline" className="text-xs h-5 px-1.5">{machine.process}</Badge>}
+                                    {isActive && <Badge className="bg-red-500 text-white text-xs h-5 px-1.5">Active</Badge>}
+                                    <Badge variant="secondary" className="text-xs h-5">
+                                      {durH > 0 ? `${durH}h ` : ""}{durM}m
+                                    </Badge>
                                   </div>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="text-sm">
-                                    <p>{formatDateInZone(fromDate, { timeZone: IST_TIME_ZONE })}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {formatTimeInZone(fromDate, { timeZone: IST_TIME_ZONE })}
-                                    </p>
+                                  <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                                    <span>{formatDateInZone(fromDate, { timeZone: IST_TIME_ZONE })} {formatTimeInZone(fromDate, { timeZone: IST_TIME_ZONE })}</span>
+                                    <span>→</span>
+                                    <span>{formatDateInZone(toDate, { timeZone: IST_TIME_ZONE })} {formatTimeInZone(toDate, { timeZone: IST_TIME_ZONE })}</span>
                                   </div>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="text-sm">
-                                    <p>{formatDateInZone(toDate, { timeZone: IST_TIME_ZONE })}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {formatTimeInZone(toDate, { timeZone: IST_TIME_ZONE })}
-                                    </p>
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant="secondary">
-                                    {hours > 0 && `${hours}h `}
-                                    {minutes}m
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <p className="text-sm max-w-xs truncate">
-                                    {entry.reason || <span className="text-muted-foreground">-</span>}
-                                  </p>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() =>
-                                          setDeleteDialog({
-                                            open: true,
-                                            type: "downtime",
-                                            id: entry.id,
-                                            name: `${machine?.name || "Machine"} downtime`,
-                                          })
-                                        }
-                                      >
-                                        <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Delete entry</TooltipContent>
-                                  </Tooltip>
-                                </TableCell>
-                              </TableRow>
+                                  {entry.reason && (
+                                    <p className="mt-1 text-xs text-muted-foreground truncate max-w-sm">{entry.reason}</p>
+                                  )}
+                                </div>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0"
+                                      onClick={() => setDeleteDialog({ open: true, type: "downtime", id: entry.id, name: `${machine?.name || "Machine"} downtime` })}>
+                                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Delete</TooltipContent>
+                                </Tooltip>
+                              </div>
                             );
                           })}
-                      </TableBody>
-                    </Table>
-                  </div>
-
+                      </div>
+                    </ScrollArea>
+                  )}
                   {downtimes.length > 0 && (
-                    <div className="mt-4 text-sm text-muted-foreground">
-                      Total: {downtimes.length} downtime event{downtimes.length !== 1 ? "s" : ""}
+                    <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground border-t pt-3">
+                      <span>{downtimes.length} event{downtimes.length !== 1 ? "s" : ""}</span>
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => exportData(downtimes, "downtime.json")}>
+                        <Download className="mr-1.5 h-3 w-3" />Export all
+                      </Button>
                     </div>
                   )}
                 </CardContent>

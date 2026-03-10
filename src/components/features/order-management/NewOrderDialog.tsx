@@ -216,6 +216,7 @@ export function NewOrderDialog({ isOpen, onClose }: NewOrderDialogProps) {
           invoices: [],
           canCreateGoodsInvoice: normalItems.length > 0,
           canCreateVasInvoice: false,
+          invoiceRequired: true,
         },
         updates: [
           {

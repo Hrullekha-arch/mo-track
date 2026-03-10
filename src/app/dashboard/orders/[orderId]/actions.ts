@@ -14,6 +14,47 @@ import {
   shouldEnforcePurchaseEntryForLength,
 } from '@/lib/purchase-entry';
 
+const sanitizeBcnDocId = (value: string) =>
+  String(value ?? '').trim().replace(/\//g, '-');
+
+const resolveStockRefForAllocation = async (
+  stockId: string | undefined,
+  bcn: string
+) => {
+  const stocksRef = adminDb.collection('stocks');
+  const normalizedStockId = String(stockId ?? '').trim();
+  if (normalizedStockId) {
+    return stocksRef.doc(normalizedStockId);
+  }
+
+  const normalizedBcn = String(bcn ?? '').trim();
+  if (!normalizedBcn) {
+    throw new Error('Stock BCN is required for allocation.');
+  }
+
+  const sanitizedDocId = sanitizeBcnDocId(normalizedBcn);
+  if (sanitizedDocId) {
+    const sanitizedDoc = await stocksRef.doc(sanitizedDocId).get();
+    if (sanitizedDoc.exists) {
+      return sanitizedDoc.ref;
+    }
+  }
+
+  if (!normalizedBcn.includes('/')) {
+    const directDoc = await stocksRef.doc(normalizedBcn).get();
+    if (directDoc.exists) {
+      return directDoc.ref;
+    }
+  }
+
+  const querySnapshot = await stocksRef.where('bcn', '==', normalizedBcn).limit(1).get();
+  if (!querySnapshot.empty) {
+    return querySnapshot.docs[0].ref;
+  }
+
+  throw new Error(`Stock item ${normalizedBcn} not found.`);
+};
+
 const parseFirestoreTimestamp = (value: unknown): Date | null => {
     if (!value) return null;
     if (value instanceof Date) return value;
@@ -54,9 +95,10 @@ export async function getAvailableStockLengths(stockId: string): Promise<{ succe
 
 
 export async function allocateStockToAction(
-    { orderId, bcn, allocations, itemName, rate, userId, userName }: 
+    { orderId, stockId, bcn, allocations, itemName, rate, userId, userName }: 
     { 
         orderId: string, 
+        stockId?: string,
         bcn: string, 
         allocations: { lengthId: string, quantity: number }[],
         itemName: string, 
@@ -66,10 +108,10 @@ export async function allocateStockToAction(
     }
   ): Promise<{ success: boolean; message: string }> {
     try {
+      const stockRef = await resolveStockRefForAllocation(stockId, bcn);
       await adminDb.runTransaction(async (transaction) => {
         const EPSILON = 0.0001;
         const orderRef = adminDb.collection('orders').doc(orderId);
-        const stockRef = adminDb.collection('stocks').doc(bcn);
         // --- READ PHASE ---
         // 1. Get all base documents.
         const [orderDoc, stockDoc] = await Promise.all([
@@ -84,7 +126,28 @@ export async function allocateStockToAction(
           const num = typeof value === 'number' ? value : Number(value);
           return Number.isFinite(num) ? num : fallback;
         };
-        const normalizeOrderBcn = (value?: string) => (value || '').split(' - ')[0].trim().toLowerCase();
+        const normalizeOrderBcn = (value?: string) =>
+          String(value || '')
+            .split(' - ')[0]
+            .trim()
+            .toLowerCase();
+        const normalizeBcnStrict = (value?: string) =>
+          normalizeOrderBcn(value).replace(/[^a-z0-9]/g, '');
+        const normalizeBcnLoose = (value?: string) =>
+          normalizeBcnStrict(value).replace(/\d+/g, (digits) => String(Number(digits)));
+        const getOrderItemCandidates = (orderItem: any) =>
+          [
+            orderItem?.bcn,
+            orderItem?.collectionBrand,
+            orderItem?.description,
+            orderItem?.itemName,
+            orderItem?.fabricName,
+            orderItem?.furnitureName,
+          ]
+            .map((candidate) => String(candidate || '').trim())
+            .filter(Boolean);
+        const getRequiredQty = (orderItem: any) =>
+          toNumber(orderItem?.qty ?? orderItem?.quantity, 0);
         const getAllocatedQty = (allocation: any) => {
           const lengths = Array.isArray(allocation?.lengths) ? allocation.lengths : [];
           const lots = Array.isArray(allocation?.lots) ? allocation.lots : [];
@@ -132,17 +195,56 @@ export async function allocateStockToAction(
         };
         const sections = orderData.sections || {};
         const normalSection = sections.NORMAL || { items: [] };
-        const normalItems = Array.isArray(normalSection.items) ? normalSection.items : [];
-        const normalizedTargetBcn = normalizeOrderBcn(bcn);
-        const matchingItemIndexes = normalItems
-          .map((orderItem: any, index: number) => ({ orderItem, index }))
-          .filter(({ orderItem }) => {
-            const orderItemBcn = normalizeOrderBcn(
-              orderItem?.bcn || orderItem?.description || orderItem?.itemName || ""
-            );
-            return Boolean(orderItemBcn && orderItemBcn === normalizedTargetBcn);
-          })
+        const sectionItems = Array.isArray(normalSection.items) ? normalSection.items : [];
+        const legacyItems = Array.isArray((orderData as any)?.items) ? (orderData as any).items : [];
+        const normalItems = sectionItems.length ? sectionItems : legacyItems;
+        const stockDocData = stockDoc.data() as Stock;
+        const targetKeysStrict = new Set(
+          [bcn, stockDocData?.bcn, itemName]
+            .map((candidate) => normalizeBcnStrict(candidate))
+            .filter(Boolean)
+        );
+        const targetKeysLoose = new Set(
+          [bcn, stockDocData?.bcn, itemName]
+            .map((candidate) => normalizeBcnLoose(candidate))
+            .filter(Boolean)
+        );
+        const indexedItems = normalItems.map((orderItem: any, index: number) => ({ orderItem, index }));
+        const matchingItemIndexesStrict = indexedItems
+          .filter(({ orderItem }) =>
+            getOrderItemCandidates(orderItem).some((candidate) => {
+              const candidateStrict = normalizeBcnStrict(candidate);
+              if (!candidateStrict) return false;
+              if (targetKeysStrict.has(candidateStrict)) return true;
+              for (const targetKey of targetKeysStrict) {
+                if (!targetKey) continue;
+                if (candidateStrict.includes(targetKey) || targetKey.includes(candidateStrict)) {
+                  return true;
+                }
+              }
+              return false;
+            })
+          )
           .map(({ index }) => index);
+        const matchingItemIndexesLoose = indexedItems
+          .filter(({ orderItem }) =>
+            getOrderItemCandidates(orderItem).some((candidate) => {
+              const candidateLoose = normalizeBcnLoose(candidate);
+              if (!candidateLoose) return false;
+              if (targetKeysLoose.has(candidateLoose)) return true;
+              for (const targetKey of targetKeysLoose) {
+                if (!targetKey) continue;
+                if (candidateLoose.includes(targetKey) || targetKey.includes(candidateLoose)) {
+                  return true;
+                }
+              }
+              return false;
+            })
+          )
+          .map(({ index }) => index);
+        const matchingItemIndexes = matchingItemIndexesStrict.length
+          ? matchingItemIndexesStrict
+          : matchingItemIndexesLoose;
 
         if (!matchingItemIndexes.length) {
           throw new Error(`No matching order line found for ${bcn}.`);
@@ -152,7 +254,7 @@ export async function allocateStockToAction(
         let alreadyAllocatedTotal = 0;
         matchingItemIndexes.forEach((itemIndex) => {
           const orderItem = normalItems[itemIndex];
-          requiredQtyTotal += toNumber(orderItem?.qty, 0);
+          requiredQtyTotal += getRequiredQty(orderItem);
           alreadyAllocatedTotal += getAllocatedQty(orderItem?.allocation);
         });
 
@@ -235,7 +337,7 @@ export async function allocateStockToAction(
             const updatedLengths = Array.isArray(existingAllocation.lengths) ? [...existingAllocation.lengths] : [];
             const updatedLots = Array.isArray(existingAllocation.lots) ? [...existingAllocation.lots] : [];
 
-            const requiredQty = toNumber(orderItem.qty, 0);
+            const requiredQty = getRequiredQty(orderItem);
             const existingAllocated = getAllocatedQty(existingAllocation);
             const itemRemaining = Math.max(0, requiredQty - existingAllocated);
             const consumed = itemRemaining > EPSILON ? consumeFromPool(itemRemaining) : [];

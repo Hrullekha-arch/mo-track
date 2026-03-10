@@ -9,12 +9,30 @@ interface WalkinCustomerData {
     familyName: string;
     mobile: string;
     email?: string;
-    lookingFor?: string;
+    lookingFor?: string[];
+    customerType?: string;
 }
 
-export async function addWalkinCustomer(data: WalkinCustomerData): Promise<{ success: boolean, message: string }> {
+type WalkinCreator = {
+    id: string;
+    name: string;
+    email: string;
+};
+
+export async function addWalkinCustomer(
+    data: WalkinCustomerData,
+    creator?: WalkinCreator
+): Promise<{ success: boolean, message: string }> {
     try {
         const walkinRef = adminDb.collection('Walkin_Customer');
+        const createdAtIso = new Date().toISOString();
+        const autoAttend = Boolean(creator?.id && creator?.name);
+        const attendedBy = autoAttend && creator
+            ? {
+                id: creator.id,
+                name: creator.name,
+            }
+            : null;
 
         const mobileQuery = await walkinRef.where('mobile', '==', data.mobile).limit(1).get();
         if (!mobileQuery.empty) {
@@ -24,12 +42,13 @@ export async function addWalkinCustomer(data: WalkinCustomerData): Promise<{ suc
         const usersRef = adminDb.collection('users');
         const crmQuery = usersRef.where('role', '==', 'employee').where('designation', '==', 'CRM');
         const crmSnapshot = await crmQuery.get();
+        const shouldNotifyAllCrm = !creator;
 
         const crmAvailabilities: OwnerRef[] = [];
         if (!crmSnapshot.empty) {
             const tokens: string[] = [];
             const crmUserIds: string[] = [];
-            crmSnapshot.forEach(doc => {
+            crmSnapshot.forEach((doc: any) => {
                 const user = doc.data() as User;
                 crmUserIds.push(doc.id);
                 crmAvailabilities.push({ type: 'CRM', id: doc.id });
@@ -39,7 +58,7 @@ export async function addWalkinCustomer(data: WalkinCustomerData): Promise<{ suc
             });
 
             // 1. Send FCM Push Notifications
-            if (tokens.length > 0) {
+            if (shouldNotifyAllCrm && tokens.length > 0) {
                 const uniqueTokens = [...new Set(tokens)];
                 const fcmMessage = {
                     notification: {
@@ -53,28 +72,31 @@ export async function addWalkinCustomer(data: WalkinCustomerData): Promise<{ suc
             }
 
             // 2. Create in-app notification documents
-            const notificationMessage = `${data.firstName} ${data.familyName} has arrived and is waiting to be attended to.`;
-            const notificationPayload = {
-                type: 'new_walkin',
-                message: notificationMessage,
-                link: '/dashboard/walk-in',
-                read: false,
-                createdAt: new Date().toISOString()
-            };
+            if (shouldNotifyAllCrm) {
+                const notificationMessage = `${data.firstName} ${data.familyName} has arrived and is waiting to be attended to.`;
+                const notificationPayload = {
+                    type: 'new_walkin',
+                    message: notificationMessage,
+                    link: '/dashboard/walk-in',
+                    read: false,
+                    createdAt: new Date().toISOString()
+                };
 
-            const batch = adminDb.batch();
-            crmUserIds.forEach(userId => {
-                const notificationRef = adminDb.collection('users').doc(userId).collection('notifications').doc();
-                batch.set(notificationRef, notificationPayload);
-            });
-            await batch.commit();
-            console.log('In-app notifications created for CRM users.');
+                const batch = adminDb.batch();
+                crmUserIds.forEach(userId => {
+                    const notificationRef = adminDb.collection('users').doc(userId).collection('notifications').doc();
+                    batch.set(notificationRef, notificationPayload);
+                });
+                await batch.commit();
+                console.log('In-app notifications created for CRM users.');
+            }
         }
 
         // Determine initial assignment (default to first available CRM; fallback to unassigned CRM)
-        const primaryOwner: OwnerRef = crmAvailabilities.length > 0
+        const creatorOwner: OwnerRef | null = creator?.id ? { type: 'CRM', id: creator.id } : null;
+        const primaryOwner: OwnerRef = creatorOwner ?? (crmAvailabilities.length > 0
             ? crmAvailabilities[0]
-            : { type: 'CRM', id: 'unassigned' };
+            : { type: 'CRM', id: 'unassigned' });
 
         const assignment = computeAssignment({
             primaryOwner,
@@ -91,8 +113,19 @@ export async function addWalkinCustomer(data: WalkinCustomerData): Promise<{ suc
 
         const newCustomerDoc = await walkinRef.add({
             ...data,
-            createdAt: new Date().toISOString(),
-            status: 'Pending', // Initial status
+            createdAt: createdAtIso,
+            status: autoAttend ? 'Attended' : 'Pending',
+            attendedBy,
+            createdBy: creator
+                ? {
+                    id: creator.id,
+                    name: creator.name,
+                    email: creator.email,
+                }
+                : null,
+            createdById: creator?.id || null,
+            createdByName: creator?.name || null,
+            createdByEmail: creator?.email || null,
             originalOwnerType: assignment.originalOwner.type,
             originalOwnerId: assignment.originalOwner.id,
             assignedOwnerType: assignment.assignedOwner.type,
@@ -102,7 +135,12 @@ export async function addWalkinCustomer(data: WalkinCustomerData): Promise<{ suc
             assignedAt: assignment.assignedAt,
         });
 
-        return { success: true, message: "Customer data saved and notifications sent." };
+        return {
+            success: true,
+            message: autoAttend
+                ? "Customer data saved and auto-attended by CRM."
+                : "Customer data saved and notifications sent.",
+        };
 
     } catch (error: any) {
         console.error("Error adding walk-in customer:", error);
@@ -122,6 +160,12 @@ export async function attendToWalkin(
             return { success: false, message: "Customer not found." };
         }
 
+        const customerData = docSnap.data() || {};
+        const creatorId = customerData.createdById || customerData.createdBy?.id || null;
+        if (creatorId && creatorId !== crmUser.id) {
+            return { success: false, message: "You can only attend walk-ins created by you." };
+        }
+
         await customerRef.update({
             status: 'Attended',
             attendedBy: crmUser,
@@ -136,7 +180,8 @@ export async function attendToWalkin(
 
 export async function handoverToSalesman(
     customerId: string,
-    salesman: { id: string; name: string }
+    salesman: { id: string; name: string },
+    crmUser: { id: string; name: string }
 ): Promise<{ success: boolean; message: string }> {
     try {
         const customerRef = adminDb.collection('Walkin_Customer').doc(customerId);
@@ -146,6 +191,10 @@ export async function handoverToSalesman(
             return { success: false, message: "Customer not found." };
         }
         const customerData = customerSnap.data();
+        const creatorId = customerData?.createdById || customerData?.createdBy?.id || null;
+        if (creatorId && creatorId !== crmUser.id) {
+            return { success: false, message: "You can only hand over walk-ins created by you." };
+        }
 
         await customerRef.update({
             status: 'Handed Over',

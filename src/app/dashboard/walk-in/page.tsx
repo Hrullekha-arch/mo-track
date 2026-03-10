@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Walkin_Customer, User } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,11 +33,26 @@ export default function WalkinDataPage() {
     const isCrm = user?.designation === 'CRM';
 
     useEffect(() => {
+        if (!user?.id) {
+            setWalkinData([]);
+            setLoading(false);
+            return;
+        }
+
         setLoading(true);
-        const q = query(collection(db, "Walkin_Customer"), orderBy("createdAt", "desc"));
+        const q = query(
+            collection(db, "Walkin_Customer"),
+            where("createdById", "==", user.id)
+        );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Walkin_Customer));
+            const data = snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() } as Walkin_Customer))
+                .sort((a, b) => {
+                    const at = new Date(a.createdAt || 0).getTime();
+                    const bt = new Date(b.createdAt || 0).getTime();
+                    return bt - at;
+                });
             setWalkinData(data);
             setLoading(false);
         }, (error) => {
@@ -57,7 +72,7 @@ export default function WalkinDataPage() {
         fetchSalesmen();
 
         return () => unsubscribe();
-    }, [toast]);
+    }, [toast, user?.id]);
 
     const handleAttend = async (customerId: string) => {
         if (!user) return;
@@ -78,7 +93,11 @@ export default function WalkinDataPage() {
          if (!user) return;
         setUpdatingId(customerId);
         try {
-            const result = await handoverToSalesman(customerId, { id: salesman.id, name: salesman.name });
+            const result = await handoverToSalesman(
+                customerId,
+                { id: salesman.id, name: salesman.name },
+                { id: user.id, name: user.name }
+            );
             if (result.success) {
                 toast({ title: "Success", description: `Customer handed over to ${salesman.name}.` });
             } else {
@@ -99,6 +118,11 @@ export default function WalkinDataPage() {
                 return <Badge variant="secondary">Pending</Badge>;
         }
     }
+
+    const formatLookingFor = (value?: string | string[]) => {
+        if (Array.isArray(value)) return value.filter(Boolean).join(", ") || "-";
+        return value || "-";
+    };
 
     return (
         <div className="p-4 md:p-6 lg:p-8">
@@ -138,7 +162,7 @@ export default function WalkinDataPage() {
                                             <TableCell>{customer.createdAt ? format(new Date(customer.createdAt), 'PPP') : 'N/A'}</TableCell>
                                             <TableCell>{customer.firstName} {customer.familyName}</TableCell>
                                             <TableCell>{customer.mobile}</TableCell>
-                                            <TableCell className="max-w-xs truncate">{customer.lookingFor || '-'}</TableCell>
+                                            <TableCell className="max-w-xs truncate">{formatLookingFor(customer.lookingFor)}</TableCell>
                                             <TableCell>{getStatusBadge(customer.status)}</TableCell>
                                             <TableCell>{customer.attendedBy?.name || '-'}</TableCell>
                                             <TableCell>{customer.salesmanName || '-'}</TableCell>

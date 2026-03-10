@@ -50,13 +50,14 @@ export async function POST(request: Request) {
       );
     }
 
+    const invoiceRequired = orderDataSnapshot?.invoicing?.invoiceRequired !== false;
     const invoicingStatus = orderDataSnapshot?.invoicing?.status;
     const invoiceCount = Array.isArray(orderDataSnapshot?.invoicing?.invoices)
       ? orderDataSnapshot.invoicing.invoices.length
       : 0;
-    const hasInvoice = Boolean(
-      (invoicingStatus && invoicingStatus !== "NOT_INVOICED") || invoiceCount > 0
-    );
+    const hasInvoice = invoiceRequired
+      ? Boolean((invoicingStatus && invoicingStatus !== "NOT_INVOICED") || invoiceCount > 0)
+      : true;
     if (!hasInvoice) {
       return NextResponse.json(
         { success: false, message: "Invoice not generated for this order yet." },

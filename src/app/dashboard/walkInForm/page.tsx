@@ -84,14 +84,22 @@ export default function WalkinCustomerPage() {
   console.log("Foam Deatils",form);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!user?.id || !user?.name || !user?.email) {
+      toast({
+        variant: "destructive",
+        title: "Missing CRM Identity",
+        description: "Please login again before submitting a walk-in form.",
+      });
+      return;
+    }
+
     setLoading(true);
     try {
-      const result = await addWalkinCustomer(
-        values,
-        user?.id && user?.name && user?.email
-          ? { id: user.id, name: user.name, email: user.email }
-          : undefined
-      );
+      const result = await addWalkinCustomer(values, {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      });
       if (result.success) {
         toast({
           title: "Thank You!",
@@ -118,7 +126,7 @@ export default function WalkinCustomerPage() {
 
   return (
      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">
-      <Card className="w-full max-w-lg">
+      <Card className="w-full max-w-5xl">
         <CardHeader className="text-center">
             <Link href="/">
                 <Image src="/logo.png" alt="MoTrack Logo" width={150} height={75} className="mx-auto mb-4" />
@@ -222,7 +230,7 @@ export default function WalkinCustomerPage() {
                   <FormItem>
                     <FormLabel>Looking For</FormLabel>
 
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-4 gap-2">
 
                       {lookingForItems.map((item) => (
                         <FormField

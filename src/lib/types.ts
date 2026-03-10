@@ -113,7 +113,7 @@ export interface Walkin_Customer {
     familyName: string;
     mobile: string;
     email?: string;
-    lookingFor?: string;
+    lookingFor?: string | string[];
     createdAt: string; // ISO Date
     status?: 'Pending' | 'Attended' | 'Handed Over' | 'Deal Created' | 'Closed';
     action?: 'Create Deal' | 'Close';
@@ -122,6 +122,14 @@ export interface Walkin_Customer {
         id: string;
         name: string;
     };
+    createdBy?: {
+        id: string;
+        name: string;
+        email: string;
+    };
+    createdById?: string;
+    createdByName?: string;
+    createdByEmail?: string;
     salesmanId?: string;
     salesmanName?: string;
 }
@@ -327,6 +335,7 @@ export interface OrderInvoicing {
   }>;
   canCreateGoodsInvoice?: boolean;
   canCreateVasInvoice?: boolean;
+  invoiceRequired?: boolean;
 }
 
 export interface OrderUpdate {
