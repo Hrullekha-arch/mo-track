@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, PlusCircle, Trash2, UserPlus } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
@@ -16,7 +16,7 @@ import {
   searchInstantCustomersAction,
 } from "./actions";
 
-import { Stock } from "@/lib/types";
+import { Stock, Walkin_Customer } from "@/lib/types";
 import { roomOptions, storeOptions } from "@/lib/constants";
 
 import { Button } from "@/components/ui/button";
@@ -107,6 +107,36 @@ const lineAmount = (item: InstantItemInput) => {
 };
 
 export default function QuotationBuilderPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-muted-foreground">Loading...</div>}>
+      <QuotationBuilderInner />
+    </Suspense>
+  );
+}
+
+function QuotationBuilderInner() {
+
+const searchParams = useSearchParams();
+
+  const payload = searchParams.get("payload");
+
+  const leaddata = useMemo<Walkin_Customer | null>(() => {
+    if (!payload) return null;
+    try {
+      return JSON.parse(decodeURIComponent(payload)) as Walkin_Customer;
+    } catch (e) {
+      console.error("Payload parse failed:", e);
+      return null;
+    }
+  }, [payload]);
+
+  const leadAppliedRef = useRef(false);
+
+  useEffect(() => {
+    console.log("payload raw:", payload);
+    console.log("lead Data:", leaddata);
+  }, [payload, leaddata]);
+
   const router = useRouter();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -169,6 +199,28 @@ export default function QuotationBuilderPage() {
       active = false;
     };
   }, []);
+
+  // Pre-fill form from payload sent by salesman dashboard (runs once after bootstrap)
+  useEffect(() => {
+    if (!leaddata || isBootLoading || leadAppliedRef.current) return;
+    leadAppliedRef.current = true;
+
+    const fullName = `${leaddata.firstName} ${leaddata.familyName}`.trim();
+    const synthetic: InstantCustomerOption = {
+      id: leaddata.id,
+      name: fullName,
+      mobile: leaddata.mobile,
+      email: leaddata.email,
+    };
+
+    setSelectedCustomer(synthetic);
+    setCustomerQuery(`${fullName} (${leaddata.mobile})`);
+    setDealName("Cashsale");
+
+    if (leaddata.salesmanId) {
+      setSalesmanId(leaddata.salesmanId);
+    }
+  }, [leaddata, isBootLoading]);
 
   useEffect(() => {
     const timer = setTimeout(async () => {

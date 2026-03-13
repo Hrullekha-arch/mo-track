@@ -6,6 +6,27 @@ import { adminDb } from '@/lib/firebase-admin';
 import { InboundRequest, PurchaseRequest, PurchaseStatus } from '@/lib/types';
 import { FieldValue } from 'firebase-admin/firestore';
 
+const normalizeMatchKey = (value: unknown): string =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
+const buildMatchKeySet = (values: unknown[]): Set<string> => {
+  const keys = values
+    .map((value) => normalizeMatchKey(value))
+    .filter(Boolean);
+  return new Set(keys);
+};
+
+const hasCommonKey = (targetKeys: Set<string>, candidates: unknown[]): boolean => {
+  for (const candidate of candidates) {
+    const normalized = normalizeMatchKey(candidate);
+    if (normalized && targetKeys.has(normalized)) return true;
+  }
+  return false;
+};
+
 export interface PoFollowUpItem {
     id: string; // Unique ID for the row, e.g., `${requestId}-${itemName}`
     requestId: string;
@@ -161,10 +182,20 @@ export async function updateFollowUpStatus(
             let fabricDetails = requestData.fabricDetails || [];
 
             // Find and update the specific item
-            const itemIndex = fabricDetails.findIndex(item => item.fabricName === itemName);
+            const itemNameKey = normalizeMatchKey(itemName);
+            const itemIndex = fabricDetails.findIndex(
+              (item) => normalizeMatchKey(item?.fabricName) === itemNameKey
+            );
             if (itemIndex === -1) {
                 throw new Error("Item not found in the purchase request.");
             }
+            const purchaseLine = fabricDetails[itemIndex] || {};
+            const targetKeys = buildMatchKeySet([
+              itemName,
+              purchaseLine.fabricName,
+              purchaseLine.itemCode,
+              purchaseLine.supplierCollectionCode,
+            ]);
 
             // Update date if a new one is provided
             if (newDate) {
@@ -208,11 +239,19 @@ export async function updateFollowUpStatus(
 
             if (inboundRef && inboundData) {
                     const inboundItems = Array.isArray(inboundData?.items) ? [...inboundData.items] : [];
-                    let touched = false;
+                    let touchedItems = false;
 
                     const nextItems = inboundItems.map((lineItem: any) => {
-                        if (String(lineItem?.itemName || "").trim() !== itemName) return lineItem;
-                        touched = true;
+                        const isMatch = hasCommonKey(targetKeys, [
+                          lineItem?.itemName,
+                          lineItem?.itemCode,
+                          lineItem?.supplierCollectionCode,
+                          lineItem?.stockDetail?.bcn,
+                          lineItem?.stockDetail?.itemCode,
+                          lineItem?.stockDetail?.supplierCollectionCode,
+                        ]);
+                        if (!isMatch) return lineItem;
+                        touchedItems = true;
                         const nextLine = { ...lineItem };
                         if (newDate) nextLine.expectedDeliveryDate = newDate;
                         if (docketNo) nextLine.docketNo = docketNo;
@@ -226,17 +265,29 @@ export async function updateFollowUpStatus(
                         return nextLine;
                     });
 
-                    if (touched) {
+                    let touchedStockDetails = false;
+                    let nextStockDetails: any[] | undefined;
+                    if (Array.isArray((inboundData as any).stockDetails)) {
+                        nextStockDetails = (inboundData as any).stockDetails.map((line: any) => {
+                            const isMatch = hasCommonKey(targetKeys, [
+                              line?.bcn,
+                              line?.itemCode,
+                              line?.supplierCollectionCode,
+                            ]);
+                            if (!isMatch) return line;
+                            touchedStockDetails = true;
+                            return {
+                                ...line,
+                                ...(newDate ? { expectedDeliveryDate: newDate } : {}),
+                                ...(docketNo ? { docketNo } : {}),
+                            };
+                        });
+                    }
+
+                    if (touchedItems || touchedStockDetails) {
                         const updatePayload: Record<string, unknown> = { items: nextItems, updatedAt: nowIso };
-                        if (Array.isArray((inboundData as any).stockDetails)) {
-                            updatePayload.stockDetails = (inboundData as any).stockDetails.map((line: any) => {
-                                if (String(line?.bcn || "").trim() !== itemName) return line;
-                                return {
-                                    ...line,
-                                    ...(newDate ? { expectedDeliveryDate: newDate } : {}),
-                                    ...(docketNo ? { docketNo } : {}),
-                                };
-                            });
+                        if (Array.isArray(nextStockDetails)) {
+                            updatePayload.stockDetails = nextStockDetails;
                         }
                         transaction.update(inboundRef, updatePayload);
                     }

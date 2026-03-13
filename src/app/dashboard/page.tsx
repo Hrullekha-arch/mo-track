@@ -763,6 +763,17 @@ const SalesmanDashboardV2 = () => {
                       {lead.lookingFor ? <p className="text-xs text-muted-foreground mt-1">Looking for: {lead.lookingFor}</p> : null}
                     </div>
                     <div className="flex gap-2">
+                    <Button size="sm" variant="default" className="bg-amber-500" 
+                    onClick={() =>
+                              router.push(
+                                `/dashboard/quotation-builder?payload=${encodeURIComponent(
+                                  JSON.stringify(lead)
+                                )}`
+                              )
+                            }
+                          >
+                      Cashsale
+                    </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button size="sm">Create Deal</Button>
